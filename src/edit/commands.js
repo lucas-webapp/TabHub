@@ -602,11 +602,22 @@ export class Editeur {
         return true;
     }
 
+    /**
+     * Supprime l'évènement courant et DÉCALE tout ce qui le suit vers la gauche — à la différence de
+     * `effacerNote`/Suppr, qui vide la case EN PLACE (elle reste un silence, rien ne bouge derrière).
+     *
+     * Un silence complète la fin de la mesure pour la durée tout juste libérée : la case supprimée
+     * ne doit jamais laisser la mesure sous sa capacité (voir le principe du rythme strict — une
+     * voix somme toujours EXACTEMENT sa mesure, ni plus ni moins). Sans ce complément, décaler à
+     * gauche aurait simplement réduit le total de la voix, rendant la mesure invalide d'un coup —
+     * le même genre de défaut, en miroir, que celui corrigé sur `insererEvenement`.
+     */
     supprimerEvenement() {
         const voix = this.voixCourante();
         if (voix.evenements.length <= 1) return this.basculerSilence();
         this.memoriser();
-        voix.evenements.splice(this.curseur.evenement, 1);
+        const [enleve] = voix.evenements.splice(this.curseur.evenement, 1);
+        voix.evenements.push(...decouperEnEvenements(dureeEnNoires(enleve.duree)));
         this.curseur.evenement = Math.min(this.curseur.evenement, voix.evenements.length - 1);
         this._dernierChiffre = null;
         this.prevenir('edition');

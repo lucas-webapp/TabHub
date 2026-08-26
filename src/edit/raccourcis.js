@@ -60,7 +60,7 @@ export const ACTIONS = [
     { id: 'effacer', touches: ['backspace'], libelle: 'Effacer la note', palette: false, faire: ed => ed.effacerOuReculer() },
     { id: 'supprimer', touches: ['delete'], libelle: 'Effacer la note', palette: false, faire: ed => ed.effacerNote() },
     { id: 'inserer', touches: ['enter', 'insert'], libelle: 'Insérer un évènement', palette: false, faire: ed => ed.insererEvenement() },
-    { id: 'supprEvenement', touches: ['ctrl+delete'], libelle: 'Supprimer l\'évènement', palette: false, faire: ed => ed.supprimerEvenement() },
+    { id: 'supprEvenement', touches: ['ctrl+delete'], libelle: 'Supprimer et décaler ce qui suit (garde la mesure à sa capacité)', palette: false, faire: ed => ed.supprimerEvenement() },
     { id: 'transposeHaut', touches: ['ctrl+arrowup'], libelle: 'Case +1', palette: false, faire: ed => ed.transposerNote(1) },
     { id: 'transposeBas', touches: ['ctrl+arrowdown'], libelle: 'Case −1', palette: false, faire: ed => ed.transposerNote(-1) },
 

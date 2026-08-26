@@ -13,13 +13,16 @@
 //   • `corrigerDebordement` répare une mesure DÉJÀ trop pleine (donnée existante, antérieure à ce
 //     garde-fou) en déplaçant l'excédent, tel quel, dans une ou plusieurs mesures neuves insérées
 //     juste après.
+//   • `supprimerEvenement` (Ctrl+Suppr — supprimer et DÉCALER, par opposition à Suppr/effacerNote qui
+//     vide en place) complète désormais la fin de la mesure par un silence : décaler à gauche ne doit
+//     jamais laisser la mesure sous sa capacité.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(15);
+    plan(17);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -98,6 +101,14 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const okG = ed.corrigerDebordement(0);
             const inchangeG = JSON.stringify(ed.partition) === avantG;
 
+            // --- H. supprimerEvenement (Ctrl+Suppr) : décale à gauche SANS sous-remplir la mesure -----
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
+            ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0 };   // vise la case fret 2
+            ed.supprimerEvenement();
+            const contenuApresH = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
+            const dureeApresH = dureeEn(ed.partition.mesures[0]);
+
             return {
                 refusA, inchangeA, erreurA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
@@ -106,6 +117,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 mesuresAvantE, okE, contenuApresE, dureesApresE,
                 okF, dureesApresF,
                 okG, inchangeG,
+                contenuApresH, dureeApresH,
             };
         });
 
@@ -132,6 +144,9 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             'chaque voix, dans chaque mesure (originale et neuves), retombe exactement sur la capacité — la voix la moins chargée est complétée par du silence');
 
         check(r.okG === false && r.inchangeG, 'G. mesure déjà valide : corrigerDebordement ne fait rien (aucune mutation)');
+
+        exiger(r.contenuApresH.join(',') === '1,3,4,_', 'H. supprimerEvenement (Ctrl+Suppr) retire la case visée et décale les suivantes vers la gauche');
+        check(Math.abs(r.dureeApresH - 4) < 1e-6, 'et complète la fin par un silence : la mesure reste À SA CAPACITÉ, jamais sous-remplie');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
