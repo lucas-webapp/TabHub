@@ -74,19 +74,32 @@
     --h-barre-haut: 46px;
     --h-outils: 54px;
     --h-transport: 52px;
+    --w-outils-gauche: 216px;
 }
 
 html, body { height: 100%; }
+/* GRILLE PLUTÔT QUE COLONNE FLEX : une grille nommée permet de faire passer la barre d'outils d'une
+   LIGNE (par défaut, sous la barre du haut) à une COLONNE (à gauche, sur toute la hauteur) par un
+   seul changement de `grid-template-*` sur `body` — voir `body.outils-gauche` plus bas — sans
+   déplacer un seul nœud du DOM. Une colonne flex, elle, aurait demandé un conteneur englobant
+   barre-outils + zone-partition, présent dans un sens et pas dans l'autre. */
 body {
     margin: 0;
     background: var(--bg);
     color: var(--text-main);
     font-family: var(--font);
     font-size: var(--fs-base);
-    display: flex;
-    flex-direction: column;
+    display: grid;
+    grid-template-areas: "haut" "outils" "zone" "bas";
+    grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr var(--h-transport);
+    grid-template-columns: 1fr;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
+}
+body.outils-gauche {
+    grid-template-areas: "haut haut" "outils zone" "bas bas";
+    grid-template-rows: var(--h-barre-haut) 1fr var(--h-transport);
+    grid-template-columns: var(--w-outils-gauche) 1fr;
 }
 
 .icone { width: 18px; height: 18px; flex: none; }
@@ -95,6 +108,7 @@ body {
    BARRE DU HAUT
    ============================================================ */
 .barre-haut {
+    grid-area: haut;
     height: var(--h-barre-haut);
     flex: none;
     display: flex;
@@ -147,6 +161,7 @@ body {
    et chaque bouton affiche son raccourci en infobulle. C'est ce qui permet
    d'apprendre les raccourcis EN TRAVAILLANT, sans jamais ouvrir d'aide. */
 .barre-outils {
+    grid-area: outils;
     height: var(--h-outils);
     flex: none;
     display: flex;
@@ -171,6 +186,25 @@ body {
     font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase;
     letter-spacing: .06em; font-weight: 700; margin-right: 3px; user-select: none;
 }
+
+/* BARRE À GAUCHE (préférence, voir Réglages > Interface). La barre elle-même devient une COLONNE
+   pleine hauteur ; chaque groupe s'y empile, et SES boutons à lui se remettent à la ligne (au lieu
+   de s'étirer à l'infini) pour tenir dans une largeur fixe — c'est le même défilement horizontal
+   qu'en haut, juste tourné d'un quart de tour : rien ne disparaît, tout se lit en descendant plutôt
+   qu'en balayant vers la droite. */
+body.outils-gauche .barre-outils {
+    height: auto;
+    flex-direction: column;
+    align-items: stretch;
+    padding: 10px 8px;
+    gap: 8px;
+    overflow-x: hidden;
+    overflow-y: auto;
+    border-bottom: none;
+    border-right: 1px solid var(--border);
+}
+body.outils-gauche .groupe-outils { flex-wrap: wrap; justify-content: flex-start; }
+body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-right: 0; margin-bottom: 1px; }
 
 .btn-outil {
     min-width: 32px; height: 32px;
@@ -223,6 +257,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
    ZONE PARTITION — le papier
    ============================================================ */
 .zone-partition {
+    grid-area: zone;
     flex: 1 1 auto;
     overflow: auto;
     background: #07070a;
@@ -258,6 +293,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
    TRANSPORT
    ============================================================ */
 .transport {
+    grid-area: bas;
     height: var(--h-transport);
     flex: none;
     display: flex; align-items: center; gap: 8px;

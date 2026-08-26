@@ -37,6 +37,7 @@ const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_ZOOM = 'tabhub.zoom';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_REGLETTE = 'tabhub.reglette';
+const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 
 class TabHubApp {
     constructor() {
@@ -51,6 +52,8 @@ class TabHubApp {
         // Visible par défaut (aide à l'édition) ; retenue elle aussi comme une préférence d'affichage.
         const brutReglette = localStorage.getItem(CLE_REGLETTE);
         this.regletteVisible = brutReglette === null ? true : brutReglette === '1';
+        this.positionOutils = localStorage.getItem(CLE_POSITION_OUTILS) === 'gauche' ? 'gauche' : 'haut';
+        document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
 
@@ -631,6 +634,20 @@ class TabHubApp {
         this.el.zone.focus();
     }
 
+    /**
+     * Bascule la barre d'outils entre haut (par défaut) et gauche — préférence d'affichage, comme le
+     * zoom ou la réglette. `zone-partition` change de largeur disponible en même temps que la grille
+     * CSS se redessine ; on remet donc la partition en page à la frame suivante (le temps que le
+     * navigateur applique le nouveau `grid-template-columns` et que `clientWidth` reflète la largeur
+     * RÉELLE, pas celle d'avant le changement).
+     */
+    positionnerOutils(valeur) {
+        this.positionOutils = valeur === 'gauche' ? 'gauche' : 'haut';
+        localStorage.setItem(CLE_POSITION_OUTILS, this.positionOutils);
+        document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
+        requestAnimationFrame(() => this.dessiner());
+    }
+
     /** Peuple la fenêtre « Instrument et accordage » depuis l'état courant. */
     remplirReglages() {
         const piste = this.editeur.partition.piste;
@@ -683,6 +700,12 @@ class TabHubApp {
         artiste.value = this.editeur.partition.meta.artiste || '';
         sousTitre.oninput = () => this.editeur.definirMeta('sousTitre', sousTitre.value);
         artiste.oninput = () => this.editeur.definirMeta('artiste', artiste.value);
+
+        // Préférence d'AFFICHAGE, pas de contenu musical (voir `positionnerOutils`) : ne dépend pas
+        // de la partition, mais se remet à jour ici comme le reste du panneau, par simplicité.
+        const selPosition = document.getElementById('champ-position-outils');
+        selPosition.value = this.positionOutils;
+        selPosition.onchange = () => this.positionnerOutils(selPosition.value);
     }
 
     /** L'aide-mémoire se GÉNÈRE depuis la table des actions : elle ne peut pas mentir sur les touches. */
