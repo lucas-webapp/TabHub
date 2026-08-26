@@ -1,16 +1,20 @@
-// Banc du CONTRÔLE « MESURES PAR LIGNE ».
+// Banc du CONTRÔLE « MESURES PAR LIGNE » + LARGEUR DE MESURE FIXE.
 //
 // CE QU'IL PROTÈGE. Le mode automatique (glouton, voir layout.js) remplit chaque ligne au plus
 // large — pratique pour ne rien gâcher, mais un musicien qui veut une lecture RÉGULIÈRE d'un bout à
 // l'autre (« toujours 4 mesures par ligne », comme un vrai carnet de tablatures) n'a aucun moyen de
-// l'imposer. C'est ce que ce banc éprouve, à deux niveaux :
+// l'imposer. C'est ce que ce banc éprouve, à trois niveaux :
 //   • le MOTEUR (`mettreEnPage({ mesuresParLigne })`) : le compte demandé est honoré tel quel tant
-//     qu'il reste lisible, et cède la place — une mesure à la fois, jamais toutes d'un coup — dès
-//     qu'il ne l'est plus. C'est ce dernier point qui répond à « adapter selon la signature
-//     rythmique » : une ligne de mesures denses (beaucoup de notes, cases à deux chiffres) a
-//     objectivement besoin de plus de place qu'une ligne de rondes, et la largeur MESURÉE de chaque
-//     mesure (voir calculerColonnes) porte déjà cette information — nul besoin d'une règle séparée
-//     qui lirait le chiffrage rythmique.
+//     qu'il reste POSABLE, et cède la place — une mesure à la fois, jamais toutes d'un coup — dès
+//     que `n` mesures dépasseraient littéralement la largeur utile.
+//   • LA LARGEUR ELLE-MÊME (voir layout.js, LARGEUR_PAR_NOIRE) : deux mesures de MÊME signature ont
+//     TOUJOURS exactement la même largeur, qu'elles soient denses (rafale de doubles-croches) ou
+//     vides (un silence) — la largeur ne dépend QUE de la capacité rythmique, jamais du contenu. Un
+//     changement de signature en cours de morceau donne des largeurs de note PROPORTIONNELLES aux
+//     capacités respectives (3/4 fait les 3/4 d'une 4/4), jamais un rapport qui dépendrait de ce qui
+//     s'y joue. Aucun système n'est plus étiré pour combler la ligne (voir l'étape 3, désormais
+//     `facteur: 1` partout) : une ligne incomplète laisse du blanc à droite plutôt que de fausser
+//     cette égalité.
 //   • L'INTERFACE (`#champ-mesures-ligne`) : le sélecteur change réellement la mise en page, et le
 //     choix survit à un rechargement — c'est une préférence d'AFFICHAGE, gardée en local, jamais
 //     écrite dans le .json (rouvrir le même morceau ailleurs doit retomber sur « Auto »).
@@ -20,7 +24,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
 
 (async () => {
-    plan(20);
+    plan(22);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : tous les cas au même endroit, une seule mise en page par cas ---
@@ -31,10 +35,11 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
             const mesureSimple = () => m.creerMesure({
                 voix: [{ evenements: [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)])) }],
             });
-            // Une mesure DENSE : seize doubles-croches, sur des cases à deux chiffres — largement
-            // plus large, à la mesure, qu'une mesure de quatre noires (voir layout.js, largeurColonne :
-            // l'espacement proportionnel ET le plancher matériel des cases à deux chiffres jouent tous
-            // les deux en sa faveur).
+            const mesureVide = () => m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [])] }] });
+            // Une mesure DENSE : seize doubles-croches, sur des cases à deux chiffres — qui n'a
+            // désormais plus le droit d'être plus LARGE qu'une mesure simple de même signature (voir
+            // le cas « contenu n'affecte plus la largeur » plus bas) : seule sa lisibilité INTERNE
+            // (l'espacement relatif de ses propres colonnes, inchangé) absorbe la différence.
             const mesureDense = () => m.creerMesure({
                 voix: [{ evenements: Array.from({ length: 16 }, (_, i) => m.creerEvenement({ valeur: 16 }, [m.creerNote(0, 10 + (i % 8))])) }],
             });
@@ -52,17 +57,21 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
                 const as = pg.ancrages.mesures.filter(a => a.systeme === iSys);
                 return Math.max(...as.map(a => a.xFin)) - Math.min(...as.map(a => a.x));
             };
+            const largeurMesure = (pg, i) => { const a = pg.ancrages.mesures[i]; return a.xFin - a.x; };
 
-            // 1. Huit mesures simples, 4/ligne, page large : deux systèmes de 4, chacun étiré à la
-            //    largeur utile (justification normale, non-dernier système).
+            // 1. Huit mesures simples, 4/ligne, page large : deux systèmes de 4. Chacun garde SA
+            //    largeur naturelle (plus de justification, voir l'étape 3) : seule la toute première
+            //    mesure du MORCEAU affiche la signature (voir besoinsDe), les deux systèmes n'ont donc
+            //    pas exactement la même largeur totale — mais leurs mesures NON-première-de-système
+            //    (même contenu, aucun en-tête) doivent, elles, être rigoureusement identiques.
             const page1 = L.mettreEnPage(partitionDe(8, mesureSimple), { largeurPage: 1100, S: 10, mesuresParLigne: 4 });
 
             // 2. Sept mesures, 4/ligne : le reliquat (3) n'est pas comblé de force jusqu'à 4.
             const page2 = L.mettreEnPage(partitionDe(7, mesureSimple), { largeurPage: 1100, S: 10, mesuresParLigne: 4 });
 
-            // 3. MÊME largeur de page, MÊME compte demandé (6) : du contenu simple tient tel quel,
-            //    du contenu dense doit se replier tout seul — la preuve que l'adaptation suit le
-            //    CONTENU réellement mesuré, pas un chiffre codé en dur.
+            // 3. MÊME largeur de page, MÊME compte demandé (6) : contenu simple et contenu dense
+            //    doivent désormais se replier EXACTEMENT PAREIL — la preuve que le repli suit la seule
+            //    CAPACITÉ rythmique (identique ici, 4/4 des deux côtés), plus jamais la densité réelle.
             const page3s = L.mettreEnPage(partitionDe(6, mesureSimple), { largeurPage: 1100, S: 10, mesuresParLigne: 6 });
             const page3d = L.mettreEnPage(partitionDe(6, mesureDense), { largeurPage: 1100, S: 10, mesuresParLigne: 6 });
 
@@ -70,43 +79,74 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
             //    tout de même être posée — le plancher du repli est 1, jamais 0.
             const page4 = L.mettreEnPage(partitionDe(1, mesureDense), { largeurPage: 300, S: 10, mesuresParLigne: 6 });
 
-            // 5. « Auto » (mesuresParLigne: null, ce qu'envoie l'appli pour « 0 ») garde son compte
-            //    variable habituel — le glouton n'est pas affecté par ce nouveau mode.
-            const pageAuto = L.mettreEnPage(partitionDe(8, mesureSimple), { largeurPage: 1100, S: 10, mesuresParLigne: null });
+            // 5. « Auto » (mesuresParLigne: null) : toujours glouton, calculé sur la largeur RÉELLE
+            //    disponible — une page deux fois plus étroite doit accueillir moins de mesures/ligne.
+            //    C'est la preuve que le compte est bien recalculé, pas figé par ce nouveau mode.
+            const pageAutoLarge = L.mettreEnPage(partitionDe(8, mesureSimple), { largeurPage: 1100, S: 10, mesuresParLigne: null });
+            const pageAutoEtroit = L.mettreEnPage(partitionDe(8, mesureSimple), { largeurPage: 600, S: 10, mesuresParLigne: null });
 
             // 6. Compte demandé trop grand pour le contenu (2 mesures, 8 demandées) : la ligne reste
-            //    seule (rien à répartir), et le garde-fou anti-étirement démesuré (>2,5×, voir l'étape
-            //    3 de layout.js) s'applique comme en mode automatique — pas de notes écartées d'un
-            //    bout à l'autre de la page pour deux mesures clairsemées.
+            //    seule (rien à répartir), et n'est plus jamais étirée pour autant — deux mesures
+            //    clairsemées gardent leur largeur naturelle, point.
             const page6 = L.mettreEnPage(partitionDe(2, mesureSimple), { largeurPage: 1100, S: 10, mesuresParLigne: 8 });
 
+            // 7. LARGEUR FIXE PAR SIGNATURE, INDÉPENDANTE DU CONTENU : une simple, une dense, une
+            //    vide, toutes à 4/4, aucune en tête de système (donc sans en-tête) → même largeur.
+            const pMix = m.creerPartition('guitare');
+            pMix.mesures = [mesureSimple(), mesureDense(), mesureVide(), mesureSimple()];
+            const pageMix = L.mettreEnPage(pMix, { largeurPage: 1100, S: 10, mesuresParLigne: 4 });
+
+            // 8. CHANGEMENT DE SIGNATURE EN COURS DE MORCEAU : la largeur RELATIVE doit rester
+            //    cohérente avec la capacité — comparée ici via `largeurNotes` (voir l'ancrage de
+            //    mesure), qui exclut l'en-tête et n'est donc jamais faussée par lui.
+            const pSig = m.creerPartition('guitare');
+            pSig.mesures = [mesureVide(), mesureVide()];
+            pSig.mesures[1].signature = { battements: 3, unite: 4 };
+            const pageSig = L.mettreEnPage(pSig, { largeurPage: 1100, S: 10, mesuresParLigne: 2 });
+
             return {
-                comptes1: compteParSysteme(page1), largeur1sys0: largeurSysteme(page1, 0), largeurUtile: 1100 - 34 - 22,
+                comptes1: compteParSysteme(page1),
+                largeurNonPremiere1: largeurMesure(page1, 1), largeurNonPremiere5: largeurMesure(page1, 5),
+                largeurUtile: 1100 - 34 - 22,
                 comptes2: compteParSysteme(page2),
                 comptes3s: compteParSysteme(page3s), comptes3d: compteParSysteme(page3d),
                 comptes4: compteParSysteme(page4),
-                comptesAuto: compteParSysteme(pageAuto),
+                comptesAutoLarge: compteParSysteme(pageAutoLarge), comptesAutoEtroit: compteParSysteme(pageAutoEtroit),
                 comptes6: compteParSysteme(page6), largeur6: page6.ancrages.systemes.length ? largeurSysteme(page6, 0) : 0,
+                largeursMix: pageMix.ancrages.mesures.map((_, i) => largeurMesure(pageMix, i)),
+                capacitesSig: pageSig.ancrages.mesures.map(a => a.capacite),
+                largeursNotesSig: pageSig.ancrages.mesures.map(a => a.largeurNotes),
             };
         });
 
         exiger(r.comptes1.length === 2, 'huit mesures simples à 4/ligne tiennent en deux systèmes');
         check(r.comptes1[0] === 4 && r.comptes1[1] === 4, 'exactement 4 mesures sur chacun des deux systèmes');
-        check(Math.abs(r.largeur1sys0 - r.largeurUtile) < 1, 'un système non-dernier est étiré pour occuper toute la largeur utile');
+        check(Math.abs(r.largeurNonPremiere1 - r.largeurNonPremiere5) < 0.01,
+            'deux mesures identiques sans en-tête (ni première de système, ni première du morceau) ont EXACTEMENT la même largeur');
 
         exiger(r.comptes2.length === 2, 'sept mesures à 4/ligne donnent bien deux systèmes');
         check(r.comptes2[0] === 4 && r.comptes2[1] === 3, 'le reliquat (3) n\'est pas comblé de force jusqu\'à 4');
 
-        check(r.comptes3s.length === 1 && r.comptes3s[0] === 6, 'contenu simple : les 6 mesures/ligne demandées tiennent telles quelles');
-        check(r.comptes3d.some(n => n < 6), 'contenu dense, MÊME largeur de page : le compte se replie tout seul pour rester lisible');
+        check(r.comptes3s.join(',') === r.comptes3d.join(','),
+            'même signature (4/4) : contenu simple et contenu dense se replient à l\'IDENTIQUE, plus jamais selon la densité');
         check(r.comptes3d.reduce((a, b) => a + b, 0) === 6, 'et aucune mesure n\'est perdue dans le repli');
 
         exiger(r.comptes4.length === 1 && r.comptes4[0] === 1, 'une mesure isolée, aussi dense soit-elle, reste posée seule (plancher = 1, jamais 0)');
 
-        check(r.comptesAuto[0] > 4, '"Auto" (mesuresParLigne: null) garde son compte variable, glouton, inchangé par ce mode');
+        exiger(r.comptesAutoLarge.reduce((a, b) => a + b, 0) === 8 && r.comptesAutoEtroit.reduce((a, b) => a + b, 0) === 8,
+            '"Auto" ne perd aucune mesure, page large ou étroite');
+        check(r.comptesAutoEtroit[0] < r.comptesAutoLarge[0],
+            'et une page deux fois plus étroite accueille bien MOINS de mesures par ligne : le compte est recalculé, pas figé');
 
         exiger(r.comptes6.length === 1 && r.comptes6[0] === 2, 'demander 8 mesures/ligne pour deux seulement ne perd ni n\'invente de mesure');
-        check(r.largeur6 < r.largeurUtile * 0.7, 'et le garde-fou anti-étirement démesuré s\'applique : deux mesures clairsemées ne sont pas écartelées sur toute la page');
+        check(r.largeur6 < r.largeurUtile * 0.7, 'et deux mesures clairsemées ne sont plus jamais écartelées sur toute la page (aucune justification)');
+
+        check(Math.abs(r.largeursMix[1] - r.largeursMix[2]) < 0.01 && Math.abs(r.largeursMix[2] - r.largeursMix[3]) < 0.01,
+            'LARGEUR FIXE : simple, dense et vide, même signature (4/4), même largeur à l\'épaisseur de calcul flottant près');
+
+        exiger(r.capacitesSig[0] === 4 && r.capacitesSig[1] === 3, 'la seconde mesure passe bien à 3/4 (capacité 3, contre 4)');
+        check(Math.abs(r.largeursNotesSig[1] / r.largeursNotesSig[0] - 0.75) < 1e-6,
+            'CHANGEMENT DE SIGNATURE : la largeur de note d\'une mesure à 3/4 fait exactement les 3/4 de celle d\'une mesure à 4/4 (même LARGEUR_PAR_NOIRE)');
 
         // --- L'interface : le sélecteur pilote réellement le moteur, et son choix survit ------------
         const selecteur = await page.$('#champ-mesures-ligne');

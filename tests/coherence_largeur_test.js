@@ -1,18 +1,17 @@
-// Banc de COHÉRENCE PROFESSIONNELLE : à contenu musical égal, largeur égale.
+// Banc de COHÉRENCE PROFESSIONNELLE : à SIGNATURE égale, largeur égale.
 //
-// Une gravure véritable n'impose PAS que TOUTES les mesures d'une partition fassent la même largeur
-// — une mesure de rondes et une mesure de doubles-croches ne se lisent pas à la même vitesse, et leur
-// donner la même largeur romprait justement ce que l'espacement proportionnel sert à montrer (voir
-// engine/layout.js, largeurColonne). C'est ce que montre la propre référence de l'utilisateur : les
-// mesures de « Jeux Interdits » n'ont pas toutes la même largeur.
-//
-// Ce qui EST une exigence professionnelle, et que ce banc protège : deux mesures MUSICALEMENT
-// IDENTIQUES doivent occuper EXACTEMENT la même largeur, qu'elles portent ou non un changement
-// d'armure/signature — sans quoi la partition paraît instable, comme si l'espacement dépendait d'autre
-// chose que du contenu. Un vrai défaut, trouvé en écrivant ce banc : l'en-tête (clé, armure, signature)
-// n'était pas mis à l'échelle par le facteur de justification alors que son BUDGET l'était — l'écart
-// se logeait dans la marge avant la barre de mesure, qui gonflait ou se resserrait selon qu'une mesure
-// portait un en-tête ou non, même à contenu par ailleurs identique.
+// REVU depuis que la largeur de mesure est devenue FIXE par capacité rythmique (voir
+// engine/layout.js, LARGEUR_PAR_NOIRE) : deux mesures sont désormais à la même largeur dès que leur
+// SIGNATURE l'est, contenu dense ou clairsemé n'y changeant plus rien (ce cas précis, avec des
+// contenus délibérément différents, est couvert par tests/mesures_par_ligne_test.js). Ce banc-ci
+// garde un angle plus étroit et toujours vrai : l'EN-TÊTE (clé, armure, signature) ne doit jamais
+// fausser la marge avant la barre de mesure. Un vrai défaut, trouvé en écrivant ce banc à l'époque
+// où les systèmes étaient encore justifiés par étirement : l'en-tête n'était pas mis à l'échelle par
+// le facteur alors que son BUDGET l'était — l'écart se logeait dans la marge avant la barre, qui
+// gonflait ou se resserrait selon qu'une mesure portait un en-tête ou non, même à contenu par
+// ailleurs identique. La justification par étirement a depuis disparu (largeur fixe oblige), mais la
+// garantie — la marge avant barre est une CONSTANTE, jamais affectée par l'en-tête — reste ce que ce
+// banc vérifie.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
@@ -36,7 +35,12 @@ const { check, exiger, plan, bilan } = creerHarnais('cohérence de largeur');
                 m.creerMesure({ armure: 2, ...identique() }),
                 m.creerMesure(identique()),
             ];
-            const page1 = L.mettreEnPage(p, { largeurPage: 900, S: 10 });
+            // Largeur choisie large pour tenir les 4 mesures sur UNE seule ligne malgré leur
+            // largeur désormais fixe (les mesures ne s'y compressent plus) : l'angle testé ici est
+            // l'en-tête, pas le découpage en systèmes (déjà couvert ailleurs, voir
+            // mesures_par_ligne_test.js) — une mesure qui basculerait sur une nouvelle ligne
+            // redessinerait elle-même clé/armure et fausserait la comparaison.
+            const page1 = L.mettreEnPage(p, { largeurPage: 1150, S: 10 });
             const mesurer = (page) => page.ancrages.mesures.map(a => {
                 const evts = page.ancrages.evenements.filter(e => e.mesure === a.index);
                 const finNotes = Math.max(...evts.map(e => e.xFin));
@@ -44,11 +48,11 @@ const { check, exiger, plan, bilan } = creerHarnais('cohérence de largeur');
             });
             const largeursPage1 = mesurer(page1);
 
-            // Même partition mise en page sur une largeur DIFFÉRENTE (donc un facteur de
-            // justification différent) : si le défaut était présent, l'écart avant barre des
-            // mesures 0 et 2 (qui portent un en-tête) diffèrerait de celui des mesures 1 et 3 par un
-            // montant qui grandit avec le facteur — le signe distinctif du bug.
-            const page2 = L.mettreEnPage(p, { largeurPage: 870, S: 10 });
+            // Même partition mise en page sur une largeur DIFFÉRENTE, mais toujours assez large pour
+            // que les 4 mesures restent sur une ligne : la largeur étant fixe, ce second cas ne
+            // prouve plus grand-chose de plus que le premier, mais le garder évite de perdre la
+            // couverture d'un simple oubli si une notion de justification devait un jour revenir.
+            const page2 = L.mettreEnPage(p, { largeurPage: 1300, S: 10 });
             const largeursPage2 = mesurer(page2);
 
             return { largeursPage1, largeursPage2 };

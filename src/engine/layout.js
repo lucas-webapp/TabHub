@@ -141,6 +141,19 @@ function largeurColonne(gapNoires, evenementsIci, S) {
 }
 
 /**
+ * Largeur (à l'échelle S=1) allouée par NOIRE de capacité rythmique — INDÉPENDANTE du contenu réel
+ * de la mesure. Deux mesures de même signature (donc même capacité) reçoivent ainsi TOUJOURS
+ * exactement la même largeur, qu'elles contiennent une ronde ou une rafale de doubles-croches ; une
+ * mesure à 3/4 réserve les 3/4 de la largeur d'une mesure à 4/4 — jamais une proportion qui
+ * dépendrait de ce qui s'y trouve. Voir l'étape 1 de `mettreEnPage` : le contenu s'ajuste DANS ce
+ * budget fixe (plus dense, il s'y resserre ; plus clairsemé, il s'y étale) au lieu que le budget
+ * s'ajuste au contenu — c'est l'inverse qui donnait des mesures de largeurs incohérentes d'une
+ * mesure à l'autre pour un même chiffrage, une mesure de croches régulières écrasant une mesure
+ * voisine réduite à un silence.
+ */
+const LARGEUR_PAR_NOIRE = 5;
+
+/**
  * Découpe une mesure en COLONNES : les instants de temps où AU MOINS UNE voix attaque une note ou un
  * silence, triés, avec la largeur que chacun réclame (voir largeurColonne). Une seule voix produit
  * exactement la même suite de colonnes que ses propres évènements ; deux voix produisent l'UNION de
@@ -297,13 +310,6 @@ function mesurerMesure(m, besoins, clef, S) {
     return m.largeurTotale;
 }
 
-/** Le facteur de justification qu'imposerait CETTE tranche de mesures — voir l'étape 3 plus bas. */
-function facteurDeJustification(tranche, largeurUtile, S) {
-    const sommeEntetes = tranche.reduce((t, m) => t + m.enTete, 0);
-    const sommeNotesEtMarges = tranche.reduce((t, m) => t + m.largeurNotes + 1.4 * S, 0);
-    return sommeNotesEtMarges > 0 ? (largeurUtile - sommeEntetes) / sommeNotesEtMarges : 1;
-}
-
 /**
  * Découpage AUTOMATIQUE (« Auto ») : glouton, on remplit chaque ligne tant que ça rentre. Une
  * mesure seule qui déborde reste seule sur sa ligne plutôt que d'être coupée — une mesure coupée en
@@ -330,31 +336,19 @@ function decouperEnSystemesGloutons(mesures, largeurUtile, clef, S) {
 }
 
 /**
- * Plancher de lisibilité en dessous duquel une ligne de N mesures ne DOIT plus être forcée : le
- * facteur de justification qu'il faudrait lui appliquer resserrerait les notes plus qu'un graveur ne
- * l'accepterait. À 0,62, les têtes restent lisiblement séparées sur une portée dense ; en dessous,
- * deux notes voisines commencent à se toucher.
- */
-const PLANCHER_FACTEUR = 0.62;
-
-/**
  * Découpage à COMPTE FIXE : `n` mesures par ligne, comme le demande un musicien qui veut une lecture
  * régulière d'un bout à l'autre de la partition — plutôt que le remplissage au plus large que fait
  * le mode automatique.
  *
- * LE COMPTE N'EST JAMAIS SUBI QUAND IL RENDRAIT LA LIGNE ILLISIBLE. On calcule le facteur de
- * justification qu'exigerait une ligne de `n` mesures — LA MÊME formule qu'à l'étape 3, pour ne
- * jamais promettre par avance une largeur que la justification réelle ne tiendrait pas — et, s'il
- * tombe sous PLANCHER_FACTEUR, on retire la DERNIÈRE mesure de la ligne (elle glisse sur la
- * suivante) et on réessaie, jusqu'à n'en garder plus qu'une si littéralement une seule mesure ne
- * tient déjà qu'à ce prix : dans ce cas, elle reste seule, exactement comme le ferait le mode
- * automatique sur une mesure trop dense.
- *
- * C'EST CETTE CLAUSE QUI RÉPOND À « adapter selon la signature rythmique » : une mesure à 7/8 pleine
- * de doubles-croches est déjà, à largeur mesurée égale, bien plus chargée qu'une mesure à 2/4 de deux
- * blanches (voir calculerColonnes) — nul besoin d'une règle séparée qui lirait le chiffrage, la
- * largeur mesurée le reflète directement. Demander 6 mesures par ligne sur un passage dense se voit
- * donc ramené de lui-même à 4 ou 3 pour CE passage-là, et revient à 6 dès que le passage s'allège.
+ * Chaque mesure a désormais une largeur FIXE, dictée par sa seule capacité rythmique (voir
+ * LARGEUR_PAR_NOIRE) — il n'y a donc plus de « compression illisible » possible : `n` mesures
+ * tiennent ou ne tiennent pas, un point c'est tout. LE COMPTE N'EST RÉDUIT QUE SI `n` MESURES
+ * DÉBORDERAIENT LITTÉRALEMENT LA LIGNE (une mesure à 7/8 est déjà, largeur fixe oblige, plus large
+ * qu'une mesure à 2/4 — demander 6 mesures par ligne sur un passage aux mesures très capacitives se
+ * voit donc ramené de lui-même à 4 ou 3 pour CE passage-là, et revient à 6 dès que le chiffrage
+ * s'allège) : on retire alors la DERNIÈRE mesure de la ligne (elle glisse sur la suivante) et on
+ * réessaie, jusqu'à n'en garder plus qu'une si littéralement une seule mesure ne tient déjà pas —
+ * dans ce cas, elle reste seule, exactement comme le ferait le mode automatique.
  */
 function decouperEnSystemesParCompte(mesures, n, largeurUtile, clef, S) {
     const systemes = [];
@@ -365,8 +359,8 @@ function decouperEnSystemesParCompte(mesures, n, largeurUtile, clef, S) {
         for (;;) {
             tranche = mesures.slice(i, i + compte);
             tranche.forEach((m, k) => mesurerMesure(m, besoinsDe(m, k === 0), clef, S));
-            if (compte <= 1) break;
-            if (facteurDeJustification(tranche, largeurUtile, S) >= PLANCHER_FACTEUR) break;
+            const largeur = tranche.reduce((t, m) => t + m.largeurTotale, 0);
+            if (compte <= 1 || largeur <= largeurUtile) break;
             compte--;
         }
         systemes.push({ mesures: tranche, largeur: tranche.reduce((t, m) => t + m.largeurTotale, 0) });
@@ -410,7 +404,15 @@ export function mettreEnPage(partition, options = {}) {
         const arm = armureEffective(partition, i);
         const capacite = noiresParMesure(sig);
         const colonnes = calculerColonnes(mesure, capacite, S);
-        const largeurNotes = colonnes.reduce((t, c) => t + c.largeur, 0);
+        // Largeur FIXÉE par la capacité, jamais par le contenu réel (voir LARGEUR_PAR_NOIRE). Les
+        // colonnes gardent leurs poids RELATIFS entre elles (une ronde réclame plus de champ qu'une
+        // croche, voir largeurColonne) ; `ratioColonnes` les ramène seulement à cette somme fixe,
+        // en place, pour que tout ce qui lit `m.colonnes` plus loin (pose des notes, réglette) reste
+        // cohérent avec `largeurNotes` sans le moindre calcul supplémentaire de son côté.
+        const largeurNotes = capacite * LARGEUR_PAR_NOIRE * S;
+        const sommeColonnesBrute = colonnes.reduce((t, c) => t + c.largeur, 0);
+        const ratioColonnes = sommeColonnesBrute > 1e-9 ? largeurNotes / sommeColonnesBrute : 1;
+        colonnes.forEach(c => { c.largeur *= ratioColonnes; });
         return {
             index: i, ref: mesure, signature: sig, armure: arm, capacite, colonnes,
             largeurNotes,
@@ -438,45 +440,17 @@ export function mettreEnPage(partition, options = {}) {
         ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, largeurUtile, clef, S)
         : decouperEnSystemesGloutons(mesures, largeurUtile, clef, S);
 
-    // --- 3. Justifier ---------------------------------------------------------------------------
-    // Chaque système est étiré pour occuper toute la largeur, comme sur une partition gravée. Seul le
-    // DERNIER échappe à la règle, et seulement s'il faudrait l'étirer de plus de deux fois et demie :
-    // une mesure isolée tirée sur toute la page donne des notes perdues à trois centimètres l'une de
-    // l'autre. Le seuil est haut à dessein — un système collé à gauche avec du vide à droite se
-    // remarque bien davantage qu'un système un peu aéré, et c'est le cas courant pendant la saisie,
-    // où les dernières mesures sont encore vides.
-    //
-    // SEULE LA PARTIE « NOTES » S'ÉTIRE — pas l'en-tête (clé, armure, signature). Une clé ne grossit
-    // pas parce que le système est justifié ; sur une partition gravée, seul l'espacement des notes
-    // absorbe la justification, les éléments fixes gardent leur taille naturelle. Une première
-    // version étirait le budget ENTIER (en-tête compris) par un facteur unique, alors que le PLACEMENT
-    // réel de l'en-tête, lui, restait à sa taille naturelle (voir poserMesure) : l'écart entre le
-    // budget réservé et ce qui était vraiment dessiné se logeait tout entier dans la marge avant la
-    // barre de mesure, qui gonflait ou se resserrait sans rapport avec le contenu — deux mesures
-    // MUSICALEMENT IDENTIQUES, l'une avec un changement d'armure et l'autre sans, se retrouvaient
-    // ainsi à des largeurs différentes. En calculant le facteur sur la seule partie flexible, une
-    // mesure garde exactement la largeur qu'annonce sa mise en page, en-tête compris.
-    //
-    // `facteurDeJustification` est la MÊME fonction que celle utilisée par le compte fixe pour
-    // décider, par avance, si une ligne de N mesures resterait lisible — une formule unique des deux
-    // côtés garantit qu'un système jugé lisible avant d'être posé l'est encore une fois justifié ici.
-    //
-    // UNE MESURE INVALIDE (voir l'étape 1 : une voix qui ne totalise pas la capacité) N'ENTRE PAS
-    // dans ce calcul partagé. Sa largeur « naturelle » est déjà faussée par ce qui lui manque ou lui
-    // déborde — une croche isolée suivie du vide jusqu'à la fin nominale de la mesure s'étale ainsi
-    // bien plus qu'elle ne le devrait (voir calculerColonnes : le dernier évènement réclame le temps
-    // restant JUSQU'À LA CAPACITÉ, qu'il soit ou non rempli). Sans cette exclusion, ce défaut se
-    // propage à TOUT le système par le facteur partagé : les mesures pourtant justes qui l'entourent
-    // se retrouvaient compressées ou étirées pour compenser une largeur qui ne reflète rien de réel.
-    // Une mesure invalide garde donc sa taille naturelle (facteur 1, non affiché) ; le budget qui
-    // reste une fois la sienne déduite se répartit normalement entre les mesures valides.
-    systemes.forEach((sys, i) => {
-        const valides = sys.mesures.filter(m => !m.invalide);
-        const largeurInvalides = sys.mesures.filter(m => m.invalide).reduce((t, m) => t + m.largeurTotale, 0);
-        const facteur = facteurDeJustification(valides, largeurUtile - largeurInvalides, S);
-        const dernier = i === systemes.length - 1;
-        sys.facteur = (dernier && facteur > 2.5) ? 1 : Math.max(facteur, 0.05);
-    });
+    // --- 3. (plus de justification) -------------------------------------------------------------
+    // Une version antérieure étirait chaque système pour occuper toute la largeur utile, comme sur
+    // une partition gravée classique — mais la partie qui absorbait cet étirement était le contenu
+    // NOTES de la mesure, dont la largeur naturelle dépendait déjà du contenu (voir calculerColonnes).
+    // Deux mesures de MÊME signature mais de densités différentes recevaient ainsi, une fois
+    // étirées, des largeurs encore différentes selon ce qui restait sur leur ligne — exactement le
+    // défaut signalé : la largeur d'une mesure ne doit dépendre QUE de sa signature (voir l'étape 1,
+    // LARGEUR_PAR_NOIRE), jamais de son contenu ni de ses voisines de ligne. Chaque système garde
+    // donc un facteur à 1 : une ligne qui n'atteint pas `largeurUtile` laisse simplement du blanc à
+    // droite plutôt que d'étirer les notes pour le combler.
+    systemes.forEach(sys => { sys.facteur = 1; });
 
     // --- 4. Poser ------------------------------------------------------------------------------
     const primitives = [];
@@ -509,12 +483,10 @@ export function mettreEnPage(partition, options = {}) {
 
         let x = xDebut;
         sys.mesures.forEach((m, iDansSys) => {
-            // En-tête à sa taille NATURELLE (non multiplié par `facteur`) + partie notes étirée —
-            // exactement ce que `poserMesure` va physiquement placer, voir la justification ci-dessus.
-            // Une mesure INVALIDE garde son propre facteur à 1 (voir l'étape 3) : le même partout où
-            // la largeur se décide, sans quoi ses colonnes internes (posées avec CE facteur) et sa
-            // boîte englobante (posée avec sys.facteur) se désaccorderaient l'une de l'autre.
-            const facteurEffectif = m.invalide ? 1 : sys.facteur;
+            // `sys.facteur` vaut toujours 1 (voir l'étape 3) : la largeur des notes est déjà fixée à
+            // l'étape 1, indépendamment du contenu. On garde ce passage par `sys.facteur` — plutôt
+            // qu'un `1` écrit en dur ici — pour qu'un seul endroit (l'étape 3) décide de la valeur.
+            const facteurEffectif = sys.facteur;
             const largeurMesure = m.enTete + (m.largeurNotes + 1.4 * S) * facteurEffectif;
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
@@ -878,6 +850,10 @@ function poserMesure(out, ancrages, partition, m, ctx) {
 
     ancrages.mesures.push({
         index: m.index, x: xDebutMesure, xFin: xBarre, yPortee, yTab, hauteurTab, systeme: ctx.iSys,
+        // `capacite`/`largeurNotes` : exposés pour que qui lit l'ancrage (bancs d'essai, futures
+        // fonctionnalités comme la boucle de lecture) puisse vérifier la largeur FIXE par signature
+        // sans redupliquer le calcul de l'étape 1 de mettreEnPage.
+        capacite: m.capacite, largeurNotes: m.largeurNotes,
     });
     return xBarre;
 }
