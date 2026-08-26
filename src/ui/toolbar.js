@@ -16,16 +16,14 @@ import { icone } from './icons.js';
 
 const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
 
-// L'ENCRE ET LE PAPIER DE LA PARTITION, PAS UN GRIS SUR FOND SOMBRE. Deux corrections précédentes
-// (couleur atténuée, puis épaisseur de trait minimale) n'ont pas suffi : le vrai problème n'était
-// pas la finesse du trait mais la TEINTE — une figure de note se lit en noir sur clair depuis que la
-// notation existe, et demande un vrai effort de déchiffrage dès qu'elle devient grise sur fond
-// sombre, aussi net soit le trait. Ces vignettes portent donc leur propre petit rectangle « papier »
-// (même teinte que la feuille de partition), avec l'encre à sa couleur réelle dessus — le bouton
-// reste sombre autour, mais la vignette elle-même redevient un vrai bout de partition, lisible d'un
-// coup d'œil exactement comme sur la page.
-const ENCRE_APERCU = '#1B1A17';
-const PAPIER_APERCU = '#FDFBF7';
+// UNE ENCRE CLAIRE, SUR LE FOND SOMBRE DU BOUTON — PAS UN PETIT RECTANGLE « PAPIER ». Une version
+// précédente reproduisait l'encre noire et le papier clair de la partition à même le bouton, pour
+// corriger un problème d'épaisseur de trait ; le remède est allé trop loin dans l'autre sens : des
+// vignettes claires posées sur une barre d'outils sombre lisent comme des pavés blancs, en rupture
+// avec le reste de la barre. Le trait reste net (l'épaisseur minimale ci-dessous n'a pas bougé), mais
+// l'encre est maintenant CLAIRE (la même teinte que le reste des icônes de la barre, `--text-main`)
+// directement sur le fond sombre du bouton, sans rectangle intermédiaire.
+const ENCRE_APERCU = 'var(--text-main)';
 
 /**
  * Vignette d'une figure de note, dessinée avec les MÊMES glyphes que la partition.
@@ -50,9 +48,7 @@ function figureSvg(valeur) {
     if (n) {
         corps += G.crochet(n).map(t => `<path d="${t.d}" transform="translate(${cx + 0.62 * S} 3.4) scale(${S})" fill="${ENCRE_APERCU}"/>`).join('');
     }
-    return `<svg class="figure" viewBox="0 0 17 22" aria-hidden="true">
-        <rect x="0.5" y="0.5" width="16" height="21" rx="3" fill="${PAPIER_APERCU}"/>${corps}
-    </svg>`;
+    return `<svg class="figure" viewBox="0 0 17 22" aria-hidden="true">${corps}</svg>`;
 }
 
 /**
@@ -73,9 +69,7 @@ function glypheIconSvg(traits) {
         ? `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="${ENCRE_APERCU}"/>`
         : `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="none" stroke="${ENCRE_APERCU}" stroke-width="${Math.max(t.epaisseur * echelle, 1.3)}"/>`
     ).join('');
-    return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-        <rect x="2" y="2" width="20" height="20" rx="4" fill="${PAPIER_APERCU}"/>${corps}
-    </svg>`;
+    return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">${corps}</svg>`;
 }
 
 /** Construit l'aperçu d'un bouton d'après son descripteur `apercu` (voir edit/raccourcis.js). */

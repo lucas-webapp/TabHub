@@ -24,7 +24,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
 
 (async () => {
-    plan(22);
+    plan(23);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : tous les cas au même endroit, une seule mise en page par cas ---
@@ -108,6 +108,8 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
                 comptes1: compteParSysteme(page1),
                 largeurNonPremiere1: largeurMesure(page1, 1), largeurNonPremiere5: largeurMesure(page1, 5),
                 largeurUtile: 1100 - 34 - 22,
+                largeurSysteme1: largeurSysteme(page1, 0),
+                ancrageSysteme1: page1.ancrages.systemes[0].xFin - page1.ancrages.systemes[0].xDebut,
                 comptes2: compteParSysteme(page2),
                 comptes3s: compteParSysteme(page3s), comptes3d: compteParSysteme(page3d),
                 comptes4: compteParSysteme(page4),
@@ -123,6 +125,8 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
         check(r.comptes1[0] === 4 && r.comptes1[1] === 4, 'exactement 4 mesures sur chacun des deux systèmes');
         check(Math.abs(r.largeurNonPremiere1 - r.largeurNonPremiere5) < 0.01,
             'deux mesures identiques sans en-tête (ni première de système, ni première du morceau) ont EXACTEMENT la même largeur');
+        check(Math.abs(r.largeurSysteme1 - r.largeurUtile) > 1 && Math.abs(r.ancrageSysteme1 - r.largeurSysteme1) < 0.01,
+            'un système qui n\'épuise pas la largeur utile (mesures fixes, non étirées) voit ses lignes de portée/TAB/réglette s\'arrêter à sa dernière mesure, pas continuer dans le vide jusqu\'au bord de la page (ce qui dessinerait une fausse mesure vide)');
 
         exiger(r.comptes2.length === 2, 'sept mesures à 4/ligne donnent bien deux systèmes');
         check(r.comptes2[0] === 4 && r.comptes2[1] === 3, 'le reliquat (3) n\'est pas comblé de force jusqu\'à 4');

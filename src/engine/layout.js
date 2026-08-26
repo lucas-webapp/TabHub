@@ -467,7 +467,14 @@ export function mettreEnPage(partition, options = {}) {
         const yPortee = y + geo.margeHaut * S;
         const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
         const xDebut = geo.margeGauche;
-        const xFin = geo.largeurPage - geo.margeDroite;
+        // Largeur RÉELLE de ce système : la somme des largeurs FIXES de ses propres mesures (voir
+        // l'étape 1, LARGEUR_PAR_NOIRE) — jamais la largeur nominale de la page. La justification par
+        // étirement a disparu (étape 3, facteur toujours 1) : une ligne qui n'épuise pas la largeur
+        // utile doit voir ses lignes de portée/TAB, son accolade et sa réglette s'arrêter où s'arrête
+        // RÉELLEMENT sa dernière mesure. Les laisser courir jusqu'au bord nominal de la page (comme
+        // avant, quand les mesures étaient de toute façon étirées jusque-là) dessinerait un blanc qui
+        // ressemble à s'y méprendre à une mesure vide en trop.
+        const xFin = xDebut + sys.mesures.reduce((t, m) => t + m.enTete + m.largeurNotes + 1.4 * S, 0);
 
         poserLignesSysteme(primitives, xDebut, xFin, yPortee, yTab, S, ST, cordes);
         poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
@@ -619,21 +626,31 @@ const HAUTEUR_REGLETTE = 3.1;
  * seizième de SA propre durée (au moins une : sa propre attaque) — donc TOUJOURS un tick pile sur
  * chaque note réelle, jamais seulement sur une grille qui pourrait la rater.
  *
- * TROIS POIDS DE TRAIT : TEMPS (le battement principal — noire en mesure simple, noire pointée en
- * 6/8 ou 9/8, voir `uniteDeGroupement`, la même fonction qui décide où ligaturer), CONTRE-TEMPS
- * (exactement à mi-chemin entre deux temps — le « et » qu'on compte à l'oreille) et le reste de la
- * grille à la double-croche. Seuls les temps portent un numéro, remis à 1 à chaque mesure — comme on
- * compte réellement en jouant.
+ * DEUX POIDS DE TRAIT SUR LA GRILLE, PLUS L'ATTAQUE RÉELLE : TEMPS (le battement principal — noire
+ * en mesure simple, noire pointée en 6/8 ou 9/8, voir `uniteDeGroupement`, la même fonction qui
+ * décide où ligaturer) et CONTRE-TEMPS (exactement à mi-chemin entre deux temps — le « et » qu'on
+ * compte à l'oreille) sont TOUJOURS marqués, note ou pas à cet instant précis — un blanche qui
+ * traverse un contre-temps le laisse quand même repérable. Le reste de la grille au seizième, en
+ * revanche, n'est PLUS dessiné pour lui-même : trop de traits pour ce qu'ils comptaient (une version
+ * antérieure les affichait tous, jugée « trop lourde visuellement »). Une attaque réelle qui tombe
+ * hors temps/contre-temps (un seizième, un triolet) garde malgré tout son propre trait — c'est la
+ * garantie de base de cette réglette, voir plus haut — mais aucun autre repère purement
+ * interpolé ne s'ajoute plus autour d'elle. Seuls les temps portent un numéro, remis à 1 à chaque
+ * mesure — comme on compte réellement en jouant.
  */
 function poserReglette(out, partition, m, xColonnes, facteur, yBase, S) {
     const yTicks = yBase + 0.35 * S;
     const unite = uniteDeGroupement(m.signature);
     const colonnes = m.colonnes;
 
-    const poserTick = (t, x, avecNumero) => {
+    const classifier = (t) => {
         const resteTemps = t % unite;
         const surTemps = resteTemps < 1e-6 || unite - resteTemps < 1e-6;
         const surContreTemps = !surTemps && Math.abs(resteTemps - unite / 2) < 1e-6;
+        return { surTemps, surContreTemps };
+    };
+    const poserTick = (t, x, avecNumero) => {
+        const { surTemps, surContreTemps } = classifier(t);
         const hauteur = surTemps ? 1.5 * S : surContreTemps ? 1.05 * S : 0.6 * S;
         const epaisseur = (surTemps ? G.EPAISSEURS.barreMesure : G.EPAISSEURS.ligneSupplementaire) * S;
         out.push(ligne(x, yTicks, x, yTicks + hauteur, epaisseur, surTemps ? 'encre' : 'discret'));
@@ -647,14 +664,18 @@ function poserReglette(out, partition, m, xColonnes, facteur, yBase, S) {
 
     colonnes.forEach((col, i) => {
         const largeurCol = col.largeur * facteur;
-        // Au moins un tick — sa PROPRE attaque, à `k = 0` — quel que soit `col.gap` (une colonne de
-        // fin de mesure qui déborde a un `gap` proche de zéro, voir calculerColonnes ; elle reste
-        // posée exactement là où sa note tombe réellement, jamais sautée).
+        // La grille au seizième ne sert plus qu'à ÉCHANTILLONNER assez finement pour retomber pile
+        // sur chaque temps/contre-temps (voir la note de tête de fonction) — elle n'est plus, comme
+        // avant, dessinée dans son intégralité. Seuls trois genres d'instants sont réellement posés :
+        // l'attaque PROPRE de la colonne (k = 0, quel que soit `col.gap` — jamais sautée, même pour
+        // la colonne de fin de mesure qui déborde, voir calculerColonnes), et tout temps/contre-temps
+        // qui tombe dans son intervalle, note ou non à cet instant précis.
         const nSeizieme = Math.max(1, Math.round(col.gap * 4));
         for (let k = 0; k < nSeizieme; k++) {
             const t = col.debut + (k / nSeizieme) * col.gap;
             const x = xColonnes[i] + (k / nSeizieme) * largeurCol;
-            poserTick(t, x, true);
+            const { surTemps, surContreTemps } = classifier(t);
+            if (k === 0 || surTemps || surContreTemps) poserTick(t, x, true);
         }
     });
 
