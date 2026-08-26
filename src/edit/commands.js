@@ -537,6 +537,35 @@ export class Editeur {
     }
 
     /**
+     * Insère un évènement JUSTE AVANT le courant — le miroir d'`insererEvenement`, pour le clic droit
+     * « insérer une note à gauche ». Le curseur reste sur l'évènement VISÉ au départ (celui qui
+     * glisse d'un cran vers la droite pour laisser la place), pas sur la case neuve : contrairement à
+     * Entrée, ce geste n'est pas fait pour continuer à écrire à la suite.
+     *
+     * Mêmes garanties de capacité qu'`insererEvenement` : refuse plutôt que de déborder. Sans le
+     * repli « avancer d'une mesure » de son miroir — insérer AVANT la première case d'une mesure déjà
+     * pleine demanderait de reculer d'une mesure entière, un geste bien plus surprenant qu'un simple
+     * refus.
+     */
+    insererAvant() {
+        this.derniereErreur = null;
+        const capacite = capaciteMesure(this.partition, this.curseur.mesure);
+        const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
+        const dureeNouvel = dureeEnNoires(this.dureeCourante);
+        if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
+            this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici.';
+            return false;
+        }
+        this.memoriser();
+        const voix = this.voixCourante();
+        voix.evenements.splice(this.curseur.evenement, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        this.curseur.evenement += 1;
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /**
      * RÉPARE une mesure DÉJÀ trop pleine (déborde sa capacité) en déplaçant l'excédent, tel quel,
      * dans une ou plusieurs mesures NEUVES insérées juste après — sans perdre une seule note.
      *

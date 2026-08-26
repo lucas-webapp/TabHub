@@ -372,6 +372,25 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .fenetre-corps { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .fenetre-pied { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 
+/* ============================================================
+   MENU CONTEXTUEL (clic droit sur une note)
+   ============================================================ */
+.menu-contextuel {
+    position: fixed; z-index: 70; min-width: 210px;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: var(--radius);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+    padding: 6px; display: flex; flex-direction: column; gap: 1px;
+}
+.menu-contextuel[hidden] { display: none; }
+.menu-contextuel button {
+    display: block; width: 100%; text-align: left; background: none; border: none;
+    color: var(--text-main); font-family: var(--font); font-size: var(--fs-sm);
+    padding: 8px 10px; border-radius: 7px; cursor: pointer;
+}
+.menu-contextuel button:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); }
+.menu-contextuel button:disabled { color: var(--text-muted); cursor: default; }
+.menu-contextuel .separateur { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+
 .rubrique > h3 {
     margin: 0 0 8px; font-size: var(--fs-2xs); font-weight: 800;
     text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted);

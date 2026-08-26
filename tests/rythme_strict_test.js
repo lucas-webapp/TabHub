@@ -22,7 +22,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(17);
+    plan(21);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -109,6 +109,23 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const contenuApresH = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
             const dureeApresH = dureeEn(ed.partition.mesures[0]);
 
+            // --- I. insererAvant (clic droit « insérer à gauche ») : le miroir d'insererEvenement -----
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [10, 11, 12].map(f => m.creerEvenement({ valeur: 8 }, [m.creerNote(0, f)]));   // 3 croches, place libre
+            ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0 };   // vise la case fret 11
+            ed.dureeCourante = { valeur: 8, points: 0, nolet: null };
+            const okI = ed.insererAvant();
+            const contenuApresI = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
+            const curseurApresI = { ...ed.curseur };
+
+            // Même geste, mais la mesure est déjà pleine : refuse, aucune mutation.
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
+            ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0 };
+            const avantJ = JSON.stringify(ed.partition);
+            const refusJ = ed.insererAvant();
+            const inchangeJ = JSON.stringify(ed.partition) === avantJ;
+
             return {
                 refusA, inchangeA, erreurA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
@@ -118,6 +135,8 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 okF, dureesApresF,
                 okG, inchangeG,
                 contenuApresH, dureeApresH,
+                okI, contenuApresI, curseurApresI,
+                refusJ, inchangeJ,
             };
         });
 
@@ -147,6 +166,11 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
         exiger(r.contenuApresH.join(',') === '1,3,4,_', 'H. supprimerEvenement (Ctrl+Suppr) retire la case visée et décale les suivantes vers la gauche');
         check(Math.abs(r.dureeApresH - 4) < 1e-6, 'et complète la fin par un silence : la mesure reste À SA CAPACITÉ, jamais sous-remplie');
+
+        exiger(r.okI === true, 'I. insererAvant réussit quand il y a de la place');
+        check(r.contenuApresI.join(',') === '10,_,11,12', 'et insère bien AVANT la case visée (celle-ci glisse d\'un cran vers la droite)');
+        check(r.curseurApresI.evenement === 2, 'le curseur suit la case visée au départ (fret 11), pas la case neuve');
+        check(r.refusJ === false && r.inchangeJ, 'et refuse proprement (aucune mutation) quand la mesure est déjà pleine');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

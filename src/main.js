@@ -76,6 +76,7 @@ class TabHubApp {
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
+            menuContextuel: document.getElementById('menu-contextuel'),
         };
 
         this.restaurerBrouillon();
@@ -564,6 +565,7 @@ class TabHubApp {
         // multiple. Voir demarrerGeste — les deux commencent pareil, ne se distinguent qu'au premier
         // mouvement franc.
         this.el.feuille.addEventListener('pointerdown', (e) => this.demarrerGeste(e));
+        this.el.feuille.addEventListener('contextmenu', (e) => this.ouvrirMenuContextuel(e));
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
         let attenteDefilement = false;
         this.el.zone.addEventListener('scroll', () => {
@@ -601,13 +603,17 @@ class TabHubApp {
      * notes a alors un sens évident (« ici »), là où le plus proche voisin ferait sauter le curseur
      * d'un côté ou de l'autre selon un pixel.
      */
-    clicPartition(evenement) {
-        if (!this.page) return;
-        // Un clic simple (sans glisser) abandonne la sélection multiple en cours — la convention
-        // universelle : cliquer À CÔTÉ désélectionne. Le clic continue ensuite comme avant.
-        if (this.selectionNotes.size) { this.selectionNotes.clear(); this.dessiner(); }
+    /**
+     * Traduit un point d'écran en {mesure, evenement, corde, voix} — la cible que désignerait un
+     * clic à cet endroit, ou `null` hors de toute portée. Partagée par le clic gauche (place le
+     * curseur, voir clicPartition) et le clic droit (ouvre le menu contextuel, voir
+     * ouvrirMenuContextuel) : les deux gestes doivent désigner exactement la même chose au même
+     * endroit, sans dupliquer ce calcul deux fois.
+     */
+    cibleDepuisClic(evenement) {
+        if (!this.page) return null;
         const svg = this.el.feuille.querySelector('svg');
-        if (!svg) return;
+        if (!svg) return null;
         const boite = svg.getBoundingClientRect();
         const x = (evenement.clientX - boite.left) * (this.page.largeur / boite.width);
         const y = (evenement.clientY - boite.top) * (this.page.hauteur / boite.height);
@@ -620,10 +626,10 @@ class TabHubApp {
         const systemes = this.page.ancrages.systemes;
         const marge = this.page.geo.S * 1.5;
         const systeme = systemes.find(s => y >= s.y - marge && y <= s.y + s.hauteur + marge);
-        if (!systeme) { this.el.zone.focus(); return; }
+        if (!systeme) return null;
 
         const candidats = this.page.ancrages.evenements.filter(a => a.yPortee === systeme.yPortee);
-        if (!candidats.length) return;
+        if (!candidats.length) return null;
         // Deux voix peuvent toutes deux couvrir l'abscisse cliquée (elles commencent ensemble). On
         // préfère alors rester sur la voix DÉJÀ active plutôt que de deviner d'après la position — un
         // clic qui resterait sur la même voix qu'avant est le comportement le moins surprenant.
@@ -639,8 +645,91 @@ class TabHubApp {
             corde = Math.round((y - cible.yTab) / ST);
             corde = Math.max(0, Math.min(nbCordes(this.editeur.partition) - 1, corde));
         }
-        this.editeur.placerCurseur(cible.mesure, cible.evenement, corde, cible.voix);
+        return { mesure: cible.mesure, evenement: cible.evenement, corde, voix: cible.voix };
+    }
+
+    clicPartition(evenement) {
+        // Un clic simple (sans glisser) abandonne la sélection multiple en cours — la convention
+        // universelle : cliquer À CÔTÉ désélectionne. Le clic continue ensuite comme avant.
+        if (this.selectionNotes.size) { this.selectionNotes.clear(); this.dessiner(); }
+        const cible = this.cibleDepuisClic(evenement);
+        if (!cible) { this.el.zone.focus(); return; }
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
         this.el.zone.focus();
+    }
+
+    // ==========================================================================================
+    // Menu contextuel — clic droit sur une note
+    // ==========================================================================================
+
+    /**
+     * Clic droit sur une case : petit menu d'actions RAPIDES centrées dessus (supprimer, supprimer
+     * et décaler, insérer à gauche/à droite), sans repasser par le clavier. Réutilise EXACTEMENT le
+     * même ciblage que le clic gauche (cibleDepuisClic) — clic gauche et clic droit doivent désigner
+     * la même case au même endroit.
+     */
+    ouvrirMenuContextuel(evenement) {
+        evenement.preventDefault();   // jamais le menu natif du navigateur sur la partition
+        if (this.selectionNotes.size) { this.selectionNotes.clear(); this.dessiner(); }
+        const cible = this.cibleDepuisClic(evenement);
+        this.fermerMenuContextuel();
+        if (!cible) return;
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
+        this.el.zone.focus();
+
+        // Chaque action ferme le menu, exécute la commande, puis se comporte comme un raccourci
+        // clavier normal : une erreur refusée (Editeur.derniereErreur) devient un message, sinon on
+        // redessine — le même relais qu'utilisent déjà la barre d'outils et le clavier.
+        const action = (executer) => () => {
+            this.fermerMenuContextuel();
+            executer();
+            if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; }
+            else this.dessiner();
+        };
+        const items = [
+            { texte: 'Supprimer', faire: action(() => this.editeur.effacerNote()) },
+            { texte: 'Supprimer et décaler la suite', faire: action(() => this.editeur.supprimerEvenement()) },
+            null,
+            { texte: 'Insérer une note à gauche', faire: action(() => this.editeur.insererAvant()) },
+            { texte: 'Insérer une note à droite', faire: action(() => this.editeur.insererEvenement()) },
+        ];
+
+        const menu = this.el.menuContextuel;
+        menu.innerHTML = '';
+        for (const item of items) {
+            if (!item) { const hr = document.createElement('hr'); hr.className = 'separateur'; menu.appendChild(hr); continue; }
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.textContent = item.texte;
+            b.addEventListener('click', item.faire);
+            menu.appendChild(b);
+        }
+        menu.hidden = false;
+
+        // Position au point de clic, sans jamais déborder de la fenêtre — un menu qui commence hors
+        // écran (clic près d'un bord) serait aussi inutilisable qu'absent.
+        const rMenu = menu.getBoundingClientRect();
+        menu.style.left = Math.max(4, Math.min(evenement.clientX, window.innerWidth - rMenu.width - 8)) + 'px';
+        menu.style.top = Math.max(4, Math.min(evenement.clientY, window.innerHeight - rMenu.height - 8)) + 'px';
+
+        // Fermeture au clic ailleurs ou à Échap — attachés APRÈS ce tour d'évènement : le pointerdown
+        // qui a ouvert ce menu (clic droit) ne doit pas aussi le refermer aussitôt.
+        const surAilleurs = (e) => { if (!menu.contains(e.target)) this.fermerMenuContextuel(); };
+        const surEchap = (e) => { if (e.key === 'Escape') this.fermerMenuContextuel(); };
+        setTimeout(() => {
+            document.addEventListener('pointerdown', surAilleurs);
+            document.addEventListener('keydown', surEchap);
+        }, 0);
+        this._detacherMenuContextuel = () => {
+            document.removeEventListener('pointerdown', surAilleurs);
+            document.removeEventListener('keydown', surEchap);
+        };
+    }
+
+    fermerMenuContextuel() {
+        this.el.menuContextuel.hidden = true;
+        this._detacherMenuContextuel?.();
+        this._detacherMenuContextuel = null;
     }
 
     // ==========================================================================================
