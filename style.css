@@ -70,6 +70,10 @@
     --curseur-halo: rgba(0, 200, 83, 0.14);
     --lecture: #ff9800;
     --lecture-halo: rgba(255, 152, 0, 0.16);
+    /* Teinte à part pour la sélection multiple (lasso) : ni le vert du curseur d'édition, ni
+       l'orange de la lecture — une troisième marque à l'écran doit se distinguer des deux autres. */
+    --selection: #4a9eff;
+    --selection-halo: rgba(74, 158, 255, 0.2);
 
     --h-barre-haut: 46px;
     --h-outils: 54px;
@@ -265,6 +269,18 @@ input.champ[type="number"] { width: 68px; text-align: center; }
     display: flex;
     justify-content: center;
     align-items: flex-start;
+    position: relative;   /* ancre le rectangle de sélection (voir .lasso-selection) */
+}
+
+/* Rectangle de sélection multiple : un <div> transitoire, jamais une primitive de la partition —
+   voir main.js, demarrerLasso. `pointer-events: none` pour qu'il ne capte jamais lui-même les
+   évènements de la souris qui le dessine. */
+.lasso-selection {
+    position: absolute;
+    border: 1px solid var(--selection);
+    background: var(--selection-halo);
+    pointer-events: none;
+    z-index: 5;
 }
 
 .feuille {

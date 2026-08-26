@@ -56,6 +56,12 @@ class TabHubApp {
         document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
+        // Sélection multiple (glisser un rectangle sur la partition) : un ensemble de clés
+        // "mesure:voix:evenement:corde" — le MÊME format que celui déjà utilisé par le lecteur audio
+        // pour identifier une note sans ambiguïté (voir audio/player.js). État d'INTERFACE, jamais
+        // touché par memoriser()/annuler() : sélectionner ne modifie pas la partition.
+        this.selectionNotes = new Set();
+        this._lasso = null;
 
         this.el = {
             feuille: document.getElementById('feuille'),
@@ -87,6 +93,8 @@ class TabHubApp {
             exporterPdf: () => this.exporterPdf(),
             aide: () => this.ouvrirFenetre('fenetre-aide'),
             focusPartition: () => this.el.zone.focus(),
+            aUneSelection: () => this.selectionNotes.size > 0,
+            effacerSelection: () => this.effacerSelection(),
         });
 
         this.editeur.surChangement((raison) => this.surChangementEditeur(raison));
@@ -120,7 +128,7 @@ class TabHubApp {
             return;
         }
 
-        const calques = [...this.marquesLecture(), ...this.marquesCurseur()];
+        const calques = [...this.marquesLecture(), ...this.marquesCurseur(), ...this.marquesSelection()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
         this.el.feuille.style.height = `${this.page.hauteur}px`;
         this.el.feuille.innerHTML = rendreSvg(this.page, {
@@ -550,8 +558,10 @@ class TabHubApp {
             this.dessiner();
         });
 
-        // Clic dans la partition : place le curseur là où on a cliqué.
-        this.el.feuille.addEventListener('pointerdown', (e) => this.clicPartition(e));
+        // Clic dans la partition : place le curseur. Glisser : dessine un rectangle de sélection
+        // multiple. Voir demarrerGeste — les deux commencent pareil, ne se distinguent qu'au premier
+        // mouvement franc.
+        this.el.feuille.addEventListener('pointerdown', (e) => this.demarrerGeste(e));
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
         let attenteDefilement = false;
         this.el.zone.addEventListener('scroll', () => {
@@ -591,6 +601,9 @@ class TabHubApp {
      */
     clicPartition(evenement) {
         if (!this.page) return;
+        // Un clic simple (sans glisser) abandonne la sélection multiple en cours — la convention
+        // universelle : cliquer À CÔTÉ désélectionne. Le clic continue ensuite comme avant.
+        if (this.selectionNotes.size) { this.selectionNotes.clear(); this.dessiner(); }
         const svg = this.el.feuille.querySelector('svg');
         if (!svg) return;
         const boite = svg.getBoundingClientRect();
@@ -626,6 +639,124 @@ class TabHubApp {
         }
         this.editeur.placerCurseur(cible.mesure, cible.evenement, corde, cible.voix);
         this.el.zone.focus();
+    }
+
+    // ==========================================================================================
+    // Sélection multiple — glisser un rectangle sur la partition
+    // ==========================================================================================
+
+    /**
+     * Point de départ commun au CLIC (place le curseur) et au GLISSER (sélection multiple) : les
+     * deux commencent de la même façon, et ne se distinguent qu'au premier mouvement franc — sous un
+     * seuil de quelques pixels, c'est un clic, sans quoi la main la plus stable ne cliquerait jamais
+     * exactement au même pixel deux fois de suite. Au-delà, plus aucun doute : c'est un lasso.
+     */
+    demarrerGeste(e) {
+        if (e.button !== 0) return;   // le lasso ne répond qu'au bouton principal
+        const depart = { x: e.clientX, y: e.clientY };
+        let actif = false;
+        const SEUIL = 4;
+
+        const surMouvement = (ev) => {
+            if (!actif && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
+            if (!actif) { actif = true; this.demarrerLasso(depart); }
+            this.etendreLasso(ev);
+        };
+        const surRelache = (ev) => {
+            window.removeEventListener('pointermove', surMouvement);
+            window.removeEventListener('pointerup', surRelache);
+            if (actif) this.terminerLasso(ev);
+            else this.clicPartition(e);   // pas de mouvement franc : un clic ordinaire
+        };
+        window.addEventListener('pointermove', surMouvement);
+        window.addEventListener('pointerup', surRelache);
+    }
+
+    /** Crée l'overlay du rectangle : un simple <div>, pas une primitive de la liste d'affichage —
+     * un geste d'interface transitoire n'a rien à faire dans ce que partagent l'écran et le PDF. */
+    demarrerLasso(depart) {
+        const el = document.createElement('div');
+        el.className = 'lasso-selection';
+        this.el.zone.appendChild(el);
+        this._lasso = { el, depart };
+        this.positionnerLasso(depart);
+    }
+
+    positionnerLasso(point) {
+        const { el, depart } = this._lasso;
+        const rz = this.el.zone.getBoundingClientRect();
+        const x1 = Math.min(depart.x, point.x) - rz.left + this.el.zone.scrollLeft;
+        const y1 = Math.min(depart.y, point.y) - rz.top + this.el.zone.scrollTop;
+        el.style.left = `${x1}px`;
+        el.style.top = `${y1}px`;
+        el.style.width = `${Math.abs(point.x - depart.x)}px`;
+        el.style.height = `${Math.abs(point.y - depart.y)}px`;
+    }
+
+    etendreLasso(ev) {
+        if (this._lasso) this.positionnerLasso({ x: ev.clientX, y: ev.clientY });
+    }
+
+    /**
+     * Relâche du lasso : le rectangle passe en coordonnées DE PAGE (la même conversion que
+     * clicPartition, pour que sélection et clic désignent toujours le même endroit), et toute note
+     * dont l'ancrage tombe dedans — sur la tablature, où se fait la saisie — entre dans la sélection.
+     */
+    terminerLasso(ev) {
+        const { depart } = this._lasso;
+        this._lasso.el.remove();
+        this._lasso = null;
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg || !this.page) return;
+
+        const boite = svg.getBoundingClientRect();
+        const versPage = (clientX, clientY) => ({
+            x: (clientX - boite.left) * (this.page.largeur / boite.width),
+            y: (clientY - boite.top) * (this.page.hauteur / boite.height),
+        });
+        const a = versPage(depart.x, depart.y), b = versPage(ev.clientX, ev.clientY);
+        const xMin = Math.min(a.x, b.x), xMax = Math.max(a.x, b.x);
+        const yMin = Math.min(a.y, b.y), yMax = Math.max(a.y, b.y);
+
+        const ST = this.page.geo.ST;
+        const nouvelle = new Set();
+        for (const evt of this.page.ancrages.evenements) {
+            for (const note of evt.ref.notes) {
+                const y = evt.yTab + note.corde * ST;
+                if (evt.x >= xMin && evt.x <= xMax && y >= yMin && y <= yMax) {
+                    nouvelle.add(`${evt.mesure}:${evt.voix}:${evt.evenement}:${note.corde}`);
+                }
+            }
+        }
+        this.selectionNotes = nouvelle;
+        this.el.zone.focus();
+        this.dessiner();
+    }
+
+    /** Surlignage des notes sélectionnées, une case à la fois, sur la tablature. */
+    marquesSelection() {
+        if (!this.selectionNotes.size || !this.page) return [];
+        const ST = this.page.geo.ST;
+        const marques = [];
+        for (const evt of this.page.ancrages.evenements) {
+            for (const note of evt.ref.notes) {
+                if (!this.selectionNotes.has(`${evt.mesure}:${evt.voix}:${evt.evenement}:${note.corde}`)) continue;
+                const y = evt.yTab + note.corde * ST;
+                marques.push({ t: 'rect', x: evt.x - ST * 0.62, y: y - ST * 0.56, w: ST * 1.24, h: ST * 1.12, couleur: 'var(--selection-halo)' });
+            }
+        }
+        return marques;
+    }
+
+    /** Efface toutes les notes sélectionnées en UNE seule action d'annulation (voir Editeur.effacerNotes). */
+    effacerSelection() {
+        if (!this.selectionNotes.size) return;
+        const refs = [...this.selectionNotes].map(cle => {
+            const [mesure, voix, evenement, corde] = cle.split(':').map(Number);
+            return { mesure, voix, evenement, corde };
+        });
+        this.selectionNotes.clear();
+        this.editeur.effacerNotes(refs);
     }
 
     ouvrirFenetre(id) { document.getElementById(id).hidden = false; }

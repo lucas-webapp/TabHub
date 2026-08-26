@@ -326,6 +326,40 @@ export class Editeur {
         return this.effacerNote();
     }
 
+    /**
+     * Efface un ENSEMBLE de notes en une seule action d'annulation — le geste de la sélection
+     * multiple au lasso (glisser un rectangle sur la partition, voir main.js). `refs` : une liste de
+     * { mesure, voix, evenement, corde }.
+     *
+     * REGROUPE PAR VOIX avant de reconsolider : une voix touchée par PLUSIEURS des notes effacées ne
+     * doit être remise à la décomposition standard qu'UNE fois, une fois qu'on sait qu'elle est
+     * entièrement vide — la reconsolider note par note, comme le ferait un appel répété à
+     * `effacerNote()`, écraserait le travail du passage précédent à chaque itération.
+     */
+    effacerNotes(refs) {
+        if (!refs || !refs.length) return false;
+        this.memoriser();
+        const voixTouchees = new Map();   // "mesure:voix" → la voix elle-même
+        for (const r of refs) {
+            const mesure = this.partition.mesures[r.mesure];
+            const voix = mesure?.voix[r.voix];
+            const evenement = voix?.evenements[r.evenement];
+            if (!evenement) continue;
+            evenement.notes = evenement.notes.filter(n => n.corde !== r.corde);
+            if (!evenement.notes.length) evenement.silence = true;
+            voixTouchees.set(`${r.mesure}:${r.voix}`, { voix, mesure: r.mesure });
+        }
+        for (const { voix, mesure } of voixTouchees.values()) {
+            if (voix.evenements.every(e => e.silence || !e.notes.length)) {
+                voix.evenements = creerVoix(capaciteMesure(this.partition, mesure)).evenements;
+            }
+        }
+        this._dernierChiffre = null;
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return true;
+    }
+
     // -- Rythme -----------------------------------------------------------------------------------
 
     /**

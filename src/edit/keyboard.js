@@ -43,6 +43,17 @@ export function brancherClavier(editeur, actions = {}) {
         if (sig === 'ctrl+p') { e.preventDefault(); actions.exporterPdf?.(); return; }
         if (sig === '?' || sig === 'shift+?') { e.preventDefault(); actions.aide?.(); return; }
 
+        // 1b. Une sélection multiple active (glisser un rectangle sur la partition, voir main.js)
+        //     absorbe Suppr/Retour arrière : effacer TOUT ce qui est sélectionné, pas seulement la
+        //     case sous le curseur. Sans ce court-circuit, ces mêmes touches tomberaient dans la
+        //     table des actions (étape 3) et n'effaceraient que la case courante — la sélection
+        //     resterait affichée mais mensongère, comme si elle n'avait jamais servi à rien.
+        if ((sig === 'delete' || sig === 'backspace') && actions.aUneSelection?.()) {
+            e.preventDefault();
+            actions.effacerSelection?.();
+            return;
+        }
+
         // 2. Un chiffre seul = une case. Jamais avec Ctrl/Alt, qui appartiennent au navigateur ou aux
         //    raccourcis composés (Alt+3 = triolet).
         if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
