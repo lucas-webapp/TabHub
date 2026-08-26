@@ -34,9 +34,13 @@ async function ouvrirApp(options = {}) {
     const erreurs = [];
     page.on('pageerror', e => erreurs.push('exception : ' + e.message));
     page.on('console', m => {
-        // Les polices Google sont chargées depuis le réseau : hors ligne, leur échec est attendu et
-        // sans effet (la feuille de style prévoit une police de repli).
-        if (m.type() === 'error' && !/fonts\.googleapis|ERR_CONNECTION|ERR_NAME_NOT_RESOLVED/.test(m.text())) {
+        // Les polices Google et les échantillons de piano (Sampler, voir audio/player.js) sont chargés
+        // depuis le réseau : hors ligne, ou dans cet environnement d'essai dont la politique de sortie
+        // réseau bloque certains hôtes externes, leur échec est ATTENDU et sans effet — une feuille de
+        // style de repli pour les polices, une doublure synthétisée pour le piano (voir onerror sur le
+        // Sampler, qui l'absorbe déjà côté application ; c'est le NAVIGATEUR qui journalise malgré
+        // tout l'échec réseau lui-même en console, hors de portée de ce onerror applicatif).
+        if (m.type() === 'error' && !/fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED/.test(m.text())) {
             erreurs.push('console : ' + m.text());
         }
     });

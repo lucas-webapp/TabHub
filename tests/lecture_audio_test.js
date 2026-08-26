@@ -11,12 +11,28 @@ const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(22);
+    plan(25);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
         await page.evaluate(() => document.getElementById('zone-partition').focus());
         await taper(page, ['Digit0', 'ArrowRight', 'Digit2', 'ArrowRight', 'Digit3', 'ArrowRight', 'Digit5']);
+
+        // --- Le son : Sampler (piano échantillonné, comme HarmoHub) + doublure synthétisée -----------
+        // Ce banc ne peut pas juger la qualité du SON — mais il peut vérifier que l'interface tient sa
+        // promesse : jamais d'exception, même quand l'échantillonneur ne charge jamais (offline, hôte
+        // bloqué — exactement ce qui arrive dans cet environnement d'essai, voir _page.js). C'est
+        // d'ailleurs CE chemin, la doublure, que tout le reste de ce banc exerce forcément ici.
+        const sonde = await page.evaluate(async () => {
+            const lecteur = window.app.lecteur;
+            await lecteur.demarrer();
+            let jamaisLeve = true;
+            try { lecteur.apercu(60); lecteur.synthe.releaseAll(); } catch (e) { jamaisLeve = false; }
+            return { pret: lecteur.pret, formeCorrecte: typeof lecteur.synthe.triggerAttackRelease === 'function', jamaisLeve };
+        });
+        exiger(sonde.pret, 'demarrer() prépare bien le lecteur (contexte audio + synthé/échantillonneur)');
+        check(sonde.formeCorrecte, 'le synthé expose triggerAttackRelease, que ce soit l\'échantillonneur ou la doublure qui réponde');
+        check(sonde.jamaisLeve, 'un aperçu de note ne lève jamais, même si l\'échantillonneur n\'a pas fini de charger (ou jamais, hors ligne)');
 
         // --- La programmation : ce qui sera réellement joué ------------------------------------------
         const programme = await page.evaluate(async () => {

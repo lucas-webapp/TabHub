@@ -16,6 +16,31 @@ import { dureeEnNoires } from '../model/duration.js';
 /** Réduction du volume par rapport au 0 dB de Tone.js : une polyphonie à six voix sature vite. */
 const TRIM_DB = -9;
 
+// SON RÉEL (Sampler) + DOUBLURE SYNTHÉTISÉE — comme HarmoHub (voir son INSTRUMENT_BANKS.piano), plutôt
+// que le synthé nu d'une version antérieure : une onde triangulaire brute, seule, sonne clairement
+// synthétique, quand un vrai piano échantillonné (Salamander, la même bibliothèque publique que
+// HarmoHub) donne un retour de saisie bien plus agréable à l'oreille sur des heures de travail.
+//
+// LA DOUBLURE N'EST PAS UN À-CÔTÉ : elle est ce qui joue tant que les 17 fichiers n'ont pas fini de
+// charger, et surtout ce qui joue TOUJOURS si le réseau est absent ou trop lent (répétition hors
+// ligne, connexion faible) — sans elle, l'appli resterait silencieuse par défaut sur ce genre de
+// réseau : le transport avancerait, le curseur suivrait, et chaque note serait abandonnée en silence,
+// sans le moindre message. Avec elle, le son est moins beau tant que l'échantillonneur n'a pas pris le
+// relais, mais il EXISTE — et il reprend tout seul dès que les fichiers arrivent, sans rien à faire.
+const PIANO_URLS = {
+    C2: 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3', A2: 'A2.mp3',
+    C3: 'C3.mp3', 'D#3': 'Ds3.mp3', 'F#3': 'Fs3.mp3', A3: 'A3.mp3',
+    C4: 'C4.mp3', 'D#4': 'Ds4.mp3', 'F#4': 'Fs4.mp3', A4: 'A4.mp3',
+    C5: 'C5.mp3', 'D#5': 'Ds5.mp3', 'F#5': 'Fs5.mp3', A5: 'A5.mp3',
+    C6: 'C6.mp3',
+};
+const PIANO_BASE_URL = 'https://tonejs.github.io/audio/salamander/';
+// L'échantillonneur (échantillons réels, déjà enregistrés à un niveau raisonnable) ne se recale pas —
+// comme dans HarmoHub, dont le Piano garde un trim à 0 dB. La doublure synthétisée, elle, GARDE le
+// recalage `TRIM_DB` déjà en place ci-dessus : c'est le même synthé qu'avant ce changement, au même
+// niveau déjà éprouvé, pas une valeur importée d'ailleurs pour une enveloppe qui n'est pas la sienne.
+const SAMPLER_TRIM_DB = 0;
+
 export class Lecteur {
     constructor() {
         this.pret = false;
@@ -45,18 +70,50 @@ export class Lecteur {
         // un temps mort au lancement, et 20 ms suffisent amplement pour des notes programmées.
         Tone.context.lookAhead = 0.02;
 
-        // Un synthé simple pour la V1, comme demandé : une onde triangulaire filtrée passe-bas,
-        // enveloppe percussive à longue extinction. Ça n'imite pas une guitare — mais ça donne une
-        // hauteur nette et une attaque franche, ce qu'on demande à un retour de saisie. Un échantillon
-        // de guitare serait plus juste et pèserait plusieurs mégaoctets à vendorer.
-        const filtre = new Tone.Filter({ type: 'lowpass', frequency: 3600, Q: 0.5 });
-        const volume = new Tone.Volume(TRIM_DB);
-        this.synthe = new Tone.PolySynth(Tone.Synth, {
+        // La DOUBLURE synthétisée d'abord — c'est elle qui joue tant que l'échantillonneur n'a pas
+        // fini de charger, voir plus haut. Onde triangulaire filtrée passe-bas, enveloppe percussive à
+        // longue extinction : ça n'imite pas un piano, mais ça donne une hauteur nette et une attaque
+        // franche pendant l'attente, jamais un silence complet.
+        const filtreDoublure = new Tone.Filter({ type: 'lowpass', frequency: 3600, Q: 0.5 });
+        const volumeDoublure = new Tone.Volume(TRIM_DB);
+        const doublure = new Tone.PolySynth(Tone.Synth, {
             oscillator: { type: 'triangle' },
             envelope: { attack: 0.006, decay: 0.42, sustain: 0.14, release: 1.1 },
         });
-        this.synthe.maxPolyphony = 16;
-        this.synthe.chain(filtre, volume, Tone.Destination);
+        doublure.maxPolyphony = 16;
+        doublure.chain(filtreDoublure, volumeDoublure, Tone.Destination);
+
+        // Puis le vrai PIANO échantillonné — la même bibliothèque publique (Salamander) que HarmoHub,
+        // hébergée par le projet Tone.js lui-même. Un échec de téléchargement (hors ligne, réseau trop
+        // lent, hôte bloqué) ne doit surtout pas remonter en exception non gérée : c'est un cas ATTENDU,
+        // la doublure ci-dessus s'en charge déjà.
+        const volumeSampler = new Tone.Volume(SAMPLER_TRIM_DB);
+        const sampler = new Tone.Sampler({
+            urls: PIANO_URLS,
+            baseUrl: PIANO_BASE_URL,
+            release: 1,
+            onerror: () => {},
+        });
+        sampler.chain(volumeSampler, Tone.Destination);
+
+        // Une interface UNIQUE, qui choisit elle-même qui joue : tout le reste du fichier (programmer,
+        // apercu) continue d'appeler `this.synthe.triggerAttackRelease(...)` sans rien savoir de ce qui
+        // sonne derrière — l'échantillonneur dès qu'il est prêt, la doublure sinon, et le relais se fait
+        // tout seul dès que les fichiers arrivent, sans rien à reprogrammer.
+        this.synthe = {
+            get charge() { return sampler.loaded; },
+            triggerAttackRelease(...args) {
+                (sampler.loaded ? sampler : doublure).triggerAttackRelease(...args);
+                return this;
+            },
+            releaseAll() {
+                // `releaseAll` de Sampler peut lever tant qu'aucun échantillon n'a encore joué —
+                // jamais un prétexte pour laisser la doublure, elle, sonner indéfiniment.
+                try { sampler.releaseAll(); } catch (e) { /* rien à relâcher pour l'instant */ }
+                doublure.releaseAll();
+                return this;
+            },
+        };
         this.pret = true;
     }
 
