@@ -36,6 +36,7 @@ import { ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './model
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_ZOOM = 'tabhub.zoom';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
+const CLE_REGLETTE = 'tabhub.reglette';
 
 class TabHubApp {
     constructor() {
@@ -47,6 +48,9 @@ class TabHubApp {
         // reste locale au navigateur et ne voyage jamais dans le .json — rouvrir le même
         // morceau sur un autre poste doit retomber sur l'agencement automatique.
         this.mesuresParLigne = parseInt(localStorage.getItem(CLE_MESURES_LIGNE), 10) || 0;
+        // Visible par défaut (aide à l'édition) ; retenue elle aussi comme une préférence d'affichage.
+        const brutReglette = localStorage.getItem(CLE_REGLETTE);
+        this.regletteVisible = brutReglette === null ? true : brutReglette === '1';
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
 
@@ -59,6 +63,7 @@ class TabHubApp {
             tempo: document.getElementById('champ-tempo'),
             zoom: document.getElementById('champ-zoom'),
             mesuresLigne: document.getElementById('champ-mesures-ligne'),
+            reglette: document.getElementById('champ-reglette'),
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
@@ -93,12 +98,23 @@ class TabHubApp {
 
     dessiner() {
         const largeur = Math.max(560, this.el.zone.clientWidth - 48);
-        this.page = mettreEnPage(this.editeur.partition, {
-            S: this.interligne,
-            largeurPage: largeur,
-            yDepart: 6,
-            mesuresParLigne: this.mesuresParLigne || null,
-        });
+        try {
+            this.page = mettreEnPage(this.editeur.partition, {
+                S: this.interligne,
+                largeurPage: largeur,
+                yDepart: 6,
+                mesuresParLigne: this.mesuresParLigne || null,
+                reglette: this.regletteVisible,
+            });
+        } catch (err) {
+            // Un écran noir SANS EXPLICATION est le pire des échecs — c'est exactement ce que
+            // provoquait un brouillon d'un format antérieur avant la correction de
+            // restaurerBrouillon(). Filet de sécurité générique : on le dit, on ne laisse pas
+            // deviner.
+            console.error('Erreur de mise en page :', err);
+            this.message('Erreur d\'affichage — voir la console (F12) pour le détail.', 5000);
+            return;
+        }
 
         const calques = [...this.marquesLecture(), ...this.marquesCurseur()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
@@ -166,11 +182,26 @@ class TabHubApp {
         const bas = a.yTab + a.hauteurTab + 1.2 * S;
         const yCorde = a.yTab + this.editeur.curseur.corde * ST;
         const demi = ST * 0.62;
-        return [
+        const marques = [
             { t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: bas - y, couleur: 'var(--curseur-halo)' },
             { t: 'rect', x: a.x - demi, y: yCorde - ST * 0.56, w: demi * 2, h: ST * 1.12, couleur: 'var(--curseur-halo)' },
             { t: 'rect', x: a.x - demi, y: yCorde + ST * 0.5, w: demi * 2, h: Math.max(1.6, S * 0.22), couleur: 'var(--curseur)' },
         ];
+        this.marqueSurReglette(marques, a.x, a.yPortee, 'var(--curseur)', 0.6);
+        return marques;
+    }
+
+    /**
+     * Reflète un repère (curseur ou tête de lecture) sur la réglette temporelle, à la MÊME abscisse
+     * que sur la partition — la réglette et la partition partagent l'axe des x, donc « où en est-on »
+     * s'y répond d'un seul coup d'œil, sans devoir recaler soi-même les deux. N'ajoute rien si la
+     * réglette est masquée (`yReglette` absent du système).
+     */
+    marqueSurReglette(sortie, x, yPortee, couleur, largeurRel) {
+        const sys = this.page?.ancrages.systemes.find(s => s.yPortee === yPortee);
+        if (!sys || sys.yReglette == null) return;
+        const w = Math.max(1.5, this.page.geo.S * largeurRel);
+        sortie.push({ t: 'rect', x: x - w / 2, y: sys.yReglette, w, h: sys.hauteurReglette, couleur });
     }
 
     /**
@@ -196,10 +227,12 @@ class TabHubApp {
         const haut = a.yPortee - 1.2 * S;
         const bas = a.yTab + a.hauteurTab + 1.2 * S;
         this.faireDefilerVers(a, haut, bas);
-        return [
+        const marques = [
             { t: 'rect', x: a.xDebut, y: haut, w: a.xFin - a.xDebut, h: bas - haut, couleur: 'var(--lecture-halo)' },
             { t: 'rect', x: x - Math.max(1, S * 0.16), y: haut, w: Math.max(2, S * 0.32), h: bas - haut, couleur: 'var(--lecture)' },
         ];
+        this.marqueSurReglette(marques, x, a.yPortee, 'var(--lecture)', 1);
+        return marques;
     }
 
     /** Amène le système du curseur dans la bande visible, s'il n'y est plus. */
@@ -410,8 +443,11 @@ class TabHubApp {
         try {
             const brut = localStorage.getItem(CLE_BROUILLON);
             if (!brut) return;
-            this.editeur.partition = JSON.parse(brut);
-            this.editeur.corrigerCurseur();
+            // Passe par `normaliser` (via `remplacer`), PAS une simple assignation : un brouillon
+            // écrit par une version antérieure du format (l'ancien tableau plat `evenements`, par
+            // exemple) planterait sinon `mettreEnPage` au premier accès à `mesure.voix`, en silence —
+            // écran noir au démarrage, rien dans la console qui pointe vers la vraie cause.
+            this.editeur.remplacer(JSON.parse(brut));
         } catch (err) { /* brouillon illisible : on repart d'une partition neuve, sans rien dire */ }
     }
 
@@ -469,6 +505,13 @@ class TabHubApp {
         this.el.mesuresLigne.addEventListener('change', () => {
             this.mesuresParLigne = parseInt(this.el.mesuresLigne.value, 10) || 0;
             localStorage.setItem(CLE_MESURES_LIGNE, String(this.mesuresParLigne));
+            this.dessiner();
+        });
+
+        this.el.reglette.checked = this.regletteVisible;
+        this.el.reglette.addEventListener('change', () => {
+            this.regletteVisible = this.el.reglette.checked;
+            localStorage.setItem(CLE_REGLETTE, this.regletteVisible ? '1' : '0');
             this.dessiner();
         });
 

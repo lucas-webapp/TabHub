@@ -305,6 +305,15 @@ export class Editeur {
         this.memoriser();
         evenement.notes = evenement.notes.filter(n => n.corde !== this.curseur.corde);
         if (!evenement.notes.length) evenement.silence = true;
+        // Une mesure vidée note après note garderait sinon le chapelet de petits silences hérités du
+        // rythme qui s'y jouait — un soupir, un demi-soupir, encore un soupir... On la reconsolide en
+        // la décomposition standard (la même qu'à la naissance d'une voix neuve) dès que PLUS AUCUN
+        // évènement de la voix ne porte de note : le curseur revient à son unique/premier silence.
+        const voix = this.voixCourante();
+        if (voix.evenements.every(e => e.silence || !e.notes.length)) {
+            voix.evenements = creerVoix(capaciteMesure(this.partition, this.curseur.mesure)).evenements;
+            this.curseur.evenement = 0;
+        }
         this._dernierChiffre = null;
         this.prevenir('edition');
         return evenement.notes.length !== avant;

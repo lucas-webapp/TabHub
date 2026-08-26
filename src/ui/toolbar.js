@@ -28,7 +28,13 @@ function figureSvg(valeur) {
     let corps = traits.map(t => `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${S})" fill="currentColor"/>`).join('');
     if (valeur >= 2) {
         const xh = cx + 0.62 * S;
-        corps += `<line x1="${xh}" y1="${cy}" x2="${xh}" y2="3" stroke="currentColor" stroke-width="${G.EPAISSEURS.hampe * S}"/>`;
+        // ÉPAISSEUR MINIMALE : à l'échelle de la portée, `EPAISSEURS.hampe * S` donne un trait net,
+        // mais à celle d'un bouton de 15 px (S = 5,4 au lieu de 8-16), le même calcul tombe sous 1 px
+        // — un trait que l'antialiasing efface presque, exactement ce qui rendait les figures de
+        // durée indiscernables les unes des autres. Une hampe de bouton reste lisible ; le RATIO avec
+        // la partition n'a pas à être tenu à ce point.
+        const epaisseurHampe = Math.max(G.EPAISSEURS.hampe * S, 1.3);
+        corps += `<line x1="${xh}" y1="${cy}" x2="${xh}" y2="3" stroke="currentColor" stroke-width="${epaisseurHampe}"/>`;
     }
     const n = valeur === 8 ? 1 : valeur === 16 ? 2 : valeur === 32 ? 3 : 0;
     if (n) {
@@ -53,7 +59,7 @@ function glypheIconSvg(traits) {
     const cy = 12 - ((b.haut + b.bas) / 2) * echelle;
     const corps = traits.map(t => t.epaisseur == null
         ? `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="currentColor"/>`
-        : `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="none" stroke="currentColor" stroke-width="${t.epaisseur * echelle}"/>`
+        : `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="none" stroke="currentColor" stroke-width="${Math.max(t.epaisseur * echelle, 1.3)}"/>`
     ).join('');
     return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">${corps}</svg>`;
 }
