@@ -91,7 +91,10 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
         const p1 = await page.evaluate(() => ({ etat: window.app.lecteur.etat, pos: window.app.lecteur.position, marques: window.app.marquesLecture().length }));
         exiger(p1.etat === 'lecture', 'la lecture démarre');
         check(p1.pos > 0, 'et le transport avance');
-        check(p1.marques === 2, 'la tête de lecture est dessinée (surlignage + trait)');
+        // Trait + traînée (deux bandes translucides derrière lui) : voir marquesLecture dans
+        // main.js — plus le bandeau de surlignage d'une version antérieure, remplacé par ce trait
+        // qui parcourt toute la hauteur (portée, TAB, réglette).
+        check(p1.marques === 3, 'la tête de lecture est dessinée (trait + traînée)');
 
         // Le trait doit lire la position RÉELLE du transport. On compare donc les deux : s'ils
         // s'accordent à toute vitesse, c'est qu'il n'y a pas deux horloges.
