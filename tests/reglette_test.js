@@ -1,11 +1,14 @@
-// Banc de la RÉGLETTE TEMPORELLE : deux poids de trait, jamais la grille au seizième entière.
+// Banc de la RÉGLETTE TEMPORELLE : deux poids de trait, jamais la grille au seizième entière, et des
+// TEMPS TOUJOURS RÉGULIÈREMENT ESPACÉS.
 //
-// CE QU'IL PROTÈGE. La réglette (voir engine/layout.js, poserReglette) a été reprise deux fois cette
+// CE QU'IL PROTÈGE. La réglette (voir engine/layout.js, poserReglette) a été reprise trois fois cette
 // session sur signalement direct : d'abord parce que ses graduations ne tombaient pas en phase avec
 // les notes réelles (corrigé en la faisant marcher COLONNE PAR COLONNE plutôt que sur une grille
-// absolue), puis parce qu'affichER TOUTE la grille au seizième entre chaque temps et contre-temps
-// était « trop lourd visuellement ». Ce banc fige ce second réglage, qui n'avait encore aucune
-// couverture :
+// absolue), puis parce qu'afficher TOUTE la grille au seizième entre chaque temps et contre-temps
+// était « trop lourd visuellement », puis parce qu'un temps dense (une rafale de doubles-croches)
+// s'affichait plus large qu'un temps voisin clairsemé — capture utilisateur à l'appui, « le 1 de la
+// réglette doit tomber au droit du premier temps, les espaces doivent être réguliers, et toujours
+// alignés sur les temps ». Ce banc fige les trois réglages :
 //   • TEMPS et CONTRE-TEMPS sont TOUJOURS marqués, qu'une note y attaque ou non (repère de comptage
 //     stable, y compris sous une note longue qui les traverse sans qu'aucune attaque n'y tombe).
 //   • Tout le reste de la grille au seizième (les instants qui ne sont ni temps, ni contre-temps, ni
@@ -13,13 +16,16 @@
 //   • Une attaque réelle qui tombe hors temps/contre-temps (seizième, triolet) garde malgré tout SON
 //     PROPRE trait — la garantie de base de la réglette n'a pas bougé, seul le remplissage entre les
 //     attaques a disparu.
+//   • CHAQUE TEMPS REÇOIT EXACTEMENT LA MÊME LARGEUR (voir layout.js, repartirParTemps), qu'il soit
+//     dense ou clairsemé — l'écart entre deux graduations de temps consécutives ne varie donc plus
+//     jamais selon le contenu, à l'intérieur d'une mesure comme d'un temps à l'autre.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglette');
 
 (async () => {
-    plan(8);
+    plan(10);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -57,6 +63,22 @@ const { check, exiger, plan, bilan } = creerHarnais('réglette');
             const pageDense = L.mettreEnPage(pDense, { largeurPage: 1100, S: 10, reglette: true });
             const ticksDense = ticksDe(pageDense);
 
+            // 3. MIXTE : temps 1-3 denses (douze doubles-croches), temps 4 clairsemé (une seule
+            //    noire) — exactement la forme de la capture utilisateur. Les QUATRE graduations de
+            //    temps (« encre », numérotées) doivent être espacées EXACTEMENT pareil, d'un bout à
+            //    l'autre de la mesure — jamais plus serrées côté dense, jamais plus larges côté
+            //    clairsemé.
+            const pMixte = m.creerPartition('guitare');
+            pMixte.mesures = [m.creerMesure({
+                voix: [{ evenements: [
+                    ...Array.from({ length: 12 }, (_, i) => m.creerEvenement({ valeur: 16 }, [m.creerNote(0, 5 + (i % 6))])),
+                    m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 3)]),
+                ] }],
+            })];
+            const pageMixte = L.mettreEnPage(pMixte, { largeurPage: 1100, S: 10, reglette: true });
+            const xTempsMixte = ticksDe(pageMixte).filter(t => t.couleur === 'encre').map(t => t.x1).sort((a, b) => a - b);
+            const ecartsTempsMixte = xTempsMixte.slice(1).map((x, i) => +(x - xTempsMixte[i]).toFixed(6));
+
             return {
                 nClairseme: ticksClairseme.length,
                 encreClairseme: ticksClairseme.filter(t => t.couleur === 'encre').length,
@@ -64,6 +86,7 @@ const { check, exiger, plan, bilan } = creerHarnais('réglette');
                 nDense: ticksDense.length,
                 encreDense: ticksDense.filter(t => t.couleur === 'encre').length,
                 discretDense: ticksDense.filter(t => t.couleur === 'discret').length,
+                xTempsMixte, ecartsTempsMixte,
             };
         });
 
@@ -78,6 +101,10 @@ const { check, exiger, plan, bilan } = creerHarnais('réglette');
         check(r.discretDense === 12, 'et les 12 autres attaques (contre-temps compris) en trait discret, aucune disparue');
 
         check(r.nDense > r.nClairseme, 'un contenu plus dense pose logiquement plus de graduations que le même contenu clairsemé');
+
+        exiger(r.xTempsMixte.length === 5, 'contenu MIXTE (3 temps denses + 1 clairsemé) : les 4 temps + la fermeture sont bien posés');
+        check(new Set(r.ecartsTempsMixte).size === 1,
+            `les écarts entre graduations de temps consécutives sont TOUS identiques (${r.ecartsTempsMixte.join(', ')}) — un temps dense n'est plus ni plus large ni plus étroit qu'un temps clairsemé`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

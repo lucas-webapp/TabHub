@@ -116,21 +116,32 @@ function arcLiaison(x1, y1, x2, y2, sens, hauteur) {
  * Largeur demandée par une COLONNE — un instant de temps partagé par toutes les voix de la mesure.
  *
  * Deux exigences se disputent la place, et l'espacement retenu est le MAXIMUM des deux :
- *   • PROPORTIONNELLE À L'ÉCART jusqu'au prochain instant (`gapNoires`), compressée par une
- *     puissance ~0,6 — et non à la durée propre d'un évènement. C'est ce qui donne la bonne largeur
- *     à une VOIX À DEUX RYTHMES : une basse tenue (blanche pointée) posée sous une mélodie de
- *     croches n'impose PAS trois croches de large à sa propre colonne — elle n'a besoin que de la
- *     place qu'y réclame ce qui s'y joue vraiment, à savoir la croche voisine. C'est exactement ce
- *     qu'utilise une gravure : l'espacement suit l'endroit où la prochaine chose arrive, tous
- *     pupitres confondus. Une seule voix est le cas particulier où « le prochain instant » est
- *     toujours la fin de son propre évènement — la formule ne change donc rien à son rendu d'avant.
+ *   • PROPORTIONNELLE, LINÉAIREMENT, À L'ÉCART jusqu'au prochain instant (`gapNoires`) — et non à la
+ *     durée propre d'un évènement. C'est ce qui donne la bonne largeur à une VOIX À DEUX RYTHMES :
+ *     une basse tenue (blanche pointée) posée sous une mélodie de croches n'impose PAS trois croches
+ *     de large à sa propre colonne — elle n'a besoin que de la place qu'y réclame ce qui s'y joue
+ *     vraiment, à savoir la croche voisine. Une seule voix est le cas particulier où « le prochain
+ *     instant » est toujours la fin de son propre évènement.
+ *
+ *     LINÉAIRE, PAS COMPRESSÉ PAR UNE PUISSANCE — une version antérieure compressait par ~0,62 (une
+ *     gravure classique, qui resserre les passages denses sans les priver de toute respiration), mais
+ *     ÉCART ÉGAL NE DONNAIT ALORS PAS LARGEUR ÉGALE : deux temps de la même mesure, l'un dense (une
+ *     rafale de doubles-croches) et l'autre clairsemé, se retrouvaient à des largeurs différentes une
+ *     fois recalées sur la largeur fixe de la mesure (voir LARGEUR_PAR_NOIRE) — la réglette, qui pose
+ *     ses graduations sur ces mêmes colonnes, en héritait des espacements irréguliers d'un temps à
+ *     l'autre, en contradiction directe avec l'exigence : un temps est un temps, sa durée en noires
+ *     ne varie jamais, sa largeur affichée ne doit donc pas varier non plus selon ce qui s'y joue. Le
+ *     linéaire garantit qu'un ÉCART ÉGAL donne une LARGEUR ÉGALE — donc une grille de temps parfaitement
+ *     régulière — tant que le plancher ci-dessous ne s'en mêle pas.
  *   • UN PLANCHER matériel : la place qu'occupent réellement les altérations et les chiffres à deux
  *     chiffres de la tablature, pour CHAQUE voix présente à cet instant. Sans lui, « 12 » déborderait
- *     sur la note suivante.
+ *     sur la note suivante. Il ne joue que sur un passage EXTRÊMEMENT dense (au-delà de la double-croche
+ *     courante) : la régularité en pâtit alors localement, un compromis assumé plutôt que de laisser
+ *     des chiffres se chevaucher.
  */
 function largeurColonne(gapNoires, evenementsIci, S) {
     const d = Math.max(gapNoires, 1 / 64);
-    const proportionnelle = 3.9 * S * Math.pow(d, 0.62);
+    const proportionnelle = 3.9 * S * d;
 
     let plancher = 3.2 * S;
     for (const { ref } of evenementsIci) {
@@ -138,6 +149,53 @@ function largeurColonne(gapNoires, evenementsIci, S) {
         if (ref.duree.points > 0) plancher = Math.max(plancher, 3.7 * S);
     }
     return Math.max(proportionnelle, plancher);
+}
+
+/**
+ * Répartit la largeur FIXE d'une mesure (`largeurNotes`) ENTRE SES TEMPS, à parts ÉGALES —
+ * plutôt qu'entre ses colonnes au seul prorata de leur poids matériel (voir `largeurColonne`), ce
+ * qui donnait des temps de largeurs différentes selon la densité de ce qui s'y joue : la réglette,
+ * qui pose ses graduations sur ces mêmes colonnes (voir poserReglette), en héritait un espacement
+ * irrégulier d'un temps à l'autre — en contradiction directe avec ce qu'est un temps : une durée qui
+ * NE VARIE JAMAIS, sa largeur affichée ne doit donc pas varier non plus selon ce qui s'y joue.
+ *
+ * CHAQUE TEMPS REÇOIT EXACTEMENT largeurNotes/nTemps, INCONDITIONNELLEMENT — qu'il contienne une
+ * rafale de doubles-croches ou une seule ronde. À L'INTÉRIEUR d'un temps, les colonnes qui s'y
+ * trouvent gardent leurs poids RELATIFS (une case à deux chiffres réclame plus de champ qu'une case
+ * simple), rescalés pour tenir exactement dans CE budget LOCAL — jamais dans le budget de la mesure
+ * entière : un temps dense peut ainsi devenir plus serré que son plancher matériel idéal (des chiffres
+ * un peu à l'étroit, un compromis assumé), mais IL N'EMPIÈTE JAMAIS SUR SES VOISINS pour autant.
+ *
+ * UNE NOTE QUI CHEVAUCHE PLUSIEURS TEMPS (une blanche, par exemple) n'a qu'une seule colonne, posée
+ * au temps où elle attaque ; les temps suivants qu'elle traverse SANS qu'aucune autre voix n'y
+ * attaque n'ont eux-mêmes aucune colonne à poser — leur part du budget est alors simplement
+ * ADDITIONNÉE à celui du dernier temps qui, lui, porte une colonne (voir `iPortant` ci-dessous), pour
+ * que la somme globale sur la mesure reste exacte malgré ces temps « vides ».
+ */
+function repartirParTemps(colonnes, capacite, unite, largeurNotes) {
+    const nTemps = Math.max(1, Math.round(capacite / unite));
+    const largeurParTemps = largeurNotes / nTemps;
+    const groupes = Array.from({ length: nTemps }, () => []);
+    for (const c of colonnes) {
+        const iTemps = Math.min(nTemps - 1, Math.max(0, Math.floor((c.debut + 1e-9) / unite)));
+        groupes[iTemps].push(c);
+    }
+    const budgets = new Array(nTemps).fill(largeurParTemps);
+    let iPortant = -1;
+    for (let i = 0; i < nTemps; i++) {
+        if (groupes[i].length) { iPortant = i; }
+        else if (iPortant !== -1) { budgets[iPortant] += budgets[i]; budgets[i] = 0; }
+        // Un temps vide EN TOUT DÉBUT de mesure (iPortant encore -1) ne devrait jamais se produire —
+        // calculerColonnes garantit toujours une colonne à l'origine — mais si ça arrivait quand
+        // même (données malformées), son budget reste simplement de côté plutôt que de faire planter
+        // la mise en page : un défaut visuel mineur, jamais une exception.
+    }
+    for (let i = 0; i < nTemps; i++) {
+        if (!groupes[i].length) continue;
+        const brut = groupes[i].reduce((t, c) => t + c.largeur, 0);
+        const ratio = brut > 1e-9 ? budgets[i] / brut : 1;
+        groupes[i].forEach(c => { c.largeur *= ratio; });
+    }
 }
 
 /**
@@ -404,15 +462,15 @@ export function mettreEnPage(partition, options = {}) {
         const arm = armureEffective(partition, i);
         const capacite = noiresParMesure(sig);
         const colonnes = calculerColonnes(mesure, capacite, S);
-        // Largeur FIXÉE par la capacité, jamais par le contenu réel (voir LARGEUR_PAR_NOIRE). Les
-        // colonnes gardent leurs poids RELATIFS entre elles (une ronde réclame plus de champ qu'une
-        // croche, voir largeurColonne) ; `ratioColonnes` les ramène seulement à cette somme fixe,
-        // en place, pour que tout ce qui lit `m.colonnes` plus loin (pose des notes, réglette) reste
-        // cohérent avec `largeurNotes` sans le moindre calcul supplémentaire de son côté.
+        // Largeur FIXÉE par la capacité, jamais par le contenu réel (voir LARGEUR_PAR_NOIRE), et
+        // répartie À PARTS ÉGALES entre les TEMPS de la mesure — jamais au prorata de la densité de
+        // chacun (voir repartirParTemps) : sans quoi un temps dense (une rafale de doubles-croches)
+        // se retrouvait plus large qu'un temps voisin clairsemé, et la réglette — qui pose ses
+        // graduations sur ces mêmes colonnes — héritait de cet espacement irrégulier entre ses
+        // graduations de temps. Les colonnes gardent leurs poids relatifs SEULEMENT entre elles, à
+        // l'intérieur d'un même temps (une case à deux chiffres réclame plus de champ qu'une simple).
         const largeurNotes = capacite * LARGEUR_PAR_NOIRE * S;
-        const sommeColonnesBrute = colonnes.reduce((t, c) => t + c.largeur, 0);
-        const ratioColonnes = sommeColonnesBrute > 1e-9 ? largeurNotes / sommeColonnesBrute : 1;
-        colonnes.forEach(c => { c.largeur *= ratioColonnes; });
+        repartirParTemps(colonnes, capacite, uniteDeGroupement(sig), largeurNotes);
         return {
             index: i, ref: mesure, signature: sig, armure: arm, capacite, colonnes,
             largeurNotes,
