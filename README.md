@@ -51,13 +51,49 @@ Le moteur de TabHub produit une **liste d'affichage** — des primitives géomé
 deux traducteurs consomment : SVG pour l'écran, jsPDF pour l'impression. La mise en page n'est donc
 écrite qu'UNE fois, et **le PDF est exactement ce qu'on voit à l'écran**, en vectoriel.
 
-### Des glyphes musicaux en chemins Bézier, pas une police
+### Les signes musicaux viennent de Bravura, la police de référence SMuFL
 
-Une police SMuFL (Bravura) pèse 500 ko à vendorer, doit être ré-embarquée en base64 dans chaque PDF,
-et se pose par du texte — donc jamais au centième d'interligne près, alors qu'une clé de sol mal
-centrée sur sa ligne est immédiatement fausse à l'œil. Les quelques signes nécessaires sont donc
-dessinés en Bézier, en unités d'interligne. La clé de sol est bâtie sur une **spirale logarithmique
-paramétrique** : son centre tombe exactement sur la ligne de sol, par construction.
+Clés, altérations, silences, têtes de note, crochets, chiffres de mesure et clé de tablature sont les
+dessins officiels de **Bravura** (Steinberg), police de référence du standard SMuFL, publiée sous
+**licence SIL Open Font License 1.1** — donc librement utilisable, y compris dans un produit
+distribué.
+
+Ils ne sont pas embarqués comme police mais **extraits en chemins vectoriels** par
+`outils/generer-glyphes.py`, qui produit `src/engine/glyphes-bravura.js`. Trois raisons :
+
+1. **jsPDF ne sait embarquer que du TrueType.** Bravura est une OpenType/CFF : l'embarquer
+   demanderait de la convertir — donc de la modifier, ce que son nom de police réservé décourage — et
+   d'ajouter une chaîne d'outillage à un projet qui n'en a aucune.
+2. **Une police se charge de façon asynchrone.** Tant qu'elle n'est pas arrivée, la partition
+   s'affiche en carrés blancs puis saute. Des contours dans le module sont là dès la première image.
+3. **889 ko de police pour 53 signes**, repartant dans chaque PDF exporté. Extraits : 53 ko.
+
+L'architecture y gagne : les contours arrivent dans le **même format que le reste** (chemins M/L/C/Z
+en unités d'interligne), donc les deux moteurs de rendu n'ont rien eu à apprendre. Le dessin est
+devenu officiel sans qu'une seule ligne de rendu ne change.
+
+Un banc d'essai vérifie que **tout** chemin posé provient bien de l'extraction : un signe redessiné à
+la main s'y verrait immédiatement.
+
+### Le coût d'un redessin ne dépend pas de la longueur du morceau
+
+L'éditeur remet en page la partition **entière** à chaque frappe : c'est ce qui rend structurellement
+impossible un écran désaccordé du modèle. Sur 150 mesures cette mise en page coûte 14 ms — ce n'est
+pas elle le problème. Confier au navigateur les 17 000 éléments qui en sortent, en revanche, coûtait
+243 ms, à chaque touche. Deux mesures, toutes deux dans le moteur de rendu :
+
+- une **bibliothèque de glyphes** : chaque dessin décrit une fois dans un `<defs>`, référencé ensuite
+  par `<use>` — le SVG passe de 4,4 Mo à 1,8 Mo ;
+- le **dessin des seuls systèmes visibles** : le nombre de nœuds cesse de suivre la longueur du morceau.
+
+| Mesures | Avant | Après |
+|---|---|---|
+| 20 | 63 ms | 39 ms |
+| 60 | 218 ms | 40 ms |
+| 150 | 408 ms | 46 ms |
+| 400 | — | 55 ms |
+
+`performance_test.js` verrouille la propriété qui compte : au-delà d'un écran, le coût cesse de monter.
 
 ### Tone.js pour l'audio
 
@@ -136,7 +172,8 @@ src/
     instruments.js      instruments, accordages, capodastre
     score.js            partition > mesures > évènements > notes ; format du .json
   engine/             LA GRAVURE — modèle → liste d'affichage
-    glyphs.js           clés, altérations, silences, têtes, crochets en Bézier
+    glyphes-bravura.js  GÉNÉRÉ — contours extraits de Bravura (ne pas modifier à la main)
+    glyphs.js           API des glyphes + épaisseurs de trait de la gravure
     layout.js           espacement, systèmes, justification, hampes, ligatures, liaisons
   render/             LES TRADUCTEURS — liste d'affichage → sortie
     svg.js              écran
@@ -149,6 +186,8 @@ src/
   io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter)
   ui/                 icons.js, toolbar.js
   main.js             LE SEUL module qui touche au DOM et connaît tous les autres
+outils/
+  generer-glyphes.py  extrait les contours de Bravura vers src/engine/glyphes-bravura.js
 tests/                bancs Playwright — voir tests/README.md
 ```
 
@@ -166,6 +205,9 @@ Dit franchement, pour que la suite se décide sur des faits :
   un même évènement et une même hampe, là où une édition gravée les séparerait.
 - **Pas de dépliage des reprises à la lecture.** Les barres de reprise s'écrivent et s'exportent,
   mais la lecture parcourt la partition écrite, une fois.
+- **Les liaisons ne franchissent pas les barres de mesure.** Une note liée à la première note de la
+  mesure suivante s'entend correctement, mais l'arc n'est pas tracé : la pose des liaisons travaille
+  mesure par mesure.
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
@@ -174,6 +216,20 @@ Dit franchement, pour que la suite se décide sur des faits :
 
 ---
 
-## Licence des bibliothèques tierces
+## Licences des ressources tierces
 
-`vendor/tone.min.js` et `vendor/jspdf.umd.min.js` sont sous licence MIT, vendorés depuis HarmoHub.
+| Ressource | Licence | Emploi |
+|---|---|---|
+| `vendor/tone.min.js` | MIT | moteur audio, vendoré depuis HarmoHub |
+| `vendor/jspdf.umd.min.js` | MIT | export PDF, vendoré depuis HarmoHub |
+| Bravura (Steinberg) | **SIL OFL 1.1** — `vendor/OFL-Bravura.txt` | contours des signes musicaux, extraits dans `src/engine/glyphes-bravura.js` |
+
+« Bravura » est un nom de police réservé au sens de l'OFL : TabHub ne redistribue pas une police,
+mais des contours dérivés, et ne porte pas ce nom.
+
+Pour régénérer les glyphes après une mise à jour de Bravura :
+
+```sh
+pip install fonttools
+python3 outils/generer-glyphes.py chemin/vers/Bravura.otf
+```
