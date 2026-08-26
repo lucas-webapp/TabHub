@@ -205,9 +205,18 @@ class TabHubApp {
     }
 
     /**
-     * Trait de lecture. Sa position s'INTERPOLE à l'intérieur de l'évènement en cours plutôt que de
-     * sauter de note en note : sur une ronde à 60 BPM, un trait qui saute resterait figé quatre
-     * secondes puis bondirait — on ne saurait plus ce qui est en train de sonner.
+     * Trait de lecture : une ligne verticale discrète, PAS un bandeau surlignant la note — elle
+     * parcourt TOUTE la hauteur du système (portée, tablature, et la réglette quand elle est
+     * affichée, puisque les trois partagent le même axe des x), plutôt qu'un repère cantonné à
+     * l'évènement en cours ou, pire, isolé sur la seule réglette. Sa position s'INTERPOLE à
+     * l'intérieur de l'évènement en cours plutôt que de sauter de note en note : sur une ronde à
+     * 60 BPM, un trait qui saute resterait figé quatre secondes puis bondirait — on ne saurait plus
+     * ce qui est en train de sonner.
+     *
+     * LA TRAÎNÉE se pose derrière le trait, du côté d'où il VIENT — donc vers la GAUCHE, puisque la
+     * musique n'avance que dans un sens — en deux bandes de plus en plus opaques à l'approche du
+     * trait. Sans dégradé natif dans ce moteur de primitives, c'est l'approximation la plus simple
+     * qui reste fidèle à l'idée : un fondu, pas un bloc plat.
      */
     marquesLecture() {
         if (this.lecteur.etat === 'arret' || !this.page) return [];
@@ -224,15 +233,17 @@ class TabHubApp {
         const avance = entree.duree > 0 ? Math.max(0, Math.min(1, (t - entree.debut) / entree.duree)) : 0;
         const x = a.xDebut + (a.xFin - a.xDebut) * avance;
         const S = this.page.geo.S;
+        const sys = this.page.ancrages.systemes.find(s => s.yPortee === a.yPortee);
         const haut = a.yPortee - 1.2 * S;
-        const bas = a.yTab + a.hauteurTab + 1.2 * S;
+        const bas = (sys && sys.yReglette != null) ? sys.yReglette + sys.hauteurReglette : a.yTab + a.hauteurTab + 1.2 * S;
         this.faireDefilerVers(a, haut, bas);
-        const marques = [
-            { t: 'rect', x: a.xDebut, y: haut, w: a.xFin - a.xDebut, h: bas - haut, couleur: 'var(--lecture-halo)' },
-            { t: 'rect', x: x - Math.max(1, S * 0.16), y: haut, w: Math.max(2, S * 0.32), h: bas - haut, couleur: 'var(--lecture)' },
+
+        const largeurTrait = Math.max(1.2, S * 0.15);
+        return [
+            { t: 'rect', x: x - S * 1.6, y: haut, w: S * 1.0, h: bas - haut, couleur: 'rgba(0, 200, 83, 0.07)' },
+            { t: 'rect', x: x - S * 0.6, y: haut, w: S * 0.6, h: bas - haut, couleur: 'rgba(0, 200, 83, 0.16)' },
+            { t: 'rect', x: x - largeurTrait / 2, y: haut, w: largeurTrait, h: bas - haut, couleur: 'var(--curseur)' },
         ];
-        this.marqueSurReglette(marques, x, a.yPortee, 'var(--lecture)', 1);
-        return marques;
     }
 
     /** Amène le système du curseur dans la bande visible, s'il n'y est plus. */
