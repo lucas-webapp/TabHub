@@ -119,6 +119,11 @@ body {
 .btn-icone:disabled { opacity: .32; cursor: default; }
 .btn-icone.actif { background: var(--btn-green-1); border-color: var(--btn-green-border); color: var(--btn-text); }
 
+/* Action mise en avant (Enregistrer) : reste verte même au repos — comme HarmoHub, où c'est le seul
+   bouton de ce rang à porter cette couleur en permanence, pas seulement à l'état actif/survolé. */
+.btn-icone-accent { background: var(--btn-green-1); border-color: var(--btn-green-border); color: var(--btn-text); }
+.btn-icone-accent:hover:not(:disabled) { background: var(--btn-green-2); border-color: var(--btn-green-border-hover); color: var(--btn-text); }
+
 .logo { display: flex; align-items: center; gap: 8px; color: var(--text-main); text-decoration: none; margin-left: 4px; }
 .logo-marque { display: inline-flex; color: var(--accent); }
 .logo-marque svg { width: 22px; height: 22px; }

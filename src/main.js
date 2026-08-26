@@ -79,6 +79,7 @@ class TabHubApp {
             lectureAlternee: () => this.lectureAlternee(),
             arreter: () => this.arreter(),
             enregistrer: () => this.enregistrer(),
+            exporterJson: () => this.exporterJson(),
             ouvrir: () => this.ouvrir(),
             exporterPdf: () => this.exporterPdf(),
             aide: () => this.ouvrirFenetre('fenetre-aide'),
@@ -393,15 +394,34 @@ class TabHubApp {
     // Fichiers
     // ==========================================================================================
 
+    /**
+     * Enregistrer, au sens de HarmoHub : une persistance LOCALE explicite (le brouillon dans le
+     * navigateur), distincte d'Exporter (un fichier .json portable, voir `exporterJson`). Le
+     * brouillon s'écrit déjà tout seul, en continu (voir `planifierBrouillon`) — cette version
+     * explicite n'écrit rien de plus, elle écrit MAINTENANT, sans attendre le débit habituel, et le
+     * confirme par un message : le geste de HarmoHub, transposé à une appli sans serveur.
+     */
     enregistrer() {
+        clearTimeout(this._minuterieBrouillon);
         try {
-            const nom = enregistrerPartition(this.editeur.partition);
-            this.message(`Enregistré → ${nom}`);
+            localStorage.setItem(CLE_BROUILLON, JSON.stringify(this.editeur.partition));
+            this.message('Enregistré');
         } catch (err) {
-            this.message('Échec de l\'enregistrement : ' + err.message);
+            this.message('Échec de l\'enregistrement local : ' + err.message);
         }
     }
 
+    /** Exporter : un fichier .json portable, téléchargé — l'ancien sens d'« Enregistrer ». */
+    exporterJson() {
+        try {
+            const nom = enregistrerPartition(this.editeur.partition);
+            this.message(`Exporté → ${nom}`);
+        } catch (err) {
+            this.message('Échec de l\'export : ' + err.message);
+        }
+    }
+
+    /** Importer : ouvrir un fichier .json depuis le disque — l'ancien « Ouvrir ». */
     ouvrir() { this.el.entreeFichier.click(); }
 
     async chargerFichier(fichier) {
@@ -409,7 +429,7 @@ class TabHubApp {
             const partition = await lireFichierPartition(fichier);
             this.arreter();
             this.editeur.remplacer(partition);
-            this.message(`Ouvert : ${partition.meta.titre}`);
+            this.message(`Importé : ${partition.meta.titre}`);
         } catch (err) {
             this.message(err.message || 'Impossible d\'ouvrir ce fichier');
         }
@@ -469,7 +489,7 @@ class TabHubApp {
     poserIcones() {
         const paires = {
             'btn-annuler': 'annuler', 'btn-retablir': 'retablir', 'btn-nouveau': 'nouveau',
-            'btn-ouvrir': 'ouvrir', 'btn-enregistrer': 'enregistrer', 'btn-pdf': 'pdf',
+            'btn-ouvrir': 'ouvrir', 'btn-exporter': 'exporter', 'btn-enregistrer': 'enregistrer', 'btn-pdf': 'pdf',
             'btn-reglages': 'reglages', 'btn-aide': 'aide', 'btn-stop': 'stop',
         };
         for (const [id, nom] of Object.entries(paires)) {
@@ -488,6 +508,7 @@ class TabHubApp {
         surClic('btn-retablir', () => this.editeur.retablir());
         surClic('btn-nouveau', () => this.nouveau());
         surClic('btn-ouvrir', () => this.ouvrir());
+        surClic('btn-exporter', () => this.exporterJson());
         surClic('btn-enregistrer', () => this.enregistrer());
         surClic('btn-pdf', () => this.exporterPdf());
         surClic('btn-reglages', () => { this.remplirReglages(); this.ouvrirFenetre('fenetre-reglages'); });

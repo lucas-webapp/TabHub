@@ -81,12 +81,15 @@ const empreinte = (page) => page.evaluate(() => {
         const avant = await empreinte(page);
 
         // --- Aller-retour JSON ----------------------------------------------------------------------
+        // « Exporter » télécharge un fichier portable (l'ancien sens d'« Enregistrer ») ; « Enregistrer »
+        // s'est spécialisé dans la persistance LOCALE (voir main.js) — un clic dessus n'ouvre aucun
+        // téléchargement, ce que ce banc ne doit pas confondre avec un défaut.
         const attenteJson = page.waitForEvent('download');
-        await page.click('#btn-enregistrer');
+        await page.click('#btn-exporter');
         const telJson = await attenteJson;
         const cheminJson = path.join(dossier, 'temoin.json');
         await telJson.saveAs(cheminJson);
-        exiger(fs.existsSync(cheminJson), 'le clic sur Enregistrer télécharge bien un fichier');
+        exiger(fs.existsSync(cheminJson), 'le clic sur Exporter télécharge bien un fichier');
         check(/\.json$/.test(telJson.suggestedFilename()), 'le fichier porte l\'extension .json');
         check(telJson.suggestedFilename().startsWith('Banc des exports'), 'et il est nommé d\'après le titre du morceau');
 

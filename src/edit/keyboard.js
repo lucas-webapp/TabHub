@@ -38,6 +38,7 @@ export function brancherClavier(editeur, actions = {}) {
         if (sig === 'ctrl+z') { e.preventDefault(); editeur.annuler(); return; }
         if (sig === 'ctrl+y' || sig === 'ctrl+shift+z') { e.preventDefault(); editeur.retablir(); return; }
         if (sig === 'ctrl+s') { e.preventDefault(); actions.enregistrer?.(); return; }
+        if (sig === 'ctrl+shift+s') { e.preventDefault(); actions.exporterJson?.(); return; }
         if (sig === 'ctrl+o') { e.preventDefault(); actions.ouvrir?.(); return; }
         if (sig === 'ctrl+p') { e.preventDefault(); actions.exporterPdf?.(); return; }
         if (sig === '?' || sig === 'shift+?') { e.preventDefault(); actions.aide?.(); return; }
