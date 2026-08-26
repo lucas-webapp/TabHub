@@ -45,6 +45,9 @@ export const GEO_DEFAUT = {
                                 // baisse si besoin — voir decouperEnSystemesParCompte)
     reglette: false,            // réglette de repère temporel sous la TAB — aide à l'édition
                                 // seulement, jamais transmise à l'export PDF (voir poserReglette)
+    avertirErreurs: true,      // fond teinté sur une mesure dont une voix ne totalise pas la
+                                // bonne durée — mis à false pour l'export PDF (couleur translucide,
+                                // non portable vers jsPDF)
 };
 
 /**
@@ -415,6 +418,12 @@ export function mettreEnPage(partition, options = {}) {
             // c'est précisément l'information que porte le `null` du modèle.
             changeSignature: !!mesure.signature,
             changeArmure: mesure.armure !== null && mesure.armure !== undefined,
+            // Une voix dont le total des durées ne tombe pas EXACTEMENT sur la capacité de la
+            // mesure (trop ou pas assez) est signalée à la pose (voir poserMesure) plutôt que
+            // laissée à se désaccorder en silence — c'est ce que produit, par exemple, un
+            // changement de durée qui déborde sur ce qui suit (voir Editeur.appliquerDuree).
+            invalide: mesure.voix.some(v => Math.abs(
+                v.evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0) - capacite) > 1e-6),
         };
     });
 
@@ -667,6 +676,13 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     const hauteurTab = (cordes - 1) * ST;
     let x = ctx.x;
     const xDebutMesure = x;
+
+    // Une voix qui ne totalise pas la capacité de la mesure (trop ou pas assez, voir l'étape 1) est
+    // signalée par un fond teinté couvrant portée ET tablature — visible au premier coup d'œil,
+    // SOUS la notation (posé en premier) pour ne rien masquer. Absent du PDF (voir GEO_DEFAUT).
+    if (m.invalide && geo.avertirErreurs !== false) {
+        out.push(rect(xDebutMesure, yPortee, ctx.finMesure - xDebutMesure, (yTab + hauteurTab) - yPortee, 'avertissement'));
+    }
 
     // Barre de reprise ouvrante — épaisse puis fine, puis les deux points.
     if (m.ref.repriseDebut) {

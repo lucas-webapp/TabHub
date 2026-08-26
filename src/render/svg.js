@@ -17,6 +17,7 @@ export const PALETTE = {
     curseur: '#00E676',
     lecture: '#FFB300',
     selection: 'rgba(0, 230, 118, 0.16)',
+    avertissement: 'rgba(213, 46, 46, 0.14)',
 };
 
 const ech = (v) => (Math.round(v * 100) / 100);

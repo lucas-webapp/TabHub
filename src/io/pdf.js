@@ -68,6 +68,7 @@ export function construirePdf(partition, options = {}) {
         margeDroite: 1,
         avecEnTete: true,
         yDepart: 0,
+        avertirErreurs: false,   // fond translucide : couleur écran, non portable vers jsPDF
     });
 
     const hauteurEnTete = page.ancrages.systemes.length ? page.ancrages.systemes[0].y : 0;

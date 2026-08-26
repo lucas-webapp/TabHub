@@ -19,7 +19,7 @@
 
 import {
     creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
-    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, MAX_VOIX,
+    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, decouperEnEvenements, MAX_VOIX,
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
 import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage } from '../model/instruments.js';
@@ -328,12 +328,53 @@ export class Editeur {
 
     // -- Rythme -----------------------------------------------------------------------------------
 
-    /** Change la durée de l'évènement courant, et la retient pour les suivants. */
+    /**
+     * Change la durée de l'évènement courant, et la retient pour les suivants.
+     *
+     * LA MESURE SE RÉADAPTE QUAND C'EST SANS RISQUE, JAMAIS AU PRIX D'UNE NOTE. Si l'évènement
+     * s'allonge, le temps gagné est pris sur les SILENCES qui suivent immédiatement dans la même
+     * voix — jamais sur une note déjà écrite, qu'on n'efface pas sans le dire. S'il n'y a pas assez
+     * de silence pour compenser avant la fin de la voix (ou avant la prochaine note), on renonce
+     * ENTIÈREMENT plutôt que de ne consommer qu'une partie : la mise en page signale alors la mesure
+     * (voir `invalide` dans engine/layout.js) au lieu de la modifier à moitié en silence. Si
+     * l'évènement raccourcit, le temps libéré redevient un silence juste après (fusionné à celui qui
+     * s'y trouve déjà, s'il y en a un) — la mesure reste, elle, toujours juste dans ce sens-là.
+     */
     appliquerDuree(valeur) {
         if (!VALEURS_FIGURES.includes(valeur)) return false;
         this.memoriser();
         this.dureeCourante = { ...this.dureeCourante, valeur };
-        this.evenementCourant().duree = { ...this.evenementCourant().duree, valeur };
+
+        const voix = this.voixCourante();
+        const iEvt = this.curseur.evenement;
+        const evenement = voix.evenements[iEvt];
+        const ancienne = dureeEnNoires(evenement.duree);
+        evenement.duree = { ...evenement.duree, valeur };
+        const nouvelle = dureeEnNoires(evenement.duree);
+        const delta = nouvelle - ancienne;
+        const estSilence = (e) => e.silence || !e.notes.length;
+
+        if (delta > 1e-9) {
+            let reste = delta, j = iEvt + 1;
+            while (reste > 1e-9 && j < voix.evenements.length && estSilence(voix.evenements[j])) {
+                reste -= dureeEnNoires(voix.evenements[j].duree);
+                j++;
+            }
+            if (reste <= 1e-9) {
+                const excedent = -reste;   // ce qu'il reste du dernier silence consommé, à rendre
+                voix.evenements.splice(iEvt + 1, j - (iEvt + 1),
+                    ...(excedent > 1e-9 ? decouperEnEvenements(excedent) : []));
+            }
+            // sinon : rien d'autre ne bouge, la mesure sera signalée en trop à l'affichage.
+        } else if (delta < -1e-9) {
+            let libere = -delta, j = iEvt + 1;
+            while (j < voix.evenements.length && estSilence(voix.evenements[j])) {
+                libere += dureeEnNoires(voix.evenements[j].duree);
+                j++;
+            }
+            voix.evenements.splice(iEvt + 1, j - (iEvt + 1), ...decouperEnEvenements(libere));
+        }
+
         this.prevenir('edition');
         return true;
     }
