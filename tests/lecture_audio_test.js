@@ -11,7 +11,7 @@ const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(19);
+    plan(22);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
@@ -119,6 +119,39 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
         const apresStop = await page.evaluate(() => ({ etat: window.app.lecteur.etat, pos: window.app.lecteur.position, marques: window.app.marquesLecture().length }));
         check(apresStop.etat === 'arret' && apresStop.pos === 0, 'l\'arrêt ramène au début du morceau');
         check(apresStop.marques === 0, 'et efface la tête de lecture');
+
+        // --- Fin NATURELLE du morceau : le bouton doit revenir tout seul à « Lecture » ----------------
+        // Un morceau très court à tempo très rapide, pour que la fin arrive vite (voir player.js#programmer,
+        // le schedule de fermeture qui appelle arreter() de lui-même). C'est CE chemin — l'arrêt
+        // déclenché par le LECTEUR, jamais par un clic sur #btn-jouer/#btn-stop — qui ne rafraîchissait
+        // pas l'icône du bouton avant ce correctif : elle restait sur « Pause » (triangle barré) comme
+        // si la lecture continuait, alors que le transport était bel et bien arrêté.
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            // UNE SEULE mesure (jamais les autres, restées à leur contenu antérieur dans ce banc) :
+            // sans quoi la durée totale du morceau — celle qu'attend le schedule de fermeture de
+            // player.js — resterait celle de plusieurs mesures à 4/4, et l'attente ci-dessous ne
+            // suffirait pas à couvrir la fin réelle du morceau.
+            ed.partition.mesures = [m.creerMesure({
+                voix: [{ evenements: [m.creerEvenement({ valeur: 32 }, [m.creerNote(0, 3)])] }],
+            })];
+            ed.partition.meta.tempo = 400;   // une mesure à 4/4, ~0,6 s à ce tempo (voir dureeTotale)
+            ed.prevenir('document');
+        });
+        await page.click('#btn-jouer');
+        await page.waitForTimeout(200);   // confortablement AVANT la fin (~0,6 s), voir dureeTotale ci-dessus
+        const enCours = await page.evaluate(() => ({
+            etat: window.app.lecteur.etat, titreBouton: document.getElementById('btn-jouer').title,
+        }));
+        exiger(enCours.etat === 'lecture' && enCours.titreBouton === 'Pause (Espace)', 'la lecture (très courte) démarre bien, bouton sur « Pause »');
+        await page.waitForTimeout(1800);   // confortablement APRÈS la fin, même avec la latence audio
+        const apresFinNaturelle = await page.evaluate(() => ({
+            etat: window.app.lecteur.etat, titreBouton: document.getElementById('btn-jouer').title,
+        }));
+        check(apresFinNaturelle.etat === 'arret', 'le lecteur s\'arrête bien TOUT SEUL en fin de morceau');
+        check(apresFinNaturelle.titreBouton === 'Lecture (Espace)',
+            'et le bouton revient au triangle « Lecture », sans qu\'il ait fallu cliquer sur #btn-jouer/#btn-stop pour ça');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript pendant la lecture' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

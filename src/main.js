@@ -101,7 +101,12 @@ class TabHubApp {
         });
 
         this.editeur.surChangement((raison) => this.surChangementEditeur(raison));
-        this.lecteur.surPosition(() => this.dessiner());
+        // Le lecteur peut s'arrêter TOUT SEUL (fin du morceau atteinte, voir player.js#programmer,
+        // le schedule de fermeture) sans passer par main.js#arreter/lectureAlternee — les seuls
+        // endroits qui rafraîchissaient jusqu'ici l'icône du bouton. Sans ce rafraîchissement ICI,
+        // à CHAQUE notification de position, le bouton restait sur « pause » (triangle barré) après
+        // une lecture qui s'était terminée d'elle-même, comme si elle continuait encore.
+        this.lecteur.surPosition(() => { this.rafraichirTransport(); this.dessiner(); });
 
         this.el.zone.focus();
         this.dessiner();
