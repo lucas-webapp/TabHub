@@ -194,8 +194,10 @@ class TabHubApp {
         // Ce que dit la barre du bas sur la position : la corde et, si une note y est posée, la
         // hauteur qu'elle sonne. C'est le seul endroit où la note se lit en clair — la tablature dit
         // « case 7 », pas « si ».
-        const cordes = this.editeur.partition.piste.accordage.cordes;
-        const numeroCorde = cordes.length - c.corde;   // les guitaristes numérotent depuis l'aiguë
+        // Les instrumentistes numérotent les cordes DEPUIS L'AIGUË : la plus fine est la corde 1.
+        // C'est exactement l'ordre interne (cordes[0] = la plus aiguë), donc index + 1 — et non
+        // « nombre de cordes − index », qui annonçait « corde 6 » pour le mi aigu.
+        const numeroCorde = c.corde + 1;
         const note = this.editeur.noteCourante();
         let texte = `Corde ${numeroCorde}`;
         if (note) {

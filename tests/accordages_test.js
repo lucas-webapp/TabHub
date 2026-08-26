@@ -15,7 +15,7 @@ const hauteurs = (page) => page.evaluate(async () => {
 });
 
 (async () => {
-    plan(14);
+    plan(16);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree8"]');
@@ -76,6 +76,17 @@ const hauteurs = (page) => page.evaluate(async () => {
         await page.selectOption('#champ-instrument', 'basse5');
         await page.waitForTimeout(250);
         check((await lireEtat(page)).cordes.length === 5, 'et la basse 5 cordes en compte cinq');
+
+        // La barre du bas nomme la corde comme le fait un instrumentiste : la plus AIGUË est la
+        // corde 1. Une première version annonçait « corde 6 » pour le mi aigu — l'inverse exact.
+        await page.selectOption('#champ-instrument', 'guitare');
+        await page.waitForTimeout(250);
+        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 0));
+        await page.waitForTimeout(150);
+        check(/Corde 1\b/.test(await page.textContent('#info-selection')), 'la corde la plus aiguë est annoncée « corde 1 », comme la nomme un guitariste');
+        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 5));
+        await page.waitForTimeout(150);
+        check(/Corde 6\b/.test(await page.textContent('#info-selection')), 'et la plus grave « corde 6 »');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
