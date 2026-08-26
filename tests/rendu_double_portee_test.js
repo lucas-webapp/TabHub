@@ -10,7 +10,7 @@ const { ouvrirApp, taper } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rendu double portée');
 
 (async () => {
-    plan(13);
+    plan(16);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const svg = await page.$('#feuille svg');
@@ -42,17 +42,35 @@ const { check, exiger, plan, bilan } = creerHarnais('rendu double portée');
         });
         check(aligne, 'chaque évènement porte une seule abscisse, valable pour la portée comme pour la TAB');
 
-        // En-tête de système : clé, puis armure, puis signature — dans cet ordre, une seule fois.
-        const entete = await page.evaluate(() => {
-            const p = window.app.page.primitives;
-            const glyphes = p.filter(x => x.t === 'glyphe');
-            const textes = p.filter(x => x.t === 'texte').map(x => String(x.s));
-            return { glyphes: glyphes.length, aSignature: textes.includes('4'), aNumero: textes.includes('1'), aTab: textes.filter(t => 'TAB'.includes(t) && t.length === 1).length };
+        // EN-TÊTE DE SYSTÈME, ET PROVENANCE DES SIGNES. On ne se contente pas de compter des formes :
+        // on vérifie que les chemins posés sont EXACTEMENT ceux extraits de Bravura. C'est ce qui
+        // distingue une partition gravée d'une approximation dessinée à la main — et une version
+        // antérieure de TabHub dessinait bel et bien ses propres clés, avec une clé de sol qui
+        // ressemblait à une esperluette. Le banc rendrait cette régression immédiatement visible.
+        const entete = await page.evaluate(async () => {
+            const G = await import('/src/engine/glyphs.js');
+            const { GLYPHES_BRAVURA } = await import('/src/engine/glyphes-bravura.js');
+            const glyphes = window.app.page.primitives.filter(x => x.t === 'glyphe');
+            const poses = new Set(glyphes.flatMap(x => x.traits.map(t => t.d)));
+            const officiels = new Set(Object.values(GLYPHES_BRAVURA).map(g => g.d));
+            const textes = window.app.page.primitives.filter(x => x.t === 'texte').map(x => String(x.s));
+            return {
+                nb: glyphes.length,
+                cleSol8vb: poses.has(G.CLE_SOL_8VB[0].d),
+                cleTab: poses.has(G.CLE_TAB_6[0].d),
+                chiffre4: poses.has(G.CHIFFRES[4][0].d),
+                teteNoire: poses.has(G.TETE_NOIRE[0].d),
+                horsBravura: [...poses].filter(d => !officiels.has(d)).length,
+                aNumero: textes.includes('1'),
+            };
         });
-        check(entete.glyphes > 0, 'des glyphes vectoriels sont posés (clé, têtes de note)');
-        check(entete.aSignature, 'la signature rythmique est écrite en tête');
+        check(entete.nb > 0, 'des glyphes vectoriels sont posés');
+        check(entete.horsBravura === 0, 'TOUS proviennent de l\'extraction Bravura — aucun dessin approximatif');
+        check(entete.cleSol8vb, 'la clé de sol est celle de Bravura, avec son 8 d\'octave intégré');
+        check(entete.cleTab, 'la clé de tablature est le glyphe SMuFL officiel, pas trois lettres empilées');
+        check(entete.chiffre4, 'la signature rythmique emploie les chiffres musicaux, pas une police de texte');
+        check(entete.teteNoire, 'les têtes de note aussi');
         check(entete.aNumero, 'les mesures sont numérotées');
-        check(entete.aTab >= 3, 'le mot « TAB » est écrit verticalement à gauche de la tablature');
 
         // Le chiffre de frette doit INTERROMPRE sa ligne de corde : un « 0 » barré se lit « ø ».
         const masques = await page.evaluate(() => window.app.page.primitives.filter(p => p.t === 'rect' && p.couleur === 'papier').length);

@@ -53,10 +53,10 @@ export const GEO_DEFAUT = {
  * ça, une partition de basse se retrouverait sous six lignes supplémentaires.
  */
 export const CLEFS = {
-    sol: { glyphe: G.CLE_SOL, ligne: 3, pasRef: 32, transposition: 0, marqueOctave: 0 },
-    sol8vb: { glyphe: G.CLE_SOL, ligne: 3, pasRef: 32, transposition: 12, marqueOctave: 1 },
-    fa: { glyphe: G.CLE_FA, ligne: 1, pasRef: 24, transposition: 0, marqueOctave: 0 },
-    fa8vb: { glyphe: G.CLE_FA, ligne: 1, pasRef: 24, transposition: 12, marqueOctave: 1 },
+    sol: { glyphe: G.CLE_SOL, ligne: 3, pasRef: 32, transposition: 0 },
+    sol8vb: { glyphe: G.CLE_SOL_8VB, ligne: 3, pasRef: 32, transposition: 12 },
+    fa: { glyphe: G.CLE_FA, ligne: 1, pasRef: 24, transposition: 0 },
+    fa8vb: { glyphe: G.CLE_FA_8VB, ligne: 1, pasRef: 24, transposition: 12 },
 };
 
 // Positions diatoniques des altérations à l'armure, en clé de sol. La clé de fa reprend le MÊME
@@ -83,8 +83,11 @@ const texte = (x, y, s, o = {}) => ({
     taille: o.taille ?? 10, police: o.police ?? 'serif', poids: o.poids ?? 'normal',
     italique: !!o.italique, ancre: o.ancre ?? 'milieu', couleur: o.couleur ?? 'encre',
 });
-/** Pose un glyphe (liste de traits) à l'échelle voulue. L'échelle est TOUJOURS l'interligne courant. */
-const glyphe = (traits, x, y, echelle, couleur = 'encre') => ({ t: 'glyphe', traits, x, y, echelle, couleur });
+/**
+ * Pose un glyphe (liste de traits) à l'échelle voulue. L'échelle est TOUJOURS l'interligne courant.
+ * `nom` identifie le dessin : c'est lui qui permet au moteur SVG de ne l'écrire qu'une fois.
+ */
+const glyphe = (traits, x, y, echelle, couleur = 'encre') => ({ t: 'glyphe', traits, nom: traits.nom, x, y, echelle, couleur });
 const courbe = (d, ep, couleur = 'encre') => ({ t: 'courbe', d, ep, couleur });
 
 /**
@@ -124,13 +127,23 @@ function largeurEvenement(evenement, S, geo) {
     return Math.max(proportionnelle, plancher);
 }
 
-/** Largeur de l'en-tête d'une mesure : clé, armure, signature — seulement ce qui doit y figurer. */
-function largeurEnTete(besoins, armure, S) {
+/**
+ * Largeur de l'en-tête d'une mesure : clé, armure, signature — seulement ce qui doit y figurer.
+ *
+ * Chaque largeur est MESURÉE sur la boîte englobante du glyphe réel, jamais devinée. Une version
+ * antérieure portait une table de largeurs écrite à la main ; elle a cessé d'être juste dès que les
+ * dessins ont changé, et les altérations d'armure se chevauchaient.
+ */
+function largeurEnTete(besoins, armure, signature, clef, S) {
     let w = 0;
-    if (besoins.clef) w += 3.4 * S;
-    if (besoins.armure && armure !== 0) w += Math.abs(armure) * 1.05 * S + 0.6 * S;
-    if (besoins.signature) w += 2.6 * S;
-    if (besoins.repriseDebut) w += 1.6 * S;
+    if (besoins.clef) w += (G.largeurDe(clef.glyphe) + 0.9) * S;
+    if (besoins.armure && armure !== 0) {
+        w += Math.abs(armure) * (G.largeurDe(armure > 0 ? G.DIESE : G.BEMOL) + 0.08) * S + 0.5 * S;
+    }
+    if (besoins.signature) {
+        w += (Math.max(G.chiffresDe(signature.battements).largeur, G.chiffresDe(signature.unite).largeur) + 0.9) * S;
+    }
+    if (besoins.repriseDebut) w += 1.8 * S;
     // RESPIRATION APRÈS L'EN-TÊTE. Une altération accidentelle se dessine À GAUCHE de sa tête de note,
     // hors de la largeur allouée à l'évènement : sans cette marge, le dièse de la première note d'une
     // mesure venait se poser sur le chiffre de la signature rythmique. La marge est comptée ici, dans
@@ -221,7 +234,7 @@ export function mettreEnPage(partition, options = {}) {
             signature: premiereDuSysteme || m.changeSignature,
             repriseDebut: m.ref.repriseDebut,
         };
-        const enTete = largeurEnTete(besoins, m.armure, S);
+        const enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S);
         const largeurTotale = enTete + m.largeurNotes + 1.4 * S;   // marge avant la barre de mesure
 
         if (!courant) courant = { mesures: [], largeur: 0 };
@@ -230,7 +243,7 @@ export function mettreEnPage(partition, options = {}) {
             courant = { mesures: [], largeur: 0 };
             // Nouveau système : la clé et l'armure se redessinent, donc la mesure est remesurée.
             const b2 = { clef: true, armure: true, signature: m.changeSignature || systemes.length === 0, repriseDebut: m.ref.repriseDebut };
-            const e2 = largeurEnTete(b2, m.armure, S);
+            const e2 = largeurEnTete(b2, m.armure, m.signature, clef, S);
             m.besoins = b2; m.enTete = e2; m.largeurTotale = e2 + m.largeurNotes + 1.4 * S;
             courant.mesures.push(m); courant.largeur += m.largeurTotale;
             continue;
@@ -247,7 +260,7 @@ export function mettreEnPage(partition, options = {}) {
         const m = sys.mesures[0];
         if (!m.besoins.clef) {
             m.besoins = { ...m.besoins, clef: true, armure: true, signature: true };
-            m.enTete = largeurEnTete(m.besoins, m.armure, S);
+            m.enTete = largeurEnTete(m.besoins, m.armure, m.signature, clef, S);
             m.largeurTotale = m.enTete + m.largeurNotes + 1.4 * S;
             sys.largeur = sys.mesures.reduce((t, x) => t + x.largeurTotale, 0);
         }
@@ -285,7 +298,7 @@ export function mettreEnPage(partition, options = {}) {
 
         poserLignesSysteme(primitives, xDebut, xFin, yPortee, yTab, S, ST, cordes);
         poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
-        poserMotTab(primitives, xDebut, yTab, ST, cordes);
+        poserCleTab(primitives, xDebut, yTab, ST, cordes);
 
         let x = xDebut;
         sys.mesures.forEach((m, iDansSys) => {
@@ -348,15 +361,15 @@ function poserEnTete(out, partition, geo, y) {
     // Indication de tempo : la FIGURE de note plutôt que le mot « noire ». C'est la notation
     // universelle, lisible sans traduction, et elle dit du même coup quelle figure vaut le battement.
     if (meta.tempo) {
-        // ATTENTION À L'ÉCHELLE : l'argument d'échelle d'un glyphe est déjà une TAILLE D'INTERLIGNE en
-        // pixels, pas un facteur. Une première version y passait `S * 0.62 * 1.6`, donc un interligne
-        // huit fois trop grand — la noire du tempo sortait plus haute que le titre.
-        const ech = S * 1.0;                  // la figure du tempo, à la taille d'une note de portée
+        // La figure du tempo est un glyphe à part entière de Bravura (tête ET hampe d'un seul tenant),
+        // et non une tête à laquelle on ajouterait un trait : ses proportions sont celles d'une note
+        // d'indication métronomique, plus ramassée qu'une note de portée.
+        // ATTENTION À L'ÉCHELLE : l'argument d'un glyphe est une TAILLE D'INTERLIGNE, pas un facteur.
+        const ech = S * 0.95;
         const xt = geo.margeGauche + S * 0.7;
         const yt = yy + S * 2.4;
-        out.push(glyphe(G.TETE_NOIRE, xt, yt, ech));
-        out.push(ligne(xt + 0.62 * ech, yt, xt + 0.62 * ech, yt - 3.4 * ech, G.EPAISSEURS.hampe * ech));
-        out.push(texte(xt + S * 1.5, yt + S * 0.3, `= ${Math.round(meta.tempo)}`, {
+        out.push(glyphe(G.NOIRE_TEMPO, xt, yt, ech));
+        out.push(texte(xt + (G.largeurDe(G.NOIRE_TEMPO) * ech) + S * 0.4, yt + S * 0.3, `= ${Math.round(meta.tempo)}`, {
             taille: S * 1.7, police: 'serif', poids: '700', ancre: 'debut',
         }));
         yy += S * 3.2;
@@ -382,15 +395,23 @@ function poserAccolade(out, x, yHaut, yBas, S) {
     out.push(ligne(x, yHaut, x, yBas, G.EPAISSEURS.barreMesure * S));
 }
 
-/** « TAB » écrit verticalement à gauche de la tablature, comme sur toute tablature gravée. */
-function poserMotTab(out, x, yTab, ST, cordes) {
+/**
+ * Clé de tablature — le glyphe SMuFL officiel, à la place de trois lettres empilées.
+ *
+ * Bravura en dessine un « TAB » vertical conçu pour ENJAMBER la portée de tablature, avec les
+ * proportions et l'inclinaison des éditions gravées. Trois caractères d'une police de labeur posés
+ * l'un sur l'autre, comme dans une version antérieure, se lisaient comme un mot écrit à la verticale,
+ * pas comme une clé.
+ */
+function poserCleTab(out, x, yTab, ST, cordes) {
     const hauteur = (cordes - 1) * ST;
-    const taille = Math.min(ST * 0.95, hauteur / 3.4);
-    'TAB'.split('').forEach((lettre, i) => {
-        out.push(texte(x + 1.15 * taille, yTab + hauteur / 2 + (i - 1) * taille * 1.06 + taille * 0.36, lettre, {
-            taille, police: 'serif', poids: '700', ancre: 'milieu',
-        }));
-    });
+    const g = G.cleTabPour(cordes);
+    const b = G.boiteDe(g);
+    // Le glyphe est dessiné pour une portée standard : on l'étire à la hauteur RÉELLE de la
+    // tablature, qui dépend du nombre de cordes et de l'espacement choisi. Exactement à cette
+    // hauteur, sans marge : la clé de tablature ENJAMBE la portée, elle n'en déborde pas.
+    const echelle = hauteur / (b.bas - b.haut);
+    out.push(glyphe(g, x + 0.5 * ST, yTab + hauteur / 2, echelle));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -416,32 +437,45 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         x = xp + 0.9 * S;
     }
 
-    // Clé
+    // Clé. L'ancrage SMuFL place l'origine au bord GAUCHE, sur la ligne que la clé désigne — le
+    // centre de la spirale pour une clé de sol. Les variantes « 8vb » portent leur petit 8 dans le
+    // glyphe même : guitare et basse sonnent une octave plus bas, et Bravura dessine ce 8 à sa place
+    // exacte, mieux qu'un chiffre posé à la main sous la clé.
     if (m.besoins.clef) {
-        const yLigne = yPortee + clef.ligne * S;
-        out.push(glyphe(clef.glyphe, x + 1.5 * S, yLigne, S));
-        if (clef.marqueOctave) {
-            out.push(texte(x + 1.5 * S, yPortee + 4 * S + G.OCTAVE_BASSE_Y * S * 0.5, '8', { taille: S * 1.15, police: 'serif', poids: '600' }));
-        }
-        x += 3.4 * S;
+        out.push(glyphe(clef.glyphe, x + 0.45 * S, yPortee + clef.ligne * S, S));
+        x += (G.largeurDe(clef.glyphe) + 0.9) * S;
     }
 
     // Armure
     if (m.besoins.armure && m.armure !== 0) {
-        const glypheAlt = m.armure > 0 ? G.ALTERATIONS['1'] : G.ALTERATIONS['-1'];
+        const alt = m.armure > 0 ? G.DIESE : G.BEMOL;
+        const avance = (G.largeurDe(alt) + 0.08) * S;
         positionsArmure(m.armure, clef).forEach(pas => {
-            out.push(glyphe(glypheAlt, x + 0.5 * S, yDeLaPosition(pas, yPortee, S, clef), S));
-            x += 1.05 * S;
+            out.push(glyphe(alt, x, yDeLaPosition(pas, yPortee, S, clef), S));
+            x += avance;
         });
-        x += 0.6 * S;
+        x += 0.5 * S;
     }
 
-    // Signature rythmique : deux chiffres empilés, centrés sur les 2e et 4e interlignes.
+    // Signature rythmique, en chiffres de Bravura plutôt qu'en texte gras d'une police de labeur.
+    // Ces chiffres-là sont dessinés pour la musique : hauteur exactement deux interlignes, centrés
+    // verticalement sur leur ligne. Avec du texte, la taille devait être devinée et retouchée à
+    // chaque changement d'échelle — et « 12 » ne s'alignait pas sur « 8 ».
     if (m.besoins.signature) {
-        const taille = S * 2.35;
-        out.push(texte(x + 1.15 * S, yPortee + 2 * S - 0.06 * S, String(m.signature.battements), { taille, police: 'serif', poids: '700' }));
-        out.push(texte(x + 1.15 * S, yPortee + 4 * S - 0.06 * S, String(m.signature.unite), { taille, police: 'serif', poids: '700' }));
-        x += 2.6 * S;
+        const haut = G.chiffresDe(m.signature.battements);
+        const bas = G.chiffresDe(m.signature.unite);
+        const largeur = Math.max(haut.largeur, bas.largeur);
+        const poserSuite = (suite, y) => {
+            let cx = x + 0.45 * S + ((largeur - suite.largeur) / 2) * S;
+            for (const g of suite.glyphes) {
+                cx += (G.largeurDe(g) / 2) * S;
+                out.push(glyphe(g, cx, y, S));
+                cx += (G.largeurDe(g) / 2) * S;
+            }
+        };
+        poserSuite(haut, yPortee + 1 * S);   // centré entre la ligne du haut et la médiane
+        poserSuite(bas, yPortee + 3 * S);    // centré entre la médiane et la ligne du bas
+        x += (largeur + 0.9) * S;
     }
     if (m.enTete > 0) x += 1.5 * S;   // la respiration comptée par largeurEnTete
 
@@ -477,6 +511,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
 
     const groupes = grouperLigatures(poses, m.signature);
     poserHampes(out, poses, groupes, S);
+    poserArticulations(out, poses, S);
     poserNolets(out, poses, S);
     poserLiaisons(out, poses, S, ST);
 
@@ -522,9 +557,15 @@ function poserEvenement(out, partition, evenement, ctx) {
     };
 
     if (estSilence) {
-        out.push(glyphe(G.SILENCES[evenement.duree.valeur] || G.SILENCES[4], x, yPortee + 2 * S, S));
-        if (evenement.duree.points) {
-            for (let i = 0; i < evenement.duree.points; i++) out.push(glyphe(G.POINT, x + (1.0 + i * 0.45) * S, yPortee + 1.5 * S, S));
+        // La pause et la demi-pause sont le MÊME rectangle : seule leur position les distingue — la
+        // première suspendue sous la 4e ligne, la seconde posée sur la médiane. Les confondre décale
+        // la lecture d'un temps entier, l'erreur la plus coûteuse qu'un silence puisse porter.
+        const g = G.SILENCES[evenement.duree.valeur] || G.SILENCES[4];
+        const yLigne = yPortee + (G.LIGNE_SILENCE[evenement.duree.valeur] ?? 2) * S;
+        const demi = (G.largeurDe(g) / 2) * S;
+        out.push(glyphe(g, x - demi, yLigne, S));
+        for (let i = 0; i < (evenement.duree.points || 0); i++) {
+            out.push(glyphe(G.POINT, x + demi + (0.5 + i * 0.42) * S, yPortee + 1.5 * S, S));
         }
         return pose;
     }
@@ -570,18 +611,24 @@ function poserEvenement(out, partition, evenement, ctx) {
     pose.sensHampe = ecartHaut >= ecartBas ? 1 : -1;
     pose.pasMedian = pasMedian;
 
-    const teteGlyphe = evenement.duree.valeur === 1 ? G.TETE_RONDE
-        : evenement.duree.valeur === 2 ? G.TETE_BLANCHE : G.TETE_NOIRE;
+    const teteGlyphe = G.teteDe(evenement.duree.valeur);
+    // Demi-largeur de la tête : c'est elle qui donne l'écart de la hampe, la place du point et
+    // l'accroche des liaisons. MESURÉE sur le glyphe, car une ronde est nettement plus large qu'une
+    // noire (1,69 contre 1,18 interligne) — un écart constant flotterait à côté de l'une tout en
+    // mordant sur l'autre.
+    const demiTete = G.demiTete(evenement.duree.valeur);
+    pose.demiTete = demiTete;
 
     let yMin = Infinity, yMax = -Infinity;
     for (const e of ecritures) {
         // Lignes supplémentaires : au-dessus et en dessous de la portée, de demi-interligne en
         // demi-interligne, seulement sur les LIGNES (positions paires depuis la référence).
-        poserLignesSupplementaires(out, x, e.y, yPortee, S);
+        poserLignesSupplementaires(out, x, e.y, yPortee, S, demiTete);
 
         const alt = memoire.besoin(e.ecriture);
         if (alt !== null) {
-            out.push(glyphe(G.ALTERATIONS[String(alt)], x - (G.LARGEUR_ALTERATION[String(alt)] + 0.35) * S, e.y, S));
+            const ga = G.ALTERATIONS[String(alt)];
+            out.push(glyphe(ga, x - (G.largeurDe(ga) + demiTete + 0.2) * S, e.y, S));
         }
         out.push(glyphe(e.note.ghost ? G.TETE_CROIX : teteGlyphe, x, e.y, S));
         if (evenement.duree.points) {
@@ -589,7 +636,7 @@ function poserEvenement(out, partition, evenement, ctx) {
             // disparaît dans le trait.
             const surLigne = Math.round((e.y - yPortee) / (S / 2)) % 2 === 0;
             for (let i = 0; i < evenement.duree.points; i++) {
-                out.push(glyphe(G.POINT, x + (0.95 + i * 0.42) * S, e.y - (surLigne ? S / 2 : 0), S));
+                out.push(glyphe(G.POINT, x + (demiTete + 0.42 + i * 0.42) * S, e.y - (surLigne ? S / 2 : 0), S));
             }
         }
         yMin = Math.min(yMin, e.y); yMax = Math.max(yMax, e.y);
@@ -605,9 +652,12 @@ function ligneTab(note, yTab, ST) {
     return yTab + note.corde * ST;
 }
 
-function poserLignesSupplementaires(out, x, y, yPortee, S) {
+function poserLignesSupplementaires(out, x, y, yPortee, S, demiTete = 0.59) {
     const ep = G.EPAISSEURS.ligneSupplementaire * S;
-    const larg = 0.95 * S;
+    // La ligne dépasse la tête d'un quart d'interligne de chaque côté — proportion de gravure. Une
+    // largeur fixe, comme dans une version antérieure, était trop courte pour une ronde (nettement
+    // plus large qu'une noire) et la ligne disparaissait sous la tête.
+    const larg = (demiTete + 0.26) * S;
     if (y < yPortee - 0.1) {
         for (let yy = yPortee - S; yy >= y - 0.1; yy -= S) out.push(ligne(x - larg, yy, x + larg, yy, ep));
     } else if (y > yPortee + 4 * S + 0.1) {
@@ -658,6 +708,16 @@ function boutDeHampe(p, sens, S) {
 }
 
 /**
+ * Abscisse de la hampe : au bord DROIT de la tête pour une hampe montante, au bord GAUCHE pour une
+ * descendante — la règle de gravure, qui fait que la hampe prolonge la tête au lieu de la traverser.
+ * L'écart est mesuré sur le glyphe, moins la demi-épaisseur du trait pour que la hampe affleure.
+ */
+function xDeHampe(p, sens, S) {
+    const d = (p.demiTete ?? 0.59) - G.EPAISSEURS.hampe / 2;
+    return p.x + (sens < 0 ? d : -d) * S;
+}
+
+/**
  * Trace toutes les hampes : celles des notes isolées (avec leur crochet), puis celles des groupes
  * ligaturés (qui rejoignent une ligne de ligature commune).
  */
@@ -668,15 +728,17 @@ function poserHampes(out, poses, groupes, S) {
     for (const p of poses) {
         if (p.estSilence || enGroupe.has(p) || p.ref.duree.valeur < 2) continue;
         const sens = p.sensHampe;
-        const xh = p.x + (sens < 0 ? 0.62 * S : -0.62 * S);
+        const xh = xDeHampe(p, sens, S);
         const attache = sens < 0 ? p.yBas : p.yHaut;
         const bout = boutDeHampe(p, sens, S);
         out.push(ligne(xh, attache, xh, bout, G.EPAISSEURS.hampe * S));
         p.xHampe = xh; p.yHampe = bout;
         if (p.crochets > 0) {
-            // Hampe descendante : le crochet est exactement le miroir vertical de celui d'une hampe
-            // montante — un seul dessin à maintenir, retourné à la pose.
-            out.push({ ...glyphe(G.crochet(p.crochets), xh, bout, S), miroirY: sens > 0 });
+            // Bravura fournit DEUX dessins, un par sens de hampe — ce ne sont pas des miroirs l'un de
+            // l'autre : le crochet descendant est plus large et sa courbure diffère. Une version
+            // antérieure retournait le dessin montant, et toutes les hampes descendantes penchaient
+            // du mauvais côté.
+            out.push(glyphe(G.crochet(p.crochets, sens), xh - (G.EPAISSEURS.hampe / 2) * S, bout, S));
         }
     }
 
@@ -689,7 +751,7 @@ function poserHampes(out, poses, groupes, S) {
         const sens = poids >= 0 ? 1 : -1;
         for (const p of g) p.sensHampe = sens;
 
-        const xh = (p) => p.x + (sens < 0 ? 0.62 * S : -0.62 * S);
+        const xh = (p) => xDeHampe(p, sens, S);
         const premier = g[0], dernier = g[g.length - 1];
         const yIdeal = (p) => boutDeHampe(p, sens, S);
 
@@ -745,6 +807,31 @@ function poserHampes(out, poses, groupes, S) {
 }
 
 /**
+ * Accents et staccatos, du côté OPPOSÉ à la hampe.
+ *
+ * C'est la règle de gravure : une articulation posée du côté de la hampe la croiserait. Le glyphe est
+ * aligné par sa BOÎTE plutôt que par son origine — accent et staccato n'ancrent pas au même endroit,
+ * et raisonner sur la boîte donne le même écart visible pour les deux, quel que soit leur dessin.
+ */
+function poserArticulations(out, poses, S) {
+    const ECART = 0.75;
+    for (const p of poses) {
+        if (p.estSilence || (!p.ref.accent && !p.ref.staccato)) continue;
+        const dessus = p.sensHampe > 0;      // hampe vers le bas → articulation au-dessus
+        let decalage = 0;
+        for (const g of [p.ref.accent ? (dessus ? G.ACCENT_DESSUS : G.ACCENT_DESSOUS) : null,
+                         p.ref.staccato ? G.STACCATO : null].filter(Boolean)) {
+            const b = G.boiteDe(g);
+            const y = dessus
+                ? p.yHaut - (ECART + decalage) * S - b.bas * S
+                : p.yBas + (ECART + decalage) * S - b.haut * S;
+            out.push(glyphe(g, p.x, y, S));
+            decalage += (b.bas - b.haut) + 0.35;
+        }
+    }
+}
+
+/**
  * Crochet et chiffre des divisions irrégulières (« 3 » d'un triolet).
  *
  * Sans ce chiffre, trois croches en triolet sont IMPOSSIBLES à distinguer de trois croches
@@ -770,9 +857,17 @@ function poserNolets(out, poses, S) {
             ? Math.min(...groupe.map(p => p.yHampe ?? p.yHaut)) - 0.95 * S
             : Math.max(...groupe.map(p => p.yHampe ?? p.yBas)) + 1.5 * S;
         const xa = groupe[0].x, xb = groupe[groupe.length - 1].x;
-        out.push(texte((xa + xb) / 2, y + 0.35 * S, String(nolet.dans), {
-            taille: S * 1.25, police: 'serif', poids: '600', italique: true,
-        }));
+        // Chiffres de n-olet de Bravura : penchés et plus étroits que ceux d'une signature, comme le
+        // veut la gravure. Leur ligne de base est en bas du glyphe, d'où le décalage quand ils se
+        // posent SOUS la ligature.
+        const suite = G.chiffresDe(nolet.dans, G.CHIFFRES_NOLET);
+        let cx = (xa + xb) / 2 - (suite.largeur / 2) * S;
+        const yChiffre = y + (sens < 0 ? 0 : 1.35 * S);
+        for (const gl of suite.glyphes) {
+            cx += (G.largeurDe(gl) / 2) * S;
+            out.push(glyphe(gl, cx, yChiffre, S));
+            cx += (G.largeurDe(gl) / 2) * S;
+        }
         // Le crochet n'est tracé que si le groupe n'est pas déjà tenu par une ligature : celle-ci
         // délimite déjà le n-olet à l'œil, un crochet par-dessus ferait redondance.
         const ligature = groupe.every(p => p.crochets > 0) && groupe.length > 1;
@@ -813,7 +908,8 @@ function poserLiaisons(out, poses, S, ST) {
             // Sur la portée : l'arc se place du côté opposé aux hampes.
             if (na.yPortee != null && nb.yPortee != null) {
                 const sens = a.sensHampe < 0 ? 1 : -1;
-                out.push(courbe(arcLiaison(a.x + 0.66 * S, na.yPortee + sens * 0.55 * S, b.x - 0.66 * S, nb.yPortee + sens * 0.55 * S, sens, 0.38 * S), G.EPAISSEURS.liaison * S));
+                const dA = (a.demiTete ?? 0.59) * S, dB = (b.demiTete ?? 0.59) * S;
+                out.push(courbe(arcLiaison(a.x + dA, na.yPortee + sens * 0.55 * S, b.x - dB, nb.yPortee + sens * 0.55 * S, sens, 0.38 * S), G.EPAISSEURS.liaison * S));
             }
         }
     }

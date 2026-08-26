@@ -5,10 +5,19 @@
 // s'éprouve isolément ; c'est ici, et ici seulement, qu'elles sont câblées ensemble.
 //
 // LA BOUCLE DE L'APPLICATION tient en une phrase : l'éditeur prévient qu'il a changé, on remet en
-// page, on redessine. Pas de rendu partiel, pas de mise à jour chirurgicale d'un nœud SVG. Une
-// partition de vingt mesures, c'est quelques milliers de primitives — un redessin complet coûte
-// moins d'une milliseconde, et rend structurellement impossible la classe de bugs la plus pénible de
-// ce genre d'éditeur : un écran qui ne correspond plus au modèle.
+// page ENTIÈREMENT, et on redessine ce qui est à l'écran. Jamais de mise à jour chirurgicale d'un
+// nœud SVG : recalculer toute la mise en page rend structurellement impossible la classe de bugs la
+// plus pénible de ce genre d'éditeur — un écran qui ne correspond plus au modèle.
+//
+// CE QUE ÇA COÛTE, MESURÉ. Sur une partition de 150 mesures (17 000 primitives), la mise en page
+// complète prend 14 ms : elle n'est pas le problème et n'a pas à être ménagée. Confier les 17 000
+// éléments au navigateur, en revanche, coûtait 243 ms — à chaque frappe. D'où les deux mesures
+// ci-dessous, qui ne touchent ni au modèle ni à la mise en page :
+//   • une BIBLIOTHÈQUE de glyphes (voir render/svg.js) : chaque dessin décrit une fois, référencé
+//     ensuite — le SVG passe de 4,4 Mo à 1,8 Mo ;
+//   • le DESSIN DES SEULS SYSTÈMES VISIBLES (voir bandeVisible) : le nombre de nœuds cesse de
+//     dépendre de la longueur du morceau. Une partition de 150 mesures se redessine alors aussi vite
+//     qu'une de dix, et c'est la seule des trois approches qui tienne quand le morceau s'allonge.
 
 import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
@@ -86,11 +95,50 @@ class TabHubApp {
         });
 
         const calques = [...this.marquesLecture(), ...this.marquesCurseur()];
-        this.el.feuille.innerHTML = rendreSvg(this.page, { calquesDessous: calques });
         this.el.feuille.style.width = `${this.page.largeur}px`;
+        this.el.feuille.style.height = `${this.page.hauteur}px`;
+        this.el.feuille.innerHTML = rendreSvg(this.page, {
+            calquesDessous: calques,
+            systemesVisibles: this.systemesVisibles(),
+        });
+        this._bandeDessinee = this.bandeVisible();
 
         this.rafraichirOutils();
         this.rafraichirInfos();
+    }
+
+    /**
+     * Bande de la feuille actuellement à l'écran, en coordonnées de la partition.
+     *
+     * La marge déborde d'un écran de chaque côté : on dessine donc toujours un peu plus que le
+     * visible, pour qu'un défilement rapide ne découvre pas de blanc le temps du redessin suivant.
+     */
+    bandeVisible() {
+        const zone = this.el.zone;
+        const rz = zone.getBoundingClientRect();
+        const rf = this.el.feuille.getBoundingClientRect();
+        const haut = rz.top - rf.top;
+        const marge = zone.clientHeight;
+        return { haut: haut - marge, bas: haut + zone.clientHeight + marge };
+    }
+
+    /** Les systèmes qui coupent la bande visible — ceux-là seuls seront confiés au navigateur. */
+    systemesVisibles() {
+        if (!this.page) return null;
+        const b = this.bandeVisible();
+        return this.page.ancrages.systemes.filter(s => s.y + s.hauteur >= b.haut && s.y <= b.bas);
+    }
+
+    /**
+     * Redessine au défilement, mais SEULEMENT si la bande a assez bougé pour approcher le bord de
+     * ce qui est déjà dessiné. Redessiner à chaque évènement de défilement rendrait le gain nul.
+     */
+    surDefilement() {
+        if (!this._bandeDessinee) return this.dessiner();
+        const b = this.bandeVisible();
+        const d = this._bandeDessinee;
+        const marge = this.el.zone.clientHeight * 0.5;
+        if (b.haut < d.haut + marge || b.bas > d.bas - marge) this.dessiner();
     }
 
     /** Ancrage de l'évènement sous le curseur, tel que la mise en page vient de le poser. */
@@ -144,6 +192,23 @@ class TabHubApp {
         ];
     }
 
+    /** Amène le système du curseur dans la bande visible, s'il n'y est plus. */
+    suivreLeCurseur() {
+        const a = this.ancrageCurseur();
+        if (!a || !this.page) return;
+        const systeme = this.page.ancrages.systemes.find(s => s.yPortee === a.yPortee);
+        if (!systeme) return;
+        const zone = this.el.zone;
+        const rf = this.el.feuille.getBoundingClientRect();
+        const rz = zone.getBoundingClientRect();
+        const hautEcran = rz.top - rf.top;
+        const basEcran = hautEcran + zone.clientHeight;
+        const marge = this.page.geo.S * 3;
+        if (systeme.y < hautEcran + marge || systeme.y + systeme.hauteur > basEcran - marge) {
+            zone.scrollTop += systeme.y - hautEcran - zone.clientHeight * 0.3;
+        }
+    }
+
     /** Garde la zone en cours de lecture visible, sans la recentrer à chaque image (ça donnerait le mal de mer). */
     faireDefilerVers(ancrage, haut, bas) {
         const zone = this.el.zone;
@@ -161,6 +226,10 @@ class TabHubApp {
 
     surChangementEditeur(raison) {
         this.dessiner();
+        // Le curseur reste à l'écran. Nécessaire depuis que seuls les systèmes visibles sont
+        // dessinés : un curseur poussé hors de la bande dessinée s'afficherait sur du vide, sans
+        // portée derrière lui. C'est aussi ce qu'on attend en écrivant — la page suit la saisie.
+        if (raison !== 'lecture') this.suivreLeCurseur();
         this.rafraichirBoutonsHistorique();
         if (raison === 'document' || raison === 'instrument') this.remplirReglages();
         if (raison === 'document' || raison === 'meta') this.el.titre.value = this.editeur.partition.meta.titre;
@@ -385,6 +454,12 @@ class TabHubApp {
         // Clic dans la partition : place le curseur là où on a cliqué.
         this.el.feuille.addEventListener('pointerdown', (e) => this.clicPartition(e));
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
+        let attenteDefilement = false;
+        this.el.zone.addEventListener('scroll', () => {
+            if (attenteDefilement) return;
+            attenteDefilement = true;
+            requestAnimationFrame(() => { attenteDefilement = false; this.surDefilement(); });
+        }, { passive: true });
 
         for (const b of document.querySelectorAll('[data-fermer]')) {
             b.addEventListener('click', () => this.fermerFenetres());

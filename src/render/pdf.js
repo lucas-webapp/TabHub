@@ -51,12 +51,11 @@ export function analyserChemin(d) {
     return segments;
 }
 
-/** Applique translation, échelle et miroir vertical éventuel aux segments d'un glyphe. */
-function transformer(segments, x, y, echelle, miroirY) {
-    const sy = miroirY ? -echelle : echelle;
+/** Applique translation et échelle aux segments d'un glyphe. */
+function transformer(segments, x, y, echelle) {
     return segments.map(s => s.op === 'h' ? s : {
         op: s.op,
-        c: s.c.map((v, k) => (k % 2 === 0 ? x + v * echelle : y + v * sy)),
+        c: s.c.map((v, k) => (k % 2 === 0 ? x + v * echelle : y + v * echelle)),
     });
 }
 
@@ -110,7 +109,7 @@ export function dessinerPrimitives(pdf, primitives, options = {}) {
                 // mais seulement s'il appartient au MÊME chemin. Deux `path()` successifs
                 // rempliraient chaque contour séparément, et la blanche deviendrait une noire.
                 for (const trait of p.traits) {
-                    const segs = transformer(analyserChemin(trait.d), p.x + dx, p.y + dy, p.echelle, p.miroirY);
+                    const segs = transformer(analyserChemin(trait.d), p.x + dx, p.y + dy, p.echelle);
                     if (trait.epaisseur == null) {
                         pdf.setFillColor(...couleurDe(p.couleur));
                         pdf.path(segs).fill();

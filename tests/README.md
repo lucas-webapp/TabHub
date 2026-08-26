@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-Cinq bancs, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE QU'IL PROTÈGE et
+Sept bancs, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE QU'IL PROTÈGE et
 pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité — plusieurs
 d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le raconte.
 
@@ -12,6 +12,7 @@ d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentair
 | `accordages_test.js` | Trois instruments, accordages prédéfinis et personnalisés, capodastre |
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio |
+| `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
 
 ## Lancer
 
@@ -52,6 +53,11 @@ déjà rencontrés pendant l'écriture, et ce qu'ils ont donné :
 - **« la note martelée sonne plus doucement » rouge** → c'était l'application. Le champ `lien` décrit
   ce qui va vers la note SUIVANTE ; le lecteur l'appliquait à la note courante, donc atténuait celle
   qu'on venait d'attaquer plutôt que celle obtenue au marteau. Corrigé dans `player.js`.
+
+- **« seuls les systèmes visibles sont dessinés » rouge** → c'était le BANC. Il opposait 8 mesures à
+  200 ; les 8 tenaient dans la fenêtre, donc dessinaient moins de systèmes que le plafond du visible.
+  La propriété à éprouver n'était pas « les deux dessinent autant » mais « au-delà d'un écran, le coût
+  cesse de monter ».
 
 Dans le doute : rejouer le banc sur le commit d'AVANT (via `git worktree`, servi sur un second port).
 S'il y échoue à l'identique, ce n'est pas une régression.
