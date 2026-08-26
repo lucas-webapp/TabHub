@@ -16,31 +16,43 @@ import { icone } from './icons.js';
 
 const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
 
+// L'ENCRE ET LE PAPIER DE LA PARTITION, PAS UN GRIS SUR FOND SOMBRE. Deux corrections précédentes
+// (couleur atténuée, puis épaisseur de trait minimale) n'ont pas suffi : le vrai problème n'était
+// pas la finesse du trait mais la TEINTE — une figure de note se lit en noir sur clair depuis que la
+// notation existe, et demande un vrai effort de déchiffrage dès qu'elle devient grise sur fond
+// sombre, aussi net soit le trait. Ces vignettes portent donc leur propre petit rectangle « papier »
+// (même teinte que la feuille de partition), avec l'encre à sa couleur réelle dessus — le bouton
+// reste sombre autour, mais la vignette elle-même redevient un vrai bout de partition, lisible d'un
+// coup d'œil exactement comme sur la page.
+const ENCRE_APERCU = '#1B1A17';
+const PAPIER_APERCU = '#FDFBF7';
+
 /**
  * Vignette d'une figure de note, dessinée avec les MÊMES glyphes que la partition.
  * Un bouton « croche » qui montre une croche se passe de libellé, et surtout il montre exactement ce
  * qui apparaîtra sur la portée — pas une icône approchante.
  */
 function figureSvg(valeur) {
-    const S = 5.4;
-    const cx = 7, cy = 16;
+    const S = 5.6;
+    const cx = 7.6, cy = 15.4;
     const traits = valeur === 1 ? G.TETE_RONDE : valeur === 2 ? G.TETE_BLANCHE : G.TETE_NOIRE;
-    let corps = traits.map(t => `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${S})" fill="currentColor"/>`).join('');
+    let corps = traits.map(t => `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${S})" fill="${ENCRE_APERCU}"/>`).join('');
     if (valeur >= 2) {
         const xh = cx + 0.62 * S;
         // ÉPAISSEUR MINIMALE : à l'échelle de la portée, `EPAISSEURS.hampe * S` donne un trait net,
         // mais à celle d'un bouton de 15 px (S = 5,4 au lieu de 8-16), le même calcul tombe sous 1 px
-        // — un trait que l'antialiasing efface presque, exactement ce qui rendait les figures de
-        // durée indiscernables les unes des autres. Une hampe de bouton reste lisible ; le RATIO avec
-        // la partition n'a pas à être tenu à ce point.
+        // — un trait que l'antialiasing efface presque. Une hampe de bouton reste lisible ; le RATIO
+        // avec la partition n'a pas à être tenu à ce point.
         const epaisseurHampe = Math.max(G.EPAISSEURS.hampe * S, 1.3);
-        corps += `<line x1="${xh}" y1="${cy}" x2="${xh}" y2="3" stroke="currentColor" stroke-width="${epaisseurHampe}"/>`;
+        corps += `<line x1="${xh}" y1="${cy}" x2="${xh}" y2="3.4" stroke="${ENCRE_APERCU}" stroke-width="${epaisseurHampe}"/>`;
     }
     const n = valeur === 8 ? 1 : valeur === 16 ? 2 : valeur === 32 ? 3 : 0;
     if (n) {
-        corps += G.crochet(n).map(t => `<path d="${t.d}" transform="translate(${cx + 0.62 * S} 3) scale(${S})" fill="currentColor"/>`).join('');
+        corps += G.crochet(n).map(t => `<path d="${t.d}" transform="translate(${cx + 0.62 * S} 3.4) scale(${S})" fill="${ENCRE_APERCU}"/>`).join('');
     }
-    return `<svg class="figure" viewBox="0 0 15 22" aria-hidden="true">${corps}</svg>`;
+    return `<svg class="figure" viewBox="0 0 17 22" aria-hidden="true">
+        <rect x="0.5" y="0.5" width="16" height="21" rx="3" fill="${PAPIER_APERCU}"/>${corps}
+    </svg>`;
 }
 
 /**
@@ -53,15 +65,17 @@ function glypheIconSvg(traits) {
     const b = G.boiteDe(traits);
     const largeur = Math.max(b.droite - b.gauche, 0.15);
     const hauteur = Math.max(b.bas - b.haut, 0.15);
-    const cible = 14.5;   // taille visuelle cible dans un viewBox 24×24, cohérente avec les icônes-gestes
+    const cible = 13;   // un peu de marge entre le glyphe et le bord de la puce papier
     const echelle = cible / Math.max(largeur, hauteur);
     const cx = 12 - ((b.gauche + b.droite) / 2) * echelle;
     const cy = 12 - ((b.haut + b.bas) / 2) * echelle;
     const corps = traits.map(t => t.epaisseur == null
-        ? `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="currentColor"/>`
-        : `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="none" stroke="currentColor" stroke-width="${Math.max(t.epaisseur * echelle, 1.3)}"/>`
+        ? `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="${ENCRE_APERCU}"/>`
+        : `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="none" stroke="${ENCRE_APERCU}" stroke-width="${Math.max(t.epaisseur * echelle, 1.3)}"/>`
     ).join('');
-    return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">${corps}</svg>`;
+    return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
+        <rect x="2" y="2" width="20" height="20" rx="4" fill="${PAPIER_APERCU}"/>${corps}
+    </svg>`;
 }
 
 /** Construit l'aperçu d'un bouton d'après son descripteur `apercu` (voir edit/raccourcis.js). */

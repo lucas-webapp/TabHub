@@ -192,9 +192,11 @@ body {
 .btn-outil.actif:hover { border-color: var(--btn-green-border-hover); }
 
 /* Les figures de note et les glyphes réels de Bravura dessinés dans les boutons : un « ♩ » vaut mieux
-   qu'un mot, et « P » un vrai pupitre de gravure vaut mieux qu'une lettre. */
-.btn-outil .figure { display: block; width: 15px; height: 22px; }
-.btn-outil .figure path, .btn-outil .figure line { fill: currentColor; stroke: currentColor; }
+   qu'un mot, et « P » un vrai pupitre de gravure vaut mieux qu'une lettre. Encre et papier à leurs
+   COULEURS PROPRES (posées en inline par toolbar.js), jamais `currentColor` : ces vignettes montrent
+   un vrai bout de partition, lisible en noir sur clair comme sur la page, pas une silhouette teintée
+   qui suit l'état du bouton — c'est cette confusion-là qui les rendait indiscernables entre elles. */
+.btn-outil .figure { display: block; width: 17px; height: 22px; }
 .btn-outil .icone { width: 18px; height: 18px; }
 
 /* Palm mute : présenté comme il apparaîtra sur la partition — italique, à son poids naturel — plutôt
