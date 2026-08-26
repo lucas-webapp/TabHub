@@ -82,6 +82,7 @@ class TabHubApp {
         this.poserIcones();
         this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, {
             rendreLeFocus: () => this.el.zone.focus(),
+            signalerErreur: (texte) => this.message(texte),
         });
         this.brancherInterface();
         brancherClavier(this.editeur, {
@@ -93,6 +94,7 @@ class TabHubApp {
             exporterPdf: () => this.exporterPdf(),
             aide: () => this.ouvrirFenetre('fenetre-aide'),
             focusPartition: () => this.el.zone.focus(),
+            signalerErreur: (texte) => this.message(texte),
             aUneSelection: () => this.selectionNotes.size > 0,
             effacerSelection: () => this.effacerSelection(),
         });

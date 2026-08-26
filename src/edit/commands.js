@@ -40,6 +40,10 @@ export class Editeur {
         // répété de la saisie.
         this.dureeCourante = { valeur: 8, points: 0, nolet: null };
         this._dernierChiffre = null;   // { temps, mesure, evenement, corde, valeur }
+        // Message de la DERNIÈRE commande refusée (ex. appliquerDuree faute de place) — l'éditeur ne
+        // touche jamais au DOM, donc jamais de toast d'ici ; l'appelant (main.js) lit ce champ juste
+        // après avoir invoqué une commande et l'affiche si besoin.
+        this.derniereErreur = null;
     }
 
     // -- Abonnement ------------------------------------------------------------------------------
@@ -363,71 +367,99 @@ export class Editeur {
     // -- Rythme -----------------------------------------------------------------------------------
 
     /**
-     * Change la durée de l'évènement courant, et la retient pour les suivants.
+     * Essaie de donner une NOUVELLE description de durée à l'évènement courant — le geste commun à
+     * appliquerDuree, basculerPoint et basculerTriolet, les trois façons de changer combien de temps
+     * un évènement occupe.
      *
-     * LA MESURE SE RÉADAPTE QUAND C'EST SANS RISQUE, JAMAIS AU PRIX D'UNE NOTE. Si l'évènement
-     * s'allonge, le temps gagné est pris sur les SILENCES qui suivent immédiatement dans la même
-     * voix — jamais sur une note déjà écrite, qu'on n'efface pas sans le dire. S'il n'y a pas assez
-     * de silence pour compenser avant la fin de la voix (ou avant la prochaine note), on renonce
-     * ENTIÈREMENT plutôt que de ne consommer qu'une partie : la mise en page signale alors la mesure
-     * (voir `invalide` dans engine/layout.js) au lieu de la modifier à moitié en silence. Si
-     * l'évènement raccourcit, le temps libéré redevient un silence juste après (fusionné à celui qui
-     * s'y trouve déjà, s'il y en a un) — la mesure reste, elle, toujours juste dans ce sens-là.
+     * LE RYTHME DE LA MESURE RESTE STRICT — JAMAIS DE DÉPASSEMENT, MÊME TEMPORAIRE. Si l'évènement
+     * s'allonge, le temps gagné DOIT venir des silences qui suivent immédiatement dans la même voix ;
+     * s'il n'y en a pas assez avant la fin de la voix ou avant la prochaine note, le changement est
+     * REFUSÉ TOUT ENTIER — aucune mutation, aucun memoriser() — plutôt qu'appliqué à moitié : une
+     * mesure à 4/4 ne doit jamais pouvoir en porter 5, ne serait-ce qu'un instant. `derniereErreur`
+     * porte alors le pourquoi (voir main.js, qui l'affiche). Une version antérieure appliquait le
+     * changement quand même et se contentait de signaler après coup la mesure devenue fausse ; le
+     * résultat — une mesure qui s'étire hors de toute proportion, bien visible à l'écran — s'est
+     * révélé pire que le refus. Si l'évènement raccourcit, le temps libéré redevient un silence juste
+     * après (fusionné à celui qui s'y trouve déjà) : dans ce sens-là, il n'y a jamais de risque de
+     * déborder, donc jamais lieu de refuser.
+     *
+     * N'appelle PAS prevenir() : à l'appelant de le faire, une fois qu'il a fini de poser ses propres
+     * champs (dureeCourante, par exemple), pour ne prévenir qu'une seule fois par geste.
      */
-    appliquerDuree(valeur) {
-        if (!VALEURS_FIGURES.includes(valeur)) return false;
-        this.memoriser();
-        this.dureeCourante = { ...this.dureeCourante, valeur };
-
+    _essaierNouvelleDuree(nouvelleDuree) {
+        this.derniereErreur = null;
         const voix = this.voixCourante();
         const iEvt = this.curseur.evenement;
         const evenement = voix.evenements[iEvt];
         const ancienne = dureeEnNoires(evenement.duree);
-        evenement.duree = { ...evenement.duree, valeur };
-        const nouvelle = dureeEnNoires(evenement.duree);
+        const nouvelle = dureeEnNoires(nouvelleDuree);
         const delta = nouvelle - ancienne;
         const estSilence = (e) => e.silence || !e.notes.length;
 
+        // On calcule D'ABORD, SANS RIEN MODIFIER, si un allongement peut être entièrement absorbé —
+        // c'est ce qui permet de REFUSER proprement plutôt que de devoir défaire un changement à
+        // moitié fait.
+        let j = iEvt + 1;
         if (delta > 1e-9) {
-            let reste = delta, j = iEvt + 1;
+            let reste = delta;
             while (reste > 1e-9 && j < voix.evenements.length && estSilence(voix.evenements[j])) {
                 reste -= dureeEnNoires(voix.evenements[j].duree);
                 j++;
             }
-            if (reste <= 1e-9) {
-                const excedent = -reste;   // ce qu'il reste du dernier silence consommé, à rendre
-                voix.evenements.splice(iEvt + 1, j - (iEvt + 1),
-                    ...(excedent > 1e-9 ? decouperEnEvenements(excedent) : []));
+            if (reste > 1e-9) {
+                this.derniereErreur = 'Pas assez de place dans la mesure pour cette durée.';
+                return false;
             }
-            // sinon : rien d'autre ne bouge, la mesure sera signalée en trop à l'affichage.
-        } else if (delta < -1e-9) {
-            let libere = -delta, j = iEvt + 1;
-            while (j < voix.evenements.length && estSilence(voix.evenements[j])) {
-                libere += dureeEnNoires(voix.evenements[j].duree);
-                j++;
-            }
-            voix.evenements.splice(iEvt + 1, j - (iEvt + 1), ...decouperEnEvenements(libere));
         }
 
+        this.memoriser();
+        evenement.duree = nouvelleDuree;
+
+        if (delta > 1e-9) {
+            // `j` s'est déjà arrêté ci-dessus au bon endroit (la vérification l'a calculé) : ce que
+            // les silences de iEvt+1 à j totalisent, moins ce qu'il fallait, est à rendre.
+            const consomme = voix.evenements.slice(iEvt + 1, j).reduce((t, e) => t + dureeEnNoires(e.duree), 0);
+            const aRendre = consomme - delta;
+            voix.evenements.splice(iEvt + 1, j - (iEvt + 1),
+                ...(aRendre > 1e-9 ? decouperEnEvenements(aRendre) : []));
+        } else if (delta < -1e-9) {
+            let libere = -delta, k = iEvt + 1;
+            while (k < voix.evenements.length && estSilence(voix.evenements[k])) {
+                libere += dureeEnNoires(voix.evenements[k].duree);
+                k++;
+            }
+            voix.evenements.splice(iEvt + 1, k - (iEvt + 1), ...decouperEnEvenements(libere));
+        }
+        return true;
+    }
+
+    /** Change la durée de l'évènement courant, et la retient pour les suivants. */
+    appliquerDuree(valeur) {
+        if (!VALEURS_FIGURES.includes(valeur)) return false;
+        const nouvelleDuree = { ...this.evenementCourant().duree, valeur };
+        if (!this._essaierNouvelleDuree(nouvelleDuree)) return false;
+        this.dureeCourante = { ...this.dureeCourante, valeur };
         this.prevenir('edition');
         return true;
     }
 
     basculerPoint() {
-        this.memoriser();
-        const d = this.evenementCourant().duree;
-        d.points = d.points ? 0 : 1;
-        this.dureeCourante.points = d.points;
+        const points = this.evenementCourant().duree.points ? 0 : 1;
+        const nouvelleDuree = { ...this.evenementCourant().duree, points };
+        if (!this._essaierNouvelleDuree(nouvelleDuree)) return false;
+        this.dureeCourante.points = points;
         this.prevenir('edition');
+        return true;
     }
 
     /** Triolet : trois notes dans le temps de deux. Rebasculer revient à la division binaire. */
     basculerTriolet() {
-        this.memoriser();
-        const d = this.evenementCourant().duree;
-        d.nolet = d.nolet ? null : { dans: 3, valent: 2 };
-        this.dureeCourante.nolet = d.nolet ? { ...d.nolet } : null;
+        const nolet = this.evenementCourant().duree.nolet ? null : { dans: 3, valent: 2 };
+        const nouvelleDuree = { ...this.evenementCourant().duree, nolet };
+        if (!this._essaierNouvelleDuree(nouvelleDuree)) return false;
+        this.dureeCourante.nolet = nolet ? { ...nolet } : null;
         this.prevenir('edition');
+        return true;
     }
 
     /** Transforme l'évènement courant en silence (ou le repeuple s'il l'était déjà). */

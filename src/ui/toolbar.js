@@ -128,6 +128,9 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         b.innerHTML = rendreApercu(action);
         b.addEventListener('click', () => {
             action.faire(editeur);
+            // Une commande refusée (ex. « pas assez de place dans la mesure ») laisse un message
+            // dans l'éditeur plutôt que d'agir sur le DOM elle-même — voir Editeur.derniereErreur.
+            if (editeur.derniereErreur) { actionsFichier.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
             actionsFichier.rendreLeFocus?.();
         });
         parent.appendChild(b);

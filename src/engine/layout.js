@@ -856,7 +856,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, S);
+        poserNolets(out, poses, S, yPortee);
         poserLiaisons(out, poses, S, ST);
     });
 
@@ -1205,7 +1205,7 @@ function poserArticulations(out, poses, S) {
  * ordinaires : le dessin des notes est identique, seule la durée change. C'est le seul cas de la
  * notation où l'information rythmique ne tient pas dans la forme des notes.
  */
-function poserNolets(out, poses, S) {
+function poserNolets(out, poses, S, yPortee) {
     let i = 0;
     while (i < poses.length) {
         const nolet = poses[i].ref.duree.nolet;
@@ -1217,12 +1217,22 @@ function poserNolets(out, poses, S) {
             j++;
         }
         const groupe = poses.slice(i, j + 1);
-        const sens = groupe[0].sensHampe;
-        // Au-dessus si les hampes montent, en dessous sinon : le chiffre se pose du côté des hampes,
-        // à leur extrémité, où il ne croise ni tête ni ligne supplémentaire.
-        const y = sens < 0
-            ? Math.min(...groupe.map(p => p.yHampe ?? p.yHaut)) - 0.95 * S
-            : Math.max(...groupe.map(p => p.yHampe ?? p.yBas)) + 1.5 * S;
+        // UN SILENCE PEUT PORTER LE MÊME N-OLET QU'UNE NOTE VOISINE — la durée collante le lui donne
+        // par construction (voir Editeur.deplacerEvenement, la prolongation : le silence qu'elle crée
+        // copie {...dureeCourante}, triolet compris, s'il était actif). Un silence n'a ni hampe ni
+        // tête (`poserEvenement` ne pose jamais `yHaut`/`yBas`/`yHampe` pour lui) : le laisser dans le
+        // calcul du Math.min/max ci-dessous injecte un `undefined` et produit un NaN, qui plaçait le
+        // chiffre hors de tout repère (et, sur certains moteurs SVG, faisait échouer l'attribut
+        // `transform` du glyphe entier). On aligne donc le chiffre sur les seules poses SONNANTES du
+        // groupe ; s'il n'y en a aucune (un n-olet entièrement fait de silences), un repère fixe
+        // au-dessus de la portée sert de repli plutôt que de laisser NaN se propager.
+        const sonnants = groupe.filter(p => !p.estSilence);
+        const sens = (sonnants[0] ?? groupe[0]).sensHampe;
+        const y = sonnants.length === 0
+            ? yPortee - 2 * S
+            : sens < 0
+                ? Math.min(...sonnants.map(p => p.yHampe ?? p.yHaut)) - 0.95 * S
+                : Math.max(...sonnants.map(p => p.yHampe ?? p.yBas)) + 1.5 * S;
         const xa = groupe[0].x, xb = groupe[groupe.length - 1].x;
         // Chiffres de n-olet de Bravura : penchés et plus étroits que ceux d'une signature, comme le
         // veut la gravure. Leur ligne de base est en bas du glyphe, d'où le décalage quand ils se

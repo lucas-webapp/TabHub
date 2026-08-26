@@ -67,6 +67,9 @@ export function brancherClavier(editeur, actions = {}) {
         if (action) {
             e.preventDefault();
             action.faire(editeur);
+            // Voir Editeur.derniereErreur : une commande refusée (pas assez de place dans la
+            // mesure, par exemple) le signale ici plutôt que dans l'éditeur, qui ne touche pas au DOM.
+            if (editeur.derniereErreur) { actions.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
         }
     };
 
