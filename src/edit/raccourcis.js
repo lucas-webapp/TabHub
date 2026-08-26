@@ -111,6 +111,11 @@ export const ACTIONS = [
     // --- Mesure (palette : groupe « Mesure ») ----------------------------------------------------
     { id: 'ajouterMesure', touches: ['alt+m'], libelle: 'Ajouter une mesure', groupe: 'mesure', texte: '+ Mesure', faire: ed => ed.ajouterMesure() },
     { id: 'supprimerMesure', touches: ['alt+backspace'], libelle: 'Supprimer la mesure', groupe: 'mesure', texte: '− Mesure', faire: ed => ed.supprimerMesure() },
+    // N'apparaît que si la mesure courante déborde réellement (voir Editeur.ecartMesure) — un bouton
+    // toujours visible, sur une mesure déjà juste, n'aurait rien à faire et ne ferait qu'ajouter du
+    // bruit à la palette.
+    { id: 'corrigerDebordement', touches: ['alt+r'], libelle: 'Répartir le débordement dans une nouvelle mesure', groupe: 'mesure', texte: '⇥ Répartir',
+      palette: ed => ed.ecartMesure() > 1e-9, faire: ed => ed.corrigerDebordement() },
     { id: 'repriseDebut', touches: [], libelle: 'Reprise ouvrante', groupe: 'mesure', apercu: { type: 'icone', nom: 'repriseDebut' },
       actif: ed => ed.mesureCourante().repriseDebut, faire: ed => ed.basculerReprise('debut') },
     { id: 'repriseFin', touches: [], libelle: 'Reprise fermante', groupe: 'mesure', apercu: { type: 'icone', nom: 'repriseFin' },

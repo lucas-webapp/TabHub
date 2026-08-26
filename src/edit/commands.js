@@ -473,14 +473,133 @@ export class Editeur {
 
     // -- Structure ---------------------------------------------------------------------------------
 
-    /** Insère un évènement APRÈS le courant et s'y place — le geste normal pour écrire à la suite. */
+    /**
+     * Insère un évènement APRÈS le courant et s'y place — le geste normal pour écrire à la suite.
+     *
+     * NE DÉBORDE PLUS JAMAIS LA MESURE — une version antérieure insérait sans condition, ce qui
+     * pouvait faire grimper une mesure à 4/4 bien au-delà de 4 temps si on continuait d'appuyer sur
+     * Entrée (exactement le défaut signalé : une mesure à 13 temps qui ne se corrigeait jamais
+     * d'elle-même). Le même principe que `_essaierNouvelleDuree` s'applique désormais ici : si le
+     * nouvel évènement ne rentre pas, on ne le glisse PAS de force dans la mesure courante.
+     *
+     * DEUX CAS : en bout de voix (le geste normal pour continuer d'écrire), une mesure TOUTE NEUVE
+     * s'insère juste après la courante — jamais la mesure suivante existante, même si elle a de la
+     * place : elle pourrait déjà contenir autre chose, et la remplir par surprise déplacerait de la
+     * musique déjà écrite sans le dire. La nouvelle mesure reçoit la capacité EFFECTIVE de cet endroit
+     * du morceau (jamais le 4 temps par défaut de `creerMesure`, qui suppose du 4/4 et fausserait tout
+     * de suite une insertion en 3/4 ou 6/8), et prend le même nombre de voix que la mesure courante —
+     * les voix qu'on ne remplit pas restent un silence unique couvrant toute la mesure, l'état normal
+     * d'une voix qu'on n'a pas encore touchée. Au milieu d'une voix (on intercale une nouvelle case
+     * entre deux existantes), avancer d'une mesure n'aurait aucun sens — on refuse proprement.
+     */
     insererEvenement() {
-        this.memoriser();
+        this.derniereErreur = null;
         const voix = this.voixCourante();
-        voix.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        const capacite = capaciteMesure(this.partition, this.curseur.mesure);
+        const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
+        const dureeNouvel = dureeEnNoires(this.dureeCourante);
+        if (dureeNouvel > capacite + 1e-9) {
+            this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
+            return false;
+        }
+        let mesureFraiche = false;
+        if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
+            const enBoutDeVoix = this.curseur.evenement === voix.evenements.length - 1;
+            if (!enBoutDeVoix) {
+                this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici.';
+                return false;
+            }
+            this.memoriser();
+            const nVoix = this.mesureCourante().voix.length;
+            const iVoix = this.curseur.voix;
+            const nouvelle = creerMesure({ voix: Array.from({ length: nVoix }, (_, i) =>
+                ({ evenements: i === iVoix ? [] : decouperEnEvenements(capacite) })) });
+            this.partition.mesures.splice(this.curseur.mesure + 1, 0, nouvelle);
+            this.curseur.mesure += 1;
+            this.curseur.evenement = -1;   // la nouvelle case s'insère juste APRÈS — voir plus bas
+            mesureFraiche = true;
+        } else {
+            this.memoriser();
+        }
+        const voixCible = this.voixCourante();
+        voixCible.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
         this.curseur.evenement += 1;
+        // Une voix fraîchement créée est vide avant cette ligne (voir plus haut) : compléter par un
+        // silence jusqu'à la capacité, pour que l'invariant (une voix somme toujours EXACTEMENT sa
+        // mesure) tienne dès la création plutôt que de dépendre d'une prochaine édition pour se vérifier.
+        if (mesureFraiche) {
+            const manque = capacite - dureeNouvel;
+            if (manque > 1e-9) voixCible.evenements.push(...decouperEnEvenements(manque));
+        }
         this._dernierChiffre = null;
         this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * RÉPARE une mesure DÉJÀ trop pleine (déborde sa capacité) en déplaçant l'excédent, tel quel,
+     * dans une ou plusieurs mesures NEUVES insérées juste après — sans perdre une seule note.
+     *
+     * POURQUOI CETTE COMMANDE EXISTE. Le déroulement en direct (`insererEvenement`, `appliquerDuree`…)
+     * refuse désormais tout ce qui déborderait — voir leurs commentaires respectifs — mais une mesure
+     * qui a débordé PAR UN AUTRE CHEMIN (un fichier ouvert d'avant ce garde-fou, par exemple) reste
+     * invalide indéfiniment : rien ne la corrige toute seule, une mesure qui déborde ne dit jamais
+     * d'elle-même où l'excédent devrait aller (nouvelle mesure ? changement de chiffrage ? fusion avec
+     * la suivante ?). Cette commande incarne la réponse la plus sûre et la plus prévisible : couper au
+     * bord de la capacité et continuer juste après, comme si la musique avait été écrite sur plusieurs
+     * mesures depuis le début.
+     *
+     * CHAQUE VOIX EST TRAITÉE SÉPARÉMENT, mais le nombre de mesures neuves nécessaires est le MÊME
+     * pour toutes (le maximum entre elles) : une voix qui a moins besoin d'être répartie complète
+     * simplement le reliquat par du silence, pour rester à la capacité exacte dans les mesures neuves
+     * comme partout ailleurs.
+     */
+    corrigerDebordement(index = this.curseur.mesure) {
+        this.derniereErreur = null;
+        const m = this.partition.mesures[index];
+        const capacite = capaciteMesure(this.partition, index);
+        const parVoix = m.voix.map(voix => {
+            let total = 0;
+            const gardes = [];
+            const enTrop = [];
+            for (const e of voix.evenements) {
+                const d = dureeEnNoires(e.duree);
+                (total + d <= capacite + 1e-9 ? gardes : enTrop).push(e);
+                if (total + d <= capacite + 1e-9) total += d;
+            }
+            return { gardes, enTrop, totalEnTrop: enTrop.reduce((t, e) => t + dureeEnNoires(e.duree), 0) };
+        });
+        if (!parVoix.some(v => v.enTrop.length)) return false;   // déjà valide, rien à faire
+        if (parVoix.some(v => v.enTrop.some(e => dureeEnNoires(e.duree) > capacite + 1e-9))) {
+            this.derniereErreur = 'Une figure de cette mesure dépasse à elle seule la capacité d\'une mesure entière — impossible à répartir automatiquement.';
+            return false;
+        }
+
+        this.memoriser();
+        m.voix.forEach((voix, i) => { voix.evenements = parVoix[i].gardes; });
+
+        const nMesuresSupp = Math.max(1, ...parVoix.map(v => Math.ceil((v.totalEnTrop - 1e-9) / capacite)));
+        const nouvelles = Array.from({ length: nMesuresSupp }, () => creerMesure({
+            voix: m.voix.map(() => ({ evenements: [] })),
+        }));
+        parVoix.forEach((info, iVoix) => {
+            const reste = info.enTrop.slice();
+            nouvelles.forEach(nm => {
+                let total = 0;
+                const evs = nm.voix[iVoix].evenements;
+                while (reste.length && total + dureeEnNoires(reste[0].duree) <= capacite + 1e-9) {
+                    const e = reste.shift();
+                    evs.push(e);
+                    total += dureeEnNoires(e.duree);
+                }
+                const manque = capacite - total;
+                if (manque > 1e-9) evs.push(...decouperEnEvenements(manque));
+            });
+        });
+        this.partition.mesures.splice(index + 1, 0, ...nouvelles);
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return true;
     }
 
     supprimerEvenement() {
