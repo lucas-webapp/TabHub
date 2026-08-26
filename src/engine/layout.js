@@ -17,7 +17,7 @@
 // de ce qui est dessiné.
 
 import * as G from './glyphs.js';
-import { dureeEnNoires, crochetsDe, uniteDeGroupement } from '../model/duration.js';
+import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure } from '../model/duration.js';
 import {
     signatureEffective, armureEffective, positionDansMesure, hauteurDeNote, nbCordes,
 } from '../model/score.js';
@@ -41,6 +41,8 @@ export const GEO_DEFAUT = {
     margeDroite: 22,
     largeurPage: 1100,
     tailleChiffreTab: 1.42,     // hauteur du chiffre de frette, en S
+    mesuresParLigne: null,      // null/"Auto" = glouton ; sinon N mesures par ligne (borné à la
+                                // baisse si besoin — voir decouperEnSystemesParCompte)
 };
 
 /**
@@ -106,25 +108,62 @@ function arcLiaison(x1, y1, x2, y2, sens, hauteur) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * Largeur demandée par un évènement.
+ * Largeur demandée par une COLONNE — un instant de temps partagé par toutes les voix de la mesure.
  *
  * Deux exigences se disputent la place, et l'espacement retenu est le MAXIMUM des deux :
- *   • PROPORTIONNELLE À LA DURÉE, mais compressée par une puissance ~0,6. La proportionnalité pure
- *     (une blanche = deux fois une noire) donne des partitions au rythme visuel absurde : quatre
- *     doubles-croches y tiennent dans le quart d'une noire, illisibles, tandis qu'une ronde ouvre un
- *     désert. La compression est la convention de gravure ; l'œil lit la DURÉE RELATIVE sans que les
- *     brèves ne s'écrasent.
+ *   • PROPORTIONNELLE À L'ÉCART jusqu'au prochain instant (`gapNoires`), compressée par une
+ *     puissance ~0,6 — et non à la durée propre d'un évènement. C'est ce qui donne la bonne largeur
+ *     à une VOIX À DEUX RYTHMES : une basse tenue (blanche pointée) posée sous une mélodie de
+ *     croches n'impose PAS trois croches de large à sa propre colonne — elle n'a besoin que de la
+ *     place qu'y réclame ce qui s'y joue vraiment, à savoir la croche voisine. C'est exactement ce
+ *     qu'utilise une gravure : l'espacement suit l'endroit où la prochaine chose arrive, tous
+ *     pupitres confondus. Une seule voix est le cas particulier où « le prochain instant » est
+ *     toujours la fin de son propre évènement — la formule ne change donc rien à son rendu d'avant.
  *   • UN PLANCHER matériel : la place qu'occupent réellement les altérations et les chiffres à deux
- *     chiffres de la tablature. Sans lui, « 12 » déborderait sur la note suivante.
+ *     chiffres de la tablature, pour CHAQUE voix présente à cet instant. Sans lui, « 12 » déborderait
+ *     sur la note suivante.
  */
-function largeurEvenement(evenement, S, geo) {
-    const d = Math.max(dureeEnNoires(evenement.duree), 1 / 64);
+function largeurColonne(gapNoires, evenementsIci, S) {
+    const d = Math.max(gapNoires, 1 / 64);
     const proportionnelle = 3.9 * S * Math.pow(d, 0.62);
 
     let plancher = 3.2 * S;
-    if (evenement.notes.some(n => n.frette >= 10)) plancher += 0.7 * S;
-    if (evenement.duree.points > 0) plancher += 0.5 * S;
+    for (const { ref } of evenementsIci) {
+        if (ref.notes.some(n => n.frette >= 10)) plancher = Math.max(plancher, 3.9 * S);
+        if (ref.duree.points > 0) plancher = Math.max(plancher, 3.7 * S);
+    }
     return Math.max(proportionnelle, plancher);
+}
+
+/**
+ * Découpe une mesure en COLONNES : les instants de temps où AU MOINS UNE voix attaque une note ou un
+ * silence, triés, avec la largeur que chacun réclame (voir largeurColonne). Une seule voix produit
+ * exactement la même suite de colonnes que ses propres évènements ; deux voix produisent l'UNION de
+ * leurs attaques respectives — c'est cette union qui aligne visuellement la mélodie et la basse
+ * tenue sur les mêmes abscisses, sans quoi les deux portées de voix dériveraient l'une de l'autre dès
+ * la première note où leurs rythmes diffèrent.
+ */
+function calculerColonnes(mesure, capaciteNoires, S) {
+    const arrondi = (n) => Math.round(n * 1e6) / 1e6;
+    const parTemps = new Map();   // temps (noires depuis le début de la mesure) → évènements qui y attaquent
+    mesure.voix.forEach((voix, iVoix) => {
+        let t = 0;
+        for (const ref of voix.evenements) {
+            const cle = arrondi(t);
+            if (!parTemps.has(cle)) parTemps.set(cle, []);
+            parTemps.get(cle).push({ voix: iVoix, ref });
+            t += dureeEnNoires(ref.duree);
+        }
+    });
+    const temps = [...parTemps.keys()].sort((a, b) => a - b);
+    if (!temps.length || temps[0] > 1e-9) temps.unshift(0);   // filet : toujours une colonne à l'origine
+
+    return temps.map((debut, i) => {
+        const prochain = i + 1 < temps.length ? temps[i + 1] : Math.max(arrondi(capaciteNoires), debut);
+        const gap = Math.max(prochain - debut, 1 / 128);
+        const evenementsIci = parTemps.get(debut) || [];
+        return { debut, gap, evenements: evenementsIci, largeur: largeurColonne(gap, evenementsIci, S) };
+    });
 }
 
 /**
@@ -151,6 +190,48 @@ function largeurEnTete(besoins, armure, signature, clef, S) {
     // cette largeur, tomberait au mauvais endroit.
     if (w > 0) w += 1.5 * S;
     return w;
+}
+
+/**
+ * Espace nécessaire entre la portée et la tablature quand une SECONDE voix existe.
+ *
+ * Une voix secondaire reçoit systématiquement une hampe vers le BAS (voir poserEvenement,
+ * `sensImpose`) — la convention de gravure pour deux voix sur une même portée. Si elle porte des
+ * notes graves (une basse tenue, exactement le cas visé par cette fonctionnalité), leur hampe
+ * s'étire vers le bas depuis un point déjà SOUS la portée — alors qu'une voix UNIQUE, elle, aurait
+ * reçu la règle automatique et une hampe vers le HAUT sur ces mêmes notes graves, qui ne se serait
+ * jamais approchée de la tablature. L'écart par défaut est calibré pour ce cas courant (une seule
+ * voix) ; sans cette fonction, la hampe d'une basse tenue traverserait purement et simplement la TAB.
+ *
+ * On mesure la partition ENTIÈRE pour ne grandir l'écart que de ce qu'il faut : une partition sans
+ * seconde voix, ou dont la seconde reste dans le registre aigu, garde l'écart compact par défaut.
+ */
+function ecartPorteeTabRequis(partition, clef, S, ecartDefaut) {
+    let pasMin = clef.pasRef;
+    let trouve = false;
+    for (const mesure of partition.mesures) {
+        if (mesure.voix.length < 2) continue;
+        for (const voix of mesure.voix.slice(1)) {
+            for (const e of voix.evenements) {
+                for (const note of e.notes) {
+                    const midi = hauteurDeNote(partition, note);
+                    if (midi == null) continue;
+                    const pas = ecrireHauteur(midi + clef.transposition, 0).pas;
+                    if (pas < pasMin) pasMin = pas;
+                    trouve = true;
+                }
+            }
+        }
+    }
+    if (!trouve) return ecartDefaut;
+    // Position (en « pas ») de la 5e ligne, la plus basse de la portée — celle sous laquelle
+    // commencent les lignes supplémentaires. `clef.ligne` compte les lignes depuis le HAUT (0..4).
+    const pasLigneBas = clef.pasRef - (4 - clef.ligne) * 2;
+    const debordement = Math.max(0, (pasLigneBas - pasMin) * 0.5);   // en interlignes, sous la 5e ligne
+    // Marge : le débordement sous la portée, PLUS la longueur d'une hampe, PLUS une respiration —
+    // LONGUEUR_HAMPE est définie plus bas dans ce fichier mais déjà initialisée au moment où cette
+    // fonction est réellement appelée (elle ne l'est jamais avant la fin du chargement du module).
+    return Math.max(ecartDefaut, debordement + LONGUEUR_HAMPE + 1.4);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -185,12 +266,117 @@ function memoireAlterations(armure) {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Découpage en systèmes : deux stratégies, une mesure commune
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Ce qu'il faut redessiner en tête d'une mesure : la clé et l'armure à chaque nouveau système, la
+ * signature seulement à la toute première mesure du morceau ou quand elle change réellement
+ * (`m.changeSignature`) — la convention de gravure usuelle, qui ne répète pas un chiffrage resté
+ * inchangé à chaque nouvelle ligne.
+ */
+function besoinsDe(m, premiereDuSysteme) {
+    return {
+        clef: premiereDuSysteme,
+        armure: premiereDuSysteme || m.changeArmure,
+        signature: m.index === 0 || m.changeSignature,
+        repriseDebut: m.ref.repriseDebut,
+    };
+}
+
+/** Calcule et mémorise l'en-tête et la largeur totale d'une mesure pour les besoins donnés. */
+function mesurerMesure(m, besoins, clef, S) {
+    m.besoins = besoins;
+    m.enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S);
+    m.largeurTotale = m.enTete + m.largeurNotes + 1.4 * S;   // marge avant la barre de mesure
+    return m.largeurTotale;
+}
+
+/** Le facteur de justification qu'imposerait CETTE tranche de mesures — voir l'étape 3 plus bas. */
+function facteurDeJustification(tranche, largeurUtile, S) {
+    const sommeEntetes = tranche.reduce((t, m) => t + m.enTete, 0);
+    const sommeNotesEtMarges = tranche.reduce((t, m) => t + m.largeurNotes + 1.4 * S, 0);
+    return sommeNotesEtMarges > 0 ? (largeurUtile - sommeEntetes) / sommeNotesEtMarges : 1;
+}
+
+/**
+ * Découpage AUTOMATIQUE (« Auto ») : glouton, on remplit chaque ligne tant que ça rentre. Une
+ * mesure seule qui déborde reste seule sur sa ligne plutôt que d'être coupée — une mesure coupée en
+ * deux n'a aucun sens musical.
+ */
+function decouperEnSystemesGloutons(mesures, largeurUtile, clef, S) {
+    const systemes = [];
+    let courant = null;
+    for (const m of mesures) {
+        const premiereDuSysteme = !courant || courant.mesures.length === 0;
+        const largeurTotale = mesurerMesure(m, besoinsDe(m, premiereDuSysteme), clef, S);
+        if (!courant) {
+            courant = { mesures: [], largeur: 0 };
+        } else if (courant.largeur + largeurTotale > largeurUtile && courant.mesures.length > 0) {
+            systemes.push(courant);
+            courant = { mesures: [], largeur: 0 };
+            // Nouveau système : la clé et l'armure s'y redessinent, donc la mesure est remesurée.
+            mesurerMesure(m, besoinsDe(m, true), clef, S);
+        }
+        courant.mesures.push(m); courant.largeur += m.largeurTotale;
+    }
+    if (courant && courant.mesures.length) systemes.push(courant);
+    return systemes;
+}
+
+/**
+ * Plancher de lisibilité en dessous duquel une ligne de N mesures ne DOIT plus être forcée : le
+ * facteur de justification qu'il faudrait lui appliquer resserrerait les notes plus qu'un graveur ne
+ * l'accepterait. À 0,62, les têtes restent lisiblement séparées sur une portée dense ; en dessous,
+ * deux notes voisines commencent à se toucher.
+ */
+const PLANCHER_FACTEUR = 0.62;
+
+/**
+ * Découpage à COMPTE FIXE : `n` mesures par ligne, comme le demande un musicien qui veut une lecture
+ * régulière d'un bout à l'autre de la partition — plutôt que le remplissage au plus large que fait
+ * le mode automatique.
+ *
+ * LE COMPTE N'EST JAMAIS SUBI QUAND IL RENDRAIT LA LIGNE ILLISIBLE. On calcule le facteur de
+ * justification qu'exigerait une ligne de `n` mesures — LA MÊME formule qu'à l'étape 3, pour ne
+ * jamais promettre par avance une largeur que la justification réelle ne tiendrait pas — et, s'il
+ * tombe sous PLANCHER_FACTEUR, on retire la DERNIÈRE mesure de la ligne (elle glisse sur la
+ * suivante) et on réessaie, jusqu'à n'en garder plus qu'une si littéralement une seule mesure ne
+ * tient déjà qu'à ce prix : dans ce cas, elle reste seule, exactement comme le ferait le mode
+ * automatique sur une mesure trop dense.
+ *
+ * C'EST CETTE CLAUSE QUI RÉPOND À « adapter selon la signature rythmique » : une mesure à 7/8 pleine
+ * de doubles-croches est déjà, à largeur mesurée égale, bien plus chargée qu'une mesure à 2/4 de deux
+ * blanches (voir calculerColonnes) — nul besoin d'une règle séparée qui lirait le chiffrage, la
+ * largeur mesurée le reflète directement. Demander 6 mesures par ligne sur un passage dense se voit
+ * donc ramené de lui-même à 4 ou 3 pour CE passage-là, et revient à 6 dès que le passage s'allège.
+ */
+function decouperEnSystemesParCompte(mesures, n, largeurUtile, clef, S) {
+    const systemes = [];
+    let i = 0;
+    while (i < mesures.length) {
+        let compte = Math.min(n, mesures.length - i);
+        let tranche;
+        for (;;) {
+            tranche = mesures.slice(i, i + compte);
+            tranche.forEach((m, k) => mesurerMesure(m, besoinsDe(m, k === 0), clef, S));
+            if (compte <= 1) break;
+            if (facteurDeJustification(tranche, largeurUtile, S) >= PLANCHER_FACTEUR) break;
+            compte--;
+        }
+        systemes.push({ mesures: tranche, largeur: tranche.reduce((t, m) => t + m.largeurTotale, 0) });
+        i += tranche.length;
+    }
+    return systemes;
+}
+
+// ---------------------------------------------------------------------------------------------
 // Mise en page principale
 // ---------------------------------------------------------------------------------------------
 
 /**
  * @param {object} partition
- * @param {object} options  { S, largeurPage, avecEnTete, couleurs… }
+ * @param {object} options  { S, largeurPage, avecEnTete, mesuresParLigne, couleurs… }
  * @returns {{largeur, hauteur, primitives, ancrages}}
  */
 export function mettreEnPage(partition, options = {}) {
@@ -199,20 +385,27 @@ export function mettreEnPage(partition, options = {}) {
     const ST = S * geo.ratioTab;                        // interligne de la tablature
     const cordes = nbCordes(partition);
     const clef = CLEFS[INSTRUMENTS[partition.piste.instrument]?.clef || 'sol8vb'];
+    // Voir ecartPorteeTabRequis : agrandi seulement si une seconde voix descend assez bas pour que
+    // sa hampe (systématiquement vers le bas) risquerait de traverser la tablature.
+    const ecartPorteeTab = ecartPorteeTabRequis(partition, clef, S, geo.ecartPorteeTab);
 
     const hauteurPortee = 4 * S;
     const hauteurTab = (cordes - 1) * ST;
-    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + geo.ecartPorteeTab * S + hauteurTab + geo.margeBas * S;
+    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPorteeTab * S + hauteurTab + geo.margeBas * S;
     const largeurUtile = geo.largeurPage - geo.margeGauche - geo.margeDroite;
 
     // --- 1. Mesurer chaque mesure isolément -----------------------------------------------------
+    // Le mesurage se fait par COLONNES (voir calculerColonnes) — l'union des attaques de toutes les
+    // voix de la mesure. Une mesure à une seule voix retombe exactement sur son propre découpage
+    // d'évènements ; c'est le cas général qui compte pour deux voix ou davantage.
     const mesures = partition.mesures.map((mesure, i) => {
         const sig = signatureEffective(partition, i);
         const arm = armureEffective(partition, i);
-        const evenements = mesure.evenements.map(e => ({ ref: e, largeur: largeurEvenement(e, S, geo) }));
-        const largeurNotes = evenements.reduce((t, e) => t + e.largeur, 0);
+        const capacite = noiresParMesure(sig);
+        const colonnes = calculerColonnes(mesure, capacite, S);
+        const largeurNotes = colonnes.reduce((t, c) => t + c.largeur, 0);
         return {
-            index: i, ref: mesure, signature: sig, armure: arm, evenements,
+            index: i, ref: mesure, signature: sig, armure: arm, capacite, colonnes,
             largeurNotes,
             // Une signature ou une armure ne se redessine que si la mesure la CHANGE (champ non nul) —
             // c'est précisément l'information que porte le `null` du modèle.
@@ -222,49 +415,15 @@ export function mettreEnPage(partition, options = {}) {
     });
 
     // --- 2. Découper en systèmes ----------------------------------------------------------------
-    // Glouton : on remplit tant que ça rentre. Une mesure seule qui déborde reste seule sur sa ligne
-    // plutôt que d'être coupée — une mesure coupée en deux n'a aucun sens musical.
-    const systemes = [];
-    let courant = null;
-    for (const m of mesures) {
-        const premiereDuSysteme = !courant || courant.mesures.length === 0;
-        const besoins = {
-            clef: premiereDuSysteme,
-            armure: premiereDuSysteme || m.changeArmure,
-            signature: premiereDuSysteme || m.changeSignature,
-            repriseDebut: m.ref.repriseDebut,
-        };
-        const enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S);
-        const largeurTotale = enTete + m.largeurNotes + 1.4 * S;   // marge avant la barre de mesure
-
-        if (!courant) courant = { mesures: [], largeur: 0 };
-        else if (courant.largeur + largeurTotale > largeurUtile && courant.mesures.length > 0) {
-            systemes.push(courant);
-            courant = { mesures: [], largeur: 0 };
-            // Nouveau système : la clé et l'armure se redessinent, donc la mesure est remesurée.
-            const b2 = { clef: true, armure: true, signature: m.changeSignature || systemes.length === 0, repriseDebut: m.ref.repriseDebut };
-            const e2 = largeurEnTete(b2, m.armure, m.signature, clef, S);
-            m.besoins = b2; m.enTete = e2; m.largeurTotale = e2 + m.largeurNotes + 1.4 * S;
-            courant.mesures.push(m); courant.largeur += m.largeurTotale;
-            continue;
-        }
-        m.besoins = besoins; m.enTete = enTete; m.largeurTotale = largeurTotale;
-        courant.mesures.push(m); courant.largeur += largeurTotale;
-    }
-    if (courant && courant.mesures.length) systemes.push(courant);
-
-    // Un nouveau système impose de redessiner clé/armure/signature en tête de sa PREMIÈRE mesure.
-    // Le découpage glouton ci-dessus l'a fait pour les ruptures qu'il a provoquées ; reste le cas de
-    // la toute première mesure de chaque système restant.
-    systemes.forEach(sys => {
-        const m = sys.mesures[0];
-        if (!m.besoins.clef) {
-            m.besoins = { ...m.besoins, clef: true, armure: true, signature: true };
-            m.enTete = largeurEnTete(m.besoins, m.armure, m.signature, clef, S);
-            m.largeurTotale = m.enTete + m.largeurNotes + 1.4 * S;
-            sys.largeur = sys.mesures.reduce((t, x) => t + x.largeurTotale, 0);
-        }
-    });
+    // Deux stratégies, choisies par `geo.mesuresParLigne` (voir plus haut, juste avant cette
+    // fonction, pour le détail des deux algorithmes) :
+    //   • absent/« Auto » (null) : GLOUTON — chaque ligne se remplit tant que ça rentre.
+    //   • un nombre N : COMPTE FIXE — exactement N mesures par ligne, sauf à devenir illisible, une
+    //     mesure à la fois, pour rester lisible quel que soit le chiffrage rythmique en cours.
+    const nMesuresParLigne = geo.mesuresParLigne ? Math.max(1, Math.round(geo.mesuresParLigne)) : null;
+    const systemes = nMesuresParLigne
+        ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, largeurUtile, clef, S)
+        : decouperEnSystemesGloutons(mesures, largeurUtile, clef, S);
 
     // --- 3. Justifier ---------------------------------------------------------------------------
     // Chaque système est étiré pour occuper toute la largeur, comme sur une partition gravée. Seul le
@@ -273,10 +432,25 @@ export function mettreEnPage(partition, options = {}) {
     // l'autre. Le seuil est haut à dessein — un système collé à gauche avec du vide à droite se
     // remarque bien davantage qu'un système un peu aéré, et c'est le cas courant pendant la saisie,
     // où les dernières mesures sont encore vides.
+    //
+    // SEULE LA PARTIE « NOTES » S'ÉTIRE — pas l'en-tête (clé, armure, signature). Une clé ne grossit
+    // pas parce que le système est justifié ; sur une partition gravée, seul l'espacement des notes
+    // absorbe la justification, les éléments fixes gardent leur taille naturelle. Une première
+    // version étirait le budget ENTIER (en-tête compris) par un facteur unique, alors que le PLACEMENT
+    // réel de l'en-tête, lui, restait à sa taille naturelle (voir poserMesure) : l'écart entre le
+    // budget réservé et ce qui était vraiment dessiné se logeait tout entier dans la marge avant la
+    // barre de mesure, qui gonflait ou se resserrait sans rapport avec le contenu — deux mesures
+    // MUSICALEMENT IDENTIQUES, l'une avec un changement d'armure et l'autre sans, se retrouvaient
+    // ainsi à des largeurs différentes. En calculant le facteur sur la seule partie flexible, une
+    // mesure garde exactement la largeur qu'annonce sa mise en page, en-tête compris.
+    //
+    // `facteurDeJustification` est la MÊME fonction que celle utilisée par le compte fixe pour
+    // décider, par avance, si une ligne de N mesures resterait lisible — une formule unique des deux
+    // côtés garantit qu'un système jugé lisible avant d'être posé l'est encore une fois justifié ici.
     systemes.forEach((sys, i) => {
-        const facteur = largeurUtile / sys.largeur;
+        const facteur = facteurDeJustification(sys.mesures, largeurUtile, S);
         const dernier = i === systemes.length - 1;
-        sys.facteur = (dernier && facteur > 2.5) ? 1 : facteur;
+        sys.facteur = (dernier && facteur > 2.5) ? 1 : Math.max(facteur, 0.05);
     });
 
     // --- 4. Poser ------------------------------------------------------------------------------
@@ -292,7 +466,7 @@ export function mettreEnPage(partition, options = {}) {
     systemes.forEach((sys, iSys) => {
         const debutPrimitives = primitives.length;
         const yPortee = y + geo.margeHaut * S;
-        const yTab = yPortee + hauteurPortee + geo.ecartPorteeTab * S;
+        const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
         const xDebut = geo.margeGauche;
         const xFin = geo.largeurPage - geo.margeDroite;
 
@@ -302,7 +476,9 @@ export function mettreEnPage(partition, options = {}) {
 
         let x = xDebut;
         sys.mesures.forEach((m, iDansSys) => {
-            const largeurMesure = m.largeurTotale * sys.facteur;
+            // En-tête à sa taille NATURELLE (non multiplié par `facteur`) + partie notes étirée —
+            // exactement ce que `poserMesure` va physiquement placer, voir la justification ci-dessus.
+            const largeurMesure = m.enTete + (m.largeurNotes + 1.4 * S) * sys.facteur;
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
                 x, largeurMesure, facteur: sys.facteur, finMesure,
@@ -484,7 +660,27 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
     }));
 
-    // --- Les évènements, EN TROIS PASSES --------------------------------------------------------
+    // --- Les COLONNES : une abscisse par instant, PARTAGÉE par toutes les voix -------------------
+    // C'est ce qui aligne verticalement une mélodie et une basse tenue qui n'ont pas le même rythme :
+    // les deux lisent leur position dans la MÊME suite d'abscisses (voir calculerColonnes), plutôt
+    // que d'avancer chacune à son compte — ce qui les ferait dériver l'une de l'autre dès leur
+    // premier désaccord rythmique.
+    const xColonnes = [];
+    { let xx = x; for (const c of m.colonnes) { xColonnes.push(xx); xx += c.largeur * facteur; } }
+    const xFinMesureNotes = xColonnes.length ? xColonnes[xColonnes.length - 1] + m.colonnes[m.colonnes.length - 1].largeur * facteur : x;
+    /** Index de colonne dont le `debut` correspond au temps `t` (en noires depuis le début de la mesure). */
+    // Sentinelle : `m.colonnes.length` (une case AU-DELÀ de la dernière) veut dire « la fin de la
+    // mesure », pas « recale-toi sur la dernière colonne existante ». La distinction compte pour la
+    // note qui se termine exactement à la fin de la mesure (le cas normal du DERNIER évènement d'une
+    // voix) : une première version renvoyait `length - 1`, qui pointe vers la colonne où cette même
+    // note COMMENCE — son xFin se retrouvait alors AVANT son xDebut.
+    const colonneA = (t) => {
+        const cible = Math.round(t * 1e6) / 1e6;
+        const i = m.colonnes.findIndex(c => c.debut >= cible - 1e-6);
+        return i < 0 ? m.colonnes.length : i;
+    };
+
+    // --- Les évènements de CHAQUE VOIX, EN TROIS PASSES -------------------------------------------
     // L'ordre compte, et une première version l'avait manqué : elle dessinait la hampe de chaque note
     // au moment de poser sa tête, PUIS décidait des ligatures — qui imposent au groupe entier un sens
     // commun. Les notes dont le sens changeait se retrouvaient avec DEUX hampes, l'une vers le haut
@@ -494,26 +690,55 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     //   1. les têtes, altérations, lignes supplémentaires, et toute la tablature ;
     //   2. les groupes de ligature et le sens de hampe commun à chacun ;
     //   3. les hampes, crochets, ligatures et n-olets.
-    const memoire = memoireAlterations(m.armure);
-    const poses = [];
-    for (const e of m.evenements) {
-        const largeur = e.largeur * facteur;
-        const xNote = x + largeur * 0.42;
-        poses.push(poserEvenement(out, partition, e.ref, {
-            x: xNote, xDebut: x, largeur, yPortee, yTab, S, ST, cordes, clef, memoire, geo,
-        }));
-        ancrages.evenements.push({
-            mesure: m.index, evenement: m.evenements.indexOf(e), ref: e.ref,
-            x: xNote, xDebut: x, xFin: x + largeur, yPortee, yTab, hauteurTab,
-        });
-        x += largeur;
-    }
+    // Chaque voix mène ces trois passes INDÉPENDAMMENT (ses propres ligatures, ses propres liaisons) —
+    // seule l'abscisse de chaque instant leur est commune.
+    const nbVoix = m.ref.voix.length;
+    const memoire = memoireAlterations(m.armure);   // partagée : une altération vaut pour la MESURE entière, toutes voix confondues
+    const notesParPasEtColonne = new Map();          // "iCol:pas" → notes déjà posées là, pour l'évitement de collision
 
-    const groupes = grouperLigatures(poses, m.signature);
-    poserHampes(out, poses, groupes, S);
-    poserArticulations(out, poses, S);
-    poserNolets(out, poses, S);
-    poserLiaisons(out, poses, S, ST);
+    m.ref.voix.forEach((voixRef, iVoix) => {
+        // Sens de hampe imposé : voix 0 vers le haut, voix 1 vers le bas — la convention de gravure
+        // pour deux voix sur une même portée. Une seule voix garde la règle AUTOMATIQUE (fondée sur
+        // la hauteur), qui reste la bonne règle dans ce cas — imposer un sens fixe à une voix seule
+        // produirait des hampes vers le bas sur des mélodies aiguës.
+        const sensImpose = nbVoix > 1 ? (iVoix === 0 ? -1 : 1) : null;
+        // Les silences de deux voix simultanées se chevauchent s'ils restent tous deux centrés sur la
+        // portée : la voix 0 se pousse légèrement au-dessus de la ligne médiane, la voix 1 en dessous.
+        const decalageSilence = nbVoix > 1 ? (iVoix === 0 ? -1 : 1) : 0;
+
+        const poses = [];
+        let t = 0;
+        voixRef.evenements.forEach((ref, iEvenement) => {
+            const duree = dureeEnNoires(ref.duree);
+            const iCol = colonneA(t);
+            const xDebutEvt = xColonnes[iCol];
+            const largeurPremiereColonne = m.colonnes[iCol].largeur * facteur;
+            const xNote = xDebutEvt + largeurPremiereColonne * 0.42;
+            // xFin s'étend jusqu'à la colonne où cette voix attaque SA note suivante — pas seulement
+            // jusqu'à la colonne suivante en général. Une blanche tenue sous des croches réserve ainsi
+            // à l'écran (curseur, clic, tête de lecture) tout le temps qu'elle occupe réellement,
+            // même si elle n'a, elle, besoin que de la largeur de sa première colonne pour sa tête.
+            const iColFin = colonneA(t + duree);
+            const xFinEvt = iColFin < xColonnes.length ? xColonnes[iColFin] : xFinMesureNotes;
+
+            const pose = poserEvenement(out, partition, ref, {
+                x: xNote, xDebut: xDebutEvt, largeur: largeurPremiereColonne, yPortee, yTab, S, ST, cordes, clef, memoire, geo,
+                sensImpose, decalageSilence, notesParPasEtColonne, cleColonne: iCol,
+            });
+            poses.push(pose);
+            ancrages.evenements.push({
+                mesure: m.index, voix: iVoix, evenement: iEvenement, ref,
+                x: xNote, xDebut: xDebutEvt, xFin: xFinEvt, yPortee, yTab, hauteurTab,
+            });
+            t += duree;
+        });
+
+        const groupes = grouperLigatures(poses, m.signature);
+        poserHampes(out, poses, groupes, S);
+        poserArticulations(out, poses, S);
+        poserNolets(out, poses, S);
+        poserLiaisons(out, poses, S, ST);
+    });
 
     // Barre de fin de mesure
     const xBarre = ctx.finMesure;
@@ -547,7 +772,7 @@ function yDeLaPosition(pas, yPortee, S, clef) {
 // ---------------------------------------------------------------------------------------------
 
 function poserEvenement(out, partition, evenement, ctx) {
-    const { x, yPortee, yTab, S, ST, cordes, clef, memoire, geo } = ctx;
+    const { x, yPortee, yTab, S, ST, cordes, clef, memoire, geo, sensImpose = null, decalageSilence = 0 } = ctx;
     const crochets = crochetsDe(evenement.duree.valeur);
     const estSilence = evenement.silence || evenement.notes.length === 0;
 
@@ -560,12 +785,15 @@ function poserEvenement(out, partition, evenement, ctx) {
         // La pause et la demi-pause sont le MÊME rectangle : seule leur position les distingue — la
         // première suspendue sous la 4e ligne, la seconde posée sur la médiane. Les confondre décale
         // la lecture d'un temps entier, l'erreur la plus coûteuse qu'un silence puisse porter.
+        // `decalageSilence` écarte les silences de deux voix simultanées l'un de l'autre — sans lui,
+        // une mesure où mélodie ET basse se taisent au même instant superposerait deux fois le même
+        // dessin, indiscernable d'un silence unique.
         const g = G.SILENCES[evenement.duree.valeur] || G.SILENCES[4];
-        const yLigne = yPortee + (G.LIGNE_SILENCE[evenement.duree.valeur] ?? 2) * S;
+        const yLigne = yPortee + (G.LIGNE_SILENCE[evenement.duree.valeur] ?? 2) * S + decalageSilence * S;
         const demi = (G.largeurDe(g) / 2) * S;
         out.push(glyphe(g, x - demi, yLigne, S));
         for (let i = 0; i < (evenement.duree.points || 0); i++) {
-            out.push(glyphe(G.POINT, x + demi + (0.5 + i * 0.42) * S, yPortee + 1.5 * S, S));
+            out.push(glyphe(G.POINT, x + demi + (0.5 + i * 0.42) * S, yPortee + 1.5 * S + decalageSilence * S, S));
         }
         return pose;
     }
@@ -608,7 +836,11 @@ function poserEvenement(out, partition, evenement, ctx) {
     const pasMedian = clef.pasRef + (clef.ligne - 2) * 2;
     const ecartHaut = ecritures[ecritures.length - 1].ecriture.pas - pasMedian;
     const ecartBas = pasMedian - ecritures[0].ecriture.pas;
-    pose.sensHampe = ecartHaut >= ecartBas ? 1 : -1;
+    // `sensImpose` prime sur la règle automatique : à deux voix sur la même portée, le sens dépend
+    // de la VOIX (mélodie en haut, basse en bas), pas de la hauteur — sans quoi une basse tenue très
+    // grave et une mélodie très aiguë pourraient toutes deux se voir attribuer des hampes vers le
+    // haut, qui se chevaucheraient au lieu de rester chacune de son côté.
+    pose.sensHampe = sensImpose ?? (ecartHaut >= ecartBas ? 1 : -1);
     pose.pasMedian = pasMedian;
 
     const teteGlyphe = G.teteDe(evenement.duree.valeur);
@@ -630,13 +862,28 @@ function poserEvenement(out, partition, evenement, ctx) {
             const ga = G.ALTERATIONS[String(alt)];
             out.push(glyphe(ga, x - (G.largeurDe(ga) + demiTete + 0.2) * S, e.y, S));
         }
-        out.push(glyphe(e.note.ghost ? G.TETE_CROIX : teteGlyphe, x, e.y, S));
+
+        // ÉVITEMENT DE COLLISION ENTRE VOIX : si une autre voix a DÉJÀ posé une tête à ce même
+        // instant (même colonne) et cette même hauteur (même position diatonique), les deux têtes se
+        // superposeraient exactement. On décale celle-ci d'une largeur de tête vers la droite — la
+        // convention de gravure pour deux voix à l'unisson — plutôt que de laisser un unique rond
+        // noir là où deux notes distinctes devraient se lire. Ne traite que l'UNISSON exact ; deux
+        // hauteurs voisines (tierce, seconde) different assez à l'œil pour rester superposables sans
+        // ambiguïté, et c'est là que s'arrête cette règle en V1.
+        let xTete = x;
+        if (ctx.notesParPasEtColonne) {
+            const cle = `${ctx.cleColonne}:${e.ecriture.pas}`;
+            if (ctx.notesParPasEtColonne.has(cle)) xTete = x + demiTete * 2.1 * S;
+            else ctx.notesParPasEtColonne.set(cle, true);
+        }
+
+        out.push(glyphe(e.note.ghost ? G.TETE_CROIX : teteGlyphe, xTete, e.y, S));
         if (evenement.duree.points) {
             // Un point posé sur une LIGNE se décale d'un demi-interligne vers le haut : sinon il
             // disparaît dans le trait.
             const surLigne = Math.round((e.y - yPortee) / (S / 2)) % 2 === 0;
             for (let i = 0; i < evenement.duree.points; i++) {
-                out.push(glyphe(G.POINT, x + (demiTete + 0.42 + i * 0.42) * S, e.y - (surLigne ? S / 2 : 0), S));
+                out.push(glyphe(G.POINT, xTete + (demiTete + 0.42 + i * 0.42) * S, e.y - (surLigne ? S / 2 : 0), S));
             }
         }
         yMin = Math.min(yMin, e.y); yMax = Math.max(yMax, e.y);

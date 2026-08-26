@@ -168,18 +168,22 @@ body {
 }
 
 .btn-outil {
-    min-width: 30px; height: 30px;
-    padding: 0 7px;
+    min-width: 32px; height: 32px;
+    padding: 0 8px;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     border-radius: 8px;
     border: 1px solid var(--btn-neutral-border);
     background: linear-gradient(180deg, var(--fond-bouton-sombre) 0%, #12151a 100%);
-    color: var(--text-main);
+    /* Couleur ATTÉNUÉE au repos, pleine au survol/actif — voir plus bas. C'est ce qui allège la
+       barre : les mêmes dessins (têtes de note Bravura, glyphes réels, icônes de geste) lus tout à
+       l'heure comme des blocs noirs pleins deviennent un jeu de signes discrets tant qu'on ne les
+       regarde pas, et ne s'affirment qu'à l'endroit qu'on est en train de considérer. */
+    color: var(--text-muted);
     font-family: var(--font); font-size: var(--fs-sm); font-weight: 600;
     cursor: pointer; white-space: nowrap;
     transition: background .12s, border-color .12s, color .12s;
 }
-.btn-outil:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); border-color: var(--btn-neutral-border-hover); }
+.btn-outil:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); border-color: var(--btn-neutral-border-hover); color: var(--text-main); }
 .btn-outil:disabled { opacity: .34; cursor: default; }
 .btn-outil.actif {
     background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
@@ -187,9 +191,15 @@ body {
 }
 .btn-outil.actif:hover { border-color: var(--btn-green-border-hover); }
 
-/* Les figures de note dessinées dans les boutons de durée : un « ♩ » vaut mieux qu'un mot. */
+/* Les figures de note et les glyphes réels de Bravura dessinés dans les boutons : un « ♩ » vaut mieux
+   qu'un mot, et « P » un vrai pupitre de gravure vaut mieux qu'une lettre. */
 .btn-outil .figure { display: block; width: 15px; height: 22px; }
 .btn-outil .figure path, .btn-outil .figure line { fill: currentColor; stroke: currentColor; }
+.btn-outil .icone { width: 18px; height: 18px; }
+
+/* Palm mute : présenté comme il apparaîtra sur la partition — italique, à son poids naturel — plutôt
+   qu'en gras générique. Le bouton devient un aperçu fidèle plutôt qu'une étiquette quelconque. */
+.apercu-texte-leger { font-style: italic; font-weight: 500; letter-spacing: .01em; }
 
 select.champ, input.champ {
     height: 30px; padding: 0 8px;

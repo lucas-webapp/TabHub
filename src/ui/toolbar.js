@@ -3,11 +3,18 @@
 // Aucun bouton n'est écrit dans index.html : ils dérivent tous de edit/raccourcis.js. C'est ce qui
 // tient la promesse des « contrôles hybrides » — la palette ne peut pas proposer autre chose que ce
 // que fait le clavier, ni annoncer un raccourci périmé, puisqu'elle lit la même ligne de la même table.
+//
+// CE QU'UN BOUTON MONTRE : jamais une lettre en gras. Chaque action porte un `apercu` qui dit COMMENT
+// la représenter — soit le glyphe RÉEL de Bravura qui apparaîtra sur la partition (point, silence,
+// accent, chiffre de triolet : voir glypheIconSvg), soit une petite icône de geste (voir ui/icons.js),
+// soit un court texte présenté à son poids naturel. C'est ce qui distingue ce jeu de boutons d'un
+// simple rang de lettres : chacun montre exactement, ou presque, ce qu'il pose sur la page.
 
 import { ACTIONS, toucheDe } from '../edit/raccourcis.js';
 import * as G from '../engine/glyphs.js';
+import { icone } from './icons.js';
 
-const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure' };
+const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
 
 /**
  * Vignette d'une figure de note, dessinée avec les MÊMES glyphes que la partition.
@@ -31,11 +38,52 @@ function figureSvg(valeur) {
 }
 
 /**
+ * Vignette d'un glyphe QUELCONQUE de Bravura (point, silence, accent, chiffre de n-olet…), centrée
+ * et mise à l'échelle d'après sa BOÎTE RÉELLE plutôt qu'un facteur fixe — un point rythmique (0,4
+ * interligne) et un soupir (presque 3 interlignes de haut) n'ont pas la même taille naturelle, et un
+ * seul facteur pour les deux aurait fait de l'un un point invisible et de l'autre un bloc débordant.
+ */
+function glypheIconSvg(traits) {
+    const b = G.boiteDe(traits);
+    const largeur = Math.max(b.droite - b.gauche, 0.15);
+    const hauteur = Math.max(b.bas - b.haut, 0.15);
+    const cible = 14.5;   // taille visuelle cible dans un viewBox 24×24, cohérente avec les icônes-gestes
+    const echelle = cible / Math.max(largeur, hauteur);
+    const cx = 12 - ((b.gauche + b.droite) / 2) * echelle;
+    const cy = 12 - ((b.haut + b.bas) / 2) * echelle;
+    const corps = traits.map(t => t.epaisseur == null
+        ? `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="currentColor"/>`
+        : `<path d="${t.d}" transform="translate(${cx} ${cy}) scale(${echelle})" fill="none" stroke="currentColor" stroke-width="${t.epaisseur * echelle}"/>`
+    ).join('');
+    return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">${corps}</svg>`;
+}
+
+/** Construit l'aperçu d'un bouton d'après son descripteur `apercu` (voir edit/raccourcis.js). */
+function rendreApercu(action) {
+    if (action.figure) return figureSvg(action.figure);
+    const a = action.apercu;
+    if (!a) return `<span>${action.texte || action.libelle}</span>`;
+    switch (a.type) {
+        case 'icone': return icone(a.nom);
+        case 'glyphe': return glypheIconSvg(G[a.nom]);
+        case 'glypheNolet': return glypheIconSvg(G.CHIFFRES_NOLET[a.chiffre]);
+        case 'silence': return glypheIconSvg(G.SILENCES[a.valeur] || G.SILENCES[4]);
+        // Palm mute s'affiche comme il apparaîtra sur la partition — italique, à son poids naturel —
+        // plutôt qu'en texte gras générique : c'est un aperçu fidèle, pas un simple libellé de bouton.
+        case 'texteLeger': return `<span class="apercu-texte-leger">${a.texte}</span>`;
+        case 'voix': return '<span data-role="voix">Voix</span>';   // rempli dynamiquement, voir aRafraichir
+        default: return `<span>${action.texte || action.libelle}</span>`;
+    }
+}
+
+/**
  * Remplit la barre d'outils et renvoie une fonction de RAFRAÎCHISSEMENT.
  *
  * L'état actif d'un bouton (la croche en cours, le palm mute posé) dépend d'où est le curseur : il ne
  * peut donc pas être figé à la construction. Le rafraîchisseur relit `action.actif(editeur)` à chaque
- * changement — un seul chemin de vérité, celui de l'éditeur, jamais une copie tenue à part.
+ * changement — un seul chemin de vérité, celui de l'éditeur, jamais une copie tenue à part. La
+ * VISIBILITÉ d'un bouton peut, elle aussi, dépendre du curseur (« + Voix » n'a de sens que tant qu'il
+ * n'y en a pas déjà deux) : `action.palette` accepte alors une fonction plutôt qu'un booléen figé.
  */
 export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     hote.innerHTML = '';
@@ -57,17 +105,33 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         const touche = toucheDe(action);
         b.title = action.libelle + (touche ? ` (${touche})` : '');
         b.setAttribute('aria-label', b.title);
-        b.innerHTML = action.figure ? figureSvg(action.figure) : `<span>${action.texte || action.libelle}</span>`;
+        b.innerHTML = rendreApercu(action);
         b.addEventListener('click', () => {
             action.faire(editeur);
             actionsFichier.rendreLeFocus?.();
         });
         parent.appendChild(b);
         if (action.actif) aRafraichir.push(() => b.classList.toggle('actif', !!action.actif(editeur)));
+        // Visibilité dynamique : un bouton dont la pertinence dépend de l'état courant (nombre de
+        // voix, par exemple) se cache plutôt que de rester affiché sans effet.
+        if (typeof action.palette === 'function') {
+            aRafraichir.push(() => { b.hidden = !action.palette(editeur); });
+        }
+        // « Voix suivante » montre sa DESTINATION plutôt qu'une icône figée : le bouton dit où l'on va,
+        // ce qu'aucun pictogramme fixe ne saurait exprimer pour un aller-retour entre deux états.
+        if (action.apercu?.type === 'voix') {
+            aRafraichir.push(() => {
+                const n = editeur.nbVoixMesure();
+                if (n <= 1) return;
+                const suivante = (editeur.curseur.voix + 1) % n;
+                b.querySelector('[data-role="voix"]').textContent = `→ Voix ${suivante + 1}`;
+                b.title = `Basculer vers la voix ${suivante + 1} (${suivante === 0 ? 'mélodie' : 'accompagnement'}) — Tab`;
+            });
+        }
         return b;
     };
 
-    for (const cle of ['duree', 'effet', 'mesure']) {
+    for (const cle of ['duree', 'effet', 'mesure', 'voix']) {
         const g = groupe(TITRES_GROUPES[cle]);
         for (const a of ACTIONS.filter(x => x.groupe === cle && x.palette !== false)) boutonAction(g, a);
     }

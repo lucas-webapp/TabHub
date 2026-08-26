@@ -24,6 +24,28 @@ const D = {
     aide: '<circle cx="12" cy="12" r="10"/><path d="M9.1 9a3 3 0 0 1 5.8 1c0 2-3 3-3 3"/><path d="M12 17h.01"/>',
     fermer: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     chevronBas: '<path d="m6 9 6 6 6-6"/>',
+
+    // Effets de jeu — le GESTE, pas une lettre. La partition imprime encore « H »/« P » en toutes
+    // lettres (convention de gravure établie, voir engine/layout.js) ; le bouton, lui, montre le
+    // geste en un coup d'œil, plus vite reconnaissable qu'une lettre au milieu d'un rang de boutons.
+    // hammerOn et pullOff sont le MIROIR vertical l'un de l'autre — cohérent avec le fait que ce
+    // sont deux gestes opposés (frapper vers le haut / tirer vers le bas), ce qui les rend
+    // reconnaissables comme une PAIRE plutôt que comme deux pictogrammes sans rapport.
+    hammerOn: '<path d="M4 18c4-9 12-11 15-9"/><path d="M15.5 6.5 19 9l-1 4.2"/>',
+    pullOff: '<path d="M4 6c4 9 12 11 15 9"/><path d="M15.5 17.5 19 15l-1-4.2"/>',
+    slide: '<path d="M6 18 17 7"/><path d="M11 7h6v6"/>',
+    // Liaison de prolongation : le même arc que celui posé sur la partition (voir arcLiaison dans
+    // engine/layout.js), pas un caractère Unicode — celui-ci change de graisse et de courbure d'une
+    // police à l'autre, et rendait ce bouton visuellement imprévisible.
+    tie: '<path d="M4 10c4 7 12 7 16 0"/>',
+    // Bend : la corde tirée, la hauteur qui monte — une flèche qui se cabre plutôt qu'un chevron
+    // droit, pour ne pas se confondre avec « transposer » ailleurs dans l'appli.
+    bend: '<path d="M8 19c0-9 3-11 7-13"/><path d="M11.5 4.3 15 6l-.7 3.8"/>',
+    // Barres de reprise : la vraie graphie (trait épais + trait fin + deux points), pas des
+    // deux-points ni des barres verticales génériques — c'est elle qui rend le bouton lisible comme
+    // « reprise » plutôt que comme un simple séparateur.
+    repriseDebut: '<rect x="5" y="4" width="2.6" height="16" rx=".6" fill="currentColor" stroke="none"/><path d="M11 4v16"/><circle cx="15.5" cy="10.4" r="1.3" fill="currentColor" stroke="none"/><circle cx="15.5" cy="13.6" r="1.3" fill="currentColor" stroke="none"/>',
+    repriseFin: '<rect x="16.4" y="4" width="2.6" height="16" rx=".6" fill="currentColor" stroke="none"/><path d="M13 4v16"/><circle cx="8.5" cy="10.4" r="1.3" fill="currentColor" stroke="none"/><circle cx="8.5" cy="13.6" r="1.3" fill="currentColor" stroke="none"/>',
 };
 
 /** Icône prête à insérer. `extra` ajoute des classes CSS au <svg>. */

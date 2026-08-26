@@ -1,12 +1,23 @@
 // Modèle de données d'une partition TabHub — et le format du fichier .json exporté.
 //
-// HIÉRARCHIE : partition > mesures > évènements > notes.
+// HIÉRARCHIE : partition > mesures > voix > évènements > notes.
 //
-//   • Un ÉVÈNEMENT est une tranche verticale de temps : une durée, et les notes qui sonnent ensemble
-//     à cet instant (une seule pour un riff, plusieurs pour un accord plaqué). C'est l'unité que le
-//     curseur d'édition parcourt, celle que la lecture programme, et celle que le moteur de rendu
-//     aligne entre la portée et la tablature. Le mot « temps » a été écarté : il désigne déjà le
-//     battement de la mesure (le 3 de 3/8), et confondre les deux se paierait dans tout le code.
+//   • Une VOIX est une ligne rythmique INDÉPENDANTE à l'intérieur d'une mesure : sa propre suite
+//     d'évènements, sa propre durée écrite, sans rapport avec celle des autres voix de la même
+//     mesure sinon qu'elles commencent toutes au même instant et doivent, une fois complètes,
+//     remplir la même capacité. C'est ce qui permet d'écrire une basse tenue (une voix, une seule
+//     blanche pointée) sous une mélodie qui bouge (une autre voix, quatre croches) DANS LA MÊME
+//     MESURE — chose impossible avec une seule suite d'évènements, qui ne peut représenter qu'un
+//     seul rythme à la fois. La voix 0 est la voix PRINCIPALE (mélodie), hampes vers le haut quand
+//     il y en a une seconde ; la voix 1 est la voix SECONDAIRE (accompagnement/basse), hampes vers
+//     le bas. Deux voix suffisent à la V1 — c'est le cas déclaré par l'utilisateur (mélodie +
+//     basse tenue), et la plupart des partitions de guitare n'en emploient jamais plus.
+//   • Un ÉVÈNEMENT est une tranche verticale de temps DANS UNE VOIX : une durée, et les notes qui
+//     sonnent ensemble à cet instant (une seule pour un riff, plusieurs pour un accord plaqué).
+//     C'est l'unité que le curseur d'édition parcourt, celle que la lecture programme, et celle que
+//     le moteur de rendu aligne entre la portée et la tablature. Le mot « temps » a été écarté : il
+//     désigne déjà le battement de la mesure (le 3 de 3/8), et confondre les deux se paierait dans
+//     tout le code.
 //   • Une NOTE est toujours décrite par CORDE + CASE, jamais par une hauteur. La hauteur en est
 //     déduite via l'accordage (voir instruments.hauteurDeCase). C'est le sens de circulation de
 //     l'appli entière : la tablature est la source, la portée solfège en est le reflet. Stocker les
@@ -15,19 +26,25 @@
 // HÉRITAGE DES ATTRIBUTS DE MESURE. `signature` et `armure` valent `null` dans une mesure qui ne les
 // change pas — la mesure reprend alors ce qui précède. Une partition en 4/4 ne répète donc pas
 // quarante fois « 4/4 », et le moteur de rendu sait, par ce seul `null`, qu'il ne doit PAS redessiner
-// la signature au début de cette mesure. Les deux besoins sont servis par la même donnée.
+// la signature au début de cette mesure. Les deux besoins sont servis par la même donnée. Signature,
+// armure et barres de reprise restent des propriétés de la MESURE, partagées par toutes ses voix —
+// deux voix de la même mesure ne peuvent pas être en 3/4 et 6/8 à la fois, ce serait deux mesures.
 
 import { dureeEnNoires, noiresParMesure } from './duration.js';
 import { INSTRUMENTS, accordageParDefaut, hauteurDeCase } from './instruments.js';
 
 export const FORMAT = 'tabhub-partition';
-export const VERSION_FORMAT = 1;
+export const VERSION_FORMAT = 2;   // 2 : introduction des voix (mesure.voix[] remplace mesure.evenements)
+
+/** Nombre maximal de voix par mesure en V1 — mélodie + basse tenue. Voir l'en-tête du fichier. */
+export const MAX_VOIX = 2;
 
 /**
- * Liaisons entre une note et la suivante SUR LA MÊME CORDE. Un seul champ (`note.lien`) plutôt qu'un
- * booléen par effet : ces cinq états sont exclusifs par nature — on ne peut pas glisser ET marteler
- * vers la même note — et un champ unique rend cette exclusivité impossible à violer, là où cinq
- * booléens autoriseraient des combinaisons absurdes qu'il faudrait ensuite arbitrer à l'affichage.
+ * Liaisons entre une note et la suivante SUR LA MÊME CORDE, DANS LA MÊME VOIX. Un seul champ
+ * (`note.lien`) plutôt qu'un booléen par effet : ces cinq états sont exclusifs par nature — on ne
+ * peut pas glisser ET marteler vers la même note — et un champ unique rend cette exclusivité
+ * impossible à violer, là où cinq booléens autoriseraient des combinaisons absurdes qu'il faudrait
+ * ensuite arbitrer à l'affichage.
  */
 export const LIENS = {
     tie: { id: 'tie', nom: 'Liaison de prolongation', abrege: '⌒', aide: 'La note suivante prolonge celle-ci sans être rejouée' },
@@ -86,7 +103,46 @@ export function creerEvenement(duree = { valeur: 4, points: 0, nolet: null }, no
     };
 }
 
-/** Mesure vierge : un seul silence, pour qu'elle ait toujours une position de curseur atteignable. */
+/**
+ * Découpe une durée (en noires) en une suite d'évènements de figures STANDARD, du plus long
+ * possible au plus court, points compris. C'est la règle qu'une gravure applique pour écrire un
+ * silence qui ne correspond à aucune figure unique (5 noires, par exemple) : on ne dessine jamais un
+ * silence « impossible », on en enchaîne plusieurs qui somment juste. Sert à ensemencer une voix
+ * neuve à la bonne longueur (voir creerVoix) plutôt que de la faire naître en une seule noire, fausse
+ * dans toute mesure qui n'est pas en 4/4.
+ */
+export function decouperEnEvenements(noires, notes = [], silence = true) {
+    const EPS = 1e-9;
+    const sortie = [];
+    let reste = noires;
+    while (reste > EPS) {
+        let posee = false;
+        for (const valeur of [1, 2, 4, 8, 16, 32]) {
+            for (const points of [1, 0]) {   // pointée d'abord : couvre plus large en un seul évènement
+                const d = dureeEnNoires({ valeur, points });
+                if (d <= reste + EPS) {
+                    sortie.push(creerEvenement({ valeur, points }, silence ? [] : notes, { silence }));
+                    reste -= d;
+                    posee = true;
+                    break;
+                }
+            }
+            if (posee) break;
+        }
+        if (!posee) break;   // reste plus court qu'une triple-croche : on n'ira pas plus loin
+    }
+    return sortie.length ? sortie : [creerEvenement({ valeur: 4 }, [], { silence: true })];
+}
+
+/**
+ * Voix neuve, dimensionnée pour occuper toute la capacité de la mesure qui l'accueille — jamais une
+ * seule noire par défaut, qui laisserait une mesure en 3/8 ou 6/8 « incomplète » dès sa création.
+ */
+export function creerVoix(capaciteNoires = 4) {
+    return { evenements: decouperEnEvenements(capaciteNoires) };
+}
+
+/** Mesure vierge : une seule voix, un seul silence — de quoi avoir toujours une position de curseur. */
 export function creerMesure(extra = {}) {
     return {
         id: nouvelId('m'),
@@ -95,7 +151,7 @@ export function creerMesure(extra = {}) {
         repriseDebut: false,
         repriseFin: false,
         nbFois: 2,
-        evenements: [creerEvenement({ valeur: 4 }, [], { silence: true })],
+        voix: [creerVoix(4)],
         ...extra,
     };
 }
@@ -151,33 +207,43 @@ export function armureEffective(partition, index) {
     return 0;
 }
 
-/** Somme des durées écrites dans la mesure, en noires. Peut différer de la capacité (mesure incomplète). */
-export function dureeEcrite(mesure) {
-    return mesure.evenements.reduce((total, e) => total + dureeEnNoires(e.duree), 0);
+/** Nombre de voix effectivement présentes dans une mesure — 1 la plupart du temps, 2 au maximum. */
+export function nbVoixMesure(mesure) {
+    return mesure.voix.length;
 }
 
-/** Capacité de la mesure d'après sa signature effective, en noires. */
+/** Somme des durées écrites dans une VOIX de la mesure, en noires. Peut différer de la capacité
+ *  (mesure incomplète) — chaque voix a la sienne, indépendamment des autres. */
+export function dureeEcrite(mesure, iVoix = 0) {
+    const voix = mesure.voix[iVoix];
+    if (!voix) return 0;
+    return voix.evenements.reduce((total, e) => total + dureeEnNoires(e.duree), 0);
+}
+
+/** Capacité de la mesure d'après sa signature effective, en noires — commune à toutes ses voix. */
 export function capaciteMesure(partition, index) {
     return noiresParMesure(signatureEffective(partition, index));
 }
 
 /**
- * État de remplissage d'une mesure. Sert à l'affichage discret d'un repère (mesure incomplète ou
- * débordante) plutôt qu'à un refus de saisie : on n'interrompt pas quelqu'un en train d'écrire parce
- * que sa mesure n'est pas encore complète — elle ne l'est, par construction, jamais avant la fin.
+ * État de remplissage d'une VOIX de la mesure. Sert à l'affichage discret d'un repère (mesure
+ * incomplète ou débordante) plutôt qu'à un refus de saisie : on n'interrompt pas quelqu'un en train
+ * d'écrire parce que sa mesure n'est pas encore complète — elle ne l'est, par construction, jamais
+ * avant la fin.
  */
-export function etatMesure(partition, index) {
-    const ecrite = dureeEcrite(partition.mesures[index]);
+export function etatMesure(partition, index, iVoix = 0) {
+    const ecrite = dureeEcrite(partition.mesures[index], iVoix);
     const capacite = capaciteMesure(partition, index);
     const ecart = ecrite - capacite;
     if (Math.abs(ecart) < 1e-9) return 'complete';
     return ecart < 0 ? 'incomplete' : 'debordante';
 }
 
-/** Position de départ d'un évènement dans sa mesure, en noires depuis le début de celle-ci. */
-export function positionDansMesure(mesure, indexEvenement) {
+/** Position de départ d'un évènement DANS SA VOIX, en noires depuis le début de la mesure. */
+export function positionDansMesure(mesure, indexEvenement, iVoix = 0) {
+    const evenements = mesure.voix[iVoix]?.evenements || [];
     let t = 0;
-    for (let i = 0; i < indexEvenement && i < mesure.evenements.length; i++) t += dureeEnNoires(mesure.evenements[i].duree);
+    for (let i = 0; i < indexEvenement && i < evenements.length; i++) t += dureeEnNoires(evenements[i].duree);
     return t;
 }
 
@@ -192,10 +258,16 @@ export function nbCordes(partition) {
 }
 
 /**
- * Aplatit la partition en une suite d'évènements datés, en noires depuis le début du morceau.
- * Une seule traversée sert à la fois au moteur audio (quand programmer chaque note) et au moteur de
- * rendu (où poser la tête de lecture) : les deux lisent la MÊME liste, donc le trait suivi à l'écran
- * ne peut pas dériver de ce qu'on entend.
+ * Aplatit la partition en une suite d'évènements datés, TOUTES VOIX CONFONDUES, en noires depuis le
+ * début du morceau. Une seule traversée sert à la fois au moteur audio (quand programmer chaque
+ * note) et au moteur de rendu (où poser la tête de lecture) : les deux lisent la MÊME liste, donc le
+ * trait suivi à l'écran ne peut pas dériver de ce qu'on entend.
+ *
+ * LE TEMPS GLOBAL avance mesure par mesure d'après la CAPACITÉ déclarée (signature rythmique), pas
+ * d'après ce qu'une voix particulière a écrit : une mesure en cours d'édition, où la voix 1 est
+ * encore incomplète, ne doit pas pour autant décaler tout ce qui suit. Toutes les voix d'une même
+ * mesure partagent donc la même origine temporelle `tMesure` — c'est précisément ce qui les fait
+ * sonner ENSEMBLE.
  *
  * Les reprises ne sont volontairement PAS dépliées ici : elles relèvent du parcours de lecture, pas
  * de la partition écrite. Les déplier créerait des évènements en double sans identité propre, que le
@@ -203,20 +275,24 @@ export function nbCordes(partition) {
  */
 export function aplatir(partition) {
     const sortie = [];
-    let t = 0;
+    let tMesure = 0;
     partition.mesures.forEach((mesure, iMesure) => {
-        mesure.evenements.forEach((evenement, iEvenement) => {
-            const duree = dureeEnNoires(evenement.duree);
-            sortie.push({ mesure: iMesure, evenement: iEvenement, debut: t, duree, ref: evenement });
-            t += duree;
+        mesure.voix.forEach((voix, iVoix) => {
+            let t = tMesure;
+            voix.evenements.forEach((evenement, iEvenement) => {
+                const duree = dureeEnNoires(evenement.duree);
+                sortie.push({ mesure: iMesure, voix: iVoix, evenement: iEvenement, debut: t, duree, ref: evenement });
+                t += duree;
+            });
         });
+        tMesure += capaciteMesure(partition, iMesure);
     });
     return sortie;
 }
 
-/** Durée totale du morceau écrit, en noires. */
+/** Durée totale du morceau, en noires — la somme des CAPACITÉS déclarées, pas d'une voix en particulier. */
 export function dureeTotale(partition) {
-    return partition.mesures.reduce((total, m) => total + dureeEcrite(m), 0);
+    return partition.mesures.reduce((total, _m, i) => total + capaciteMesure(partition, i), 0);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -228,6 +304,38 @@ const borne = (v, min, max, defaut) => {
     return Number.isFinite(n) ? Math.min(max, Math.max(min, Math.round(n))) : defaut;
 };
 
+/** Un évènement brut → un évènement normalisé, notes bornées à l'instrument et à l'accordage donnés. */
+function normaliserEvenement(eb, cordes, fiche) {
+    const duree = {
+        valeur: [1, 2, 4, 8, 16, 32].includes(Number(eb?.duree?.valeur)) ? Number(eb.duree.valeur) : 4,
+        points: borne(eb?.duree?.points, 0, 3, 0),
+        nolet: eb?.duree?.nolet && eb.duree.nolet.dans > 0
+            ? { dans: borne(eb.duree.nolet.dans, 2, 16, 3), valent: borne(eb.duree.nolet.valent, 1, 16, 2) }
+            : null,
+    };
+    const notes = [];
+    for (const nb of Array.isArray(eb?.notes) ? eb.notes : []) {
+        const corde = borne(nb?.corde, 0, cordes.length - 1, null);
+        if (corde === null) continue;
+        // Doublon sur la même corde : physiquement impossible, et le rendu poserait deux chiffres
+        // l'un sur l'autre. Le premier gagne.
+        if (notes.some(n => n.corde === corde)) continue;
+        notes.push(creerNote(corde, borne(nb?.frette, 0, fiche.casesMax, 0), {
+            lien: LIENS[nb?.lien] ? nb.lien : null,
+            bend: nb?.bend && Number.isFinite(Number(nb.bend.demiTons))
+                ? { demiTons: Math.min(6, Math.max(0.5, Number(nb.bend.demiTons))) } : null,
+            ghost: !!nb?.ghost,
+        }));
+    }
+    return creerEvenement(duree, notes, {
+        silence: !!eb?.silence || notes.length === 0,
+        palmMute: !!eb?.palmMute,
+        accent: !!eb?.accent,
+        staccato: !!eb?.staccato,
+        nuance: NUANCES.includes(eb?.nuance) ? eb.nuance : null,
+    });
+}
+
 /**
  * Remet d'aplomb une partition venue d'un fichier .json.
  *
@@ -237,6 +345,12 @@ const borne = (v, min, max, defaut) => {
  * première ligne cherchée, et une durée `valeur: 0` bloquerait la lecture dans une boucle infinie de
  * durée nulle. On répare et on ouvre quand même : perdre un effet exotique vaut mieux que refuser
  * d'ouvrir le morceau de quelqu'un.
+ *
+ * DEUX FORMES DE MESURE SONT ACCEPTÉES EN ENTRÉE : `mesure.voix` (le format courant, un tableau
+ * d'une ou deux voix) et `mesure.evenements` À PLAT — celui des fichiers écrits avant l'introduction
+ * des voix (version 1 du format, y compris ceux déjà exportés pendant le développement de cette V1).
+ * Les deux convergent ici vers la MÊME représentation interne ; aucune autre partie de l'application
+ * n'a jamais besoin de savoir qu'un fichier « à plat » a existé.
  */
 export function normaliser(brut) {
     if (!brut || typeof brut !== 'object') throw new Error('Fichier illisible : ce n\'est pas un objet JSON.');
@@ -273,7 +387,7 @@ export function normaliser(brut) {
 
     const mesuresBrutes = Array.isArray(brut.mesures) && brut.mesures.length ? brut.mesures : [creerMesure()];
     for (const mb of mesuresBrutes) {
-        const mesure = creerMesure({ evenements: [] });
+        const mesure = creerMesure({ voix: [] });
         if (mb?.signature) {
             mesure.signature = {
                 battements: borne(mb.signature.battements, 1, 32, 4),
@@ -285,37 +399,18 @@ export function normaliser(brut) {
         mesure.repriseFin = !!mb?.repriseFin;
         mesure.nbFois = borne(mb?.nbFois, 2, 99, 2);
 
-        for (const eb of Array.isArray(mb?.evenements) ? mb.evenements : []) {
-            const duree = {
-                valeur: [1, 2, 4, 8, 16, 32].includes(Number(eb?.duree?.valeur)) ? Number(eb.duree.valeur) : 4,
-                points: borne(eb?.duree?.points, 0, 3, 0),
-                nolet: eb?.duree?.nolet && eb.duree.nolet.dans > 0
-                    ? { dans: borne(eb.duree.nolet.dans, 2, 16, 3), valent: borne(eb.duree.nolet.valent, 1, 16, 2) }
-                    : null,
-            };
-            const notes = [];
-            for (const nb of Array.isArray(eb?.notes) ? eb.notes : []) {
-                const corde = borne(nb?.corde, 0, cordes.length - 1, null);
-                if (corde === null) continue;
-                // Doublon sur la même corde : physiquement impossible, et le rendu poserait deux
-                // chiffres l'un sur l'autre. Le premier gagne.
-                if (notes.some(n => n.corde === corde)) continue;
-                notes.push(creerNote(corde, borne(nb?.frette, 0, fiche.casesMax, 0), {
-                    lien: LIENS[nb?.lien] ? nb.lien : null,
-                    bend: nb?.bend && Number.isFinite(Number(nb.bend.demiTons))
-                        ? { demiTons: Math.min(6, Math.max(0.5, Number(nb.bend.demiTons))) } : null,
-                    ghost: !!nb?.ghost,
-                }));
-            }
-            mesure.evenements.push(creerEvenement(duree, notes, {
-                silence: !!eb?.silence || notes.length === 0,
-                palmMute: !!eb?.palmMute,
-                accent: !!eb?.accent,
-                staccato: !!eb?.staccato,
-                nuance: NUANCES.includes(eb?.nuance) ? eb.nuance : null,
-            }));
+        // Format courant (mesure.voix) si présent ; sinon un fichier antérieur aux voix, dont
+        // l'unique liste d'évènements à plat devient la voix 0.
+        const voixBrutes = Array.isArray(mb?.voix) && mb.voix.length
+            ? mb.voix.slice(0, MAX_VOIX)
+            : [{ evenements: mb?.evenements }];
+
+        for (const vb of voixBrutes) {
+            const evenements = (Array.isArray(vb?.evenements) ? vb.evenements : []).map(eb => normaliserEvenement(eb, cordes, fiche));
+            if (!evenements.length) evenements.push(creerEvenement({ valeur: 4 }, [], { silence: true }));
+            mesure.voix.push({ evenements });
         }
-        if (!mesure.evenements.length) mesure.evenements.push(creerEvenement({ valeur: 4 }, [], { silence: true }));
+        if (!mesure.voix.length) mesure.voix.push(creerVoix(4));
         partition.mesures.push(mesure);
     }
 

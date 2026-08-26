@@ -80,9 +80,15 @@ function lireEtat(page) {
             instrument: p.piste.instrument,
             cordes: p.piste.accordage.cordes.slice(),
             accordage: p.piste.accordage.id,
-            contenu: p.mesures.map(m => m.evenements.map(e =>
+            // `contenu`/`durees` lisent la voix 0 (la mélodie) — celle que tous les bancs antérieurs
+            // aux voix connaissent déjà. `toutesVoix` donne le détail complet, voix par voix, pour
+            // les bancs qui portent spécifiquement sur la seconde voix.
+            contenu: p.mesures.map(m => m.voix[0].evenements.map(e =>
                 (e.silence || !e.notes.length) ? '_' : e.notes.map(n => n.corde + ':' + n.frette).join('+'))),
-            durees: p.mesures.map(m => m.evenements.map(e => e.duree.valeur)),
+            durees: p.mesures.map(m => m.voix[0].evenements.map(e => e.duree.valeur)),
+            nbVoix: p.mesures.map(m => m.voix.length),
+            toutesVoix: p.mesures.map(m => m.voix.map(v => v.evenements.map(e =>
+                (e.silence || !e.notes.length) ? '_' : e.notes.map(n => n.corde + ':' + n.frette).join('+')))),
             systemes: window.app.page.ancrages.systemes.length,
             primitives: window.app.page.primitives.length,
             etatLecture: window.app.lecteur.etat,

@@ -11,7 +11,7 @@ const { check, exiger, plan, bilan } = creerHarnais('instruments et accordages')
 const hauteurs = (page) => page.evaluate(async () => {
     const S = await import('/src/model/score.js');
     const p = window.app.editeur.partition;
-    return p.mesures[0].evenements.flatMap(e => e.notes.map(n => S.hauteurDeNote(p, n)));
+    return p.mesures[0].voix[0].evenements.flatMap(e => e.notes.map(n => S.hauteurDeNote(p, n)));
 });
 
 (async () => {
@@ -70,7 +70,7 @@ const hauteurs = (page) => page.evaluate(async () => {
                 && p.y1 >= sys.yTab - 0.1 && p.y1 <= sys.yTab + sys.hauteurTab + 0.1).length;
         });
         check(lignesTab === 4, 'la tablature n\'a plus que quatre lignes');
-        const cordesRestantes = await page.evaluate(() => window.app.editeur.partition.mesures.flatMap(m => m.evenements.flatMap(ev => ev.notes.map(n => n.corde))));
+        const cordesRestantes = await page.evaluate(() => window.app.editeur.partition.mesures.flatMap(m => m.voix.flatMap(v => v.evenements).flatMap(ev => ev.notes.map(n => n.corde))));
         check(cordesRestantes.every(c => c <= 3), 'les notes posées sur des cordes disparues ont été retirées, pas laissées orphelines');
 
         await page.selectOption('#champ-instrument', 'basse5');

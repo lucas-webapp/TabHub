@@ -30,12 +30,12 @@ import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes } from './model/score.js';
-import { dureeEnNoires } from './model/duration.js';
+import { aplatir, hauteurDeNote, nbCordes, capaciteMesure, positionDansMesure } from './model/score.js';
 import { ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './model/theory.js';
 
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_ZOOM = 'tabhub.zoom';
+const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 
 class TabHubApp {
     constructor() {
@@ -43,6 +43,10 @@ class TabHubApp {
         this.lecteur = new Lecteur();
         this.page = null;
         this.interligne = parseFloat(localStorage.getItem(CLE_ZOOM)) || 9;
+        // 0 = « Auto » (glouton). Une préférence d'AFFICHAGE, pas de contenu musical : elle
+        // reste locale au navigateur et ne voyage jamais dans le .json — rouvrir le même
+        // morceau sur un autre poste doit retomber sur l'agencement automatique.
+        this.mesuresParLigne = parseInt(localStorage.getItem(CLE_MESURES_LIGNE), 10) || 0;
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
 
@@ -54,6 +58,7 @@ class TabHubApp {
             titre: document.getElementById('champ-titre'),
             tempo: document.getElementById('champ-tempo'),
             zoom: document.getElementById('champ-zoom'),
+            mesuresLigne: document.getElementById('champ-mesures-ligne'),
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
@@ -92,6 +97,7 @@ class TabHubApp {
             S: this.interligne,
             largeurPage: largeur,
             yDepart: 6,
+            mesuresParLigne: this.mesuresParLigne || null,
         });
 
         const calques = [...this.marquesLecture(), ...this.marquesCurseur()];
@@ -144,7 +150,7 @@ class TabHubApp {
     /** Ancrage de l'évènement sous le curseur, tel que la mise en page vient de le poser. */
     ancrageCurseur() {
         const c = this.editeur.curseur;
-        return this.page?.ancrages.evenements.find(a => a.mesure === c.mesure && a.evenement === c.evenement) || null;
+        return this.page?.ancrages.evenements.find(a => a.mesure === c.mesure && a.voix === c.voix && a.evenement === c.evenement) || null;
     }
 
     /**
@@ -176,9 +182,13 @@ class TabHubApp {
         if (this.lecteur.etat === 'arret' || !this.page) return [];
         const plat = aplatir(this.editeur.partition);
         const t = this.lecteur.position;
+        // À plusieurs voix sonnant au même instant, on ancre le trait sur la voix 0 (la mélodie,
+        // celle qu'on suit le plus naturellement à l'oreille) : `aplatir` liste toujours les
+        // évènements d'une mesure voix par voix, dans l'ordre, donc le premier qui correspond au
+        // temps courant est déjà celui de la voix la plus basse en index.
         const entree = plat.find(e => t >= e.debut - 1e-9 && t < e.debut + e.duree - 1e-9) || null;
         if (!entree) return [];
-        const a = this.page.ancrages.evenements.find(x => x.mesure === entree.mesure && x.evenement === entree.evenement);
+        const a = this.page.ancrages.evenements.find(x => x.mesure === entree.mesure && x.voix === entree.voix && x.evenement === entree.evenement);
         if (!a) return [];
         const avance = entree.duree > 0 ? Math.max(0, Math.min(1, (t - entree.debut) / entree.duree)) : 0;
         const x = a.xDebut + (a.xFin - a.xDebut) * avance;
@@ -268,7 +278,11 @@ class TabHubApp {
         // « nombre de cordes − index », qui annonçait « corde 6 » pour le mi aigu.
         const numeroCorde = c.corde + 1;
         const note = this.editeur.noteCourante();
-        let texte = `Corde ${numeroCorde}`;
+        // La voix ne s'affiche QUE quand la mesure en a deux — sur la mesure du commun des cas
+        // (une seule voix), le mentionner serait du bruit sans rien apprendre à personne.
+        let texte = this.editeur.nbVoixMesure() > 1
+            ? `Voix ${c.voix + 1} (${c.voix === 0 ? 'mélodie' : 'accompagnement'}) · Corde ${numeroCorde}`
+            : `Corde ${numeroCorde}`;
         if (note) {
             const midi = hauteurDeNote(this.editeur.partition, note);
             if (midi != null) {
@@ -310,17 +324,17 @@ class TabHubApp {
         this.dessiner();
     }
 
+    /**
+     * Position du curseur en noires depuis le début du morceau — pour lancer la lecture depuis là.
+     * Le temps GLOBAL avance mesure par mesure d'après la CAPACITÉ déclarée (comme `aplatir`), pas
+     * d'après la voix particulière où se trouve le curseur : sinon reprendre la lecture depuis la
+     * voix 2 d'une mesure encore incomplète décalerait tout ce qui suit.
+     */
     positionDuCurseurEnNoires() {
         const c = this.editeur.curseur;
         let t = 0;
-        for (let m = 0; m < this.editeur.partition.mesures.length; m++) {
-            const mesure = this.editeur.partition.mesures[m];
-            for (let e = 0; e < mesure.evenements.length; e++) {
-                if (m === c.mesure && e === c.evenement) return t;
-                t += dureeEnNoires(mesure.evenements[e].duree);
-            }
-        }
-        return 0;
+        for (let m = 0; m < c.mesure; m++) t += capaciteMesure(this.editeur.partition, m);
+        return t + positionDansMesure(this.editeur.partition.mesures[c.mesure], c.evenement, c.voix);
     }
 
     rafraichirTransport() {
@@ -451,6 +465,13 @@ class TabHubApp {
             this.dessiner();
         });
 
+        this.el.mesuresLigne.value = String(this.mesuresParLigne);
+        this.el.mesuresLigne.addEventListener('change', () => {
+            this.mesuresParLigne = parseInt(this.el.mesuresLigne.value, 10) || 0;
+            localStorage.setItem(CLE_MESURES_LIGNE, String(this.mesuresParLigne));
+            this.dessiner();
+        });
+
         // Clic dans la partition : place le curseur là où on a cliqué.
         this.el.feuille.addEventListener('pointerdown', (e) => this.clicPartition(e));
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
@@ -510,7 +531,11 @@ class TabHubApp {
 
         const candidats = this.page.ancrages.evenements.filter(a => a.yPortee === systeme.yPortee);
         if (!candidats.length) return;
-        const cible = candidats.find(a => x >= a.xDebut && x < a.xFin)
+        // Deux voix peuvent toutes deux couvrir l'abscisse cliquée (elles commencent ensemble). On
+        // préfère alors rester sur la voix DÉJÀ active plutôt que de deviner d'après la position — un
+        // clic qui resterait sur la même voix qu'avant est le comportement le moins surprenant.
+        const memeX = candidats.filter(a => x >= a.xDebut && x < a.xFin);
+        const cible = (memeX.find(a => a.voix === this.editeur.curseur.voix) || memeX[0])
             || (x < candidats[0].xDebut ? candidats[0] : candidats[candidats.length - 1]);
 
         // La corde se déduit de la hauteur du clic dans la tablature ; un clic sur la portée solfège
@@ -521,7 +546,7 @@ class TabHubApp {
             corde = Math.round((y - cible.yTab) / ST);
             corde = Math.max(0, Math.min(nbCordes(this.editeur.partition) - 1, corde));
         }
-        this.editeur.placerCurseur(cible.mesure, cible.evenement, corde);
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, corde, cible.voix);
         this.el.zone.focus();
     }
 

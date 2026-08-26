@@ -21,8 +21,8 @@ const mesurer = (page, n) => page.evaluate(async (n) => {
     const m = await import('/src/model/score.js');
     const ed = window.app.editeur;
     ed.partition.mesures = Array.from({ length: n }, () => m.creerMesure({
-        evenements: Array.from({ length: 8 }, (_, i) => m.creerEvenement({ valeur: 8 },
-            [m.creerNote(0, i), m.creerNote(1, (i * 3) % 12), m.creerNote(4, i % 5)])),
+        voix: [{ evenements: Array.from({ length: 8 }, (_, i) => m.creerEvenement({ valeur: 8 },
+            [m.creerNote(0, i), m.creerNote(1, (i * 3) % 12), m.creerNote(4, i % 5)])) }],
     }));
     ed.prevenir('document');
     window.app.dessiner();                                   // une passe à blanc : on ne mesure pas le premier appel

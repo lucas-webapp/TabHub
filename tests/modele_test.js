@@ -8,7 +8,7 @@ const creerHarnais = require('./_harness.js');
 const { check, exiger, plan, bilan } = creerHarnais('modèle');
 
 (async () => {
-    plan(26);
+    plan(34);
     const T = await import('../src/model/theory.js');
     const D = await import('../src/model/duration.js');
     const I = await import('../src/model/instruments.js');
@@ -48,13 +48,29 @@ const { check, exiger, plan, bilan } = creerHarnais('modèle');
     p.mesures[0].signature = { battements: 3, unite: 8 };
     check(S.signatureEffective(p, 2).battements === 3, 'une mesure sans signature hérite de la précédente');
     check(S.capaciteMesure(p, 0) === 1.5, 'capacité d\'une mesure à 3/8 : une noire et demie');
-    p.mesures[0].evenements = [S.creerEvenement({ valeur: 8 }, [S.creerNote(0, 7)]), S.creerEvenement({ valeur: 8 }, [S.creerNote(0, 5)]), S.creerEvenement({ valeur: 8 }, [S.creerNote(0, 3)])];
+    p.mesures[0].voix[0].evenements = [S.creerEvenement({ valeur: 8 }, [S.creerNote(0, 7)]), S.creerEvenement({ valeur: 8 }, [S.creerNote(0, 5)]), S.creerEvenement({ valeur: 8 }, [S.creerNote(0, 3)])];
     check(S.etatMesure(p, 0) === 'complete', 'trois croches remplissent exactement une mesure à 3/8');
+
+    // --- Voix : basse tenue sous une mélodie qui bouge ----------------------------------------------
+    check(S.nbVoixMesure(p.mesures[0]) === 1, 'une mesure neuve n\'a qu\'une voix');
+    p.mesures[0].voix.push(S.creerVoix(S.capaciteMesure(p, 0)));
+    check(S.nbVoixMesure(p.mesures[0]) === 2, 'une 2e voix s\'ajoute sans toucher à la première');
+    check(S.dureeEcrite(p.mesures[0], 0) === 1.5 && S.dureeEcrite(p.mesures[0], 1) === 1.5, 'la voix neuve est dimensionnée à la capacité de LA mesure, pas à une noire fixe');
+    p.mesures[0].voix[1].evenements = [S.creerEvenement({ valeur: 4, points: 1 }, [S.creerNote(5, 0)])];
+    const plat = S.aplatir(p);
+    const m0 = plat.filter(e => e.mesure === 0);
+    check(m0.some(e => e.voix === 0) && m0.some(e => e.voix === 1), 'aplatir() restitue les DEUX voix de la mesure');
+    check(m0.filter(e => e.voix === 1)[0].debut === 0, 'les deux voix partagent la même origine temporelle');
+
+    // --- Découpage d'une durée en évènements standard (silence ou note) -----------------------------
+    check(S.decouperEnEvenements(5).map(e => e.duree.valeur).join('+') === '1+4', 'une durée de 5 noires se décompose en ronde + noire');
+    check(S.decouperEnEvenements(1.5)[0].duree.points === 1, 'une durée de 1,5 noire tient dans UNE noire pointée');
 
     // --- Normalisation d'un fichier hostile -------------------------------------------------------
     // Un .json ouvert par l'utilisateur est une entrée non fiable au même titre qu'une saisie.
     const abime = S.normaliser({ mesures: [{ evenements: [{ duree: { valeur: 0 }, notes: [{ corde: 99, frette: 999 }, { corde: 99, frette: 3 }] }] }] });
-    const n0 = abime.mesures[0].evenements[0];
+    check(S.nbVoixMesure(abime.mesures[0]) === 1, 'un fichier antérieur aux voix (evenements à plat) migre en une seule voix');
+    const n0 = abime.mesures[0].voix[0].evenements[0];
     check(n0.duree.valeur === 4, 'une durée nulle est ramenée à la noire — sinon la lecture boucle sur du vide');
     check(n0.notes[0].corde <= 5 && n0.notes[0].frette <= 24, 'corde et case hors bornes sont ramenées dans le manche');
     check(n0.notes.length === 1, 'deux notes sur la MÊME corde : physiquement impossible, la seconde est écartée');

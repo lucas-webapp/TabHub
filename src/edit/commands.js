@@ -18,8 +18,8 @@
 // corruption silencieuse du document, découverte trois annulations plus tard.
 
 import {
-    creerPartition, creerMesure, creerEvenement, creerNote, cloner, normaliser,
-    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure,
+    creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
+    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, MAX_VOIX,
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
 import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage } from '../model/instruments.js';
@@ -31,7 +31,7 @@ export const DELAI_DEUXIEME_CHIFFRE = 950;
 export class Editeur {
     constructor(partition = null) {
         this.partition = partition || creerPartition('guitare');
-        this.curseur = { mesure: 0, evenement: 0, corde: 0 };
+        this.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
         this.passe = [];
         this.futur = [];
         this.auditeurs = new Set();
@@ -91,19 +91,27 @@ export class Editeur {
 
     // -- Curseur ---------------------------------------------------------------------------------
 
-    /** Ramène le curseur dans les bornes après toute opération qui a pu raccourcir la partition. */
+    /** Ramène le curseur dans les bornes après toute opération qui a pu raccourcir la partition
+     *  ou faire disparaître la voix visée (suppression de la 2e voix, par exemple). */
     corrigerCurseur() {
         const c = this.curseur;
         c.mesure = Math.max(0, Math.min(c.mesure, this.partition.mesures.length - 1));
         const mesure = this.partition.mesures[c.mesure];
-        c.evenement = Math.max(0, Math.min(c.evenement, mesure.evenements.length - 1));
+        c.voix = Math.max(0, Math.min(c.voix, mesure.voix.length - 1));
+        c.evenement = Math.max(0, Math.min(c.evenement, mesure.voix[c.voix].evenements.length - 1));
         c.corde = Math.max(0, Math.min(c.corde, nbCordes(this.partition) - 1));
     }
 
     mesureCourante() { return this.partition.mesures[this.curseur.mesure]; }
-    evenementCourant() { return this.mesureCourante().evenements[this.curseur.evenement]; }
+    voixCourante() { return this.mesureCourante().voix[this.curseur.voix]; }
+    evenementCourant() { return this.voixCourante().evenements[this.curseur.evenement]; }
     noteCourante() {
         return this.evenementCourant().notes.find(n => n.corde === this.curseur.corde) || null;
+    }
+
+    /** Nombre de voix de la mesure `index` (celle du curseur par défaut). 1 la plupart du temps. */
+    nbVoixMesure(index = this.curseur.mesure) {
+        return this.partition.mesures[index].voix.length;
     }
 
     /** Déplace le curseur d'une corde. Ne franchit PAS les bords : une TAB n'a pas de corde 7. */
@@ -132,14 +140,25 @@ export class Editeur {
      * évènement de trop reste possible, mais par un geste explicite (Entrée).
      */
     deplacerEvenement(delta) {
+        // La voix visée par une mesure DIFFÉRENTE de la courante peut ne pas y exister (la voix 2
+        // ne couvre pas forcément tout le morceau) : on retombe alors sur la dernière voix
+        // disponible de cette mesure-là — dans l'immense majorité des cas la voix 0, toujours
+        // présente. C'est ce petit repli qui permet à un simple « → » de continuer naturellement
+        // sur la mélodie quand on sort d'une mesure à deux voix vers une mesure qui n'en a qu'une.
+        const iVoixPreferee = this.curseur.voix;
+        const voixDe = (indexMesure) => {
+            const m = this.partition.mesures[indexMesure];
+            return m.voix[Math.min(iVoixPreferee, m.voix.length - 1)];
+        };
+
         if (delta > 0) {
-            const m = this.mesureCourante();
-            const dernier = this.curseur.evenement === m.evenements.length - 1;
+            const voix = this.voixCourante();
+            const dernier = this.curseur.evenement === voix.evenements.length - 1;
             if (dernier) {
-                const reste = capaciteMesure(this.partition, this.curseur.mesure) - dureeEcrite(m);
+                const reste = capaciteMesure(this.partition, this.curseur.mesure) - dureeEcrite(this.mesureCourante(), this.curseur.voix);
                 if (reste >= dureeEnNoires(this.dureeCourante) - 1e-9) {
                     this.memoriser('prolonger');
-                    m.evenements.push(creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+                    voix.evenements.push(creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
                     this.curseur.evenement += 1;
                     this._dernierChiffre = null;
                     this.prevenir('curseur');
@@ -153,18 +172,19 @@ export class Editeur {
         while (evenement < 0) {
             if (mesure === 0) { evenement = 0; break; }
             mesure -= 1;
-            evenement += this.partition.mesures[mesure].evenements.length;
+            evenement += voixDe(mesure).evenements.length;
         }
-        while (evenement >= this.partition.mesures[mesure].evenements.length) {
+        while (evenement >= voixDe(mesure).evenements.length) {
             if (mesure === this.partition.mesures.length - 1) {
-                if (delta <= 0) { evenement = this.partition.mesures[mesure].evenements.length - 1; break; }
+                if (delta <= 0) { evenement = voixDe(mesure).evenements.length - 1; break; }
                 this.memoriser('avancer');
                 this.partition.mesures.push(creerMesure());
             }
-            evenement -= this.partition.mesures[mesure].evenements.length;
+            evenement -= voixDe(mesure).evenements.length;
             mesure += 1;
         }
         this.curseur.mesure = mesure;
+        this.curseur.voix = Math.min(iVoixPreferee, this.partition.mesures[mesure].voix.length - 1);
         this.curseur.evenement = evenement;
         this._dernierChiffre = null;
         this.prevenir('curseur');
@@ -175,16 +195,63 @@ export class Editeur {
     allerAMesure(index, evenement = 0) {
         this.curseur.mesure = Math.max(0, Math.min(index, this.partition.mesures.length - 1));
         const m = this.mesureCourante();
-        this.curseur.evenement = evenement < 0 ? m.evenements.length - 1 : Math.min(evenement, m.evenements.length - 1);
+        this.curseur.voix = Math.min(this.curseur.voix, m.voix.length - 1);
+        const evs = m.voix[this.curseur.voix].evenements;
+        this.curseur.evenement = evenement < 0 ? evs.length - 1 : Math.min(evenement, evs.length - 1);
         this._dernierChiffre = null;
         this.prevenir('curseur');
     }
 
-    placerCurseur(mesure, evenement, corde) {
-        this.curseur = { mesure, evenement, corde: corde ?? this.curseur.corde };
+    placerCurseur(mesure, evenement, corde, voix) {
+        this.curseur = { mesure, voix: voix ?? this.curseur.voix, evenement, corde: corde ?? this.curseur.corde };
         this.corrigerCurseur();
         this._dernierChiffre = null;
         this.prevenir('curseur');
+    }
+
+    // -- Voix ------------------------------------------------------------------------------------
+    //
+    // Deux voix au maximum en V1 (voir model/score.js) : la mélodie (voix 0, toujours présente) et
+    // une voix d'accompagnement — basse tenue, par exemple — qui partage la même mesure sans
+    // partager son rythme. Ajouter/retirer une voix est une opération PAR MESURE, pas sur le
+    // morceau entier : on se place où la seconde voix doit commencer, et seule cette mesure change.
+    // Un morceau qui en a besoin partout s'obtient en la répétant mesure après mesure — plus prévisible
+    // qu'un geste global qui ajouterait une voix vide à des dizaines de mesures qui n'en voulaient pas.
+
+    /** Ajoute une 2e voix à la mesure courante, et s'y place aussitôt pour la remplir. */
+    ajouterVoix() {
+        const m = this.mesureCourante();
+        if (m.voix.length >= MAX_VOIX) return false;
+        this.memoriser();
+        m.voix.push(creerVoix(capaciteMesure(this.partition, this.curseur.mesure)));
+        this.curseur.voix = m.voix.length - 1;
+        this.curseur.evenement = 0;
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /** Retire la voix d'accompagnement de la mesure courante. La voix 0 (mélodie) ne se retire jamais. */
+    supprimerVoix() {
+        const m = this.mesureCourante();
+        if (m.voix.length <= 1) return false;
+        this.memoriser();
+        m.voix.pop();
+        this.corrigerCurseur();
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /** Bascule la saisie sur la voix suivante de la mesure courante (Tab). Sans effet à une seule voix. */
+    basculerVoix() {
+        const n = this.nbVoixMesure();
+        if (n <= 1) return false;
+        this.curseur.voix = (this.curseur.voix + 1) % n;
+        this.curseur.evenement = 0;   // la voix visée a son propre rythme, on en repart du début
+        this._dernierChiffre = null;
+        this.prevenir('curseur');
+        return true;
     }
 
     // -- Saisie des notes -------------------------------------------------------------------------
@@ -293,19 +360,19 @@ export class Editeur {
     /** Insère un évènement APRÈS le courant et s'y place — le geste normal pour écrire à la suite. */
     insererEvenement() {
         this.memoriser();
-        const m = this.mesureCourante();
-        m.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        const voix = this.voixCourante();
+        voix.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
         this.curseur.evenement += 1;
         this._dernierChiffre = null;
         this.prevenir('edition');
     }
 
     supprimerEvenement() {
-        const m = this.mesureCourante();
-        if (m.evenements.length <= 1) return this.basculerSilence();
+        const voix = this.voixCourante();
+        if (voix.evenements.length <= 1) return this.basculerSilence();
         this.memoriser();
-        m.evenements.splice(this.curseur.evenement, 1);
-        this.curseur.evenement = Math.min(this.curseur.evenement, m.evenements.length - 1);
+        voix.evenements.splice(this.curseur.evenement, 1);
+        this.curseur.evenement = Math.min(this.curseur.evenement, voix.evenements.length - 1);
         this._dernierChiffre = null;
         this.prevenir('edition');
     }
@@ -426,9 +493,11 @@ export class Editeur {
         this.partition.piste.accordage = accordageParDefaut(instrumentId);
         const max = this.partition.piste.accordage.cordes.length - 1;
         for (const m of this.partition.mesures) {
-            for (const e of m.evenements) {
-                e.notes = e.notes.filter(n => n.corde <= max);
-                if (!e.notes.length) e.silence = true;
+            for (const voix of m.voix) {
+                for (const e of voix.evenements) {
+                    e.notes = e.notes.filter(n => n.corde <= max);
+                    if (!e.notes.length) e.silence = true;
+                }
             }
         }
         this.corrigerCurseur();
@@ -479,7 +548,7 @@ export class Editeur {
     /** Remplace tout le document. L'historique est vidé : annuler une OUVERTURE n'a pas de sens. */
     remplacer(partition) {
         this.partition = normaliser(partition);
-        this.curseur = { mesure: 0, evenement: 0, corde: 0 };
+        this.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
         this.passe.length = 0;
         this.futur.length = 0;
         this._dernierChiffre = null;
@@ -492,8 +561,8 @@ export class Editeur {
 
     // -- Diagnostic --------------------------------------------------------------------------------------
 
-    /** Écart entre ce qui est écrit dans la mesure et sa capacité, en noires. Sert à l'indicateur. */
-    ecartMesure(index = this.curseur.mesure) {
-        return dureeEcrite(this.partition.mesures[index]) - capaciteMesure(this.partition, index);
+    /** Écart entre ce qui est écrit dans une VOIX de la mesure et sa capacité, en noires. Sert à l'indicateur. */
+    ecartMesure(index = this.curseur.mesure, iVoix = this.curseur.voix) {
+        return dureeEcrite(this.partition.mesures[index], iVoix) - capaciteMesure(this.partition, index);
     }
 }

@@ -11,7 +11,7 @@ const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(15);
+    plan(19);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
@@ -45,6 +45,36 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
         });
         check(avecHammer.length === 4, 'un hammer-on garde les deux attaques : ce n\'est pas une liaison de prolongation');
         check(avecHammer[1] < avecHammer[2], 'mais la note martelée sonne plus doucement que celle attaquée à la main droite');
+
+        // --- Liaison ET nuance de hammer-on, EN PRÉSENCE D'UNE 2e VOIX -----------------------------------
+        // `aplatir()` groupe ses entrées par mesure PUIS par voix : le voisin immédiat, dans le tableau
+        // à plat, du DERNIER évènement de la voix 0 d'une mesure est le PREMIER évènement de la voix 1
+        // de cette même mesure — pas la suite logique de la mélodie. Une recherche « next = plat[i+1] »
+        // s'accrocherait donc à la mauvaise voix dès qu'une mesure en porte deux ; c'est exactement le
+        // scénario qu'une régression antérieure avait manqué.
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.partition.mesures[0].voix = [
+                { evenements: [
+                    m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 5, { lien: 'tie' })]),
+                    m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 5)]),
+                    m.creerEvenement({ valeur: 2 }, [m.creerNote(0, 7, { lien: 'hammer' })]),
+                    m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 9)]),
+                ] },
+                // Voix 1 : une seule ronde, qui occuperait la position « juste après » la voix 0 dans
+                // le tableau à plat si le groupement par mesure-puis-voix n'était pas pris en compte.
+                { evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(5, 0)])] },
+            ];
+        });
+        const avec2Voix = await page.evaluate(() => {
+            window.app.lecteur.programmer(window.app.editeur.partition);
+            return window.app.lecteur._evenements.map(e => ({ d: e.debut, dur: +e.duree.toFixed(2), v: +e.velocite.toFixed(2) }));
+        });
+        check(avec2Voix.length === 4, 'voix0 fusionne sa liaison (3 attaques) + voix1 (1 attaque) = 4, malgré la voix 2 intercalée dans le tableau à plat');
+        check(Math.abs(avec2Voix[0].dur - 2) < 1e-6, 'la liaison de la voix 0 fusionne toujours ses deux évènements (2 noires), pas seulement le suivant dans LE TABLEAU');
+        check(avec2Voix[2].v < avec2Voix[1].v, 'la nuance du hammer-on de la voix 0 reste correcte : note martelée plus douce que celle qui la précède DANS SA VOIX');
+        check(Math.abs(avec2Voix[3].v - 0.78) < 1e-6, 'et la voix 1 (la basse) n\'hérite pas à tort de la nuance douce du hammer-on voisin dans le tableau');
 
         // --- Le palm mute écourte sans déplacer ---------------------------------------------------------
         await page.evaluate(() => { window.app.editeur.basculerLien('hammer'); window.app.editeur.basculerEffetEvenement('palmMute'); });

@@ -78,34 +78,57 @@ export class Lecteur {
         const consommees = new Set();
         this._evenements = [];
 
-        plat.forEach((entree, i) => {
+        // « L'évènement suivant/précédent » se cherche DANS LA MÊME VOIX, jamais à l'index voisin
+        // du tableau à plat : `aplatir` groupe ses entrées par mesure PUIS par voix, donc le voisin
+        // immédiat du DERNIER évènement de la voix 0 d'une mesure est le PREMIER évènement de la
+        // voix 1 de cette même mesure — pas la suite logique de la mélodie. Une liaison de
+        // prolongation ou la nuance d'un hammer-on cherchée par simple ±1 s'accrocherait alors à la
+        // mauvaise voix dès qu'une mesure en porte deux. Filtrer par voix conserve l'ordre
+        // chronologique (mesures visitées dans l'ordre, voix dans l'ordre à chaque mesure), donc
+        // relier chaque entrée à sa suivante/précédente DANS CETTE LISTE FILTRÉE donne la bonne suite.
+        const parVoix = new Map();
+        for (const entree of plat) {
+            if (!parVoix.has(entree.voix)) parVoix.set(entree.voix, []);
+            parVoix.get(entree.voix).push(entree);
+        }
+        const suivantMemeVoix = new Map();
+        const precedentMemeVoix = new Map();
+        for (const liste of parVoix.values()) {
+            for (let k = 0; k < liste.length; k++) {
+                if (k + 1 < liste.length) suivantMemeVoix.set(liste[k], liste[k + 1]);
+                if (k > 0) precedentMemeVoix.set(liste[k], liste[k - 1]);
+            }
+        }
+
+        plat.forEach((entree) => {
             const evenement = entree.ref;
             if (evenement.silence || !evenement.notes.length) return;
 
             for (const note of evenement.notes) {
-                const cle = `${i}:${note.corde}`;
+                const cle = `${entree.mesure}:${entree.voix}:${entree.evenement}:${note.corde}`;
                 if (consommees.has(cle)) continue;
 
                 const midi = hauteurDeNote(partition, note);
                 if (midi == null) continue;
 
-                // Prolonge tant que la chaîne de liaisons continue sur la même corde.
+                // Prolonge tant que la chaîne de liaisons continue sur la même corde, DANS LA MÊME VOIX.
                 let duree = entree.duree;
-                let j = i, courante = note;
-                while (courante.lien === 'tie' && j + 1 < plat.length) {
-                    const suivante = plat[j + 1].ref.notes.find(n => n.corde === note.corde);
-                    if (!suivante) break;
-                    j += 1;
-                    consommees.add(`${j}:${note.corde}`);
-                    duree += plat[j].duree;
-                    courante = suivante;
+                let courante = note, suivante = suivantMemeVoix.get(entree);
+                while (courante.lien === 'tie' && suivante) {
+                    const noteSuivante = suivante.ref.notes.find(n => n.corde === note.corde);
+                    if (!noteSuivante) break;
+                    consommees.add(`${suivante.mesure}:${suivante.voix}:${suivante.evenement}:${note.corde}`);
+                    duree += suivante.duree;
+                    courante = noteSuivante;
+                    suivante = suivantMemeVoix.get(suivante);
                 }
 
                 // NUANCE D'UN HAMMER-ON : c'est la note d'ARRIVÉE qui sonne plus doucement, pas celle
                 // de départ. Le champ `lien` décrit ce qui va vers la SUIVANTE ; le lire sur la note
                 // courante — comme le faisait une première version — atténuait donc exactement la
                 // mauvaise des deux : celle qu'on vient d'attaquer à la main droite, à pleine force.
-                const precedente = i > 0 ? plat[i - 1].ref.notes.find(n => n.corde === note.corde) : null;
+                const entreePrecedente = precedentMemeVoix.get(entree);
+                const precedente = entreePrecedente ? entreePrecedente.ref.notes.find(n => n.corde === note.corde) : null;
                 const obtenueSansAttaque = precedente && ['hammer', 'pull', 'slide'].includes(precedente.lien);
                 let velocite = evenement.accent ? 1 : 0.78;
                 if (obtenueSansAttaque) velocite *= 0.62;

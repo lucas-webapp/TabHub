@@ -24,19 +24,28 @@ async function partitionTemoin(page) {
         ed.partition.mesures = [
             m.creerMesure({
                 signature: { battements: 3, unite: 8 }, armure: -3, repriseDebut: true,
-                evenements: [
-                    m.creerEvenement({ valeur: 8 }, [n(0, 7, 'hammer'), n(1, 0), n(5, 0)]),
-                    m.creerEvenement({ valeur: 8 }, [n(0, 9, 'slide')], { palmMute: true }),
-                    m.creerEvenement({ valeur: 8 }, [n(0, 12, 'tie', { bend: { demiTons: 2 } })], { accent: true }),
-                ],
+                voix: [{
+                    evenements: [
+                        m.creerEvenement({ valeur: 8 }, [n(0, 7, 'hammer'), n(1, 0), n(5, 0)]),
+                        m.creerEvenement({ valeur: 8 }, [n(0, 9, 'slide')], { palmMute: true }),
+                        m.creerEvenement({ valeur: 8 }, [n(0, 12, 'tie', { bend: { demiTons: 2 } })], { accent: true }),
+                    ],
+                }],
             }),
             m.creerMesure({
                 repriseFin: true,
-                evenements: [
-                    m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [n(2, 5, 'pull', { ghost: true })]),
-                    m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [n(2, 3)]),
-                    m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [n(2, 2)]),
-                    m.creerEvenement({ valeur: 4, points: 1 }, [], { silence: true }),
+                // Une SECONDE voix (basse tenue) : c'est elle qu'un format d'export incomplet
+                // « oublierait » le plus facilement, puisqu'elle n'apparaît que si on la cherche.
+                voix: [
+                    {
+                        evenements: [
+                            m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [n(2, 5, 'pull', { ghost: true })]),
+                            m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [n(2, 3)]),
+                            m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [n(2, 2)]),
+                            m.creerEvenement({ valeur: 4, points: 1 }, [], { silence: true }),
+                        ],
+                    },
+                    { evenements: [m.creerEvenement({ valeur: 2, points: 1 }, [n(5, 2)])] },
                 ],
             }),
         ];
@@ -53,16 +62,18 @@ const empreinte = (page) => page.evaluate(() => {
         piste: { i: p.piste.instrument, c: p.piste.accordage.cordes, capo: p.piste.capo },
         mesures: p.mesures.map(m => ({
             sig: m.signature, arm: m.armure, rd: m.repriseDebut, rf: m.repriseFin,
-            ev: m.evenements.map(e => ({
+            // TOUTES les voix, pas seulement la première — une empreinte qui ne verrait que la voix 0
+            // ne remarquerait jamais qu'une seconde voix a disparu à la relecture.
+            voix: m.voix.map(voix => voix.evenements.map(e => ({
                 d: e.duree, s: e.silence, pm: e.palmMute, ac: e.accent,
                 n: e.notes.map(x => ({ c: x.corde, f: x.frette, l: x.lien, b: x.bend, g: x.ghost })),
-            })),
+            }))),
         })),
     });
 });
 
 (async () => {
-    plan(17);
+    plan(19);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -97,10 +108,13 @@ const empreinte = (page) => page.evaluate(() => {
 
         const detail = JSON.parse(apres).mesures;
         check(detail[0].rd === true && detail[1].rf === true, 'les barres de reprise survivent');
-        check(detail[0].ev[0].n[0].l === 'hammer' && detail[1].ev[0].n[0].l === 'pull', 'hammer-on et pull-off survivent');
-        check(detail[0].ev[2].n[0].b && detail[0].ev[2].n[0].b.demiTons === 2, 'le bend et son amplitude survivent');
-        check(detail[1].ev[0].d.nolet && detail[1].ev[0].d.nolet.dans === 3, 'les triolets survivent');
+        check(detail[0].voix[0][0].n[0].l === 'hammer' && detail[1].voix[0][0].n[0].l === 'pull', 'hammer-on et pull-off survivent');
+        check(detail[0].voix[0][2].n[0].b && detail[0].voix[0][2].n[0].b.demiTons === 2, 'le bend et son amplitude survivent');
+        check(detail[1].voix[0][0].d.nolet && detail[1].voix[0][0].d.nolet.dans === 3, 'les triolets survivent');
         check(detail[0].arm === -3 && detail[0].sig.unite === 8, 'armure et signature rythmique survivent');
+        check(detail[1].voix.length === 2, 'la SECONDE VOIX de la mesure 2 survit — pas seulement la mélodie');
+        const basse = detail[1].voix[1][0];
+        check(basse.n[0].c === 5 && basse.n[0].f === 2 && basse.d.valeur === 2 && basse.d.points === 1, 'et son contenu (corde, case, durée pointée) est exact');
 
         // --- Un fichier illisible ne doit pas casser l'application -----------------------------------
         const cheminAbime = path.join(dossier, 'abime.json');
