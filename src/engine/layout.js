@@ -460,8 +460,20 @@ export function mettreEnPage(partition, options = {}) {
     // `facteurDeJustification` est la MÊME fonction que celle utilisée par le compte fixe pour
     // décider, par avance, si une ligne de N mesures resterait lisible — une formule unique des deux
     // côtés garantit qu'un système jugé lisible avant d'être posé l'est encore une fois justifié ici.
+    //
+    // UNE MESURE INVALIDE (voir l'étape 1 : une voix qui ne totalise pas la capacité) N'ENTRE PAS
+    // dans ce calcul partagé. Sa largeur « naturelle » est déjà faussée par ce qui lui manque ou lui
+    // déborde — une croche isolée suivie du vide jusqu'à la fin nominale de la mesure s'étale ainsi
+    // bien plus qu'elle ne le devrait (voir calculerColonnes : le dernier évènement réclame le temps
+    // restant JUSQU'À LA CAPACITÉ, qu'il soit ou non rempli). Sans cette exclusion, ce défaut se
+    // propage à TOUT le système par le facteur partagé : les mesures pourtant justes qui l'entourent
+    // se retrouvaient compressées ou étirées pour compenser une largeur qui ne reflète rien de réel.
+    // Une mesure invalide garde donc sa taille naturelle (facteur 1, non affiché) ; le budget qui
+    // reste une fois la sienne déduite se répartit normalement entre les mesures valides.
     systemes.forEach((sys, i) => {
-        const facteur = facteurDeJustification(sys.mesures, largeurUtile, S);
+        const valides = sys.mesures.filter(m => !m.invalide);
+        const largeurInvalides = sys.mesures.filter(m => m.invalide).reduce((t, m) => t + m.largeurTotale, 0);
+        const facteur = facteurDeJustification(valides, largeurUtile - largeurInvalides, S);
         const dernier = i === systemes.length - 1;
         sys.facteur = (dernier && facteur > 2.5) ? 1 : Math.max(facteur, 0.05);
     });
@@ -499,13 +511,17 @@ export function mettreEnPage(partition, options = {}) {
         sys.mesures.forEach((m, iDansSys) => {
             // En-tête à sa taille NATURELLE (non multiplié par `facteur`) + partie notes étirée —
             // exactement ce que `poserMesure` va physiquement placer, voir la justification ci-dessus.
-            const largeurMesure = m.enTete + (m.largeurNotes + 1.4 * S) * sys.facteur;
+            // Une mesure INVALIDE garde son propre facteur à 1 (voir l'étape 3) : le même partout où
+            // la largeur se décide, sans quoi ses colonnes internes (posées avec CE facteur) et sa
+            // boîte englobante (posée avec sys.facteur) se désaccorderaient l'une de l'autre.
+            const facteurEffectif = m.invalide ? 1 : sys.facteur;
+            const largeurMesure = m.enTete + (m.largeurNotes + 1.4 * S) * facteurEffectif;
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
-                x, largeurMesure, facteur: sys.facteur, finMesure,
+                x, largeurMesure, facteur: facteurEffectif, finMesure,
                 yPortee, yTab, S, ST, cordes, clef, geo, iSys,
                 premiereDuSysteme: iDansSys === 0,
-                yReglette, derniereDuSysteme: iDansSys === sys.mesures.length - 1,
+                yReglette,
             });
         });
 
@@ -621,15 +637,15 @@ const HAUTEUR_REGLETTE = 3.1;
  * (voir `geo.reglette`, non transmis par io/pdf.js) : une partition imprimée n'en a pas besoin, et
  * une grille de comptage n'a rien à faire sur une page destinée à la lecture.
  *
- * SUR LES ABSCISSES RÉELLES, PAS UNE DIVISION UNIFORME. Une première version subdivisait la largeur
- * RENDUE de la mesure à intervalles constants — plus simple, mais fausse : le temps 1 ne tombait pas
- * sous la première note (il tombait souvent dans l'en-tête, clé/armure/signature compris), et rien
- * ne garantissait qu'un temps de la réglette tombe sous LE MÊME temps de la portée. Une réglette qui
- * ment sur où sont les temps est pire qu'une réglette absente. On interpole donc CHAQUE graduation à
- * l'intérieur de la colonne de la portée qui la porte (mêmes `xColonnes`/`facteur` que les notes,
- * voir poserMesure) : le temps 1 tombe exactement là où tombe la première note, et une graduation à
- * l'intérieur d'une note tenue s'interpole entre l'attaque et la suivante — la meilleure estimation
- * de « où en est-on », faute d'attaque réelle à cet instant précis.
+ * ELLE MARCHE COLONNE PAR COLONNE, PAS SUR UNE GRILLE ABSOLUE. Une version antérieure calculait ses
+ * graduations sur une grille à la double-croche indépendante (0, 1/4, 1/2, 3/4… noire), puis
+ * l'interpolait dans la colonne qui contenait chaque instant. Ça plaçait CORRECTEMENT le temps 1,
+ * mais une grille fixe peut manquer une attaque réelle qui ne tombe pas pile sur un seizième — un
+ * triolet, une mesure qui déborde (voir `m.invalide`) dont la dernière colonne n'a presque plus de
+ * temps à elle. Ici, chaque COLONNE existante (voir calculerColonnes, les MÊMES `xColonnes`/`facteur`
+ * que les notes, voir poserMesure) est subdivisée EN ELLE-MÊME, à raison d'une graduation par
+ * seizième de SA propre durée (au moins une : sa propre attaque) — donc TOUJOURS un tick pile sur
+ * chaque note réelle, jamais seulement sur une grille qui pourrait la rater.
  *
  * TROIS POIDS DE TRAIT : TEMPS (le battement principal — noire en mesure simple, noire pointée en
  * 6/8 ou 9/8, voir `uniteDeGroupement`, la même fonction qui décide où ligaturer), CONTRE-TEMPS
@@ -637,46 +653,45 @@ const HAUTEUR_REGLETTE = 3.1;
  * grille à la double-croche. Seuls les temps portent un numéro, remis à 1 à chaque mesure — comme on
  * compte réellement en jouant.
  */
-function poserReglette(out, partition, m, xColonnes, facteur, yBase, S, derniereMesure) {
+function poserReglette(out, partition, m, xColonnes, facteur, yBase, S) {
     const yTicks = yBase + 0.35 * S;
-    const sig = m.signature;
-    const capacite = m.capacite;
-    const unite = uniteDeGroupement(sig);
-    const nSeizieme = Math.max(1, Math.round(capacite * 4));
+    const unite = uniteDeGroupement(m.signature);
     const colonnes = m.colonnes;
 
-    /** Abscisse réelle du temps `t` (en noires depuis le début de la mesure), interpolée dans la
-     * colonne de portée qui le contient — voir la note d'intention ci-dessus. */
-    const xDeTemps = (t) => {
-        let i = colonnes.length - 1;
-        for (let k = 0; k < colonnes.length; k++) {
-            if (t < colonnes[k].debut + colonnes[k].gap - 1e-9) { i = k; break; }
-        }
-        const col = colonnes[i];
-        const fraction = col.gap > 1e-9 ? Math.max(0, Math.min(1, (t - col.debut) / col.gap)) : 0;
-        return xColonnes[i] + fraction * col.largeur * facteur;
-    };
-
-    // Le tick DE FERMETURE (i = nSeizieme, à l'aplomb de la barre de mesure) coïncide avec le tick
-    // D'OUVERTURE de la mesure suivante, qui le redessinera lui-même avec son PROPRE numéro de temps
-    // repartant à 1 — sans cette exclusion, le calcul « t / unite » de la mesure courante lui
-    // donnerait un numéro qui n'existe pas (« temps 5 » d'une mesure à 4 temps). On ne le garde que
-    // pour la toute dernière mesure du système, comme simple trait de fermeture, sans numéro.
-    for (let i = 0; i < nSeizieme + (derniereMesure ? 1 : 0); i++) {
-        const t = (i / nSeizieme) * capacite;   // en noires depuis le début de la mesure
-        const x = xDeTemps(t);
+    const poserTick = (t, x, avecNumero) => {
         const resteTemps = t % unite;
         const surTemps = resteTemps < 1e-6 || unite - resteTemps < 1e-6;
         const surContreTemps = !surTemps && Math.abs(resteTemps - unite / 2) < 1e-6;
         const hauteur = surTemps ? 1.5 * S : surContreTemps ? 1.05 * S : 0.6 * S;
         const epaisseur = (surTemps ? G.EPAISSEURS.barreMesure : G.EPAISSEURS.ligneSupplementaire) * S;
         out.push(ligne(x, yTicks, x, yTicks + hauteur, epaisseur, surTemps ? 'encre' : 'discret'));
-        if (surTemps && i < nSeizieme) {
+        if (surTemps && avecNumero) {
             const numero = Math.round(t / unite) + 1;
             out.push(texte(x, yTicks + 1.5 * S + 1.1 * S, String(numero), {
                 taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'milieu', couleur: 'discret',
             }));
         }
+    };
+
+    colonnes.forEach((col, i) => {
+        const largeurCol = col.largeur * facteur;
+        // Au moins un tick — sa PROPRE attaque, à `k = 0` — quel que soit `col.gap` (une colonne de
+        // fin de mesure qui déborde a un `gap` proche de zéro, voir calculerColonnes ; elle reste
+        // posée exactement là où sa note tombe réellement, jamais sautée).
+        const nSeizieme = Math.max(1, Math.round(col.gap * 4));
+        for (let k = 0; k < nSeizieme; k++) {
+            const t = col.debut + (k / nSeizieme) * col.gap;
+            const x = xColonnes[i] + (k / nSeizieme) * largeurCol;
+            poserTick(t, x, true);
+        }
+    });
+
+    // Fermeture : la barre de mesure elle-même — MÊME abscisse que le temps 1 de la mesure suivante,
+    // qui le redessinera avec SON propre numéro ; celui-ci n'en porte donc pas.
+    if (colonnes.length) {
+        const dernier = colonnes[colonnes.length - 1];
+        const xFin = xColonnes[colonnes.length - 1] + dernier.largeur * facteur;
+        poserTick(dernier.debut + dernier.gap, xFin, false);
     }
 }
 
@@ -770,7 +785,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     // notes — c'est ce qui garantit que ses graduations tombent aux abscisses RÉELLES de la portée
     // (voir poserReglette).
     if (ctx.yReglette != null) {
-        poserReglette(out, partition, m, xColonnes, facteur, ctx.yReglette, S, ctx.derniereDuSysteme);
+        poserReglette(out, partition, m, xColonnes, facteur, ctx.yReglette, S);
     }
 
     /** Index de colonne dont le `debut` correspond au temps `t` (en noires depuis le début de la mesure). */
