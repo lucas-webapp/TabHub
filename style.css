@@ -1,0 +1,359 @@
+/* ============================================================
+   TABHUB — feuille de style unique
+   ============================================================
+   DEUX MONDES, UNE APPLICATION. Le châssis (barres, boutons, fenêtres) reprend
+   tel quel le vocabulaire visuel de HarmoHub : mêmes variables, même échelle
+   typographique, même famille de boutons sombres. La ZONE DE TRAVAIL, elle,
+   est un papier beige clair — parce qu'une partition se lit en noir sur clair
+   depuis cinq siècles, et qu'un fond sombre y inverserait le contraste de
+   toutes les hampes et lignes fines.
+   Ce n'est pas une incohérence mais une hiérarchie : l'outil est sombre, le
+   DOCUMENT est clair. La même logique qu'un logiciel de photo autour de son
+   image. */
+
+:root { color-scheme: dark; }
+
+*, *::before, *::after { box-sizing: border-box; }
+
+* { scrollbar-color: rgba(255, 255, 255, 0.22) transparent; }
+*::-webkit-scrollbar { width: 12px; height: 12px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+    background: rgba(255, 255, 255, 0.22);
+    border-radius: 6px;
+    border: 3px solid transparent;
+    background-clip: padding-box;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.38); background-clip: padding-box; }
+*::-webkit-scrollbar-corner { background: transparent; }
+
+:root {
+    /* --- Châssis : repris de HarmoHub, valeur pour valeur --- */
+    --bg: #0a0a0a;
+    --card-bg: #161616;
+    --text-main: #e0e0e0;
+    --text-muted: #a0a0a0;
+    --accent: #00e676;
+    --accent-hover: #00c853;
+    --border: #333;
+    --radius: 12px;
+    --font: 'Plus Jakarta Sans', system-ui, sans-serif;
+
+    --fond-bouton-sombre: #16191e;
+    --fond-bouton-sombre-survol: #22272f;
+    --btn-green-1: #234534; --btn-green-2: #17301f; --btn-green-border: #2f5b40; --btn-green-border-hover: #3d7a54;
+    --btn-blue-1: #253a5c;  --btn-blue-2: #182640;  --btn-blue-border: #33507c;  --btn-blue-border-hover: #4570b0;
+    --btn-red-1: #5c2f2a;   --btn-red-2: #3a1e1b;   --btn-red-border: #7c443c;   --btn-red-border-hover: #a35c4e;
+    --btn-neutral-1: #262626; --btn-neutral-2: #1a1a1a; --btn-neutral-border: #3a3a3a; --btn-neutral-border-hover: #4a4a4a;
+    --btn-text: #e9f3ec;
+
+    --fs-2xs: 0.66rem;
+    --fs-xs: 0.72rem;
+    --fs-sm: 0.8rem;
+    --fs-base: 0.88rem;
+    --fs-md: 0.95rem;
+    --fs-lg: 1.05rem;
+    --fs-xl: 1.35rem;
+    --fs-2xl: 1.85rem;
+
+    /* --- Le papier : la seule zone claire de l'application --- */
+    --papier: #FDFBF7;
+    --papier-bord: #e6e0d4;
+    --encre: #1B1A17;
+    --encre-discrete: #8C8375;
+    --papier-ombre: rgba(0, 0, 0, 0.55);
+
+    /* Curseur d'édition et tête de lecture. Le vert est celui de --accent (l'appli entière le
+       reconnaît comme « ici, maintenant ») ; l'ambre distingue la LECTURE de l'ÉDITION, deux
+       positions qui coexistent à l'écran et qu'il ne faut jamais confondre. */
+    --curseur: #00c853;
+    --curseur-halo: rgba(0, 200, 83, 0.14);
+    --lecture: #ff9800;
+    --lecture-halo: rgba(255, 152, 0, 0.16);
+
+    --h-barre-haut: 46px;
+    --h-outils: 54px;
+    --h-transport: 52px;
+}
+
+html, body { height: 100%; }
+body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text-main);
+    font-family: var(--font);
+    font-size: var(--fs-base);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+}
+
+.icone { width: 18px; height: 18px; flex: none; }
+
+/* ============================================================
+   BARRE DU HAUT
+   ============================================================ */
+.barre-haut {
+    height: var(--h-barre-haut);
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+}
+
+.btn-icone {
+    width: 34px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid transparent;
+    border-radius: 9px;
+    background: transparent;
+    color: var(--text-muted);
+    cursor: pointer;
+    transition: background .12s, color .12s, border-color .12s;
+}
+.btn-icone:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); color: var(--text-main); }
+.btn-icone:disabled { opacity: .32; cursor: default; }
+.btn-icone.actif { background: var(--btn-green-1); border-color: var(--btn-green-border); color: var(--btn-text); }
+
+.logo { display: flex; align-items: center; gap: 8px; color: var(--text-main); text-decoration: none; margin-left: 4px; }
+.logo-marque { display: inline-flex; color: var(--accent); }
+.logo-marque svg { width: 22px; height: 22px; }
+.logo-texte { font-weight: 800; font-size: var(--fs-lg); letter-spacing: -.01em; }
+
+.separateur { width: 1px; height: 22px; background: var(--border); margin: 0 4px; flex: none; }
+.pousse { flex: 1 1 auto; }
+
+.titre-morceau {
+    background: transparent; border: 1px solid transparent; border-radius: 8px;
+    color: var(--text-main); font-family: var(--font); font-size: var(--fs-md); font-weight: 700;
+    padding: 5px 9px; min-width: 120px; max-width: 320px; text-align: center;
+}
+.titre-morceau:hover { border-color: var(--border); }
+.titre-morceau:focus { outline: none; border-color: var(--accent); background: var(--bg); }
+
+/* ============================================================
+   BARRE D'OUTILS — la palette cliquable
+   ============================================================
+   Elle double intégralement le clavier : tout ce qui a un raccourci a un bouton,
+   et chaque bouton affiche son raccourci en infobulle. C'est ce qui permet
+   d'apprendre les raccourcis EN TRAVAILLANT, sans jamais ouvrir d'aide. */
+.barre-outils {
+    height: var(--h-outils);
+    flex: none;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 0 10px;
+    background: var(--bg);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    overflow-y: hidden;
+}
+
+.groupe-outils {
+    display: flex; align-items: center; gap: 3px;
+    padding: 4px 7px;
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    flex: none;
+}
+.groupe-outils > .etiquette-groupe {
+    font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase;
+    letter-spacing: .06em; font-weight: 700; margin-right: 3px; user-select: none;
+}
+
+.btn-outil {
+    min-width: 30px; height: 30px;
+    padding: 0 7px;
+    display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+    border-radius: 8px;
+    border: 1px solid var(--btn-neutral-border);
+    background: linear-gradient(180deg, var(--fond-bouton-sombre) 0%, #12151a 100%);
+    color: var(--text-main);
+    font-family: var(--font); font-size: var(--fs-sm); font-weight: 600;
+    cursor: pointer; white-space: nowrap;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.btn-outil:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); border-color: var(--btn-neutral-border-hover); }
+.btn-outil:disabled { opacity: .34; cursor: default; }
+.btn-outil.actif {
+    background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
+    border-color: var(--btn-green-border); color: var(--btn-text);
+}
+.btn-outil.actif:hover { border-color: var(--btn-green-border-hover); }
+
+/* Les figures de note dessinées dans les boutons de durée : un « ♩ » vaut mieux qu'un mot. */
+.btn-outil .figure { display: block; width: 15px; height: 22px; }
+.btn-outil .figure path, .btn-outil .figure line { fill: currentColor; stroke: currentColor; }
+
+select.champ, input.champ {
+    height: 30px; padding: 0 8px;
+    background: var(--fond-bouton-sombre);
+    border: 1px solid var(--btn-neutral-border); border-radius: 8px;
+    color: var(--text-main); font-family: var(--font); font-size: var(--fs-select, .75rem); font-weight: 600;
+    cursor: pointer;
+}
+input.champ { cursor: text; }
+select.champ:focus, input.champ:focus { outline: none; border-color: var(--accent); }
+input.champ[type="number"] { width: 68px; text-align: center; }
+
+/* ============================================================
+   ZONE PARTITION — le papier
+   ============================================================ */
+.zone-partition {
+    flex: 1 1 auto;
+    overflow: auto;
+    background: #07070a;
+    padding: 22px 22px 60px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+}
+
+.feuille {
+    /* Une hauteur minimale pour que la zone se lise comme une PAGE et non comme un bandeau : au
+       premier lancement la partition ne fait qu'un système, et sans ce plancher le papier se
+       réduisait à une bande étroite flottant sur le noir. */
+    min-height: min(58vh, 520px);
+    background: var(--papier);
+    border: 1px solid var(--papier-bord);
+    border-radius: 3px;
+    box-shadow: 0 10px 34px var(--papier-ombre);
+    position: relative;
+    flex: none;
+}
+.feuille svg { display: block; }
+
+/* Curseur d'édition : un bandeau vertical translucide sur toute la hauteur du système, plus un
+   soulignement franc sur la corde visée. Le bandeau dit « où dans le temps », le soulignement
+   « sur quelle corde » — deux informations distinctes, deux marques distinctes. */
+.marque-curseur { fill: var(--curseur-halo); }
+.marque-curseur-corde { fill: var(--curseur); }
+.marque-lecture { fill: var(--lecture-halo); }
+.trait-lecture { stroke: var(--lecture); }
+
+/* ============================================================
+   TRANSPORT
+   ============================================================ */
+.transport {
+    height: var(--h-transport);
+    flex: none;
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 12px;
+    background: var(--card-bg);
+    border-top: 1px solid var(--border);
+}
+
+.btn-transport {
+    width: 38px; height: 34px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--btn-neutral-border);
+    background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
+    color: var(--text-main);
+    transition: background .12s, border-color .12s;
+}
+.btn-transport:hover:not(:disabled) { border-color: var(--btn-neutral-border-hover); }
+.btn-transport.jouer {
+    background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
+    border-color: var(--btn-green-border); color: var(--btn-text);
+}
+.btn-transport.jouer:hover { border-color: var(--btn-green-border-hover); }
+.btn-transport.arret {
+    background: linear-gradient(180deg, var(--btn-red-1) 0%, var(--btn-red-2) 100%);
+    border-color: var(--btn-red-border); color: var(--btn-text);
+}
+.btn-transport:disabled { opacity: .34; cursor: default; }
+
+.info-transport { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.info-transport strong { color: var(--text-main); font-weight: 700; }
+
+/* ============================================================
+   FENÊTRES MODALES
+   ============================================================ */
+.voile {
+    position: fixed; inset: 0; z-index: 60;
+    background: rgba(0, 0, 0, .62);
+    display: flex; align-items: center; justify-content: center;
+    padding: 20px;
+}
+.voile[hidden] { display: none; }
+
+.fenetre {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    width: min(560px, 100%);
+    max-height: 86vh;
+    overflow: auto;
+    box-shadow: 0 24px 70px rgba(0, 0, 0, .6);
+}
+.fenetre-tete {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 16px; border-bottom: 1px solid var(--border);
+}
+.fenetre-tete h2 { margin: 0; font-size: var(--fs-lg); font-weight: 800; }
+.fenetre-corps { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
+.fenetre-pied { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+.rubrique > h3 {
+    margin: 0 0 8px; font-size: var(--fs-2xs); font-weight: 800;
+    text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted);
+}
+.ligne-champ { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
+.ligne-champ > label { flex: 0 0 132px; font-size: var(--fs-sm); color: var(--text-muted); }
+.ligne-champ > .champ, .ligne-champ > input { flex: 1 1 auto; }
+
+.btn-plein {
+    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
+    border: 1px solid var(--btn-green-border); color: var(--btn-text);
+    background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
+}
+.btn-plein:hover { border-color: var(--btn-green-border-hover); }
+.btn-neutre {
+    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
+    border: 1px solid var(--btn-neutral-border); color: var(--text-main);
+    background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
+}
+.btn-neutre:hover { border-color: var(--btn-neutral-border-hover); }
+
+/* Réglage corde par corde de l'accordage personnalisé */
+.grille-cordes { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }
+.corde-reglage { display: flex; flex-direction: column; gap: 4px; }
+.corde-reglage > span { font-size: var(--fs-2xs); color: var(--text-muted); font-weight: 700; }
+
+/* Aide-mémoire des raccourcis */
+.table-raccourcis { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
+.table-raccourcis td { padding: 5px 6px; border-bottom: 1px solid rgba(255, 255, 255, .06); }
+.table-raccourcis td:first-child { width: 148px; }
+kbd {
+    display: inline-block; min-width: 20px; padding: 2px 6px;
+    background: var(--fond-bouton-sombre); border: 1px solid var(--btn-neutral-border);
+    border-bottom-width: 2px; border-radius: 5px;
+    font-family: ui-monospace, monospace; font-size: var(--fs-2xs); color: var(--text-main); text-align: center;
+}
+
+/* ============================================================
+   MESSAGE ÉPHÉMÈRE (même mécanique que le « toast » de HarmoHub)
+   ============================================================ */
+.message {
+    position: fixed; left: 50%; bottom: calc(var(--h-transport) + 18px);
+    transform: translateX(-50%) translateY(10px);
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px;
+    padding: 9px 15px; font-size: var(--fs-sm); font-weight: 600; color: var(--text-main);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, .5);
+    opacity: 0; pointer-events: none; transition: opacity .16s, transform .16s; z-index: 80;
+}
+.message.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+@media (max-width: 720px) {
+    .logo-texte, .groupe-outils > .etiquette-groupe { display: none; }
+    .zone-partition { padding: 10px 8px 40px; }
+}

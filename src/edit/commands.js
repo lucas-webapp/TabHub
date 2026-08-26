@@ -1,0 +1,499 @@
+// L'ÉDITEUR : l'état modifiable de l'application (partition + curseur + historique) et toutes les
+// opérations qui le changent.
+//
+// RÈGLE DU MODULE : rien de ce qui est ici ne touche au DOM, et rien n'appelle le rendu. Une commande
+// modifie le modèle, déplace le curseur, et c'est tout. L'interface s'abonne (`surChangement`) et
+// redessine quand elle est prévenue.
+//
+// Ce cloisonnement n'est pas de la théorie : il rend chaque commande éprouvable sans navigateur (voir
+// les bancs d'essai), et il garantit que l'ANNULATION est complète. Une commande qui écrirait au
+// passage dans un attribut du DOM laisserait, après un Ctrl+Z, un écran désaccordé du modèle — le
+// genre de désynchronisation qu'on ne diagnostique qu'à la dixième reproduction.
+//
+// HISTORIQUE PAR INSTANTANÉS. Chaque commande enregistre une copie complète de la partition avant de
+// la modifier. C'est plus coûteux en mémoire qu'un journal d'opérations inversibles, et c'est un choix
+// délibéré : à l'échelle d'un riff (quelques dizaines de mesures, quelques kilo-octets), le coût est
+// négligeable, alors qu'un journal d'inverses demande d'écrire — et de tenir juste — une opération
+// inverse pour CHACUNE des vingt commandes ci-dessous. La première inverse fausse produit une
+// corruption silencieuse du document, découverte trois annulations plus tard.
+
+import {
+    creerPartition, creerMesure, creerEvenement, creerNote, cloner, normaliser,
+    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure,
+} from '../model/score.js';
+import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
+import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage } from '../model/instruments.js';
+
+const MAX_HISTORIQUE = 150;
+/** Fenêtre pendant laquelle un second chiffre complète le premier (« 1 » puis « 2 » → case 12). */
+export const DELAI_DEUXIEME_CHIFFRE = 950;
+
+export class Editeur {
+    constructor(partition = null) {
+        this.partition = partition || creerPartition('guitare');
+        this.curseur = { mesure: 0, evenement: 0, corde: 0 };
+        this.passe = [];
+        this.futur = [];
+        this.auditeurs = new Set();
+        // Durée « collante » : la figure choisie reste active pour les notes suivantes. Sans elle, il
+        // faudrait redire « croche » à chaque note d'un trait de croches — de loin le geste le plus
+        // répété de la saisie.
+        this.dureeCourante = { valeur: 8, points: 0, nolet: null };
+        this._dernierChiffre = null;   // { temps, mesure, evenement, corde, valeur }
+    }
+
+    // -- Abonnement ------------------------------------------------------------------------------
+    surChangement(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
+    prevenir(raison = 'edition') { for (const fn of this.auditeurs) fn(raison); }
+
+    // -- Historique ------------------------------------------------------------------------------
+    /**
+     * Enregistre l'état AVANT modification. `fusion` permet à une suite de gestes de même nature
+     * (taper les deux chiffres d'une case, tirer le tempo) de ne compter que pour une annulation :
+     * sans ça, défaire « case 12 » demanderait deux Ctrl+Z, dont le premier laisserait « case 1 ».
+     */
+    memoriser(fusion = null) {
+        const dernier = this.passe[this.passe.length - 1];
+        if (fusion && dernier && dernier.fusion === fusion && Date.now() - dernier.temps < 1200) {
+            dernier.temps = Date.now();
+            return;
+        }
+        this.passe.push({ etat: cloner(this.partition), curseur: { ...this.curseur }, fusion, temps: Date.now() });
+        if (this.passe.length > MAX_HISTORIQUE) this.passe.shift();
+        this.futur.length = 0;
+        this.partition.meta.modifieLe = new Date().toISOString();
+    }
+
+    peutAnnuler() { return this.passe.length > 0; }
+    peutRetablir() { return this.futur.length > 0; }
+
+    annuler() {
+        if (!this.passe.length) return false;
+        const entree = this.passe.pop();
+        this.futur.push({ etat: cloner(this.partition), curseur: { ...this.curseur } });
+        this.partition = entree.etat;
+        this.curseur = entree.curseur;
+        this.corrigerCurseur();
+        this.prevenir('annulation');
+        return true;
+    }
+
+    retablir() {
+        if (!this.futur.length) return false;
+        const entree = this.futur.pop();
+        this.passe.push({ etat: cloner(this.partition), curseur: { ...this.curseur }, temps: Date.now() });
+        this.partition = entree.etat;
+        this.curseur = entree.curseur;
+        this.corrigerCurseur();
+        this.prevenir('retablissement');
+        return true;
+    }
+
+    // -- Curseur ---------------------------------------------------------------------------------
+
+    /** Ramène le curseur dans les bornes après toute opération qui a pu raccourcir la partition. */
+    corrigerCurseur() {
+        const c = this.curseur;
+        c.mesure = Math.max(0, Math.min(c.mesure, this.partition.mesures.length - 1));
+        const mesure = this.partition.mesures[c.mesure];
+        c.evenement = Math.max(0, Math.min(c.evenement, mesure.evenements.length - 1));
+        c.corde = Math.max(0, Math.min(c.corde, nbCordes(this.partition) - 1));
+    }
+
+    mesureCourante() { return this.partition.mesures[this.curseur.mesure]; }
+    evenementCourant() { return this.mesureCourante().evenements[this.curseur.evenement]; }
+    noteCourante() {
+        return this.evenementCourant().notes.find(n => n.corde === this.curseur.corde) || null;
+    }
+
+    /** Déplace le curseur d'une corde. Ne franchit PAS les bords : une TAB n'a pas de corde 7. */
+    deplacerCorde(delta) {
+        const n = nbCordes(this.partition);
+        const suivant = this.curseur.corde + delta;
+        if (suivant < 0 || suivant >= n) return false;
+        this.curseur.corde = suivant;
+        this._dernierChiffre = null;
+        this.prevenir('curseur');
+        return true;
+    }
+
+    /**
+     * Déplace le curseur d'un évènement, en franchissant les barres de mesure.
+     *
+     * LE GESTE CENTRAL DE LA SAISIE, et celui qui décide de la fluidité de l'application : on tape une
+     * case, on appuie sur →, on tape la suivante. Pour que ça marche, aller à droite depuis le DERNIER
+     * évènement d'une mesure doit PROLONGER cette mesure tant qu'elle n'est pas pleine — et non sauter
+     * à la suivante. Une première version sautait : écrire quatre croches dans une mesure à 4/4
+     * dispersait les quatre notes sur quatre mesures différentes, ce qui rendait la saisie au clavier
+     * inutilisable, précisément là où elle devait être la plus rapide.
+     *
+     * La mesure se remplit donc d'elle-même, à la durée courante, jusqu'à ce que la figure suivante
+     * n'y tienne plus — alors seulement on passe à la mesure d'après. Insérer volontairement un
+     * évènement de trop reste possible, mais par un geste explicite (Entrée).
+     */
+    deplacerEvenement(delta) {
+        if (delta > 0) {
+            const m = this.mesureCourante();
+            const dernier = this.curseur.evenement === m.evenements.length - 1;
+            if (dernier) {
+                const reste = capaciteMesure(this.partition, this.curseur.mesure) - dureeEcrite(m);
+                if (reste >= dureeEnNoires(this.dureeCourante) - 1e-9) {
+                    this.memoriser('prolonger');
+                    m.evenements.push(creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+                    this.curseur.evenement += 1;
+                    this._dernierChiffre = null;
+                    this.prevenir('curseur');
+                    return true;
+                }
+            }
+        }
+
+        let { mesure, evenement } = this.curseur;
+        evenement += delta;
+        while (evenement < 0) {
+            if (mesure === 0) { evenement = 0; break; }
+            mesure -= 1;
+            evenement += this.partition.mesures[mesure].evenements.length;
+        }
+        while (evenement >= this.partition.mesures[mesure].evenements.length) {
+            if (mesure === this.partition.mesures.length - 1) {
+                if (delta <= 0) { evenement = this.partition.mesures[mesure].evenements.length - 1; break; }
+                this.memoriser('avancer');
+                this.partition.mesures.push(creerMesure());
+            }
+            evenement -= this.partition.mesures[mesure].evenements.length;
+            mesure += 1;
+        }
+        this.curseur.mesure = mesure;
+        this.curseur.evenement = evenement;
+        this._dernierChiffre = null;
+        this.prevenir('curseur');
+        return true;
+    }
+
+    /** Saut de mesure entière — Origine/Fin et navigation rapide. */
+    allerAMesure(index, evenement = 0) {
+        this.curseur.mesure = Math.max(0, Math.min(index, this.partition.mesures.length - 1));
+        const m = this.mesureCourante();
+        this.curseur.evenement = evenement < 0 ? m.evenements.length - 1 : Math.min(evenement, m.evenements.length - 1);
+        this._dernierChiffre = null;
+        this.prevenir('curseur');
+    }
+
+    placerCurseur(mesure, evenement, corde) {
+        this.curseur = { mesure, evenement, corde: corde ?? this.curseur.corde };
+        this.corrigerCurseur();
+        this._dernierChiffre = null;
+        this.prevenir('curseur');
+    }
+
+    // -- Saisie des notes -------------------------------------------------------------------------
+
+    /**
+     * Saisie d'un chiffre de case.
+     *
+     * LE CAS À DEUX CHIFFRES. Une guitare va jusqu'à la case 24 : taper « 1 » puis « 2 » doit donner
+     * la case 12, pas deux fois la case 1 ni la case 1 puis un déplacement. La règle appliquée est
+     * celle des éditeurs de tablature établis : un second chiffre tapé RAPIDEMENT, sur la MÊME corde
+     * du MÊME évènement, complète le premier — s'il forme une case atteignable. « 2 » puis « 7 »
+     * donnerait 27, hors du manche : on garde alors 7, ce que l'utilisateur voulait forcément dire.
+     */
+    saisirChiffre(chiffre) {
+        const c = this.curseur;
+        const casesMax = INSTRUMENTS[this.partition.piste.instrument]?.casesMax ?? 24;
+        const precedent = this._dernierChiffre;
+        const maintenant = Date.now();
+
+        let frette = chiffre;
+        let fusion = 'saisie-' + c.mesure + '-' + c.evenement + '-' + c.corde;
+        const enchaine = precedent
+            && maintenant - precedent.temps < DELAI_DEUXIEME_CHIFFRE
+            && precedent.mesure === c.mesure && precedent.evenement === c.evenement && precedent.corde === c.corde;
+        if (enchaine) {
+            const combine = precedent.valeur * 10 + chiffre;
+            if (combine <= casesMax) frette = combine;
+        }
+
+        this.memoriser(fusion);
+        const evenement = this.evenementCourant();
+        evenement.silence = false;
+        const existante = evenement.notes.find(n => n.corde === c.corde);
+        if (existante) existante.frette = frette;
+        else evenement.notes.push(creerNote(c.corde, frette));
+        // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
+        // un accord déjà écrit ne doit pas en changer le rythme.
+        if (evenement.notes.length === 1 && !enchaine) {
+            evenement.duree = { ...this.dureeCourante };
+        }
+        this._dernierChiffre = { temps: maintenant, mesure: c.mesure, evenement: c.evenement, corde: c.corde, valeur: frette };
+        this.prevenir('saisie');
+        return frette;
+    }
+
+    /** Efface la note sous le curseur ; l'évènement redevient un silence s'il ne reste rien. */
+    effacerNote() {
+        const evenement = this.evenementCourant();
+        const avant = evenement.notes.length;
+        if (!avant) return false;
+        this.memoriser();
+        evenement.notes = evenement.notes.filter(n => n.corde !== this.curseur.corde);
+        if (!evenement.notes.length) evenement.silence = true;
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+        return evenement.notes.length !== avant;
+    }
+
+    /** Retour arrière : efface la note, ou recule si la case était déjà vide. */
+    effacerOuReculer() {
+        if (this.evenementCourant().notes.some(n => n.corde === this.curseur.corde)) return this.effacerNote();
+        this.deplacerEvenement(-1);
+        return this.effacerNote();
+    }
+
+    // -- Rythme -----------------------------------------------------------------------------------
+
+    /** Change la durée de l'évènement courant, et la retient pour les suivants. */
+    appliquerDuree(valeur) {
+        if (!VALEURS_FIGURES.includes(valeur)) return false;
+        this.memoriser();
+        this.dureeCourante = { ...this.dureeCourante, valeur };
+        this.evenementCourant().duree = { ...this.evenementCourant().duree, valeur };
+        this.prevenir('edition');
+        return true;
+    }
+
+    basculerPoint() {
+        this.memoriser();
+        const d = this.evenementCourant().duree;
+        d.points = d.points ? 0 : 1;
+        this.dureeCourante.points = d.points;
+        this.prevenir('edition');
+    }
+
+    /** Triolet : trois notes dans le temps de deux. Rebasculer revient à la division binaire. */
+    basculerTriolet() {
+        this.memoriser();
+        const d = this.evenementCourant().duree;
+        d.nolet = d.nolet ? null : { dans: 3, valent: 2 };
+        this.dureeCourante.nolet = d.nolet ? { ...d.nolet } : null;
+        this.prevenir('edition');
+    }
+
+    /** Transforme l'évènement courant en silence (ou le repeuple s'il l'était déjà). */
+    basculerSilence() {
+        this.memoriser();
+        const e = this.evenementCourant();
+        if (e.silence || !e.notes.length) { e.silence = false; }
+        else { e.notes = []; e.silence = true; }
+        this.prevenir('edition');
+    }
+
+    // -- Structure ---------------------------------------------------------------------------------
+
+    /** Insère un évènement APRÈS le courant et s'y place — le geste normal pour écrire à la suite. */
+    insererEvenement() {
+        this.memoriser();
+        const m = this.mesureCourante();
+        m.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        this.curseur.evenement += 1;
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+    }
+
+    supprimerEvenement() {
+        const m = this.mesureCourante();
+        if (m.evenements.length <= 1) return this.basculerSilence();
+        this.memoriser();
+        m.evenements.splice(this.curseur.evenement, 1);
+        this.curseur.evenement = Math.min(this.curseur.evenement, m.evenements.length - 1);
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+    }
+
+    ajouterMesure(apres = true) {
+        this.memoriser();
+        const at = apres ? this.curseur.mesure + 1 : this.curseur.mesure;
+        this.partition.mesures.splice(at, 0, creerMesure());
+        this.curseur.mesure = at;
+        this.curseur.evenement = 0;
+        this.prevenir('edition');
+    }
+
+    supprimerMesure() {
+        if (this.partition.mesures.length <= 1) return false;
+        this.memoriser();
+        this.partition.mesures.splice(this.curseur.mesure, 1);
+        // La toute première mesure porte signature et armure de départ : si on l'efface, la suivante
+        // en hérite explicitement, sans quoi la partition perdrait son 3/8 et repartirait en 4/4.
+        if (this.curseur.mesure === 0) {
+            const nouvelle = this.partition.mesures[0];
+            if (!nouvelle.signature) nouvelle.signature = { battements: 4, unite: 4 };
+            if (nouvelle.armure === null || nouvelle.armure === undefined) nouvelle.armure = 0;
+        }
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return true;
+    }
+
+    definirSignature(battements, unite) {
+        this.memoriser();
+        this.mesureCourante().signature = { battements, unite };
+        this.prevenir('edition');
+    }
+
+    definirArmure(armure) {
+        this.memoriser();
+        this.mesureCourante().armure = armure;
+        this.prevenir('edition');
+    }
+
+    basculerReprise(bord) {
+        this.memoriser();
+        const m = this.mesureCourante();
+        if (bord === 'debut') m.repriseDebut = !m.repriseDebut;
+        else m.repriseFin = !m.repriseFin;
+        this.prevenir('edition');
+    }
+
+    // -- Effets --------------------------------------------------------------------------------------
+
+    /** Effets portés par l'évènement entier (palm mute, accent, staccato). */
+    basculerEffetEvenement(nom) {
+        this.memoriser();
+        const e = this.evenementCourant();
+        e[nom] = !e[nom];
+        this.prevenir('edition');
+    }
+
+    /**
+     * Liaison vers la note SUIVANTE de la même corde. Un seul champ pour les cinq états : rejouer le
+     * même effet l'enlève, en choisir un autre remplace — jamais de combinaison impossible.
+     */
+    basculerLien(lien) {
+        const note = this.noteCourante();
+        if (!note) return false;
+        this.memoriser();
+        note.lien = note.lien === lien ? null : lien;
+        this.prevenir('edition');
+        return true;
+    }
+
+    basculerGhost() {
+        const note = this.noteCourante();
+        if (!note) return false;
+        this.memoriser();
+        note.ghost = !note.ghost;
+        this.prevenir('edition');
+        return true;
+    }
+
+    definirBend(demiTons) {
+        const note = this.noteCourante();
+        if (!note) return false;
+        this.memoriser();
+        note.bend = demiTons ? { demiTons } : null;
+        this.prevenir('edition');
+        return true;
+    }
+
+    // -- Transposition ------------------------------------------------------------------------------
+
+    /** Monte ou descend la note courante d'une case — le geste d'ajustement le plus fréquent. */
+    transposerNote(delta) {
+        const note = this.noteCourante();
+        if (!note) return false;
+        const casesMax = INSTRUMENTS[this.partition.piste.instrument]?.casesMax ?? 24;
+        const suivant = note.frette + delta;
+        if (suivant < 0 || suivant > casesMax) return false;
+        this.memoriser('transposer');
+        note.frette = suivant;
+        this.prevenir('edition');
+        return true;
+    }
+
+    // -- Piste ----------------------------------------------------------------------------------------
+
+    /**
+     * Change d'instrument. Les notes existantes sont RAMENÉES dans les bornes du nouvel instrument :
+     * passer d'une guitare à une basse 4 cordes supprime les cordes 5 et 6, qui n'existent plus. On
+     * perd de la musique, mais c'est explicite et annulable — l'alternative (garder des notes sur des
+     * cordes absentes) donnerait un fichier que plus rien ne saurait afficher.
+     */
+    definirInstrument(instrumentId) {
+        if (!INSTRUMENTS[instrumentId]) return false;
+        this.memoriser();
+        this.partition.piste.instrument = instrumentId;
+        this.partition.piste.accordage = accordageParDefaut(instrumentId);
+        const max = this.partition.piste.accordage.cordes.length - 1;
+        for (const m of this.partition.mesures) {
+            for (const e of m.evenements) {
+                e.notes = e.notes.filter(n => n.corde <= max);
+                if (!e.notes.length) e.silence = true;
+            }
+        }
+        this.corrigerCurseur();
+        this.prevenir('instrument');
+        return true;
+    }
+
+    definirAccordage(accordageId) {
+        const a = accordagePredefini(this.partition.piste.instrument, accordageId);
+        if (!a) return false;
+        this.memoriser();
+        this.partition.piste.accordage = a;
+        this.prevenir('instrument');
+        return true;
+    }
+
+    /** Accordage personnalisé, corde par corde. Retombe sur un prédéfini s'il en reconstitue un. */
+    definirCorde(corde, midi) {
+        this.memoriser('accordage');
+        const cordes = this.partition.piste.accordage.cordes.slice();
+        cordes[corde] = Math.max(0, Math.min(127, midi));
+        const connu = identifierAccordage(this.partition.piste.instrument, cordes);
+        this.partition.piste.accordage = connu || { id: 'personnalise', nom: 'Personnalisé', cordes };
+        this.prevenir('instrument');
+        return true;
+    }
+
+    definirCapo(cases) {
+        this.memoriser('capo');
+        this.partition.piste.capo = Math.max(0, Math.min(12, cases));
+        this.prevenir('instrument');
+    }
+
+    definirMeta(champ, valeur) {
+        this.memoriser('meta-' + champ);
+        this.partition.meta[champ] = valeur;
+        this.prevenir('meta');
+    }
+
+    definirTempo(bpm) {
+        this.memoriser('tempo');
+        this.partition.meta.tempo = Math.max(20, Math.min(400, Math.round(bpm)));
+        this.prevenir('tempo');
+    }
+
+    // -- Documents --------------------------------------------------------------------------------------
+
+    /** Remplace tout le document. L'historique est vidé : annuler une OUVERTURE n'a pas de sens. */
+    remplacer(partition) {
+        this.partition = normaliser(partition);
+        this.curseur = { mesure: 0, evenement: 0, corde: 0 };
+        this.passe.length = 0;
+        this.futur.length = 0;
+        this._dernierChiffre = null;
+        this.prevenir('document');
+    }
+
+    nouveau(instrumentId = 'guitare') {
+        this.remplacer(creerPartition(instrumentId));
+    }
+
+    // -- Diagnostic --------------------------------------------------------------------------------------
+
+    /** Écart entre ce qui est écrit dans la mesure et sa capacité, en noires. Sert à l'indicateur. */
+    ecartMesure(index = this.curseur.mesure) {
+        return dureeEcrite(this.partition.mesures[index]) - capaciteMesure(this.partition, index);
+    }
+}

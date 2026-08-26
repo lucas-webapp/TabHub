@@ -131,6 +131,12 @@ function largeurEnTete(besoins, armure, S) {
     if (besoins.armure && armure !== 0) w += Math.abs(armure) * 1.05 * S + 0.6 * S;
     if (besoins.signature) w += 2.6 * S;
     if (besoins.repriseDebut) w += 1.6 * S;
+    // RESPIRATION APRÈS L'EN-TÊTE. Une altération accidentelle se dessine À GAUCHE de sa tête de note,
+    // hors de la largeur allouée à l'évènement : sans cette marge, le dièse de la première note d'une
+    // mesure venait se poser sur le chiffre de la signature rythmique. La marge est comptée ici, dans
+    // la largeur, et non ajoutée au moment de dessiner — sinon la barre de mesure, calculée depuis
+    // cette largeur, tomberait au mauvais endroit.
+    if (w > 0) w += 1.5 * S;
     return w;
 }
 
@@ -248,13 +254,16 @@ export function mettreEnPage(partition, options = {}) {
     });
 
     // --- 3. Justifier ---------------------------------------------------------------------------
-    // Chaque système est étiré pour occuper toute la largeur, comme sur une partition gravée. Le
-    // DERNIER échappe à la règle s'il faudrait l'étirer de plus de moitié : une mesure isolée tirée
-    // sur toute la page donne des notes perdues à trois centimètres l'une de l'autre.
+    // Chaque système est étiré pour occuper toute la largeur, comme sur une partition gravée. Seul le
+    // DERNIER échappe à la règle, et seulement s'il faudrait l'étirer de plus de deux fois et demie :
+    // une mesure isolée tirée sur toute la page donne des notes perdues à trois centimètres l'une de
+    // l'autre. Le seuil est haut à dessein — un système collé à gauche avec du vide à droite se
+    // remarque bien davantage qu'un système un peu aéré, et c'est le cas courant pendant la saisie,
+    // où les dernières mesures sont encore vides.
     systemes.forEach((sys, i) => {
         const facteur = largeurUtile / sys.largeur;
         const dernier = i === systemes.length - 1;
-        sys.facteur = (dernier && facteur > 1.5) ? 1 : facteur;
+        sys.facteur = (dernier && facteur > 2.5) ? 1 : facteur;
     });
 
     // --- 4. Poser ------------------------------------------------------------------------------
@@ -263,7 +272,12 @@ export function mettreEnPage(partition, options = {}) {
     let y = geo.yDepart ?? 0;
     if (geo.avecEnTete !== false) y = poserEnTete(primitives, partition, geo, y);
 
+    // Chaque système note la PLAGE de primitives qu'il a produite. Comme ils se posent l'un après
+    // l'autre, deux index suffisent — et la pagination du PDF découpe alors la liste au bon endroit
+    // sans avoir à deviner à quel système appartient telle ligne d'après son ordonnée.
+    const debutCorps = primitives.length;
     systemes.forEach((sys, iSys) => {
+        const debutPrimitives = primitives.length;
         const yPortee = y + geo.margeHaut * S;
         const yTab = yPortee + hauteurPortee + geo.ecartPorteeTab * S;
         const xDebut = geo.margeGauche;
@@ -284,7 +298,11 @@ export function mettreEnPage(partition, options = {}) {
             });
         });
 
-        ancrages.systemes.push({ index: iSys, y, hauteur: hauteurSysteme, yPortee, yTab, xDebut, xFin, hauteurTab });
+        ancrages.systemes.push({
+            index: iSys, y, hauteur: hauteurSysteme, yPortee, yTab, xDebut, xFin, hauteurTab,
+            debutPrimitives, finPrimitives: primitives.length,
+            premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
+        });
         y += hauteurSysteme + geo.ecartSystemes * S;
     });
 
@@ -292,6 +310,7 @@ export function mettreEnPage(partition, options = {}) {
         largeur: geo.largeurPage,
         hauteur: Math.max(y - geo.ecartSystemes * S, hauteurSysteme),
         primitives, ancrages,
+        enTete: { debut: 0, fin: debutCorps },
         geo: { ...geo, S, ST, cordes, hauteurPortee, hauteurTab, hauteurSysteme, clef },
     };
 }
@@ -424,6 +443,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         out.push(texte(x + 1.15 * S, yPortee + 4 * S - 0.06 * S, String(m.signature.unite), { taille, police: 'serif', poids: '700' }));
         x += 2.6 * S;
     }
+    if (m.enTete > 0) x += 1.5 * S;   // la respiration comptée par largeurEnTete
 
     // Numéro de mesure, au-dessus de la portée, à l'aplomb du début de la mesure.
     out.push(texte(x + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {

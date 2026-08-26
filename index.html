@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TabHub — éditeur de tablatures</title>
+    <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#0a0a0a">
+    <link rel="stylesheet" href="style.css?v=202608260100">
+    <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
+         doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
+         Toutes deux en licence MIT. Elles ne sont pas des modules ES : chargées en <script> classique,
+         elles se posent sur `window` (Tone, jspdf), où les modules de src/ vont les chercher. -->
+    <script src="vendor/tone.min.js"></script>
+    <script src="vendor/jspdf.umd.min.js"></script>
+</head>
+<body>
+
+<div class="barre-haut">
+    <button type="button" id="btn-annuler" class="btn-icone" title="Annuler (Ctrl+Z)" aria-label="Annuler" disabled></button>
+    <button type="button" id="btn-retablir" class="btn-icone" title="Rétablir (Ctrl+Y)" aria-label="Rétablir" disabled></button>
+    <span class="separateur"></span>
+    <button type="button" id="btn-nouveau" class="btn-icone" title="Nouvelle tablature" aria-label="Nouvelle tablature"></button>
+    <button type="button" id="btn-ouvrir" class="btn-icone" title="Ouvrir un fichier .json (Ctrl+O)" aria-label="Ouvrir"></button>
+    <button type="button" id="btn-enregistrer" class="btn-icone" title="Enregistrer en .json (Ctrl+S)" aria-label="Enregistrer"></button>
+    <button type="button" id="btn-pdf" class="btn-icone" title="Exporter en PDF (Ctrl+P)" aria-label="Exporter en PDF"></button>
+    <span class="separateur"></span>
+    <button type="button" id="btn-reglages" class="btn-icone" title="Instrument et accordage" aria-label="Instrument et accordage"></button>
+    <button type="button" id="btn-aide" class="btn-icone" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
+
+    <span class="pousse"></span>
+    <input type="text" id="champ-titre" class="titre-morceau" value="Sans titre" aria-label="Titre du morceau" spellcheck="false">
+    <span class="pousse"></span>
+
+    <a class="logo" href="#" onclick="return false" title="TabHub" aria-label="TabHub">
+        <span class="logo-marque">
+            <!-- Six barres horizontales d'épaisseur croissante : les six cordes d'une tablature, et
+                 un écho direct au logo « grille » de HarmoHub, qui empile quatre barres verticales. -->
+            <svg viewBox="0 0 48 48" aria-hidden="true">
+                <rect x="6" y="9" width="36" height="2.5" rx="1.25" fill="currentColor" opacity=".3"/>
+                <rect x="6" y="16" width="36" height="3" rx="1.5" fill="currentColor" opacity=".45"/>
+                <rect x="6" y="23" width="36" height="3.5" rx="1.75" fill="currentColor" opacity=".62"/>
+                <rect x="6" y="30.5" width="36" height="4" rx="2" fill="currentColor" opacity=".8"/>
+                <rect x="6" y="38.5" width="36" height="4.5" rx="2.25" fill="currentColor"/>
+            </svg>
+        </span>
+        <span class="logo-texte">TabHub</span>
+    </a>
+</div>
+
+<!-- La palette est construite par ui/toolbar.js : ses boutons dérivent des mêmes tables que les
+     raccourcis clavier (durées, effets), pour que les deux ne puissent pas se contredire. -->
+<div class="barre-outils" id="barre-outils" role="toolbar" aria-label="Outils d'édition"></div>
+
+<div class="zone-partition" id="zone-partition" tabindex="0" role="application"
+     aria-label="Partition — flèches pour se déplacer, chiffres pour saisir une case">
+    <div class="feuille" id="feuille"></div>
+</div>
+
+<div class="transport">
+    <button type="button" id="btn-jouer" class="btn-transport jouer" title="Lecture / Pause (Espace)" aria-label="Lecture"></button>
+    <button type="button" id="btn-stop" class="btn-transport arret" title="Arrêter (Échap)" aria-label="Arrêter"></button>
+    <span class="separateur"></span>
+    <label class="info-transport" for="champ-tempo">Tempo</label>
+    <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
+    <span class="info-transport">BPM</span>
+    <span class="separateur"></span>
+    <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
+    <span class="pousse"></span>
+    <span class="info-transport" id="info-selection"></span>
+    <span class="separateur"></span>
+    <label class="info-transport" for="champ-zoom">Zoom</label>
+    <input type="range" id="champ-zoom" min="6" max="16" step="0.5" value="9" style="width:110px" aria-label="Taille de la partition">
+</div>
+
+<div class="voile" id="fenetre-reglages" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-reglages">
+        <div class="fenetre-tete">
+            <h2 id="titre-reglages">Instrument et accordage</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <div class="rubrique">
+                <h3>Instrument</h3>
+                <div class="ligne-champ">
+                    <label for="champ-instrument">Instrument</label>
+                    <select id="champ-instrument" class="champ"></select>
+                </div>
+                <div class="ligne-champ">
+                    <label for="champ-accordage">Accordage</label>
+                    <select id="champ-accordage" class="champ"></select>
+                </div>
+                <div class="ligne-champ">
+                    <label for="champ-capo">Capodastre</label>
+                    <select id="champ-capo" class="champ"></select>
+                </div>
+            </div>
+            <div class="rubrique">
+                <h3>Accordage corde par corde</h3>
+                <!-- Les cordes s'affichent du GRAVE à l'AIGU, l'ordre dans lequel un instrumentiste
+                     énonce son accordage — l'inverse de l'ordre interne (voir model/instruments.js). -->
+                <div class="grille-cordes" id="grille-cordes"></div>
+            </div>
+            <div class="rubrique">
+                <h3>Morceau</h3>
+                <div class="ligne-champ">
+                    <label for="champ-sous-titre">Sous-titre</label>
+                    <input type="text" id="champ-sous-titre" class="champ" placeholder="ex. www.exemple.com">
+                </div>
+                <div class="ligne-champ">
+                    <label for="champ-artiste">Artiste</label>
+                    <input type="text" id="champ-artiste" class="champ" placeholder="ex. Fernando Sor">
+                </div>
+            </div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-plein" data-fermer>Terminé</button>
+        </div>
+    </div>
+</div>
+
+<div class="voile" id="fenetre-aide" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-aide">
+        <div class="fenetre-tete">
+            <h2 id="titre-aide">Raccourcis clavier</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps"><table class="table-raccourcis" id="table-raccourcis"></table></div>
+        <div class="fenetre-pied"><button type="button" class="btn-plein" data-fermer>Fermer</button></div>
+    </div>
+</div>
+
+<input type="file" id="entree-fichier" accept="application/json,.json" hidden>
+<div class="message" id="message" role="status" aria-live="polite"></div>
+
+<script type="module" src="src/main.js?v=202608260100"></script>
+</body>
+</html>

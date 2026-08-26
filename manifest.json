@@ -1,0 +1,13 @@
+{
+    "name": "TabHub — éditeur de tablatures",
+    "short_name": "TabHub",
+    "description": "Éditeur de tablatures et partitions pour guitare et basse, avec lecture audio et export PDF.",
+    "start_url": "./index.html",
+    "display": "standalone",
+    "background_color": "#0a0a0a",
+    "theme_color": "#0a0a0a",
+    "lang": "fr",
+    "icons": [
+        { "src": "icons/favicon.svg", "sizes": "any", "type": "image/svg+xml" }
+    ]
+}
