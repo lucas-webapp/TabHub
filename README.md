@@ -1,10 +1,9 @@
 # TabHub
 
-Éditeur web de **tablatures et partitions** pour guitare et basse : saisie au clavier, double portée
-solfège + TAB synchronisées, lecture audio avec tête de lecture, boucle de lecture pour retravailler
-un passage, export PDF vectoriel, fichiers `.json` et **MIDI** (import et export). Un premier support
-**piano** (grand-portée clé de sol + clé de fa) pose la mise en page ; la saisie directement sur la
-portée arrive dans un second temps (voir « Ce que la V1 ne fait pas encore »).
+Éditeur web de **tablatures et partitions** pour guitare, basse et **piano** : saisie au clavier
+(guitare/basse) ou directement sur la portée (piano), double portée solfège + TAB synchronisées (ou
+grand-portée à deux clés pour le piano), lecture audio avec tête de lecture, boucle de lecture pour
+retravailler un passage, export PDF vectoriel, fichiers `.json` et **MIDI** (import et export).
 
 Application compagnon de [HarmoHub](https://github.com/lucas-webapp/HarmoHub), dont elle reprend
 l'architecture et le vocabulaire visuel.
@@ -173,6 +172,13 @@ prédéfini est reconnu comme tel.
 Basculer un morceau existant vers piano vide ses notes (elles n'ont plus de corde où vivre) sans
 toucher au rythme ni aux mesures.
 
+**Saisie directement sur la portée** (pas de manche, donc pas de chiffre à taper) : cliquer sur une
+ligne ou un interligne y pose la hauteur correspondante — accidentelle comprise selon l'armure en
+vigueur — ou la retire si elle y est déjà (bascule, comme rejouer la même touche). Un clic sur la clé
+de sol écrit à la voix 0 (main droite), un clic sur la clé de fa à la voix 1 (main gauche) — cette
+dernière ajoutée toute seule au premier clic si la mesure n'avait encore que la mélodie. Plusieurs
+hauteurs cliquées au même instant construisent un accord.
+
 ### Fichiers
 
 - **Enregistrer** télécharge un `.json` indenté, qui est le modèle tel quel — lisible et modifiable à
@@ -253,10 +259,13 @@ Dit franchement, pour que la suite se décide sur des faits :
   amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
   simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en
   hauteur en continu.
-- **Piano : la mise en page seulement.** Le grand-portée se dessine (clé de sol + clé de fa, armure,
-  chiffrage, reprises, tout comme guitare/basse), mais on ne peut pas encore y écrire : ni saisie
-  directement sur la portée, ni deuxième voix. Une mesure piano reste donc toujours vide (silence de
-  ronde sur les deux portées) jusqu'à ce chantier.
+- **Piano : quelques aspérités, hors du geste central (clic pour poser/retirer une hauteur, qui
+  fonctionne).** Toutes les notes d'un accord partagent le même identifiant interne (`corde: 0`, sans
+  équivalent piano) : Suppr efface l'accord ENTIER plutôt qu'une seule de ses notes (cliquer de
+  nouveau sur la hauteur voulue reste le moyen fiable de la retirer seule), un effet par note
+  (hammer-on, bend…) ne vise que la première note d'un accord, et une liaison entre deux accords peut
+  se raccorder à la mauvaise note. Ni saisie au clavier (chiffres, flèches) ni lasso de sélection —
+  la souris/le doigt directement sur la portée restent le seul geste.
 
 ---
 

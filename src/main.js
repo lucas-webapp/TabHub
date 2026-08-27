@@ -25,15 +25,15 @@ import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils } from './ui/toolbar.js';
 import { construirePave } from './ui/pave.js';
 import { icone } from './ui/icons.js';
-import { mettreEnPage } from './engine/layout.js';
+import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe } from './model/score.js';
-import { nomDeHauteur } from './model/theory.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective } from './model/score.js';
+import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
 import { VALEURS_FIGURES } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
@@ -266,14 +266,21 @@ class TabHubApp {
         if (!a) return [];
         const S = this.page.geo.S, ST = this.page.geo.ST;
         const y = a.yPortee - 1.2 * S;
-        const bas = a.yTab + a.hauteurTab + 1.2 * S;
-        const yCorde = a.yTab + this.editeur.curseur.corde * ST;
-        const demi = ST * 0.62;
+        const bas = a.yBas + 1.2 * S;
         const marques = [
             { t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: bas - y, couleur: 'var(--curseur-halo)' },
-            { t: 'rect', x: a.x - demi, y: yCorde - ST * 0.56, w: demi * 2, h: ST * 1.12, couleur: 'var(--curseur-halo)' },
-            { t: 'rect', x: a.x - demi, y: yCorde + ST * 0.5, w: demi * 2, h: Math.max(1.6, S * 0.22), couleur: 'var(--curseur)' },
         ];
+        // Le trait « sur quelle corde » n'a de sens que sur une TABLATURE — un piano (a.yTab absent,
+        // voir engine/layout.js#poserMesurePiano) montre déjà SA note à sa hauteur réelle sur la
+        // portée : le bandeau du dessus suffit à dire « ici, dans le temps », rien de plus à ajouter.
+        if (a.yTab != null) {
+            const yCorde = a.yTab + this.editeur.curseur.corde * ST;
+            const demi = ST * 0.62;
+            marques.push(
+                { t: 'rect', x: a.x - demi, y: yCorde - ST * 0.56, w: demi * 2, h: ST * 1.12, couleur: 'var(--curseur-halo)' },
+                { t: 'rect', x: a.x - demi, y: yCorde + ST * 0.5, w: demi * 2, h: Math.max(1.6, S * 0.22), couleur: 'var(--curseur)' },
+            );
+        }
         return marques;
     }
 
@@ -306,7 +313,7 @@ class TabHubApp {
         const x = a.xDebut + (a.xFin - a.xDebut) * avance;
         const S = this.page.geo.S;
         const haut = a.yPortee - 1.2 * S;
-        const bas = a.yTab + a.hauteurTab + 1.2 * S;
+        const bas = a.yBas + 1.2 * S;
         this.faireDefilerVers(a, haut, bas);
 
         const largeurTrait = Math.max(1.2, S * 0.15);
@@ -992,13 +999,75 @@ class TabHubApp {
         return { mesure: cible.mesure, evenement: cible.evenement, corde, voix: cible.voix };
     }
 
+    /**
+     * Pendant de cibleDepuisClic, pour le PIANO — pas de corde à retrouver, mais une HAUTEUR
+     * (voir engine/layout.js#pasDeLaPosition, theory.js#hauteurDepuisPas). La portée touchée (sol ou
+     * fa) dit la VOIX visée (main droite/gauche) : c'est elle, pas la mesure, qui distingue les deux
+     * mains — la frontière naturelle étant à mi-chemin dans l'espace ENTRE les deux portées.
+     *
+     * Une mesure existe TOUJOURS pour les deux portées (voir poserMesurePiano, qui dessine un
+     * silence de mesure entière en fa tant que rien n'y est écrit) : `evenement` retombe alors sur 0
+     * — c'est ce qui permet d'écrire une PREMIÈRE note à la main gauche d'une mesure qui n'avait
+     * encore que la mélodie, `clicPartition` ajoutant la voix manquante au moment de l'écrire.
+     */
+    cibleDepuisClicPiano(evenement) {
+        if (!this.page) return null;
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return null;
+        const boite = svg.getBoundingClientRect();
+        const x = (evenement.clientX - boite.left) * (this.page.largeur / boite.width);
+        const y = (evenement.clientY - boite.top) * (this.page.hauteur / boite.height);
+
+        const systemes = this.page.ancrages.systemes;
+        const S = this.page.geo.S;
+        const marge = S * 1.5;
+        const systeme = systemes.find(s => y >= s.y - marge && y <= s.y + s.hauteur + marge);
+        if (!systeme) return null;
+
+        const milieu = (systeme.yPortee + 4 * S + systeme.yPorteeFa) / 2;
+        const voix = y < milieu ? 0 : 1;
+        const clef = voix === 0 ? CLEFS.sol : CLEFS.fa;
+        const yPorteeVisee = voix === 0 ? systeme.yPortee : systeme.yPorteeFa;
+
+        const mesuresIci = this.page.ancrages.mesures.filter(a => a.systeme === systeme.index);
+        if (!mesuresIci.length) return null;
+        const mesureAncre = mesuresIci.find(a => x >= a.x && x < a.xFin)
+            || (x < mesuresIci[0].x ? mesuresIci[0] : mesuresIci[mesuresIci.length - 1]);
+
+        // L'évènement visé, parmi ceux DÉJÀ posés pour CETTE voix à CETTE mesure — même principe que
+        // cibleDepuisClic (« ici », pas « le plus proche »). Aucun (voix pas encore ajoutée à gauche) :
+        // 0, la voix neuve n'aura de toute façon qu'un seul évènement à sa naissance.
+        const candidats = this.page.ancrages.evenements.filter(a => a.mesure === mesureAncre.index && a.voix === voix);
+        const memeX = candidats.filter(a => x >= a.xDebut && x < a.xFin);
+        const cibleEvt = memeX[0] || (candidats.length ? (x < candidats[0].xDebut ? candidats[0] : candidats[candidats.length - 1]) : null);
+
+        const pas = pasDeLaPosition(y, yPorteeVisee, S, clef);
+        const armure = armureEffective(this.editeur.partition, mesureAncre.index);
+        const pitch = hauteurDepuisPas(pas, armure);
+
+        return { mesure: mesureAncre.index, evenement: cibleEvt ? cibleEvt.evenement : 0, corde: 0, voix, pitch };
+    }
+
     clicPartition(evenement) {
         // Un clic simple (sans glisser) abandonne la sélection multiple en cours — la convention
         // universelle : cliquer À CÔTÉ désélectionne. Le clic continue ensuite comme avant.
         if (this.selectionNotes.size) { this.selectionNotes.clear(); this.dessiner(); }
-        const cible = this.cibleDepuisClic(evenement);
+        const auPiano = this.editeur.partition.piste.instrument === 'piano';
+        const cible = auPiano ? this.cibleDepuisClicPiano(evenement) : this.cibleDepuisClic(evenement);
         if (!cible) { this.el.zone.focus(); return; }
+        // Au piano, la voix visée peut ne pas encore exister (mesure jamais jouée à cette main) —
+        // on l'ajoute ICI, avant de placer le curseur dessus, plutôt que de forcer l'utilisateur à
+        // un geste séparé (« + Voix », retiré de la palette guitare/basse — voir edit/raccourcis.js)
+        // pour un geste aussi ordinaire qu'écrire à la main gauche.
+        if (auPiano && cible.voix >= this.editeur.nbVoixMesure(cible.mesure)) {
+            this.editeur.placerCurseur(cible.mesure, 0, 0, 0);
+            this.editeur.ajouterVoix();
+        }
         this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
+        if (auPiano) {
+            this.editeur.saisirHauteur(cible.pitch);
+            if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; }
+        }
         this.el.zone.focus();
     }
 
@@ -1015,7 +1084,8 @@ class TabHubApp {
     ouvrirMenuContextuel(evenement) {
         evenement.preventDefault();   // jamais le menu natif du navigateur sur la partition
         if (this.selectionNotes.size) { this.selectionNotes.clear(); this.dessiner(); }
-        const cible = this.cibleDepuisClic(evenement);
+        const auPiano = this.editeur.partition.piste.instrument === 'piano';
+        const cible = auPiano ? this.cibleDepuisClicPiano(evenement) : this.cibleDepuisClic(evenement);
         this.fermerMenuContextuel();
         if (!cible) return;
         this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);

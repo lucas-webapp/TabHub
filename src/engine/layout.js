@@ -21,7 +21,7 @@ import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure } from '.
 import {
     signatureEffective, armureEffective, positionDansMesure, hauteurDeNote, nbCordes,
 } from '../model/score.js';
-import { ecrireHauteur, alterationsDeLArmure, NOMS_LETTRES } from '../model/theory.js';
+import { ecrireHauteur, hauteurDepuisPas, alterationsDeLArmure, NOMS_LETTRES } from '../model/theory.js';
 import { INSTRUMENTS } from '../model/instruments.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -636,20 +636,31 @@ function mettreEnPagePiano(partition, geo) {
     const largeurUtile = geo.largeurPage - geo.margeGauche - geo.margeDroite;
 
     // --- 1. Mesurer : la largeur d'une mesure ne dépend QUE de sa capacité (LARGEUR_PAR_NOIRE,
-    // exactement la même règle que guitare/basse) — aucune note n'existe encore dont la densité
-    // pourrait la faire varier. L'en-tête (clé/armure/chiffrage) se calcule pour LES DEUX clés, et
-    // c'est la plus large des deux qui compte : les deux portées doivent démarrer leurs notes au
-    // MÊME x, sans quoi la promesse même d'un grand-portée (lire les deux mains ensemble) serait
-    // rompue au premier changement d'armure. -----------------------------------------------------
+    // exactement la même règle que guitare/basse), JAMAIS de son contenu — voir repartirParTemps.
+    // Les COLONNES, elles, en dépendent bien (calculerColonnes, la même fonction que guitare/basse,
+    // déjà générique : elle ne lit que `mesure.voix`, jamais ce qui distingue un manche d'un clavier) —
+    // c'est elles qui donnent à chaque évènement sa vraie place quand deux mains n'attaquent pas au
+    // même instant. L'en-tête (clé/armure/chiffrage) se calcule pour LES DEUX clés, et c'est la plus
+    // large des deux qui compte : les deux portées doivent démarrer leurs notes au MÊME x, sans quoi
+    // la promesse même d'un grand-portée (lire les deux mains ensemble) serait rompue au premier
+    // changement d'armure. -----------------------------------------------------------------------
     const mesures = partition.mesures.map((mesure, i) => {
         const sig = signatureEffective(partition, i);
         const arm = armureEffective(partition, i);
         const capacite = noiresParMesure(sig);
+        const colonnes = calculerColonnes(mesure, capacite, S);
+        const largeurNotes = capacite * LARGEUR_PAR_NOIRE * S;
+        repartirParTemps(colonnes, capacite, uniteDeGroupement(sig), largeurNotes);
         return {
-            index: i, ref: mesure, signature: sig, armure: arm, capacite,
-            largeurNotes: capacite * LARGEUR_PAR_NOIRE * S,
+            index: i, ref: mesure, signature: sig, armure: arm, capacite, colonnes,
+            largeurNotes,
             changeSignature: !!mesure.signature,
             changeArmure: mesure.armure !== null && mesure.armure !== undefined,
+            // Même signal d'alerte que guitare/basse (voir poserMesure) : une voix dont le total ne
+            // tombe PAS exactement sur la capacité de la mesure, à traiter avant que la portée
+            // n'affiche silencieusement un rythme qui ne correspond plus à ce qui est réellement écrit.
+            invalide: mesure.voix.some(v => Math.abs(
+                v.evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0) - capacite) > 1e-6),
         };
     });
 
@@ -701,8 +712,8 @@ function mettreEnPagePiano(partition, geo) {
         sys.mesures.forEach((m, iDansSys) => {
             const largeurMesure = m.enTete + m.largeurNotes + 1.4 * S;
             const finMesure = x + largeurMesure;
-            x = poserMesurePiano(primitives, ancrages, m, {
-                x, finMesure, yPortee, yPorteeFa, S, iSys, premiereDuSysteme: iDansSys === 0,
+            x = poserMesurePiano(primitives, ancrages, partition, m, {
+                x, finMesure, yPortee, yPorteeFa, S, iSys, premiereDuSysteme: iDansSys === 0, geo, facteur: 1,
             });
         });
 
@@ -734,9 +745,16 @@ function mettreEnPagePiano(partition, geo) {
  *  entière sur chacune (aucune note n'existe encore à ce stade du chantier), et la barre de fin,
  *  qui doit traverser les DEUX portées d'un seul trait — la convention de gravure d'un grand-portée,
  *  à la différence de guitare/basse où portée et TAB restent deux systèmes verticalement distincts. */
-function poserMesurePiano(out, ancrages, m, ctx) {
-    const { yPortee, yPorteeFa, S } = ctx;
+function poserMesurePiano(out, ancrages, partition, m, ctx) {
+    const { yPortee, yPorteeFa, S, geo, facteur } = ctx;
     const xDebutMesure = ctx.x;
+
+    // Même signal qu'en guitare/basse (voir poserMesure) : une voix dont le total ne tombe pas
+    // EXACTEMENT sur la capacité de la mesure, teintée en fond plutôt que laissée à se désaccorder
+    // en silence — sur TOUTE la largeur du grand-portée, portée de fa comprise.
+    if (m.invalide && geo?.avertirErreurs !== false) {
+        out.push(rect(xDebutMesure, yPortee, ctx.finMesure - xDebutMesure, (yPorteeFa + 4 * S) - yPortee, 'avertissement'));
+    }
 
     const poserEnTeteStaff = (x0, yP, clef) => {
         let x = x0;
@@ -794,16 +812,77 @@ function poserMesurePiano(out, ancrages, m, ctx) {
         taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
     }));
 
-    // Silence de mesure entière, sur CHAQUE portée — jamais le découpage réel en figures (voir
-    // model/score.js#decouperEnEvenements, qui peut très bien donner une blanche pointée pour une
-    // mesure à 3/4) : une mesure vide se grave TOUJOURS avec le même signe, quel que soit son
-    // chiffrage, la convention qui dit « rien ne joue ici » plutôt qu'un silence d'une durée précise.
+    // --- Les notes : VOIX 0 sur la portée de sol (main droite), VOIX 1 sur celle de fa (main
+    // gauche) — deux voix déjà du modèle (voir edit/commands.js#ajouterVoix, jusqu'ici mélodie +
+    // basse tenue sur une seule portée guitare/basse), ici réparties chacune sur SA PROPRE portée :
+    // la convention même de la musique pianistique, et ELLE ÉVITE d'avoir à décider quelle hauteur
+    // « appartient » à quelle main d'après sa seule valeur — la partition le dit déjà. Une mesure
+    // sans voix 1 (le cas courant tant qu'on n'a rien joué à la main gauche) montre un silence de
+    // mesure entière sur la portée de fa, comme une voix normalement remplie mais vide.
+    // Même moteur, mêmes TROIS PASSES que poserMesure (têtes puis hampes/ligatures puis liaisons) —
+    // voir son commentaire pour la justification de l'ordre. `cordes: 0` y désactive la tablature
+    // (voir poserEvenement) : seule la portée compte au piano.
     const xNotes = xDebutMesure + m.enTete;
-    const centreNotes = xNotes + m.largeurNotes / 2;
-    const gSilence = G.SILENCES[1];
-    const demiSilence = (G.largeurDe(gSilence) / 2) * S;
-    out.push(glyphe(gSilence, centreNotes - demiSilence, yPortee + (G.LIGNE_SILENCE[1] ?? 1) * S, S));
-    out.push(glyphe(gSilence, centreNotes - demiSilence, yPorteeFa + (G.LIGNE_SILENCE[1] ?? 1) * S, S));
+    const xColonnes = [];
+    { let xx = xNotes; for (const c of m.colonnes) { xColonnes.push(xx); xx += c.largeur * facteur; } }
+    const xFinMesureNotes = xColonnes.length ? xColonnes[xColonnes.length - 1] + m.colonnes[m.colonnes.length - 1].largeur * facteur : xNotes;
+    const colonneA = (t) => {
+        const cible = Math.round(t * 1e6) / 1e6;
+        const i = m.colonnes.findIndex(c => c.debut >= cible - 1e-6);
+        return i < 0 ? m.colonnes.length : i;
+    };
+
+    const memoire = memoireAlterations(m.armure);   // partagée par les deux mains, comme la mesure entière
+    const notesParPasEtColonne = new Map();
+    const STAVES = [{ yPortee: yPortee, clef: CLEFS.sol }, { yPortee: yPorteeFa, clef: CLEFS.fa }];
+    const nbVoix = m.ref.voix.length;
+
+    m.ref.voix.forEach((voixRef, iVoix) => {
+        const staff = STAVES[iVoix] || STAVES[1];   // filet : jamais plus de deux voix (MAX_VOIX)
+        const poses = [];
+        let t = 0;
+        voixRef.evenements.forEach((ref, iEvenement) => {
+            const duree = dureeEnNoires(ref.duree);
+            const iCol = colonneA(t);
+            const xDebutEvt = xColonnes[iCol];
+            const largeurPremiereColonne = m.colonnes[iCol].largeur * facteur;
+            const xNote = xDebutEvt + largeurPremiereColonne * 0.42;
+            const iColFin = colonneA(t + duree);
+            const xFinEvt = iColFin < xColonnes.length ? xColonnes[iColFin] : xFinMesureNotes;
+
+            const pose = poserEvenement(out, partition, ref, {
+                x: xNote, xDebut: xDebutEvt, largeur: largeurPremiereColonne,
+                yPortee: staff.yPortee, yTab: undefined, S, ST: undefined, cordes: 0, clef: staff.clef,
+                memoire, geo, sensImpose: null, decalageSilence: 0, notesParPasEtColonne, cleColonne: `${iVoix}:${iCol}`,
+            });
+            poses.push(pose);
+            ancrages.evenements.push({
+                mesure: m.index, voix: iVoix, evenement: iEvenement, ref,
+                x: xNote, xDebut: xDebutEvt, xFin: xFinEvt, yPortee: staff.yPortee, yPorteeFa,
+                // Pendant de guitare/basse (voir l'autre ancrages.evenements.push) : bas de la grille
+                // de notation — ici le bas de la portée de FA, quelle que soit la main (voix) visée,
+                // pour que le bandeau du curseur (main.js#marquesCurseur) couvre le grand-portée
+                // ENTIER plutôt que de s'arrêter au milieu, entre les deux mains.
+                yBas: yPorteeFa + 4 * S,
+            });
+            t += duree;
+        });
+
+        const groupes = grouperLigatures(poses, m.signature);
+        poserHampes(out, poses, groupes, S);
+        poserArticulations(out, poses, S);
+        poserNolets(out, poses, S, staff.yPortee);
+        poserLiaisons(out, poses, S, undefined);
+    });
+
+    // Voix 1 absente (mesure jamais jouée à la main gauche) : la portée de fa garde son silence de
+    // mesure entière, comme une voix qui existerait mais n'aurait rien à y dire.
+    if (nbVoix < 2) {
+        const g = G.SILENCES[1];
+        const demi = (G.largeurDe(g) / 2) * S;
+        const centre = xNotes + m.largeurNotes / 2;
+        out.push(glyphe(g, centre - demi, yPorteeFa + (G.LIGNE_SILENCE[1] ?? 1) * S, S));
+    }
 
     // Barre de fin de mesure — un seul trait continu du haut de la portée de sol au bas de celle de
     // fa (jamais deux traits séparés comme portée/TAB) : sur un grand-portée, c'est la MÊME barre.
@@ -1072,6 +1151,10 @@ function poserMesure(out, ancrages, partition, m, ctx) {
             ancrages.evenements.push({
                 mesure: m.index, voix: iVoix, evenement: iEvenement, ref,
                 x: xNote, xDebut: xDebutEvt, xFin: xFinEvt, yPortee, yTab, hauteurTab,
+                // Générique entre les deux mises en page (voir son pendant piano dans
+                // poserMesurePiano) : bas de la grille de notation, que main.js peut lire pour le
+                // curseur/la tête de lecture SANS savoir s'il existe une TAB sous cette portée.
+                yBas: yTab + hauteurTab,
             });
             t += duree;
         });
@@ -1114,6 +1197,16 @@ function yDeLaPosition(pas, yPortee, S, clef) {
     return yPortee + clef.ligne * S - (pas - clef.pasRef) * (S / 2);
 }
 
+/**
+ * INVERSE de yDeLaPosition — la position diatonique la plus proche d'une ordonnée d'écran, ARRONDIE
+ * à la ligne ou à l'interligne le plus proche. C'est elle qui traduit un CLIC direct sur la portée
+ * (voir main.js#cibleDepuisClicPiano) en une position exploitable par theory.js#hauteurDepuisPas —
+ * exportée pour ça, seule fonction de ce module dont l'édition (hors moteur de mise en page) a besoin.
+ */
+export function pasDeLaPosition(y, yPortee, S, clef) {
+    return clef.pasRef + Math.round((yPortee + clef.ligne * S - y) / (S / 2));
+}
+
 // ---------------------------------------------------------------------------------------------
 // Un évènement : les chiffres de la tablature, et leur reflet sur la portée
 // ---------------------------------------------------------------------------------------------
@@ -1145,33 +1238,40 @@ function poserEvenement(out, partition, evenement, ctx) {
         return pose;
     }
 
-    // --- Tablature : le chiffre de case, posé SUR sa ligne, qu'il interrompt ---------------------
+    // --- Tablature : le chiffre de case, posé SUR sa ligne, qu'il interrompt -----------------------
+    // Absente au PIANO (`ctx.cordes` vaut alors 0, voir poserMesurePiano) : ni corde ni case n'y ont
+    // de sens, seule la portée (ci-dessous) porte la note. `pose.notes` garde quand même une entrée
+    // par note quoi qu'il arrive — c'est elle que la section Portée complète ensuite (`.yPortee = …`).
     const tailleChiffre = geo.tailleChiffreTab * S;
     for (const note of evenement.notes) {
-        const yLigne = yTab + note.corde * ST;
-        const libelle = note.ghost ? 'x' : String(note.frette);
-        // Le masque : la ligne de corde s'arrête de part et d'autre du chiffre. C'est ce qui rend une
-        // tablature lisible — un « 0 » barré d'un trait horizontal se lit comme un « ø ».
-        const demiLargeur = tailleChiffre * (0.32 + 0.19 * libelle.length);
-        out.push(rect(x - demiLargeur, yLigne - tailleChiffre * 0.5, demiLargeur * 2, tailleChiffre, 'papier'));
-        out.push(texte(x, yLigne + tailleChiffre * 0.35, libelle, {
-            taille: tailleChiffre, police: 'sans-serif', poids: '600', ancre: 'milieu',
-            // `horsManche` : posé par une transposition qui n'a trouvé AUCUNE corde capable de jouer
-            // la hauteur voulue (voir Editeur.transposerMorceau). La note reste écrite et éditable,
-            // mais en rouge — c'est le seul signe qui dise « celle-ci est à reprendre ».
-            couleur: note.horsManche ? 'horsManche' : undefined,
-        }));
-        if (note.bend) {
-            // Les trois amplitudes qu'un guitariste écrit, dans la notation qu'il lit : ½, full, 1½
-            // (voir Editeur.bendSuivant, qui les fait circuler). Une version antérieure n'en
-            // distinguait que deux (« full » dès deux demi-tons), donc un bend d'un ton et demi
-            // s'affichait comme un ton entier — deux gestes différents sous une même étiquette.
-            const LIBELLES_BEND = { 1: '½', 2: 'full', 3: '1½' };
-            out.push(texte(x + 0.9 * S, yLigne - tailleChiffre * 0.75, LIBELLES_BEND[note.bend.demiTons] || 'full', {
-                taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
+        if (ctx.cordes > 0) {
+            const yLigne = yTab + note.corde * ST;
+            const libelle = note.ghost ? 'x' : String(note.frette);
+            // Le masque : la ligne de corde s'arrête de part et d'autre du chiffre. C'est ce qui rend
+            // une tablature lisible — un « 0 » barré d'un trait horizontal se lit comme un « ø ».
+            const demiLargeur = tailleChiffre * (0.32 + 0.19 * libelle.length);
+            out.push(rect(x - demiLargeur, yLigne - tailleChiffre * 0.5, demiLargeur * 2, tailleChiffre, 'papier'));
+            out.push(texte(x, yLigne + tailleChiffre * 0.35, libelle, {
+                taille: tailleChiffre, police: 'sans-serif', poids: '600', ancre: 'milieu',
+                // `horsManche` : posé par une transposition qui n'a trouvé AUCUNE corde capable de
+                // jouer la hauteur voulue (voir Editeur.transposerMorceau). La note reste écrite et
+                // éditable, mais en rouge — c'est le seul signe qui dise « celle-ci est à reprendre ».
+                couleur: note.horsManche ? 'horsManche' : undefined,
             }));
+            if (note.bend) {
+                // Les trois amplitudes qu'un guitariste écrit, dans la notation qu'il lit : ½, full,
+                // 1½ (voir Editeur.bendSuivant, qui les fait circuler). Une version antérieure n'en
+                // distinguait que deux (« full » dès deux demi-tons), donc un bend d'un ton et demi
+                // s'affichait comme un ton entier — deux gestes différents sous une même étiquette.
+                const LIBELLES_BEND = { 1: '½', 2: 'full', 3: '1½' };
+                out.push(texte(x + 0.9 * S, yLigne - tailleChiffre * 0.75, LIBELLES_BEND[note.bend.demiTons] || 'full', {
+                    taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
+                }));
+            }
+            pose.notes.push({ note, yTab: ligneTab(note, yTab, ST), demiLargeurTab: demiLargeur });
+        } else {
+            pose.notes.push({ note });
         }
-        pose.notes.push({ note, yTab: ligneTab(note, yTab, ST), demiLargeurTab: demiLargeur });
     }
 
     // --- Portée : les mêmes notes, converties en hauteurs puis en positions ----------------------
@@ -1500,6 +1600,11 @@ function poserNolets(out, poses, S, yPortee) {
 // Liaisons, hammer-on / pull-off / slides, palm mute
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * `ST` (interligne de tablature) absent : c'est un appel PIANO (voir poserMesurePiano), qui n'a ni
+ * tablature ni palm mute (une technique de main droite sur cordes, sans équivalent au clavier) —
+ * seul l'arc de liaison sur la PORTÉE (déjà générique, indépendant de ST) reste tracé.
+ */
 function poserLiaisons(out, poses, S, ST) {
     for (let i = 0; i < poses.length - 1; i++) {
         const a = poses[i], b = poses[i + 1];
@@ -1508,15 +1613,17 @@ function poserLiaisons(out, poses, S, ST) {
             const nb = b.notes.find(n => n.note.corde === na.note.corde);
             if (!nb) continue;
 
-            // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
-            const x1 = a.x + na.demiLargeurTab, x2 = b.x - nb.demiLargeurTab;
-            const yT = na.yTab + ST * 0.42;
-            out.push(courbe(arcLiaison(x1, yT, x2, nb.yTab + ST * 0.42, 1, 0.34 * S), G.EPAISSEURS.liaison * S));
-            const etiquette = { hammer: 'H', pull: 'P', slide: '', tie: '' }[na.note.lien];
-            if (etiquette) {
-                out.push(texte((x1 + x2) / 2, na.yTab - ST * 0.42, etiquette, {
-                    taille: S * 1.1, police: 'serif', poids: '700', italique: true,
-                }));
+            if (ST != null) {
+                // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
+                const x1 = a.x + na.demiLargeurTab, x2 = b.x - nb.demiLargeurTab;
+                const yT = na.yTab + ST * 0.42;
+                out.push(courbe(arcLiaison(x1, yT, x2, nb.yTab + ST * 0.42, 1, 0.34 * S), G.EPAISSEURS.liaison * S));
+                const etiquette = { hammer: 'H', pull: 'P', slide: '', tie: '' }[na.note.lien];
+                if (etiquette) {
+                    out.push(texte((x1 + x2) / 2, na.yTab - ST * 0.42, etiquette, {
+                        taille: S * 1.1, police: 'serif', poids: '700', italique: true,
+                    }));
+                }
             }
             // Sur la portée : l'arc se place du côté opposé aux hampes.
             if (na.yPortee != null && nb.yPortee != null) {
@@ -1526,6 +1633,8 @@ function poserLiaisons(out, poses, S, ST) {
             }
         }
     }
+
+    if (ST == null) return;
 
     // Palm mute : « P.M. » suivi d'un trait pointillé au-dessus de la tablature, sur toute la plage
     // d'évènements consécutifs qui le portent — un P.M. par note serait illisible.

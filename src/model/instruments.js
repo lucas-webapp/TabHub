@@ -126,8 +126,17 @@ export function libelleAccordage(cordes) {
     }).join(' ');
 }
 
-/** Hauteur réelle d'une case sur une corde. Le capodastre décale tout le manche d'autant de cases. */
+/**
+ * Hauteur réelle d'une case sur une corde. Le capodastre décale tout le manche d'autant de cases.
+ *
+ * PIANO (accordage SANS cordes, voir ACCORDAGES.piano) : il n'y a ni corde ni case à proprement
+ * parler, mais réutiliser les deux mêmes champs plutôt qu'en ajouter de nouveaux évite de refaire
+ * courir un troisième champ dans tout ce qui touche déjà une note (modèle, undo, JSON, MIDI…) — voir
+ * edit/commands.js#saisirHauteur. `frette` porte alors DIRECTEMENT la hauteur MIDI absolue, et
+ * `corde` reste sans effet sur la hauteur (toujours 0, voir saisirHauteur).
+ */
 export function hauteurDeCase(accordage, corde, frette, capo = 0) {
+    if (!accordage.cordes.length) return frette + capo;
     const base = accordage.cordes[corde];
     if (base == null) return null;
     return base + frette + capo;

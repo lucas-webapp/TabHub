@@ -161,6 +161,23 @@ export function ecrireHauteur(midi, armure = 0) {
     };
 }
 
+/**
+ * INVERSE d'ecrireHauteur : la hauteur MIDI que porte une POSITION diatonique donnée (un « pas »,
+ * voir ecrireHauteur) dans une armure donnée — ce dont a besoin un clic direct sur une portée
+ * (voir engine/layout.js#pasDeLaPosition, main.js#cibleDepuisClicPiano) pour retrouver la hauteur
+ * MIDI voulue à partir de la LIGNE OU L'INTERLIGNE visé, plutôt qu'un numéro de case qui n'existe
+ * pas au piano. La lettre de la position porte l'altération de l'armure si elle y figure (une
+ * portée en fa majeur affiche un si♭ à l'endroit même où do majeur montrerait un si), sinon la note
+ * naturelle — jamais une altération accidentelle : celle-ci se pose par un geste EXPLICITE à part
+ * (hors V1), pas en cliquant simplement sur la ligne voisine.
+ */
+export function hauteurDepuisPas(pas, armure = 0) {
+    const lettre = NOMS_LETTRES[((pas % 7) + 7) % 7];
+    const octave = Math.floor(pas / 7);
+    const alteration = alterationsDeLArmure(armure)[lettre] || 0;
+    return LETTRE_VERS_PC[lettre] + alteration + (octave + 1) * 12;
+}
+
 /** Nom court affichable, ex. « La♯3 ». */
 export function nomDeHauteur(midi, armure = 0, francais = false) {
     const e = ecrireHauteur(midi, armure);

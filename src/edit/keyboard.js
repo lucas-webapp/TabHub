@@ -59,6 +59,9 @@ export function brancherClavier(editeur, actions = {}) {
         if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.altKey && !e.metaKey) {
             e.preventDefault();
             editeur.saisirChiffre(parseInt(e.key, 10));
+            // Refusé au piano (voir Editeur.saisirChiffre) : même relais que la table des actions
+            // juste en dessous, pour que le message s'affiche au lieu de disparaître en silence.
+            if (editeur.derniereErreur) { actions.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
             return;
         }
 

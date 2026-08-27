@@ -271,6 +271,14 @@ export class Editeur {
      * donnerait 27, hors du manche : on garde alors 7, ce que l'utilisateur voulait forcément dire.
      */
     saisirChiffre(chiffre) {
+        // Au PIANO, un chiffre ne désigne ni corde ni case (voir model/instruments.js#hauteurDeCase) —
+        // le poser créerait une note SANS hauteur réelle. Le geste piano est saisirHauteur, posé par
+        // un clic direct sur la portée (voir main.js#cibleDepuisClicPiano) : un message vaut mieux
+        // qu'un silence qui laisserait deviner pourquoi rien ne s'écrit.
+        if (this.partition.piste.instrument === 'piano') {
+            this.derniereErreur = 'Au piano, clique directement sur la portée pour poser une note.';
+            return null;
+        }
         const c = this.curseur;
         const casesMax = INSTRUMENTS[this.partition.piste.instrument]?.casesMax ?? 24;
         const precedent = this._dernierChiffre;
@@ -303,6 +311,37 @@ export class Editeur {
         this._dernierChiffre = { temps: maintenant, mesure: c.mesure, evenement: c.evenement, corde: c.corde, valeur: frette };
         this.prevenir('saisie');
         return frette;
+    }
+
+    /**
+     * Pose ou retire une hauteur MIDI à l'évènement courant — le geste PIANO (voir
+     * main.js#cibleDepuisClicPiano), où il n'y a ni corde ni case : cliquer directement sur la
+     * portée pose la hauteur voulue, ou la RETIRE si elle y est déjà (bascule, comme rejouer la
+     * même touche pour l'éteindre). Toutes les notes d'un accord piano portent `corde: 0` (voir
+     * model/instruments.js#hauteurDeCase) : la hauteur elle-même, portée par `frette`, identifie
+     * donc la note plutôt que la corde — à la différence de saisirChiffre (une case PAR corde), un
+     * accord se construit ici en cliquant plusieurs hauteurs DIFFÉRENTES au même instant.
+     */
+    saisirHauteur(midi) {
+        // Fusion PAR HAUTEUR (comme saisirChiffre fusionne par CORDE) : un accord de trois notes
+        // cliquées coup sur coup pousse trois points d'annulation distincts, un par hauteur — Ctrl+Z
+        // retire alors la DERNIÈRE note posée, pas l'accord entier d'un coup.
+        this.memoriser('saisieHauteur-' + this.curseur.mesure + '-' + this.curseur.evenement + '-' + midi);
+        const evenement = this.evenementCourant();
+        const existante = evenement.notes.find(n => n.frette === midi);
+        if (existante) {
+            evenement.notes = evenement.notes.filter(n => n !== existante);
+            if (!evenement.notes.length) evenement.silence = true;
+        } else {
+            evenement.silence = false;
+            evenement.notes.push(creerNote(0, midi));
+            // La durée collante ne s'applique qu'à un évènement encore VIERGE (voir saisirChiffre) :
+            // ajouter une seconde hauteur à un accord déjà écrit ne doit pas en changer le rythme.
+            if (evenement.notes.length === 1) evenement.duree = { ...this.dureeCourante };
+        }
+        this._dernierChiffre = null;
+        this.prevenir('saisie');
+        return midi;
     }
 
     /** Efface la note sous le curseur ; l'évènement redevient un silence s'il ne reste rien. */
@@ -813,55 +852,72 @@ export class Editeur {
         this.memoriser();
         let transposees = 0, deplacees = 0, horsManche = 0;
 
-        for (const mesure of this.partition.mesures) {
-            for (const voix of mesure.voix) {
-                for (const evenement of voix.evenements) {
-                    // Les cordes DÉJÀ prises dans cet accord, pour ne jamais en réutiliser une —
-                    // relevées avant de toucher quoi que ce soit, sinon une note déplacée fausserait
-                    // le relevé des suivantes.
-                    const prises = new Set(evenement.notes.map(n => n.corde));
-                    for (const note of evenement.notes) {
-                        transposees++;
-                        // LA HAUTEUR DONT ON PART est celle que la note VOULAIT sonner, quand une
-                        // transposition précédente l'a laissée hors du manche : sa case a alors été
-                        // rabattue au bord du manche, ce qui perd la hauteur réelle. Repartir de la
-                        // case rabattue rendrait la transposition IRRÉVERSIBLE — monter de 5 puis
-                        // redescendre de 5 ne rendait pas le morceau de départ, les notes rabattues
-                        // revenant à une hauteur qui n'avait jamais été la leur. `hauteurVoulue`
-                        // garde donc l'intention, et c'est elle qui se transpose.
-                        const depart = note.hauteurVoulue ?? hauteurDeCase(accordage, note.corde, note.frette, capo);
-                        const cible = depart + demiTons;
-                        const surPlace = cible - cordes[note.corde] - capo;
-                        if (surPlace >= 0 && surPlace <= casesMax) {
-                            note.frette = surPlace;
-                            delete note.horsManche;
-                            delete note.hauteurVoulue;
-                            continue;
+        // PIANO : ni case ni corde de repli à chercher — `frette` porte directement la hauteur MIDI
+        // (voir model/instruments.js#hauteurDeCase), et un clavier n'a pas de bord où buter comme un
+        // manche. Décaler chaque hauteur suffit ; jamais de « horsManche » à ce demi-ton près.
+        if (!cordes.length) {
+            for (const mesure of this.partition.mesures) {
+                for (const voix of mesure.voix) {
+                    for (const evenement of voix.evenements) {
+                        for (const note of evenement.notes) {
+                            transposees++;
+                            note.frette += demiTons;
                         }
-                        // Corde de repli : celle qui joue la hauteur visée en restant sur le manche,
-                        // la plus proche possible de la corde d'origine pour déranger le moins le doigté.
-                        let meilleure = null;
-                        for (let c = 0; c < cordes.length; c++) {
-                            if (c === note.corde || prises.has(c)) continue;
-                            const f = cible - cordes[c] - capo;
-                            if (f < 0 || f > casesMax) continue;
-                            if (!meilleure || Math.abs(c - note.corde) < Math.abs(meilleure.corde - note.corde)) {
-                                meilleure = { corde: c, frette: f };
+                    }
+                }
+            }
+        } else {
+            for (const mesure of this.partition.mesures) {
+                for (const voix of mesure.voix) {
+                    for (const evenement of voix.evenements) {
+                        // Les cordes DÉJÀ prises dans cet accord, pour ne jamais en réutiliser une —
+                        // relevées avant de toucher quoi que ce soit, sinon une note déplacée
+                        // fausserait le relevé des suivantes.
+                        const prises = new Set(evenement.notes.map(n => n.corde));
+                        for (const note of evenement.notes) {
+                            transposees++;
+                            // LA HAUTEUR DONT ON PART est celle que la note VOULAIT sonner, quand une
+                            // transposition précédente l'a laissée hors du manche : sa case a alors
+                            // été rabattue au bord du manche, ce qui perd la hauteur réelle. Repartir
+                            // de la case rabattue rendrait la transposition IRRÉVERSIBLE — monter de
+                            // 5 puis redescendre de 5 ne rendait pas le morceau de départ, les notes
+                            // rabattues revenant à une hauteur qui n'avait jamais été la leur.
+                            // `hauteurVoulue` garde donc l'intention, et c'est elle qui se transpose.
+                            const depart = note.hauteurVoulue ?? hauteurDeCase(accordage, note.corde, note.frette, capo);
+                            const cible = depart + demiTons;
+                            const surPlace = cible - cordes[note.corde] - capo;
+                            if (surPlace >= 0 && surPlace <= casesMax) {
+                                note.frette = surPlace;
+                                delete note.horsManche;
+                                delete note.hauteurVoulue;
+                                continue;
                             }
-                        }
-                        if (meilleure) {
-                            prises.delete(note.corde);
-                            prises.add(meilleure.corde);
-                            note.corde = meilleure.corde;
-                            note.frette = meilleure.frette;
-                            delete note.horsManche;
-                            delete note.hauteurVoulue;
-                            deplacees++;
-                        } else {
-                            note.frette = Math.max(0, Math.min(casesMax, surPlace));
-                            note.horsManche = true;
-                            note.hauteurVoulue = cible;   // l'intention, pour que le retour soit exact
-                            horsManche++;
+                            // Corde de repli : celle qui joue la hauteur visée en restant sur le
+                            // manche, la plus proche possible de la corde d'origine pour déranger le
+                            // moins le doigté.
+                            let meilleure = null;
+                            for (let c = 0; c < cordes.length; c++) {
+                                if (c === note.corde || prises.has(c)) continue;
+                                const f = cible - cordes[c] - capo;
+                                if (f < 0 || f > casesMax) continue;
+                                if (!meilleure || Math.abs(c - note.corde) < Math.abs(meilleure.corde - note.corde)) {
+                                    meilleure = { corde: c, frette: f };
+                                }
+                            }
+                            if (meilleure) {
+                                prises.delete(note.corde);
+                                prises.add(meilleure.corde);
+                                note.corde = meilleure.corde;
+                                note.frette = meilleure.frette;
+                                delete note.horsManche;
+                                delete note.hauteurVoulue;
+                                deplacees++;
+                            } else {
+                                note.frette = Math.max(0, Math.min(casesMax, surPlace));
+                                note.horsManche = true;
+                                note.hauteurVoulue = cible;   // l'intention, pour que le retour soit exact
+                                horsManche++;
+                            }
                         }
                     }
                 }
