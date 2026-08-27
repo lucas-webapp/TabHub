@@ -43,8 +43,6 @@ export const GEO_DEFAUT = {
     tailleChiffreTab: 1.42,     // hauteur du chiffre de frette, en S
     mesuresParLigne: null,      // null/"Auto" = glouton ; sinon N mesures par ligne (borné à la
                                 // baisse si besoin — voir decouperEnSystemesParCompte)
-    reglette: false,            // réglette de repère temporel sous la TAB — aide à l'édition
-                                // seulement, jamais transmise à l'export PDF (voir poserReglette)
     avertirErreurs: true,      // fond teinté sur une mesure dont une voix ne totalise pas la
                                 // bonne durée — mis à false pour l'export PDF (couleur translucide,
                                 // non portable vers jsPDF)
@@ -154,10 +152,9 @@ function largeurColonne(gapNoires, evenementsIci, S) {
 /**
  * Répartit la largeur FIXE d'une mesure (`largeurNotes`) ENTRE SES TEMPS, à parts ÉGALES —
  * plutôt qu'entre ses colonnes au seul prorata de leur poids matériel (voir `largeurColonne`), ce
- * qui donnait des temps de largeurs différentes selon la densité de ce qui s'y joue : la réglette,
- * qui pose ses graduations sur ces mêmes colonnes (voir poserReglette), en héritait un espacement
- * irrégulier d'un temps à l'autre — en contradiction directe avec ce qu'est un temps : une durée qui
- * NE VARIE JAMAIS, sa largeur affichée ne doit donc pas varier non plus selon ce qui s'y joue.
+ * qui donnait des temps de largeurs différentes selon la densité de ce qui s'y joue — en
+ * contradiction directe avec ce qu'est un temps : une durée qui NE VARIE JAMAIS, sa largeur
+ * affichée ne doit donc pas varier non plus selon ce qui s'y joue.
  *
  * CHAQUE TEMPS REÇOIT EXACTEMENT largeurNotes/nTemps, INCONDITIONNELLEMENT — qu'il contienne une
  * rafale de doubles-croches ou une seule ronde. À L'INTÉRIEUR d'un temps, les colonnes qui s'y
@@ -448,9 +445,7 @@ export function mettreEnPage(partition, options = {}) {
 
     const hauteurPortee = 4 * S;
     const hauteurTab = (cordes - 1) * ST;
-    const avecReglette = !!geo.reglette;
-    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPorteeTab * S + hauteurTab + geo.margeBas * S
-        + (avecReglette ? HAUTEUR_REGLETTE * S : 0);
+    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPorteeTab * S + hauteurTab + geo.margeBas * S;
     const largeurUtile = geo.largeurPage - geo.margeGauche - geo.margeDroite;
 
     // --- 1. Mesurer chaque mesure isolément -----------------------------------------------------
@@ -538,14 +533,6 @@ export function mettreEnPage(partition, options = {}) {
         poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
         poserCleTab(primitives, xDebut, yTab, ST, cordes);
 
-        // Ligne de base de la réglette : posée ici, sur toute la largeur du système — y compris
-        // sous l'en-tête (clé/armure/signature), comme le zéro d'une règle déborde un peu avant sa
-        // première graduation. Les GRADUATIONS, elles, sont posées mesure par mesure ci-dessous, sur
-        // les abscisses RÉELLES des colonnes (voir poserReglette) : le temps 1 tombe donc exactement
-        // où la première note tombe, jamais dans l'en-tête.
-        const yReglette = avecReglette ? yTab + hauteurTab + geo.margeBas * S * 0.4 : null;
-        if (avecReglette) primitives.push(ligne(xDebut, yReglette, xFin, yReglette, G.EPAISSEURS.ligneePortee * S, 'discret'));
-
         let x = xDebut;
         sys.mesures.forEach((m, iDansSys) => {
             // `sys.facteur` vaut toujours 1 (voir l'étape 3) : la largeur des notes est déjà fixée à
@@ -558,13 +545,11 @@ export function mettreEnPage(partition, options = {}) {
                 x, largeurMesure, facteur: facteurEffectif, finMesure,
                 yPortee, yTab, S, ST, cordes, clef, geo, iSys,
                 premiereDuSysteme: iDansSys === 0,
-                yReglette,
             });
         });
 
         ancrages.systemes.push({
             index: iSys, y, hauteur: hauteurSysteme, yPortee, yTab, xDebut, xFin, hauteurTab,
-            yReglette, hauteurReglette: avecReglette ? HAUTEUR_REGLETTE * S : 0,
             debutPrimitives, finPrimitives: primitives.length,
             premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
         });
@@ -679,86 +664,6 @@ function poserCleTab(out, x, yTab, ST, cordes) {
     out.push(glyphe(g, x + 0.5 * ST, yTab + hauteur / 2, echelle));
 }
 
-/** Hauteur totale réservée à la réglette (ticks + numéros de temps), en interlignes S. */
-const HAUTEUR_REGLETTE = 3.1;
-
-/**
- * Réglette de repère temporel, sous la tablature — un aide-mémoire d'ÉDITION, jamais exportée en PDF
- * (voir `geo.reglette`, non transmis par io/pdf.js) : une partition imprimée n'en a pas besoin, et
- * une grille de comptage n'a rien à faire sur une page destinée à la lecture.
- *
- * ELLE MARCHE COLONNE PAR COLONNE, PAS SUR UNE GRILLE ABSOLUE. Une version antérieure calculait ses
- * graduations sur une grille à la double-croche indépendante (0, 1/4, 1/2, 3/4… noire), puis
- * l'interpolait dans la colonne qui contenait chaque instant. Ça plaçait CORRECTEMENT le temps 1,
- * mais une grille fixe peut manquer une attaque réelle qui ne tombe pas pile sur un seizième — un
- * triolet, une mesure qui déborde (voir `m.invalide`) dont la dernière colonne n'a presque plus de
- * temps à elle. Ici, chaque COLONNE existante (voir calculerColonnes, les MÊMES `xColonnes`/`facteur`
- * que les notes, voir poserMesure) est subdivisée EN ELLE-MÊME, à raison d'une graduation par
- * seizième de SA propre durée (au moins une : sa propre attaque) — donc TOUJOURS un tick pile sur
- * chaque note réelle, jamais seulement sur une grille qui pourrait la rater.
- *
- * DEUX POIDS DE TRAIT SUR LA GRILLE, PLUS L'ATTAQUE RÉELLE : TEMPS (le battement principal — noire
- * en mesure simple, noire pointée en 6/8 ou 9/8, voir `uniteDeGroupement`, la même fonction qui
- * décide où ligaturer) et CONTRE-TEMPS (exactement à mi-chemin entre deux temps — le « et » qu'on
- * compte à l'oreille) sont TOUJOURS marqués, note ou pas à cet instant précis — un blanche qui
- * traverse un contre-temps le laisse quand même repérable. Le reste de la grille au seizième, en
- * revanche, n'est PLUS dessiné pour lui-même : trop de traits pour ce qu'ils comptaient (une version
- * antérieure les affichait tous, jugée « trop lourde visuellement »). Une attaque réelle qui tombe
- * hors temps/contre-temps (un seizième, un triolet) garde malgré tout son propre trait — c'est la
- * garantie de base de cette réglette, voir plus haut — mais aucun autre repère purement
- * interpolé ne s'ajoute plus autour d'elle. Seuls les temps portent un numéro, remis à 1 à chaque
- * mesure — comme on compte réellement en jouant.
- */
-function poserReglette(out, partition, m, xColonnes, facteur, yBase, S) {
-    const yTicks = yBase + 0.35 * S;
-    const unite = uniteDeGroupement(m.signature);
-    const colonnes = m.colonnes;
-
-    const classifier = (t) => {
-        const resteTemps = t % unite;
-        const surTemps = resteTemps < 1e-6 || unite - resteTemps < 1e-6;
-        const surContreTemps = !surTemps && Math.abs(resteTemps - unite / 2) < 1e-6;
-        return { surTemps, surContreTemps };
-    };
-    const poserTick = (t, x, avecNumero) => {
-        const { surTemps, surContreTemps } = classifier(t);
-        const hauteur = surTemps ? 1.5 * S : surContreTemps ? 1.05 * S : 0.6 * S;
-        const epaisseur = (surTemps ? G.EPAISSEURS.barreMesure : G.EPAISSEURS.ligneSupplementaire) * S;
-        out.push(ligne(x, yTicks, x, yTicks + hauteur, epaisseur, surTemps ? 'encre' : 'discret'));
-        if (surTemps && avecNumero) {
-            const numero = Math.round(t / unite) + 1;
-            out.push(texte(x, yTicks + 1.5 * S + 1.1 * S, String(numero), {
-                taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'milieu', couleur: 'discret',
-            }));
-        }
-    };
-
-    colonnes.forEach((col, i) => {
-        const largeurCol = col.largeur * facteur;
-        // La grille au seizième ne sert plus qu'à ÉCHANTILLONNER assez finement pour retomber pile
-        // sur chaque temps/contre-temps (voir la note de tête de fonction) — elle n'est plus, comme
-        // avant, dessinée dans son intégralité. Seuls trois genres d'instants sont réellement posés :
-        // l'attaque PROPRE de la colonne (k = 0, quel que soit `col.gap` — jamais sautée, même pour
-        // la colonne de fin de mesure qui déborde, voir calculerColonnes), et tout temps/contre-temps
-        // qui tombe dans son intervalle, note ou non à cet instant précis.
-        const nSeizieme = Math.max(1, Math.round(col.gap * 4));
-        for (let k = 0; k < nSeizieme; k++) {
-            const t = col.debut + (k / nSeizieme) * col.gap;
-            const x = xColonnes[i] + (k / nSeizieme) * largeurCol;
-            const { surTemps, surContreTemps } = classifier(t);
-            if (k === 0 || surTemps || surContreTemps) poserTick(t, x, true);
-        }
-    });
-
-    // Fermeture : la barre de mesure elle-même — MÊME abscisse que le temps 1 de la mesure suivante,
-    // qui le redessinera avec SON propre numéro ; celui-ci n'en porte donc pas.
-    if (colonnes.length) {
-        const dernier = colonnes[colonnes.length - 1];
-        const xFin = xColonnes[colonnes.length - 1] + dernier.largeur * facteur;
-        poserTick(dernier.debut + dernier.gap, xFin, false);
-    }
-}
-
 // ---------------------------------------------------------------------------------------------
 // Une mesure
 // ---------------------------------------------------------------------------------------------
@@ -844,13 +749,6 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     const xColonnes = [];
     { let xx = x; for (const c of m.colonnes) { xColonnes.push(xx); xx += c.largeur * facteur; } }
     const xFinMesureNotes = xColonnes.length ? xColonnes[xColonnes.length - 1] + m.colonnes[m.colonnes.length - 1].largeur * facteur : x;
-
-    // Réglette : posée ICI, sur ces mêmes `xColonnes`/`facteur` qu'on vient de calculer pour les
-    // notes — c'est ce qui garantit que ses graduations tombent aux abscisses RÉELLES de la portée
-    // (voir poserReglette).
-    if (ctx.yReglette != null) {
-        poserReglette(out, partition, m, xColonnes, facteur, ctx.yReglette, S);
-    }
 
     /** Index de colonne dont le `debut` correspond au temps `t` (en noires depuis le début de la mesure). */
     // Sentinelle : `m.colonnes.length` (une case AU-DELÀ de la dernière) veut dire « la fin de la

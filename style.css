@@ -360,8 +360,6 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 
 .info-transport { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .info-transport strong { color: var(--text-main); font-weight: 700; }
-.bascule-reglette { display: inline-flex; align-items: center; gap: 5px; cursor: pointer; user-select: none; }
-.bascule-reglette input { accent-color: var(--accent); cursor: pointer; }
 
 /* ============================================================
    FENÊTRES MODALES

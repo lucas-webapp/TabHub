@@ -10,8 +10,8 @@
 // minuterie parallèle, il lit la position réelle du transport audio. Les deux ne peuvent pas diverger.
 
 import { midiVersNomTone } from '../model/theory.js';
-import { aplatir, hauteurDeNote, dureeTotale } from '../model/score.js';
-import { dureeEnNoires } from '../model/duration.js';
+import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure } from '../model/score.js';
+import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
 
 /** Réduction du volume par rapport au 0 dB de Tone.js : une polyphonie à six voix sature vite. */
 const TRIM_DB = -9;
@@ -51,6 +51,12 @@ export class Lecteur {
         this.auditeurs = new Set();
         this._boucleAnim = null;
         this._evenements = [];
+        // Métronome pendant la lecture — voir HarmoHub (METRONOME_KEY/METRONOME_SUBDIVISION_KEY) :
+        // désactivé par défaut dans les deux cas, une préférence explicite, pas un bruit permanent
+        // qu'il faudrait couper à chaque lancement. La persistance (localStorage) est du ressort de
+        // main.js, comme le tempo ou le zoom — ce module ne connaît que l'état courant.
+        this.metronomeActif = false;
+        this.metronomeSubdivision = false;
     }
 
     surPosition(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
@@ -167,6 +173,15 @@ export class Lecteur {
         });
         this.voixBend.chain(filtreBend, volumeBend, Tone.Destination);
 
+        // LE MÉTRONOME — repris de HarmoHub (METRONOME_SOUNDS.click) : un triangle bref, sans
+        // sustain, qui s'éteint avant même la double-croche la plus rapide de la partition. Une voix
+        // à part, comme le bend : elle doit pouvoir sonner MÊME quand le morceau lui-même est
+        // silencieux à cet instant (un contretemps, une mesure de silence).
+        this.metronome = new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 },
+        }).toDestination();
+
         this.pret = true;
     }
 
@@ -280,8 +295,57 @@ export class Lecteur {
             }, `${Math.round(e.debut * PPQ)}i`);
         }
 
+        if (this.metronomeActif) this._programmerMetronome(partition, PPQ);
+
         // Arrêt net à la fin du morceau plutôt qu'un transport qui tourne dans le vide.
         Tone.Transport.schedule(() => { this.arreter(); }, `${Math.round((this.duree + 0.05) * PPQ)}i`);
+    }
+
+    /**
+     * Programme les clics du métronome, mesure par mesure — TOUJOURS ACCORDÉ À LA SIGNATURE EN
+     * VIGUEUR, jamais un simple « un clic toutes les X secondes » : `uniteDeGroupement` (voir
+     * duration.js, la même fonction qui décide où ligaturer une portée) donne la durée d'UN TEMPS en
+     * noires — 1 en mesure simple (4/4, 3/4 : le temps est la noire), 1,5 en mesure composée (6/8,
+     * 9/8 : le temps est la noire pointée). C'est CETTE durée qui fait qu'un 6/8 clique par DEUX temps
+     * ternaires plutôt que par six clics égaux, qui le feraient entendre comme un 3/4 — la même
+     * distinction, en son, que celle qui fait qu'une portée en 6/8 se ligature par trois croches, pas
+     * par paires.
+     *
+     * LA SUBDIVISION (option « croche ») ajoute un clic plus discret entre deux temps, à raison d'une
+     * croche (0,5 noire) : ça donne DEUX clics par temps simple (binaire) et TROIS par temps composé
+     * (ternaire), sans qu'il y ait de réglage binaire/ternaire à faire soi-même — la signature le
+     * décide déjà.
+     */
+    _programmerMetronome(partition, PPQ) {
+        const Tone = globalThis.Tone;
+        let debutMesure = 0;
+        partition.mesures.forEach((mesure, i) => {
+            const capacite = capaciteMesure(partition, i);
+            const unite = uniteDeGroupement(signatureEffective(partition, i));
+            const nTemps = Math.max(1, Math.round(capacite / unite));
+            // Une seule subdivision (donc AUCUNE, en pratique) quand le temps est déjà la plus petite
+            // unité qu'on sache reconnaître (x/8 non composé, voir uniteDeGroupement) : rien de plus
+            // fin à cliquer entre deux temps qui sont déjà des croches.
+            const parTemps = this.metronomeSubdivision ? Math.max(1, Math.round(unite / 0.5)) : 1;
+            for (let t = 0; t < nTemps; t++) {
+                for (let s = 0; s < parTemps; s++) {
+                    const instant = debutMesure + t * unite + s * (unite / parTemps);
+                    const accent = t === 0 && s === 0;
+                    const sub = s > 0;
+                    const ticks = Math.round(instant * PPQ);
+                    Tone.Transport.schedule((temps) => {
+                        try { this._clicMetronome(accent, temps, sub); } catch (e) { /* ignoré, comme une note manquée */ }
+                    }, `${ticks}i`);
+                }
+            }
+            debutMesure += capacite;
+        });
+    }
+
+    /** Un seul point d'entrée pour faire cliquer le métronome — hauteur ACCENTUÉE sur le premier
+     *  temps de chaque mesure, DISCRÈTE sur une subdivision, NORMALE sinon (repris de HarmoHub). */
+    _clicMetronome(accent, temps, sub) {
+        this.metronome.triggerAttackRelease(sub ? 1250 : (accent ? 1500 : 1000), 0.03, temps, sub ? 0.5 : 1);
     }
 
     /**
@@ -335,8 +399,10 @@ export class Lecteur {
         this.synthe?.releaseAll?.();
         // La voix de bend est un Tone.Synth monophonique, à part du synthé principal (voir demarrer) :
         // son `releaseAll` n'existe pas, et sans ce relâchement explicite une note bendée continuait
-        // de sonner après un arrêt ou une pause, seule au milieu du silence.
+        // de sonner après un arrêt ou une pause, seule au milieu du silence. Le métronome, MÊME sans
+        // sustain (voir demarrer), reste un Tone.Synth du même genre : le même filet de sécurité.
         try { this.voixBend?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
+        try { this.metronome?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
         this.etat = 'pause';
         this._arreterSuivi();
         this._prevenir();
@@ -348,8 +414,10 @@ export class Lecteur {
         this.synthe?.releaseAll?.();
         // La voix de bend est un Tone.Synth monophonique, à part du synthé principal (voir demarrer) :
         // son `releaseAll` n'existe pas, et sans ce relâchement explicite une note bendée continuait
-        // de sonner après un arrêt ou une pause, seule au milieu du silence.
+        // de sonner après un arrêt ou une pause, seule au milieu du silence. Le métronome, MÊME sans
+        // sustain (voir demarrer), reste un Tone.Synth du même genre : le même filet de sécurité.
         try { this.voixBend?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
+        try { this.metronome?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
         this.etat = 'arret';
         this.position = 0;
         this._arreterSuivi();

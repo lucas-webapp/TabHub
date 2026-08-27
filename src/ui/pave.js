@@ -114,7 +114,18 @@ export function construirePave(hote, editeur, actions = {}) {
         // « Corde 1 » est la plus AIGUË pour un guitariste — l'index 0 du modèle. MÊME convention que
         // la barre d'état (voir main.js, numeroCorde), pour ne pas compter à l'envers d'un endroit
         // à l'autre de la même application.
-        etat.textContent = `M${c.mesure + 1} · corde ${c.corde + 1}`;
+        let texte = `M${c.mesure + 1} · corde ${c.corde + 1}`;
+        // LA CASE VENANT D'ÊTRE POSÉE, EN TOUTES LETTRES — sans ça, taper « 1 » puis « 2 » pour
+        // atteindre la case 12 (voir Editeur.saisirChiffre) ne se voit NULLE PART au doigt : le
+        // `title` qui l'explique sur chaque bouton ne s'affiche qu'au survol, un geste qui n'existe
+        // pas au doigt (retour utilisateur : « je ne peux pas aller au-dessus de 9 »). Ce repère se
+        // met à jour après CHAQUE chiffre tapé (voir main.js#dessiner, qui rafraîchit le pavé à
+        // chaque saisie) : on voit donc littéralement « case 1 » devenir « case 12 » au second tap,
+        // la preuve que ça a marché plutôt qu'un plafond supposé à 9.
+        const evenement = editeur.partition.mesures[c.mesure]?.voix[c.voix]?.evenements[c.evenement];
+        const note = evenement?.notes.find(n => n.corde === c.corde);
+        if (note) texte += ` · case ${note.frette}`;
+        etat.textContent = texte;
     });
 
     const rafraichir = () => { for (const fn of aRafraichir) fn(); };

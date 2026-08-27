@@ -41,9 +41,10 @@ const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 't
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_ZOOM = 'tabhub.zoom';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
-const CLE_REGLETTE = 'tabhub.reglette';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
+const CLE_METRONOME = 'tabhub.metronome';
+const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 
 /**
  * Vrai si l'appareil désigne AU DOIGT plutôt qu'à la souris — la seule question qui compte pour
@@ -71,9 +72,10 @@ class TabHubApp {
         // reste locale au navigateur et ne voyage jamais dans le .json — rouvrir le même
         // morceau sur un autre poste doit retomber sur l'agencement automatique.
         this.mesuresParLigne = parseInt(localStorage.getItem(CLE_MESURES_LIGNE), 10) || 0;
-        // Visible par défaut (aide à l'édition) ; retenue elle aussi comme une préférence d'affichage.
-        const brutReglette = localStorage.getItem(CLE_REGLETTE);
-        this.regletteVisible = brutReglette === null ? true : brutReglette === '1';
+        // Désactivé par défaut dans les deux cas (voir Lecteur, constructeur) : une préférence
+        // explicite, portée par le lecteur lui-même puisque c'est lui qui programme les clics.
+        this.lecteur.metronomeActif = localStorage.getItem(CLE_METRONOME) === '1';
+        this.lecteur.metronomeSubdivision = localStorage.getItem(CLE_METRONOME_SUBDIVISION) === '1';
         this.positionOutils = localStorage.getItem(CLE_POSITION_OUTILS) === 'gauche' ? 'gauche' : 'haut';
         document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
         // Pavé tactile : « auto » par défaut — présent au doigt, absent à la souris. Les deux
@@ -100,7 +102,8 @@ class TabHubApp {
             tempo: document.getElementById('champ-tempo'),
             zoom: document.getElementById('champ-zoom'),
             mesuresLigne: document.getElementById('champ-mesures-ligne'),
-            reglette: document.getElementById('champ-reglette'),
+            metronome: document.getElementById('btn-metronome'),
+            metronomeSubdivision: document.getElementById('btn-metronome-subdivision'),
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
@@ -165,7 +168,6 @@ class TabHubApp {
                 largeurPage: largeur,
                 yDepart: 6,
                 mesuresParLigne: this.mesuresParLigne || null,
-                reglette: this.regletteVisible,
             });
         } catch (err) {
             // Un écran noir SANS EXPLICATION est le pire des échecs — c'est exactement ce que
@@ -249,31 +251,16 @@ class TabHubApp {
             { t: 'rect', x: a.x - demi, y: yCorde - ST * 0.56, w: demi * 2, h: ST * 1.12, couleur: 'var(--curseur-halo)' },
             { t: 'rect', x: a.x - demi, y: yCorde + ST * 0.5, w: demi * 2, h: Math.max(1.6, S * 0.22), couleur: 'var(--curseur)' },
         ];
-        this.marqueSurReglette(marques, a.x, a.yPortee, 'var(--curseur)', 0.6);
         return marques;
     }
 
     /**
-     * Reflète un repère (curseur ou tête de lecture) sur la réglette temporelle, à la MÊME abscisse
-     * que sur la partition — la réglette et la partition partagent l'axe des x, donc « où en est-on »
-     * s'y répond d'un seul coup d'œil, sans devoir recaler soi-même les deux. N'ajoute rien si la
-     * réglette est masquée (`yReglette` absent du système).
-     */
-    marqueSurReglette(sortie, x, yPortee, couleur, largeurRel) {
-        const sys = this.page?.ancrages.systemes.find(s => s.yPortee === yPortee);
-        if (!sys || sys.yReglette == null) return;
-        const w = Math.max(1.5, this.page.geo.S * largeurRel);
-        sortie.push({ t: 'rect', x: x - w / 2, y: sys.yReglette, w, h: sys.hauteurReglette, couleur });
-    }
-
-    /**
      * Trait de lecture : une ligne verticale discrète, PAS un bandeau surlignant la note — elle
-     * parcourt TOUTE la hauteur du système (portée, tablature, et la réglette quand elle est
-     * affichée, puisque les trois partagent le même axe des x), plutôt qu'un repère cantonné à
-     * l'évènement en cours ou, pire, isolé sur la seule réglette. Sa position s'INTERPOLE à
-     * l'intérieur de l'évènement en cours plutôt que de sauter de note en note : sur une ronde à
-     * 60 BPM, un trait qui saute resterait figé quatre secondes puis bondirait — on ne saurait plus
-     * ce qui est en train de sonner.
+     * parcourt TOUTE la hauteur du système (portée et tablature, qui partagent le même axe des x),
+     * plutôt qu'un repère cantonné à l'évènement en cours. Sa position s'INTERPOLE à l'intérieur de
+     * l'évènement en cours plutôt que de sauter de note en note : sur une ronde à 60 BPM, un trait
+     * qui saute resterait figé quatre secondes puis bondirait — on ne saurait plus ce qui est en
+     * train de sonner.
      *
      * LA TRAÎNÉE se pose derrière le trait, du côté d'où il VIENT — donc vers la GAUCHE, puisque la
      * musique n'avance que dans un sens — en deux bandes de plus en plus opaques à l'approche du
@@ -295,9 +282,8 @@ class TabHubApp {
         const avance = entree.duree > 0 ? Math.max(0, Math.min(1, (t - entree.debut) / entree.duree)) : 0;
         const x = a.xDebut + (a.xFin - a.xDebut) * avance;
         const S = this.page.geo.S;
-        const sys = this.page.ancrages.systemes.find(s => s.yPortee === a.yPortee);
         const haut = a.yPortee - 1.2 * S;
-        const bas = (sys && sys.yReglette != null) ? sys.yReglette + sys.hauteurReglette : a.yTab + a.hauteurTab + 1.2 * S;
+        const bas = a.yTab + a.hauteurTab + 1.2 * S;
         this.faireDefilerVers(a, haut, bas);
 
         const largeurTrait = Math.max(1.2, S * 0.15);
@@ -374,6 +360,24 @@ class TabHubApp {
     rafraichirBoutonsHistorique() {
         document.getElementById('btn-annuler').disabled = !this.editeur.peutAnnuler();
         document.getElementById('btn-retablir').disabled = !this.editeur.peutRetablir();
+    }
+
+    /**
+     * État visuel des deux boutons du métronome — repris de HarmoHub, jusqu'à l'icône du second qui
+     * CHANGE avec son état (noire seule = clic sur le temps seulement, deux croches reliées = clic de
+     * subdivision en plus) plutôt que de rester fixe : l'œil voit directement ce qui va se jouer,
+     * sans avoir à se souvenir d'un état invisible derrière un bouton toujours identique.
+     */
+    rafraichirMetronome() {
+        const actif = this.lecteur.metronomeActif;
+        const sub = this.lecteur.metronomeSubdivision;
+        this.el.metronome.classList.toggle('actif', actif);
+        this.el.metronome.setAttribute('aria-pressed', String(actif));
+        this.el.metronomeSubdivision.classList.toggle('actif', sub);
+        this.el.metronomeSubdivision.setAttribute('aria-pressed', String(sub));
+        this.el.metronomeSubdivision.querySelector('svg').innerHTML = sub
+            ? '<ellipse cx="6" cy="18" rx="3" ry="2.3" fill="currentColor"/><ellipse cx="17" cy="19" rx="3" ry="2.3" fill="currentColor"/><path d="M9 18V6l8 2v11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
+            : '<ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/><path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>';
     }
 
     rafraichirInfos() {
@@ -606,12 +610,20 @@ class TabHubApp {
             this.dessiner();
         });
 
-        this.el.reglette.checked = this.regletteVisible;
-        this.el.reglette.addEventListener('change', () => {
-            this.regletteVisible = this.el.reglette.checked;
-            localStorage.setItem(CLE_REGLETTE, this.regletteVisible ? '1' : '0');
-            this.dessiner();
+        // Métronome : ne touche à rien de la lecture EN COURS (voir Lecteur.jouer, qui ne
+        // reprogramme le transport qu'au prochain départ depuis l'arrêt) — comme tout autre
+        // réglage, il prend effet à la PROCHAINE lecture, jamais en la faisant bégayer en direct.
+        surClic('btn-metronome', () => {
+            this.lecteur.metronomeActif = !this.lecteur.metronomeActif;
+            localStorage.setItem(CLE_METRONOME, this.lecteur.metronomeActif ? '1' : '0');
+            this.rafraichirMetronome();
         });
+        surClic('btn-metronome-subdivision', () => {
+            this.lecteur.metronomeSubdivision = !this.lecteur.metronomeSubdivision;
+            localStorage.setItem(CLE_METRONOME_SUBDIVISION, this.lecteur.metronomeSubdivision ? '1' : '0');
+            this.rafraichirMetronome();
+        });
+        this.rafraichirMetronome();
 
         // Clic dans la partition : place le curseur. Glisser : dessine un rectangle de sélection
         // multiple. Voir demarrerGeste — les deux commencent pareil, ne se distinguent qu'au premier

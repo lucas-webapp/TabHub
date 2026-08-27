@@ -8,10 +8,11 @@
 //     le reste (glisser vertical/diagonal, glisser depuis le vide) reste le lasso de sélection ;
 //   • n'appliquer la durée QU'AU RELÂCHEMENT (un seul memoriser(), donc un seul Ctrl+Z, quel que soit
 //     le nombre de pixels parcourus) ;
-//   • se brancher sur `appliquerDuree`, donc hériter GRATUITEMENT de la répartition en cascade : un
-//     étirement qui ferait déborder sa mesure ne doit ni refuser, ni la laisser sous sa capacité (le
-//     défaut réel trouvé en écrivant CE banc — voir `_diagnostiquerDebordement`, corrigé, et le cas L
-//     de rythme_strict_test.js, qui l'éprouve directement au niveau du modèle).
+//   • se brancher sur `appliquerDuree`, donc hériter de son comportement du moment — REFUSE (pas de
+//     mutation, un message affiché) si l'étirement ferait déborder la mesure : voir
+//     Editeur._essaierNouvelleDuree et rythme_strict_test.js (cas A), au modèle plus simple, collé à
+//     ce qui se fait sur les logiciels pros, auquel ce geste est revenu après un détour par la
+//     répartition automatique.
 //
 // Émulation SOURIS (pas tactile) : c'est le geste desktop, distinct du pavé tactile (tactile_test.js).
 
@@ -20,23 +21,29 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('étirement de durée');
 
 (async () => {
-    plan(18);
+    plan(17);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
-        // Fixture par défaut : trois croches avec de la place libre (1,5 temps utilisés sur 4) — de
-        // quoi étirer sans déborder, pour isoler le geste lui-même de la répartition en cascade.
+        // Fixture par défaut : trois croches (1,5 temps) puis un silence de 2,5 temps — 4 temps
+        // tout juste. Seule la DERNIÈRE croche (case 2) a du silence CONTIGU à absorber en grandissant
+        // (une note grandit en mangeant ce qui suit IMMÉDIATEMENT, jamais plus loin derrière une autre
+        // vraie note, voir Editeur._essaierNouvelleDuree) : jusqu'à 2,5 temps de plus (la blanche
+        // pointée), pas au-delà (voir la fixture dédiée de 4.).
         const preparer = () => page.evaluate(async () => {
             const m = await import('/src/model/score.js');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
-            ed.partition.mesures[0].voix[0].evenements = [10, 11, 12].map(f => m.creerEvenement({ valeur: 8 }, [m.creerNote(0, f)]));
+            ed.partition.mesures[0].voix[0].evenements = [
+                ...[10, 11, 12].map(f => m.creerEvenement({ valeur: 8 }, [m.creerNote(0, f)])),
+                ...m.creerVoix(2.5).evenements,
+            ];
             ed.placerCurseur(0, 0, 0);
             ed.prevenir('document');
         });
-        // Fixture qui DÉBORDE une fois la première croche étirée (voir cas L de rythme_strict_test.js
-        // pour le même scénario au niveau du modèle) : quatre croches puis un silence de 2 temps, une
-        // vraie note juste après celle qu'on étire — rien de contigu à absorber.
-        const preparerDebordante = () => page.evaluate(async () => {
+        // Fixture PLEINE, sans la moindre place libre : quatre croches puis un silence de 2 temps —
+        // 4 temps tout juste, mais la première croche n'a RIEN de contigu à absorber (la croche
+        // suivante est une vraie note, pas un silence) : l'étirer doit donc être REFUSÉ.
+        const preparerPleine = () => page.evaluate(async () => {
             const m = await import('/src/model/score.js');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
@@ -66,28 +73,44 @@ const { check, exiger, plan, bilan } = creerHarnais('étirement de durée');
         };
 
         // --- 1. Glisser à DROITE sur une note : l'ALLONGE d'un cran --------------------------------
+        // Sur la DERNIÈRE croche (case 2) : elle seule a du silence contigu à manger (voir ci-dessus).
         await preparer();
-        const p0 = await pointDeLaCase(0);
+        const p0 = await pointDeLaCase(2);
         await glisser(p0, 40);
-        check((await durees())[0] === 4, '1. glisser à DROITE sur une croche l\'allonge en noire (un cran)');
+        check((await durees())[2] === 4, '1. glisser à DROITE sur une croche l\'allonge en noire (un cran)');
 
         // --- 2. Glisser à GAUCHE : la RACCOURCIT (sens inverse) ------------------------------------
+        // Un RACCOURCISSEMENT, lui, ne dépend d'aucun silence contigu (il en libère) : la case 0 (qui
+        // n'en a pas) marche tout aussi bien que la case 2.
         await preparer();
         await glisser(await pointDeLaCase(0), -40);
-        check((await durees())[0] === 16, '2. glisser à GAUCHE raccourcit en double-croche (sens inverse du n°1)');
+        check((await durees())[0] === 16, '2. glisser à GAUCHE raccourcit en double-croche (sens inverse du n°1) — jamais refusé, un raccourci libère toujours de la place');
 
         // --- 3. Deux crans d'un seul geste (pas cran par cran) -------------------------------------
         await preparer();
-        await glisser(await pointDeLaCase(0), 80);
-        check((await durees())[0] === 2, '3. 80px = deux crans d\'un coup : croche -> blanche, pas seulement noire');
+        await glisser(await pointDeLaCase(2), 80);
+        check((await durees())[2] === 2, '3. 80px = deux crans d\'un coup : croche -> blanche (1,5 temps de plus, tient dans les 2,5 disponibles)');
 
         // --- 4. Un glisser énorme se BLOQUE sur la ronde, ne part pas en erreur --------------------
-        await preparer();
+        // Fixture dédiée, avec CETTE FOIS assez de place (3,5 temps de silence après la croche) pour
+        // que grandir jusqu'à la ronde (+3,5) réussisse réellement : ce cas éprouve le PLAFOND de
+        // l'échelle des figures, pas la limite de place.
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                m.creerEvenement({ valeur: 8 }, [m.creerNote(0, 10)]),
+                ...m.creerVoix(3.5).evenements,
+            ];
+            ed.placerCurseur(0, 0, 0);
+            ed.prevenir('document');
+        });
         await glisser(await pointDeLaCase(0), 500);
-        check((await durees())[0] === 1, '4. un glisser bien au-delà de l\'échelle se bloque sur la ronde (pas d\'erreur, pas d\'index hors limites)');
+        check((await durees())[0] === 1, '4. un glisser bien au-delà de l\'échelle se bloque sur la ronde (pas d\'erreur, pas d\'index hors limites) — avec assez de place, ça réussit');
 
         // --- 5. Glisser depuis un SILENCE : rien à étirer, ne fait rien de spécial -----------------
-        await preparerDebordante();
+        await preparerPleine();
         const pSilence = await pointDeLaCase(4);
         const { lassoVisible: lassoDepuisSilence } = await glisser(pSilence, 40);
         check(lassoDepuisSilence === true, '5. un glisser horizontal depuis un SILENCE lasso comme avant (rien à étirer dans le vide)');
@@ -97,45 +120,43 @@ const { check, exiger, plan, bilan } = creerHarnais('étirement de durée');
         await preparer();
         const { lassoVisible } = await glisser(await pointDeLaCase(0), 6, 60);
         check(lassoVisible === true, '6. glisser VERTICAL sur une note ouvre le lasso (la direction seule tranche)');
-        check((await durees()).join(',') === '8,8,8', 'et ne change aucune durée');
+        check((await durees())[0] === 8, 'et ne change aucune durée');
 
         // --- 7. Clic simple (sans glisser franc) : ne touche à AUCUNE durée -----------------------
         await preparer();
         const p1 = await pointDeLaCase(1);
         await page.mouse.click(p1.x, p1.y);
         await page.waitForTimeout(150);
-        check((await durees()).join(',') === '8,8,8', '7. un clic simple ne modifie aucune durée');
+        check((await durees())[1] === 8, '7. un clic simple ne modifie aucune durée');
         check((await page.evaluate(() => window.app.editeur.curseur.evenement)) === 1, 'et place le curseur sur la case cliquée, comme avant ce geste');
 
-        // --- 8. DÉBORDEMENT via le geste réel : ne refuse pas, ne sous-remplit pas la mesure -------
-        // Même scénario que le cas L de rythme_strict_test.js (croche -> noire, +0,5, rien de contigu
-        // à absorber) mais posé ici par un VRAI glisser souris, de bout en bout.
-        await preparerDebordante();
+        // --- 8. DÉBORDEMENT via le geste réel : REFUSE, ne mute rien, prévient l'utilisateur -------
+        // Même scénario que le cas A de rythme_strict_test.js (croche -> noire, +0,5, rien de contigu
+        // à absorber) mais posé ici par un VRAI glisser souris, de bout en bout — et par un message
+        // visible, pas seulement Editeur.derniereErreur en coulisse.
+        await preparerPleine();
         const mesuresAvant8 = await page.evaluate(() => window.app.editeur.partition.mesures.length);
+        await page.evaluate(() => { document.getElementById('message').textContent = ''; document.getElementById('message').classList.remove('visible'); });
         await glisser(await pointDeLaCase(0), 40);
         const etat8 = await page.evaluate(() => ({
             mesures: window.app.editeur.partition.mesures.length,
-            contenu0: window.app.editeur.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette),
-            total0: window.app.editeur.partition.mesures[0].voix[0].evenements.reduce((t, e) => t + (4 / e.duree.valeur) * (e.duree.points ? 1.5 : 1), 0),
-            total1: window.app.editeur.partition.mesures[1].voix[0].evenements.reduce((t, e) => t + (4 / e.duree.valeur) * (e.duree.points ? 1.5 : 1), 0),
+            durees: window.app.editeur.partition.mesures[0].voix[0].evenements.map(e => e.duree.valeur),
+            messageVisible: document.getElementById('message').classList.contains('visible'),
+            messageTexte: document.getElementById('message').textContent,
         }));
-        check(etat8.mesures === mesuresAvant8 + 1, '8. l\'étirement qui déborde crée UNE SEULE mesure neuve, ne refuse jamais');
-        check(etat8.contenu0.join(',') === '5,7,5,3,_', 'les quatre notes ET le silence (raccourci) restent dans la mesure d\'origine');
-        check(Math.abs(etat8.total0 - 4) < 1e-6, 'qui retombe pile sur sa capacité — jamais sous-remplie');
-        check(Math.abs(etat8.total1 - 4) < 1e-6, 'et la mesure neuve aussi, complétée de silence');
+        check(etat8.mesures === mesuresAvant8, '8. l\'étirement qui déborderait NE CRÉE AUCUNE mesure neuve — refusé, pas réparti');
+        check(etat8.durees.join(',') === '8,8,8,8,2', 'et AUCUNE durée ne change (refus complet, pas une mutation partielle)');
+        check(etat8.messageVisible && etat8.messageTexte.length > 0, 'un message visible explique le refus (pas seulement une erreur muette en coulisse)');
 
-        // --- 9. UN SEUL Ctrl+Z défait tout le geste précédent (étirement + répartition) ------------
+        // --- 9. UN SEUL Ctrl+Z défait tout un étirement RÉUSSI -------------------------------------
+        await preparer();
+        const avant9 = await durees();
+        await glisser(await pointDeLaCase(2), 40);   // croche -> noire, réussit (voir 1.)
+        exiger((await durees())[2] === 4, '9. l\'étirement réussit d\'abord (préalable à l\'annulation)');
         await page.evaluate(() => document.getElementById('zone-partition').focus());
         await page.keyboard.press('Control+z');
         await page.waitForTimeout(150);
-        const etat9 = await page.evaluate(() => ({
-            mesures: window.app.editeur.partition.mesures.length,
-            contenu0: window.app.editeur.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : (e.notes[0]?.frette ?? '_')),
-            durees0: window.app.editeur.partition.mesures[0].voix[0].evenements.map(e => e.duree.valeur),
-        }));
-        check(etat9.mesures === mesuresAvant8, '9. un seul Ctrl+Z retire la mesure neuve : étirement + répartition ne comptent que pour une annulation');
-        check(etat9.contenu0.join(',') === '5,7,5,3,_' && etat9.durees0.join(',') === '8,8,8,8,2',
-            'et retrouve EXACTEMENT le contenu d\'avant le geste (croche d\'origine, silence de 2 temps entier)');
+        check((await durees()).join(',') === avant9.join(','), 'un seul Ctrl+Z restitue EXACTEMENT les durées d\'avant le geste');
 
         // --- 10. Étirer une note NE JOUE aucun son (pas de lecture pendant l'édition) --------------
         await preparer();

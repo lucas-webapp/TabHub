@@ -375,25 +375,30 @@ export class Editeur {
      * appliquerDuree, basculerPoint et basculerTriolet, les trois façons de changer combien de temps
      * un évènement occupe.
      *
-     * UNE MESURE NE RESTE JAMAIS VISIBLEMENT DÉBORDÉE — mais un allongement N'EST PLUS REFUSÉ pour
-     * autant faute de place : une version antérieure refusait tout net, ce qui bloquait l'édition en
-     * plein geste (retour direct : « je dois toujours pouvoir modifier comme je veux, toute la suite
-     * doit se décaler »). Le temps gagné vient D'ABORD des silences qui suivent immédiatement dans la
-     * même voix, comme avant ; s'ils ne suffisent pas, l'excédent est aussitôt réparti dans une ou
-     * plusieurs mesures NEUVES juste après (voir `_absorberEtLocaliser`, le même mécanisme
-     * qu'`insererEvenement`) — jamais un dépassement qui resterait affiché tel quel. Le curseur suit
-     * l'évènement modifié, où qu'il ait fini. Si l'évènement raccourcit, le temps libéré redevient un
-     * silence juste après (fusionné à celui qui s'y trouve déjà) : dans ce sens-là, il n'y a jamais de
-     * débordement possible. Seul cas qui reste un refus pur et simple : une durée qui, à elle seule,
-     * dépasse la capacité d'une mesure entière — aucune répartition ne peut jamais l'y faire tenir.
+     * LE RYTHME DE LA MESURE RESTE STRICT — JAMAIS DE DÉPASSEMENT, MÊME TEMPORAIRE. Si l'évènement
+     * s'allonge, le temps gagné DOIT venir des silences qui suivent immédiatement dans la même voix ;
+     * s'il n'y en a pas assez avant la fin de la voix ou avant la prochaine note, le changement est
+     * REFUSÉ TOUT ENTIER — aucune mutation, aucun memoriser() — plutôt qu'appliqué à moitié : une
+     * mesure à 4/4 ne doit jamais pouvoir en porter 5, ne serait-ce qu'un instant. `derniereErreur`
+     * porte alors le pourquoi (voir main.js, qui l'affiche).
+     *
+     * REVENU À CE REFUS après un détour par la répartition automatique en cascade (qui insérait une
+     * mesure neuve toute seule dès qu'un allongement débordait) : le résultat déroutait plus qu'il
+     * n'aidait (retour direct : « repasse au modèle plus simple, colle à ce qui est réalisé sur les
+     * logiciels pros ») — un logiciel de gravure établi ne restructure jamais le morceau tout seul,
+     * il refuse ou signale, et laisse la main à qui écrit. Une mesure déjà invalide par un AUTRE
+     * chemin (fichier importé, par exemple) reste réparable à la demande via `corrigerDebordement`
+     * (Alt+R / bouton « ⇥ Corriger »), qui n'a pas changé.
+     *
+     * Si l'évènement raccourcit, le temps libéré redevient un silence juste après (fusionné à celui
+     * qui s'y trouve déjà) : dans ce sens-là, il n'y a jamais de risque de déborder, donc jamais lieu
+     * de refuser.
      *
      * N'appelle PAS prevenir() : à l'appelant de le faire, une fois qu'il a fini de poser ses propres
      * champs (dureeCourante, par exemple), pour ne prévenir qu'une seule fois par geste.
      */
     _essaierNouvelleDuree(nouvelleDuree) {
         this.derniereErreur = null;
-        const iMesureDepart = this.curseur.mesure;
-        const iVoix = this.curseur.voix;
         const voix = this.voixCourante();
         const iEvt = this.curseur.evenement;
         const evenement = voix.evenements[iEvt];
@@ -402,26 +407,28 @@ export class Editeur {
         const delta = nouvelle - ancienne;
         const estSilence = (e) => e.silence || !e.notes.length;
 
-        const capacite = capaciteMesure(this.partition, iMesureDepart);
-        if (nouvelle > capacite + 1e-9) {
-            this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
-            return false;
+        // On calcule D'ABORD, SANS RIEN MODIFIER, si un allongement peut être entièrement absorbé —
+        // c'est ce qui permet de REFUSER proprement plutôt que de devoir défaire un changement à
+        // moitié fait.
+        let j = iEvt + 1;
+        if (delta > 1e-9) {
+            let reste = delta;
+            while (reste > 1e-9 && j < voix.evenements.length && estSilence(voix.evenements[j])) {
+                reste -= dureeEnNoires(voix.evenements[j].duree);
+                j++;
+            }
+            if (reste > 1e-9) {
+                this.derniereErreur = 'Pas assez de place dans la mesure pour cette durée.';
+                return false;
+            }
         }
 
         this.memoriser();
         evenement.duree = nouvelleDuree;
 
         if (delta > 1e-9) {
-            // Consomme le silence CONTIGU qui suit immédiatement (jusqu'à la prochaine vraie note, ou
-            // la fin de la voix), au plus `delta` — jamais au-delà : une vraie note qui suit ne doit
-            // jamais être avalée par cet allongement. S'il n'y en avait pas assez, la voix déborde
-            // maintenant sa capacité ; `_absorberEtLocaliser` ci-dessous s'en charge, dans le MÊME
-            // geste (un seul memoriser(), au-dessus, pour tout ce bloc).
-            let reste = delta, j = iEvt + 1;
-            while (reste > 1e-9 && j < voix.evenements.length && estSilence(voix.evenements[j])) {
-                reste -= dureeEnNoires(voix.evenements[j].duree);
-                j++;
-            }
+            // `j` s'est déjà arrêté ci-dessus au bon endroit (la vérification l'a calculé) : ce que
+            // les silences de iEvt+1 à j totalisent, moins ce qu'il fallait, est à rendre.
             const consomme = voix.evenements.slice(iEvt + 1, j).reduce((t, e) => t + dureeEnNoires(e.duree), 0);
             const aRendre = consomme - delta;
             voix.evenements.splice(iEvt + 1, j - (iEvt + 1),
@@ -433,14 +440,6 @@ export class Editeur {
                 k++;
             }
             voix.evenements.splice(iEvt + 1, k - (iEvt + 1), ...decouperEnEvenements(libere));
-        }
-
-        const { loc, resolu } = this._absorberEtLocaliser(iMesureDepart, iVoix, evenement);
-        if (loc) { this.curseur.mesure = loc.mesure; this.curseur.evenement = loc.evenement; }
-        else this.corrigerCurseur();
-        if (!resolu) {
-            this.derniereErreur = 'Cette mesure déborde et ne peut pas être répartie automatiquement '
-                + '(une autre figure y dépasse déjà, à elle seule, une mesure entière).';
         }
         return true;
     }
@@ -488,35 +487,61 @@ export class Editeur {
     /**
      * Insère un évènement APRÈS le courant et s'y place — le geste normal pour écrire à la suite.
      *
-     * NE LAISSE JAMAIS UNE MESURE VISIBLEMENT DÉBORDER — mais ne REFUSE plus non plus l'insertion pour
-     * autant : une version antérieure refusait tout net faute de place, ce qui bloquait l'écriture en
-     * plein geste (retour direct : « je dois toujours pouvoir modifier comme je veux, toute la suite
-     * doit se décaler »). L'évènement s'insère donc TOUJOURS à l'endroit demandé, et si la mesure
-     * déborde du coup, l'excédent est aussitôt réparti dans une ou plusieurs mesures NEUVES juste
-     * après (voir `_absorberEtLocaliser`) — jamais dans une mesure suivante déjà écrite, qu'il ne faut
-     * pas déranger. Le curseur suit l'évènement qu'on vient d'insérer, où qu'il ait fini : dans la
-     * mesure courante si tout tenait, dans une mesure neuve sinon. Un seul cas reste un refus pur et
-     * simple : une durée qui, à elle seule, dépasse la capacité d'une mesure entière — aucune
-     * répartition ne peut jamais l'y faire tenir.
+     * NE DÉBORDE JAMAIS LA MESURE — REVENU à ce refus après un détour par la répartition automatique
+     * (retour direct : « repasse au modèle plus simple, colle à ce qui est réalisé sur les logiciels
+     * pros » — aucun d'eux n'insère une mesure neuve tout seul dans le dos de qui écrit).
+     *
+     * DEUX CAS : en bout de voix (le geste normal pour continuer d'écrire), une mesure TOUTE NEUVE
+     * s'insère juste après la courante — jamais la mesure suivante existante, même si elle a de la
+     * place : elle pourrait déjà contenir autre chose, et la remplir par surprise déplacerait de la
+     * musique déjà écrite sans le dire. La nouvelle mesure reçoit la capacité EFFECTIVE de cet endroit
+     * du morceau (jamais le 4 temps par défaut de `creerMesure`, qui suppose du 4/4 et fausserait tout
+     * de suite une insertion en 3/4 ou 6/8), et prend le même nombre de voix que la mesure courante —
+     * les voix qu'on ne remplit pas restent un silence unique couvrant toute la mesure, l'état normal
+     * d'une voix qu'on n'a pas encore touchée. Au milieu d'une voix (on intercale une nouvelle case
+     * entre deux existantes), avancer d'une mesure n'aurait aucun sens — on refuse proprement, et
+     * `derniereErreur` porte le pourquoi (voir main.js, qui l'affiche). Une mesure déjà invalide par
+     * un AUTRE chemin reste réparable via `corrigerDebordement` (Alt+R / « ⇥ Corriger »).
      */
     insererEvenement() {
         this.derniereErreur = null;
+        const voix = this.voixCourante();
         const capacite = capaciteMesure(this.partition, this.curseur.mesure);
+        const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
         const dureeNouvel = dureeEnNoires(this.dureeCourante);
         if (dureeNouvel > capacite + 1e-9) {
             this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
             return false;
         }
-        this.memoriser();
-        const iMesureDepart = this.curseur.mesure;
-        const iVoix = this.curseur.voix;
-        const nouvel = creerEvenement({ ...this.dureeCourante }, [], { silence: true });
-        this.voixCourante().evenements.splice(this.curseur.evenement + 1, 0, nouvel);
-        // `resolu` est ici TOUJOURS vrai : `dureeNouvel` tient seule dans une mesure (vérifié
-        // au-dessus), donc CET ajout ne peut jamais être la figure « impossible » d'une répartition.
-        const { loc } = this._absorberEtLocaliser(iMesureDepart, iVoix, nouvel);
-        if (loc) { this.curseur.mesure = loc.mesure; this.curseur.evenement = loc.evenement; }
-        else this.corrigerCurseur();
+        let mesureFraiche = false;
+        if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
+            const enBoutDeVoix = this.curseur.evenement === voix.evenements.length - 1;
+            if (!enBoutDeVoix) {
+                this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici.';
+                return false;
+            }
+            this.memoriser();
+            const nVoix = this.mesureCourante().voix.length;
+            const iVoix = this.curseur.voix;
+            const nouvelle = creerMesure({ voix: Array.from({ length: nVoix }, (_, i) =>
+                ({ evenements: i === iVoix ? [] : decouperEnEvenements(capacite) })) });
+            this.partition.mesures.splice(this.curseur.mesure + 1, 0, nouvelle);
+            this.curseur.mesure += 1;
+            this.curseur.evenement = -1;   // la nouvelle case s'insère juste APRÈS — voir plus bas
+            mesureFraiche = true;
+        } else {
+            this.memoriser();
+        }
+        const voixCible = this.voixCourante();
+        voixCible.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        this.curseur.evenement += 1;
+        // Une voix fraîchement créée est vide avant cette ligne (voir plus haut) : compléter par un
+        // silence jusqu'à la capacité, pour que l'invariant (une voix somme toujours EXACTEMENT sa
+        // mesure) tienne dès la création plutôt que de dépendre d'une prochaine édition pour se vérifier.
+        if (mesureFraiche) {
+            const manque = capacite - dureeNouvel;
+            if (manque > 1e-9) voixCible.evenements.push(...decouperEnEvenements(manque));
+        }
         this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
@@ -524,31 +549,28 @@ export class Editeur {
 
     /**
      * Insère un évènement JUSTE AVANT le courant — le miroir d'`insererEvenement`, pour le clic droit
-     * « insérer une note à gauche ». Le curseur suit l'évènement VISÉ au départ (celui qui glisse pour
-     * laisser la place), pas la case neuve : contrairement à Entrée, ce geste n'est pas fait pour
-     * continuer à écrire à la suite.
+     * « insérer une note à gauche ». Le curseur reste sur l'évènement VISÉ au départ (celui qui glisse
+     * d'un cran vers la droite pour laisser la place), pas sur la case neuve : contrairement à Entrée,
+     * ce geste n'est pas fait pour continuer à écrire à la suite.
      *
-     * Mêmes garanties qu'`insererEvenement` : n'insère jamais dans le vide, mais ne refuse plus non
-     * plus faute de place — la mesure est répartie dans la foulée si l'ajout la fait déborder (voir
-     * `_absorberEtLocaliser`), et l'évènement visé — qui a pu, lui, basculer dans une mesure neuve si
-     * la répartition l'y a poussé — reste celui que le curseur suit.
+     * Mêmes garanties de capacité qu'`insererEvenement` : refuse plutôt que de déborder. Sans le
+     * repli « avancer d'une mesure » de son miroir — insérer AVANT la première case d'une mesure déjà
+     * pleine demanderait de reculer d'une mesure entière, un geste bien plus surprenant qu'un simple
+     * refus.
      */
     insererAvant() {
         this.derniereErreur = null;
         const capacite = capaciteMesure(this.partition, this.curseur.mesure);
+        const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
         const dureeNouvel = dureeEnNoires(this.dureeCourante);
-        if (dureeNouvel > capacite + 1e-9) {
-            this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
+        if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
+            this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici.';
             return false;
         }
         this.memoriser();
-        const iMesureDepart = this.curseur.mesure;
-        const iVoix = this.curseur.voix;
-        const cible = this.evenementCourant();   // celui qu'on vise — le curseur doit continuer à le suivre
-        this.voixCourante().evenements.splice(this.curseur.evenement, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
-        const { loc } = this._absorberEtLocaliser(iMesureDepart, iVoix, cible);
-        if (loc) { this.curseur.mesure = loc.mesure; this.curseur.evenement = loc.evenement; }
-        else this.corrigerCurseur();
+        const voix = this.voixCourante();
+        voix.evenements.splice(this.curseur.evenement, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        this.curseur.evenement += 1;
         this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
@@ -556,11 +578,12 @@ export class Editeur {
 
     /**
      * DIAGNOSTIC pur (aucune mutation) : ce qu'il faudrait GARDER dans la mesure `index`, voix par
-     * voix, pour retomber exactement sur sa capacité, et ce qui DÉBORDERAIT. Partagé par
-     * `corrigerDebordement` (commande autonome, Alt+R) et par tout ce qui édite EN DIRECT
-     * (`insererEvenement`, `insererAvant`, `_essaierNouvelleDuree`) : ces derniers n'ont plus à
-     * refuser une modification faute de place — ils l'appliquent, puis en confient l'éventuel
-     * débordement à ce même mécanisme, dans leur propre geste (voir `_absorberEtLocaliser`).
+     * voix, pour retomber exactement sur sa capacité, et ce qui DÉBORDERAIT (ou MANQUERAIT). Sert
+     * exclusivement à `corrigerDebordement` (commande AUTONOME, Alt+R / « ⇥ Corriger ») — l'édition
+     * EN DIRECT (`insererEvenement`, `insererAvant`, `_essaierNouvelleDuree`) refuse désormais tout
+     * ce qui déborderait plutôt que de le confier à ce mécanisme (voir leurs commentaires respectifs) :
+     * seule une mesure devenue invalide par un AUTRE chemin (fichier importé, par exemple) a encore
+     * besoin d'être réparée après coup.
      *
      * Un SILENCE qui déborde est RACCOURCI pour ne garder que ce qui tient encore dans la mesure —
      * seul le vrai surplus part vers une mesure neuve ; une NOTE, elle, ne se découpe jamais, elle
@@ -653,47 +676,6 @@ export class Editeur {
             });
         });
         this.partition.mesures.splice(index + 1, 0, ...nouvelles);
-    }
-
-    /** Retrouve où un évènement précis (comparé par RÉFÉRENCE) a fini, dans une voix donnée, à partir
-     *  d'un index de mesure — après une répartition, un évènement peut s'être déplacé dans une des
-     *  mesures neuves. `null` s'il reste introuvable : n'arrive normalement que si `ref` était
-     *  LUI-MÊME un silence qu'il a fallu raccourcir pour absorber le débordement (voir
-     *  `_diagnostiquerDebordement`) — ce silence-là a alors été remplacé par des morceaux neufs,
-     *  aucune référence ancienne n'y survit. Rien n'est pour autant perdu (la durée totale reste
-     *  exacte), seulement l'identité de CET évènement précis ; l'appelant retombe alors sur
-     *  `corrigerCurseur()`. */
-    _localiserEvenement(ref, iVoix, depuisIndex) {
-        for (let i = depuisIndex; i < this.partition.mesures.length; i++) {
-            const voix = this.partition.mesures[i].voix[iVoix];
-            if (!voix) continue;
-            const j = voix.evenements.indexOf(ref);
-            if (j !== -1) return { mesure: i, evenement: j };
-        }
-        return null;
-    }
-
-    /**
-     * Absorbe un éventuel débordement de la mesure `iMesure` (voir `_diagnostiquerDebordement`) puis
-     * relocalise `ref` — l'évènement que l'appelant vient de modifier ou d'insérer, qui a pu se
-     * retrouver déplacé dans une mesure neuve si la répartition l'a fait basculer au-delà de la
-     * capacité. Ne memorise ni ne prévient : l'appelant l'a déjà fait pour SON geste, avant d'appeler
-     * ceci — la répartition en fait partie, pas une action séparée à annuler à part.
-     *
-     * @returns {{loc: {mesure, evenement}|null, resolu: boolean}} `loc` est la position où `ref` se
-     *   trouve désormais (quasiment toujours non-nul : rien n'est jamais perdu, seulement déplacé).
-     *   `resolu` est FAUX quand le débordement est IMPOSSIBLE à absorber (une figure, à elle seule,
-     *   dépasse une mesure entière) — dans ce cas rien n'a été réparti, `ref` reste où l'appelant
-     *   l'avait mis, et la mesure reste invalide : à l'appelant de le signaler (voir
-     *   insererEvenement/insererAvant, qui n'arrivent normalement jamais dans ce cas puisqu'ils
-     *   vérifient déjà que LEUR propre ajout tient seul dans une mesure, mais une AUTRE figure déjà
-     *   présente pourrait, elle, être en cause).
-     */
-    _absorberEtLocaliser(iMesure, iVoix, ref) {
-        const diag = this._diagnostiquerDebordement(iMesure);
-        const resolu = !diag.deborde || !diag.impossible;
-        if (diag.deborde && resolu) this._appliquerRepartition(diag);
-        return { loc: this._localiserEvenement(ref, iVoix, iMesure), resolu };
     }
 
     /**

@@ -149,7 +149,13 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         return b;
     };
 
-    for (const cle of ['duree', 'effet', 'mesure', 'voix']) {
+    // Le groupe « Voix » n'a plus qu'une seule action (basculerVoix, Tab) depuis le retrait de
+    // « + Voix »/« − Voix » de la palette (guitare/basse : voir edit/raccourcis.js) — et cette action
+    // se cache elle-même tant qu'il n'y a qu'une voix (son `palette`), ce qui est TOUJOURS le cas ici
+    // désormais. Un groupe qui ne montrerait jamais rien laisserait une étiquette « Voix » orpheline
+    // dans la barre : on ne le construit donc plus du tout. `basculerVoix` reste utilisable au
+    // clavier (Tab) pour un fichier déjà à deux voix, simplement sans bouton dans la palette.
+    for (const cle of ['duree', 'effet', 'mesure']) {
         const g = groupe(TITRES_GROUPES[cle]);
         for (const a of ACTIONS.filter(x => x.groupe === cle && x.palette !== false)) boutonAction(g, a);
     }

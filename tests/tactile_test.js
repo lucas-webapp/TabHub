@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(19);
+    plan(20);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -62,6 +62,15 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         await caseDu(2).tap();
         await page.waitForTimeout(120);
         check(await noteCourante() === 12, 'deux chiffres tapés à la suite donnent la case 12, comme au clavier');
+
+        // --- La case posée se voit, en toutes lettres, sur le pavé lui-même ------------------------
+        // Sans ce repère, rien au doigt n'indique qu'on peut dépasser 9 : le `title` qui l'explique
+        // sur chaque bouton ne s'affiche qu'au survol, un geste qui n'existe pas au doigt (retour
+        // utilisateur : « je ne peux pas aller au-dessus de 9 »). Vérifie que le lecteur de case
+        // affiche bien « 12 » ci-dessus, pas seulement le modèle — SANS retaper ensuite (la case 12
+        // sert encore de fixture à un test plus loin, voir « avant l'effacement »).
+        const etatPave = () => page.evaluate(() => document.querySelector('.etat-pave').textContent);
+        check((await etatPave()).includes('case 12'), 'le pavé affiche lui-même la case posée (« case 12 »), pas seulement le modèle en coulisse');
 
         // --- Se déplacer au doigt -------------------------------------------------------------------
         const curseur = () => page.evaluate(() => ({ ...window.app.editeur.curseur }));

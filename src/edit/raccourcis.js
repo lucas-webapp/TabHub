@@ -126,11 +126,13 @@ export const ACTIONS = [
     { id: 'repriseFin', touches: [], libelle: 'Reprise fermante', groupe: 'mesure', apercu: { type: 'icone', nom: 'repriseFin' },
       actif: ed => ed.mesureCourante().repriseFin, faire: ed => ed.basculerReprise('fin') },
 
-    // --- Voix (palette : groupe « Voix ») — voir edit/commands.js -------------------------------
-    { id: 'ajouterVoix', touches: ['alt+v'], libelle: 'Ajouter une 2e voix (basse tenue) à cette mesure', groupe: 'voix', texte: '+ Voix',
-      palette: ed => ed.nbVoixMesure() < 2, faire: ed => ed.ajouterVoix() },
-    { id: 'supprimerVoix', touches: ['alt+shift+v'], libelle: 'Retirer la 2e voix de cette mesure', groupe: 'voix', texte: '− Voix',
-      palette: ed => ed.nbVoixMesure() > 1, faire: ed => ed.supprimerVoix() },
+    // --- Voix — voir edit/commands.js ------------------------------------------------------------
+    // « + Voix »/« − Voix » ont disparu de la palette pour la guitare et la basse (retour direct :
+    // « je ne comprends pas les boutons voix+/voix-, à quoi cela sert-il ? » — une seconde voix par
+    // mesure n'a d'usage clair que pour le piano, à venir). Les MÉTHODES (Editeur.ajouterVoix/
+    // supprimerVoix) restent en place, prêtes à être reproposées quand le piano existera — seule
+    // l'ENTRÉE dans la palette actuelle disparaît. `basculerVoix` (Tab), lui, reste : un fichier déjà
+    // à deux voix (ouvert d'avant ce retrait) doit rester navigable, même sans bouton pour EN CRÉER.
     { id: 'basculerVoix', touches: ['tab'], libelle: 'Voix suivante', groupe: 'voix', apercu: { type: 'voix' },
       palette: ed => ed.nbVoixMesure() > 1, actif: () => false, faire: ed => ed.basculerVoix() },
 ];

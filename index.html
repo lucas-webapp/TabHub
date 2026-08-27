@@ -95,10 +95,24 @@
         <option value="8">8</option>
     </select>
     <span class="separateur"></span>
-    <label class="info-transport bascule-reglette" for="champ-reglette">
-        <input type="checkbox" id="champ-reglette" checked>
-        Réglette
-    </label>
+    <!-- Métronome — repris de HarmoHub : deux boutons, l'icône du second reflétant son propre état
+         (noire seule = clic sur le temps seulement, deux croches reliées = clic de subdivision en
+         plus), voir main.js#rafraichirMetronome. Binaire/ternaire suit la signature en vigueur
+         (voir uniteDeGroupement) : aucun réglage à faire, une mesure à 6/8 clique par 3, une à 4/4
+         par 2 — comme un vrai métronome qui suivrait la partition. -->
+    <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
+            <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
+            <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+        </svg>
+    </button>
+    <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
+        <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 20h10L14 5h-4L7 20Z"/>
+            <path d="M12 15V8"/>
+            <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
+        </svg>
+    </button>
     <span class="separateur"></span>
     <label class="info-transport" for="champ-zoom">Zoom</label>
     <input type="range" id="champ-zoom" min="6" max="16" step="0.5" value="9" style="width:110px" aria-label="Taille de la partition">
