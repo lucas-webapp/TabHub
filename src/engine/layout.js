@@ -405,19 +405,22 @@ function decouperEnSystemesGloutons(mesures, largeurUtile, clef, S) {
  * réessaie, jusqu'à n'en garder plus qu'une si littéralement une seule mesure ne tient déjà pas —
  * dans ce cas, elle reste seule, exactement comme le ferait le mode automatique.
  */
-function decouperEnSystemesParCompte(mesures, n, largeurUtile, clef, S) {
+function decouperEnSystemesParCompte(mesures, n, clef, S) {
+    // `n` est un CHOIX EXPLICITE (voir groupe-mesures-ligne) — contrairement au mode « Auto », qui
+    // vise justement à toujours tenir dans la largeur, ce chiffre-ci dit combien de mesures l'œil
+    // doit voir par ligne, quitte à ce que la ligne déborde et se parcoure au défilement horizontal
+    // (retour utilisateur : « je veux pouvoir scroller horizontalement... en définissant le nombre de
+    // mesures visibles par ligne »). Une version antérieure RÉDUISAIT ce chiffre jusqu'à ce que ça
+    // tienne dans `largeurUtile` — un choix explicite qui se faisait discrètement écraser dès l'écran
+    // trop étroit pour lui, exactement le cas d'un téléphone, là où ce réglage sert le plus. La page
+    // grandit maintenant pour accueillir tout système trop large plutôt que d'en rogner le contenu
+    // (voir mettreEnPage, plus bas, et `.zone-partition { overflow: auto }`) : rien n'empêche plus de
+    // tenir cette promesse au pied de la lettre.
     const systemes = [];
     let i = 0;
     while (i < mesures.length) {
-        let compte = Math.min(n, mesures.length - i);
-        let tranche;
-        for (;;) {
-            tranche = mesures.slice(i, i + compte);
-            tranche.forEach((m, k) => mesurerMesure(m, besoinsDe(m, k === 0), clef, S));
-            const largeur = tranche.reduce((t, m) => t + m.largeurTotale, 0);
-            if (compte <= 1 || largeur <= largeurUtile) break;
-            compte--;
-        }
+        const tranche = mesures.slice(i, Math.min(i + n, mesures.length));
+        tranche.forEach((m, k) => mesurerMesure(m, besoinsDe(m, k === 0), clef, S));
         systemes.push({ mesures: tranche, largeur: tranche.reduce((t, m) => t + m.largeurTotale, 0) });
         i += tranche.length;
     }
@@ -490,7 +493,7 @@ export function mettreEnPage(partition, options = {}) {
     //     mesure à la fois, pour rester lisible quel que soit le chiffrage rythmique en cours.
     const nMesuresParLigne = geo.mesuresParLigne ? Math.max(1, Math.round(geo.mesuresParLigne)) : null;
     const systemes = nMesuresParLigne
-        ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, largeurUtile, clef, S)
+        ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, clef, S)
         : decouperEnSystemesGloutons(mesures, largeurUtile, clef, S);
 
     // --- 3. (plus de justification) -------------------------------------------------------------

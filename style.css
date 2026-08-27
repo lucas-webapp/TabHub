@@ -206,6 +206,34 @@ body > * { min-width: 0; }
     letter-spacing: .06em; font-weight: 700; margin-right: 3px; user-select: none;
 }
 
+/* FLÈCHES DE DÉFILEMENT DE LA BARRE D'OUTILS — voir ui/toolbar.js#flecheDefilement. `sticky` les
+   colle au bord VISIBLE du conteneur qui défile (pas au bord du contenu, qui serait hors champ) :
+   premier et dernier enfants de #barre-outils, elles restent donc à l'écran quel que soit le défilé.
+   Un fond OPAQUE, identique à celui de la barre : sans lui, le contenu défilé passerait dessous et se
+   verrait par transparence au moment où une flèche chevauche un bouton. */
+.fleche-outils {
+    position: sticky;
+    z-index: 2;
+    flex: none;
+    width: 26px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border: none;
+    background: var(--bg);
+    color: var(--text-muted);
+    cursor: pointer;
+    opacity: 1;
+    transition: opacity .15s;
+}
+.fleche-outils svg { width: 16px; height: 16px; }
+.fleche-outils:hover { color: var(--text-main); }
+.fleche-outils-gauche { left: 0; }
+.fleche-outils-droite { right: 0; }
+/* Masquée plutôt que retirée du DOM (`display:none` casserait sa propre mesure de scrollWidth au
+   moment même où on la remontre) : invisible et hors du passage du clavier/lecteur d'écran, mais
+   toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté. */
+.fleche-outils.invisible { opacity: 0; pointer-events: none; }
+body.outils-gauche .fleche-outils { display: none; }   /* colonne verticale : rien à faire défiler ainsi */
+
 /* BARRE À GAUCHE (préférence, voir Réglages > Interface). La barre elle-même devient une COLONNE
    pleine hauteur ; chaque groupe s'y empile, et SES boutons à lui se remettent à la ligne (au lieu
    de s'étirer à l'infini) pour tenir dans une largeur fixe — c'est le même défilement horizontal
@@ -272,6 +300,27 @@ input.champ { cursor: text; }
 select.champ:focus, input.champ:focus { outline: none; border-color: var(--accent); }
 input.champ[type="number"] { width: 68px; text-align: center; }
 
+/* MESURES PAR LIGNE — un rang de boutons plutôt qu'un menu déroulant, voir
+   main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste. */
+.groupe-mesures-ligne { display: inline-flex; gap: 2px; flex: none; }
+.btn-mesures-ligne {
+    min-width: 26px; height: 30px; padding: 0 6px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 7px;
+    border: 1px solid var(--btn-neutral-border);
+    background: var(--fond-bouton-sombre);
+    color: var(--text-muted);
+    font-family: var(--font); font-size: var(--fs-xs); font-weight: 700;
+    cursor: pointer;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.btn-mesures-ligne:hover { background: var(--fond-bouton-sombre-survol); color: var(--text-main); }
+.btn-mesures-ligne.actif {
+    background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
+    border-color: var(--btn-green-border);
+    color: var(--btn-text);
+}
+
 /* ============================================================
    ZONE PARTITION — le papier
    ============================================================ */
@@ -335,6 +384,11 @@ input.champ[type="number"] { width: 68px; text-align: center; }
     padding: 0 12px;
     background: var(--card-bg);
     border-top: 1px solid var(--border);
+    /* Défensif, comme .barre-outils : cette rangée ne s'est pas encore vue déborder, mais rien ne
+       l'empêche si elle continue de s'enrichir (voir le défaut réel trouvé sur la barre d'outils,
+       qui débordait sans le moindre moyen d'atteindre le reste). */
+    overflow-x: auto;
+    overflow-y: hidden;
 }
 
 .btn-transport {

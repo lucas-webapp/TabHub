@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608270200">
+    <link rel="stylesheet" href="style.css?v=202608271700">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -85,15 +85,12 @@
     <span class="pousse"></span>
     <span class="info-transport" id="info-selection"></span>
     <span class="separateur"></span>
-    <label class="info-transport" for="champ-mesures-ligne">Mes./ligne</label>
-    <select id="champ-mesures-ligne" class="champ" style="width:76px" aria-label="Nombre de mesures par ligne">
-        <option value="0">Auto</option>
-        <option value="2">2</option>
-        <option value="3">3</option>
-        <option value="4">4</option>
-        <option value="6">6</option>
-        <option value="8">8</option>
-    </select>
+    <!-- MISE EN AVANT : un réglage déjà là, mais discret au point de passer pour absent (retour
+         utilisateur : « je peux voir uniquement une mesure en horizontal » sur téléphone — c'est
+         justement ce champ, en « Auto », qui décidait de n'en montrer qu'une). Un rang de boutons,
+         pas un menu déroulant cliqué à l'aveugle : chaque valeur se voit et se choisit d'un seul
+         geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne. -->
+    <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
     <span class="separateur"></span>
     <!-- Métronome — repris de HarmoHub : deux boutons, l'icône du second reflétant son propre état
          (noire seule = clic sur le temps seulement, deux croches reliées = clic de subdivision en
@@ -113,9 +110,6 @@
             <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
         </svg>
     </button>
-    <span class="separateur"></span>
-    <label class="info-transport" for="champ-zoom">Zoom</label>
-    <input type="range" id="champ-zoom" min="6" max="16" step="0.5" value="9" style="width:110px" aria-label="Taille de la partition">
 </div>
 
 <div class="voile" id="fenetre-reglages" hidden>
@@ -199,6 +193,6 @@
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608270200"></script>
+<script type="module" src="src/main.js?v=202608271700"></script>
 </body>
 </html>

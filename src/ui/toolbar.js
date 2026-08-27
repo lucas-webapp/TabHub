@@ -17,6 +17,14 @@ import { armureEffective, modeEffectif } from '../model/score.js';
 
 const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
 
+/** Chevron d'une flèche de défilement de la barre d'outils — dessiné, pas une police (voir la même
+ *  logique dans ui/pave.js pour les flèches de déplacement, un besoin distinct qui n'a pas à
+ *  partager ce petit bout de SVG). */
+function flecheOutilsSvg(sens) {
+    return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M${sens === 'gauche' ? '15 6 L9 12 L15 18' : '9 6 L15 12 L9 18'}"
+        fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+}
+
 // UNE ENCRE CLAIRE, SUR LE FOND SOMBRE DU BOUTON — PAS UN PETIT RECTANGLE « PAPIER ». Une version
 // précédente reproduisait l'encre noire et le papier clair de la partition à même le bouton, pour
 // corriger un problème d'épaisseur de trait ; le remède est allé trop loin dans l'autre sens : des
@@ -103,6 +111,29 @@ function rendreApercu(action) {
 export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     hote.innerHTML = '';
     const aRafraichir = [];
+
+    // FLÈCHES DE DÉFILEMENT — la barre déborde largement à droite dès que les groupes Effets/Mesure/
+    // Écriture s'ajoutent à Durée (retour utilisateur : « les boutons de la barre d'outils dépassent
+    // à droite de l'écran »). `overflow-x: auto` (voir style.css) permet DÉJÀ techniquement d'y
+    // accéder, mais rien ne le montre : pas de barre de défilement visible dans la plupart des
+    // navigateurs, et à la souris (pas au doigt) rien n'indique qu'on peut glisser cette rangée-là en
+    // particulier. Deux boutons COLLÉS aux bords (`position: sticky`, voir style.css) le disent sans
+    // ambiguïté, et fonctionnent aussi bien à la souris qu'au doigt — contrairement au glisser, qui
+    // reste un geste de souris sur cette barre (voir main.js#demarrerGeste pour la même distinction
+    // sur la partition). Cachées d'elles-mêmes quand il n'y a rien à atteindre de ce côté.
+    const PAS_DEFILEMENT = 220;
+    const flecheDefilement = (sens) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `fleche-outils fleche-outils-${sens}`;
+        b.innerHTML = flecheOutilsSvg(sens);
+        b.title = sens === 'gauche' ? 'Défiler la barre d\'outils vers la gauche' : 'Défiler la barre d\'outils vers la droite';
+        b.setAttribute('aria-label', b.title);
+        b.addEventListener('click', () => hote.scrollBy({ left: sens === 'gauche' ? -PAS_DEFILEMENT : PAS_DEFILEMENT, behavior: 'smooth' }));
+        return b;
+    };
+    const flecheGauche = flecheDefilement('gauche');
+    hote.appendChild(flecheGauche);
 
     const groupe = (titre) => {
         const el = document.createElement('div');
@@ -241,6 +272,30 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         // son armure d'un endroit et son mode d'un autre, si le morceau n'a changé que l'un des deux.
         selTonalite.value = `${armureEffective(editeur.partition, editeur.curseur.mesure)}|${modeEffectif(editeur.partition, editeur.curseur.mesure)}`;
     });
+
+    const flecheDroite = flecheDefilement('droite');
+    hote.appendChild(flecheDroite);
+    // Chaque flèche ne se montre que s'il reste RÉELLEMENT quelque chose à atteindre de son côté —
+    // une flèche « gauche » visible alors qu'on est déjà tout à gauche mentirait sur ce qu'elle fait.
+    // Une marge d'un pixel : les navigateurs arrondissent scrollLeft/scrollWidth différemment, une
+    // égalité stricte clignoterait sur certains.
+    const rafraichirFleches = () => {
+        flecheGauche.classList.toggle('invisible', hote.scrollLeft <= 1);
+        flecheDroite.classList.toggle('invisible', hote.scrollLeft + hote.clientWidth >= hote.scrollWidth - 1);
+    };
+    aRafraichir.push(rafraichirFleches);
+    hote.addEventListener('scroll', rafraichirFleches, { passive: true });
+
+    // MOLETTE VERTICALE -> DÉFILEMENT HORIZONTAL. Une souris ordinaire ne molette que verticalement ;
+    // sans ce relais, la SEULE façon d'atteindre le bout de la barre à la souris serait de repérer les
+    // flèches ci-dessus ou de connaître Maj+molette — un geste obscur que personne ne devine. Ne
+    // s'applique que si le geste est FRANCHEMENT vertical (deltaX déjà dominant = un pavé tactile qui
+    // fait déjà tout ce qu'il faut, ne pas le contrarier).
+    hote.addEventListener('wheel', (e) => {
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+        hote.scrollLeft += e.deltaY;
+        e.preventDefault();
+    }, { passive: false });
 
     const rafraichir = () => { for (const fn of aRafraichir) fn(); };
     rafraichir();

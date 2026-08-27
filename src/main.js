@@ -39,7 +39,6 @@ import { VALEURS_FIGURES } from './model/duration.js';
 const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
 
 const CLE_BROUILLON = 'tabhub.brouillon';
-const CLE_ZOOM = 'tabhub.zoom';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
@@ -67,7 +66,11 @@ class TabHubApp {
         // l'application. Sans ce rattrapage, TabHub redevient définitivement muet au retour.
         this.lecteur.brancherReveilAudio();
         this.page = null;
-        this.interligne = parseFloat(localStorage.getItem(CLE_ZOOM)) || 9;
+        // Le curseur de zoom a disparu (retour utilisateur : redondant avec le nombre de
+        // mesures par ligne, mis en avant juste après — voir construireBoutonsMesuresLigne) :
+        // l'interligne de la portée reste réglé une fois pour toutes, à une valeur qui a fait ses
+        // preuves comme défaut du curseur disparu.
+        this.interligne = 9;
         // 0 = « Auto » (glouton). Une préférence d'AFFICHAGE, pas de contenu musical : elle
         // reste locale au navigateur et ne voyage jamais dans le .json — rouvrir le même
         // morceau sur un autre poste doit retomber sur l'agencement automatique.
@@ -100,8 +103,7 @@ class TabHubApp {
             message: document.getElementById('message'),
             titre: document.getElementById('champ-titre'),
             tempo: document.getElementById('champ-tempo'),
-            zoom: document.getElementById('champ-zoom'),
-            mesuresLigne: document.getElementById('champ-mesures-ligne'),
+            groupeMesuresLigne: document.getElementById('groupe-mesures-ligne'),
             metronome: document.getElementById('btn-metronome'),
             metronomeSubdivision: document.getElementById('btn-metronome-subdivision'),
             position: document.getElementById('info-position'),
@@ -380,6 +382,47 @@ class TabHubApp {
             : '<ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/><path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>';
     }
 
+    /**
+     * Le nombre de mesures par ligne, EN BOUTONS plutôt qu'en menu déroulant — mis en avant à la
+     * demande (retour utilisateur : « c'est un bouton utile », après avoir signalé qu'on ne voit
+     * qu'une seule mesure à l'horizontale sur téléphone : c'est justement ce réglage, resté sur
+     * « Auto », qui décidait de n'en montrer qu'une seule à l'écran). Un menu déroulant cache ses
+     * valeurs tant qu'on ne l'ouvre pas ; un rang de boutons les montre toutes d'un coup d'œil, et se
+     * choisit d'un seul geste — la même logique que la palette d'outils au-dessus.
+     *
+     * Construit UNE FOIS (comme la barre d'outils, voir ui/toolbar.js) ; seule la classe « actif »
+     * bouge ensuite, voir rafraichirInfos ci-dessous, appelé à chaque redessin.
+     */
+    construireBoutonsMesuresLigne() {
+        const hote = this.el.groupeMesuresLigne;
+        hote.innerHTML = '';
+        const valeurs = [0, 2, 3, 4, 6, 8];   // 0 = Auto, comme l'ancien <select>
+        this.boutonsMesuresLigne = valeurs.map((valeur) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn-mesures-ligne';
+            b.textContent = valeur === 0 ? 'Auto' : String(valeur);
+            b.title = valeur === 0
+                ? 'Mesures par ligne : automatique (autant que la largeur le permet)'
+                : `${valeur} mesures par ligne, quelle que soit la largeur de l'écran (défiler pour voir la suite)`;
+            b.setAttribute('aria-label', b.title);
+            b.addEventListener('click', () => {
+                this.mesuresParLigne = valeur;
+                localStorage.setItem(CLE_MESURES_LIGNE, String(this.mesuresParLigne));
+                this.rafraichirBoutonsMesuresLigne();
+                this.dessiner();
+                this.el.zone.focus();
+            });
+            hote.appendChild(b);
+            return { valeur, el: b };
+        });
+        this.rafraichirBoutonsMesuresLigne();
+    }
+
+    rafraichirBoutonsMesuresLigne() {
+        for (const { valeur, el } of this.boutonsMesuresLigne) el.classList.toggle('actif', valeur === this.mesuresParLigne);
+    }
+
     rafraichirInfos() {
         const c = this.editeur.curseur;
         const total = this.editeur.partition.mesures.length;
@@ -596,19 +639,7 @@ class TabHubApp {
         this.el.tempo.addEventListener('change', () => this.editeur.definirTempo(parseInt(this.el.tempo.value, 10)));
         this.el.tempo.addEventListener('input', () => this.lecteur.definirTempo(parseInt(this.el.tempo.value, 10) || 120));
 
-        this.el.zoom.value = this.interligne;
-        this.el.zoom.addEventListener('input', () => {
-            this.interligne = parseFloat(this.el.zoom.value);
-            localStorage.setItem(CLE_ZOOM, String(this.interligne));
-            this.dessiner();
-        });
-
-        this.el.mesuresLigne.value = String(this.mesuresParLigne);
-        this.el.mesuresLigne.addEventListener('change', () => {
-            this.mesuresParLigne = parseInt(this.el.mesuresLigne.value, 10) || 0;
-            localStorage.setItem(CLE_MESURES_LIGNE, String(this.mesuresParLigne));
-            this.dessiner();
-        });
+        this.construireBoutonsMesuresLigne();
 
         // Métronome : ne touche à rien de la lecture EN COURS (voir Lecteur.jouer, qui ne
         // reprogramme le transport qu'au prochain départ depuis l'arrêt) — comme tout autre

@@ -4,9 +4,11 @@
 // large — pratique pour ne rien gâcher, mais un musicien qui veut une lecture RÉGULIÈRE d'un bout à
 // l'autre (« toujours 4 mesures par ligne », comme un vrai carnet de tablatures) n'a aucun moyen de
 // l'imposer. C'est ce que ce banc éprouve, à trois niveaux :
-//   • le MOTEUR (`mettreEnPage({ mesuresParLigne })`) : le compte demandé est honoré tel quel tant
-//     qu'il reste POSABLE, et cède la place — une mesure à la fois, jamais toutes d'un coup — dès
-//     que `n` mesures dépasseraient littéralement la largeur utile.
+//   • le MOTEUR (`mettreEnPage({ mesuresParLigne })`) : le compte demandé est TOUJOURS honoré tel
+//     quel, même si le système déborde la largeur utile — la page grandit alors pour l'accueillir
+//     plutôt que de réduire discrètement le compte (voir mettreEnPage et `.zone-partition
+//     { overflow: auto }`) : un choix explicite ne doit jamais s'effacer faute de place, justement
+//     là où il sert le plus (un téléphone étroit).
 //   • LA LARGEUR ELLE-MÊME (voir layout.js, LARGEUR_PAR_NOIRE) : deux mesures de MÊME signature ont
 //     TOUJOURS exactement la même largeur, qu'elles soient denses (rafale de doubles-croches) ou
 //     vides (un silence) — la largeur ne dépend QUE de la capacité rythmique, jamais du contenu. Un
@@ -15,16 +17,17 @@
 //     s'y joue. Aucun système n'est plus étiré pour combler la ligne (voir l'étape 3, désormais
 //     `facteur: 1` partout) : une ligne incomplète laisse du blanc à droite plutôt que de fausser
 //     cette égalité.
-//   • L'INTERFACE (`#champ-mesures-ligne`) : le sélecteur change réellement la mise en page, et le
-//     choix survit à un rechargement — c'est une préférence d'AFFICHAGE, gardée en local, jamais
-//     écrite dans le .json (rouvrir le même morceau ailleurs doit retomber sur « Auto »).
+//   • L'INTERFACE (le rang de boutons `.btn-mesures-ligne`, plus un menu déroulant) : cliquer un
+//     bouton change réellement la mise en page, et le choix survit à un rechargement — c'est une
+//     préférence d'AFFICHAGE, gardée en local, jamais écrite dans le .json (rouvrir le même morceau
+//     ailleurs doit retomber sur « Auto »).
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
 
 (async () => {
-    plan(23);
+    plan(29);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : tous les cas au même endroit, une seule mise en page par cas ---
@@ -104,6 +107,18 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
             pSig.mesures[1].signature = { battements: 3, unite: 4 };
             const pageSig = L.mettreEnPage(pSig, { largeurPage: 1100, S: 10, mesuresParLigne: 2 });
 
+            // 9. Page ABSURDEMENT étroite (plus étroite qu'une seule mesure, même vide) : le compte
+            //    demandé n'est PLUS JAMAIS réduit à cause de la largeur — c'est justement ce que ce
+            //    réglage promet (retour utilisateur : « sur téléphone, je peux voir uniquement une
+            //    mesure en horizontal... je veux définir le nombre de mesures visibles par ligne »).
+            //    Une version antérieure réduisait le compte jusqu'à ce que ça tienne dans la largeur
+            //    utile ; ici, ça ne tiendrait jamais (largeur utile ridicule), donc l'ancien
+            //    comportement aurait posé six systèmes d'UNE seule mesure — exactement le cas d'un
+            //    téléphone, là où ce réglage sert le plus. Le système déborde maintenant franchement
+            //    plutôt que d'être rétréci (voir mettreEnPage : la page grandit pour l'accueillir, et
+            //    `.zone-partition { overflow: auto }` la rend atteignable au défilement).
+            const page9 = L.mettreEnPage(partitionDe(6, mesureSimple), { largeurPage: 60, S: 10, mesuresParLigne: 3 });
+
             return {
                 comptes1: compteParSysteme(page1),
                 largeurNonPremiere1: largeurMesure(page1, 1), largeurNonPremiere5: largeurMesure(page1, 5),
@@ -118,6 +133,9 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
                 largeursMix: pageMix.ancrages.mesures.map((_, i) => largeurMesure(pageMix, i)),
                 capacitesSig: pageSig.ancrages.mesures.map(a => a.capacite),
                 largeursNotesSig: pageSig.ancrages.mesures.map(a => a.largeurNotes),
+                comptes9: compteParSysteme(page9),
+                largeurUtile9: 60 - 34 - 22,
+                largeurSysteme9: page9.ancrages.systemes.length ? largeurSysteme(page9, 0) : 0,
             };
         });
 
@@ -152,10 +170,22 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
         check(Math.abs(r.largeursNotesSig[1] / r.largeursNotesSig[0] - 0.75) < 1e-6,
             'CHANGEMENT DE SIGNATURE : la largeur de note d\'une mesure à 3/4 fait exactement les 3/4 de celle d\'une mesure à 4/4 (même LARGEUR_PAR_NOIRE)');
 
-        // --- L'interface : le sélecteur pilote réellement le moteur, et son choix survit ------------
-        const selecteur = await page.$('#champ-mesures-ligne');
-        exiger(!!selecteur, 'le sélecteur « Mes./ligne » existe dans la barre de transport');
-        check((await selecteur.inputValue()) === '0', 'et vaut « Auto » par défaut, brouillon vierge');
+        exiger(r.comptes9.join(',') === '3,3', '9. page bien plus étroite qu\'une seule mesure, 3 demandées : toujours deux systèmes de 3 (plus jamais réduit à 1 faute de place)');
+        check(r.largeurSysteme9 > r.largeurUtile9, 'et le système déborde franchement la largeur utile plutôt que d\'y être rétréci (la page grandit pour l\'accueillir, voir mettreEnPage)');
+
+        // --- L'interface : le rang de boutons (plus un menu déroulant, voir main.js#construireBoutons
+        // MesuresLigne) pilote réellement le moteur, et son choix survit --------------------------
+        const texteBoutons = () => page.evaluate(() =>
+            [...document.querySelectorAll('.btn-mesures-ligne')].map(b => ({ texte: b.textContent, actif: b.classList.contains('actif') })));
+        const cliquerBouton = (texte) => page.evaluate((texte) => {
+            document.querySelectorAll('.btn-mesures-ligne').forEach(b => { if (b.textContent === texte) b.click(); });
+        }, texte);
+
+        exiger(await page.$('#groupe-mesures-ligne') !== null, 'le rang de boutons « Mesures par ligne » existe dans la barre de transport');
+        const boutonsInitiaux = await texteBoutons();
+        check(boutonsInitiaux.map(b => b.texte).join(',') === 'Auto,2,3,4,6,8', 'six choix proposés : Auto, 2, 3, 4, 6, 8 — plus de menu cachant ses valeurs');
+        check(boutonsInitiaux.find(b => b.texte === 'Auto').actif === true, 'et « Auto » porte seul la classe actif par défaut, brouillon vierge');
+        check(await page.evaluate(() => !document.getElementById('champ-zoom')), 'le curseur de zoom a disparu (redondant avec ce rang de boutons, mis en avant à sa place)');
 
         // Huit mesures simples injectées directement, comme le fait le banc de tenue en charge —
         // de quoi observer un vrai regroupement par ligne, indépendamment de la largeur réelle de
@@ -168,7 +198,7 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
             }));
             ed.prevenir('document');
         });
-        await page.selectOption('#champ-mesures-ligne', '4');
+        await cliquerBouton('4');
         await page.waitForTimeout(150);
 
         const apres = await page.evaluate(() => {
@@ -180,9 +210,12 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
                 stocke: localStorage.getItem('tabhub.mesuresParLigne'),
             };
         });
-        check(apres.geo === 4, 'choisir « 4 » dans le sélecteur atteint bien le moteur de mise en page (geo.mesuresParLigne)');
+        check(apres.geo === 4, 'cliquer « 4 » atteint bien le moteur de mise en page (geo.mesuresParLigne)');
         check(apres.comptes.every(n => n <= 4) && apres.comptes.some(n => n === 4), 'et regroupe réellement les mesures par lignes de 4 au maximum');
         check(apres.stocke === '4', 'le choix est retenu en local (localStorage), pas seulement en mémoire');
+        const boutonsApres = await texteBoutons();
+        check(boutonsApres.find(b => b.texte === '4').actif === true && boutonsApres.filter(b => b.actif).length === 1,
+            'et SEUL le bouton « 4 » porte désormais la classe actif (jamais deux à la fois)');
 
         // Un rechargement retrouve le même choix — et lui seul : c'est une préférence d'AFFICHAGE,
         // jamais écrite dans le .json de la partition.
@@ -190,11 +223,11 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
         await page.waitForFunction(() => window.app && window.app.page, null, { timeout: 20000 });
         await page.waitForTimeout(200);
         const apresRechargement = await page.evaluate(() => ({
-            valeurSelecteur: document.getElementById('champ-mesures-ligne').value,
+            boutonActif: document.querySelector('.btn-mesures-ligne.actif')?.textContent,
             mesuresParLigne: window.app.mesuresParLigne,
             dansLeJson: JSON.stringify(window.app.editeur.partition).includes('mesuresParLigne'),
         }));
-        check(apresRechargement.valeurSelecteur === '4' && apresRechargement.mesuresParLigne === 4, 'le choix survit au rechargement de la page');
+        check(apresRechargement.boutonActif === '4' && apresRechargement.mesuresParLigne === 4, 'le choix survit au rechargement de la page');
         check(!apresRechargement.dansLeJson, 'sans jamais se glisser dans le modèle de la partition (le .json reste indépendant de l\'affichage)');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
