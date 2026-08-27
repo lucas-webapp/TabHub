@@ -33,7 +33,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(42);
+    plan(49);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -178,6 +178,28 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const contenuMesure1ApresL = ed.partition.mesures[1].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
             const curseurApresL = { ...ed.curseur };
 
+            // --- M. corrigerDebordement répare aussi une mesure SOUS-remplie, pas seulement une qui
+            //     déborde — le même défaut que L, mais vu depuis la commande AUTONOME (Alt+R /
+            //     ⇥ Corriger), pour une mesure déjà invalide d'un autre chemin qu'une édition en
+            //     direct (résidu de l'ancien bug, ou fichier ouvert d'avant ce correctif). Trois
+            //     croches puis un silence de croche : 2/4 temps écrits, la voix manque de 2 temps —
+            //     jamais l'inverse (aucune figure ne dépasse la capacité) : `ecartMesure` est donc
+            //     NÉGATIF, et le bouton doit malgré tout apparaître (voir raccourcis.js, Math.abs).
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                ...[5, 7, 5].map(f => m.creerEvenement({ valeur: 8 }, [m.creerNote(0, f)])),
+                m.creerEvenement({ valeur: 8 }, [], { silence: true }),
+            ];
+            ed.curseur = { mesure: 0, voix: 0, evenement: 3, corde: 0 };
+            const ecartAvantM = ed.ecartMesure();
+            const boutonVisibleAvantM = Math.abs(ed.ecartMesure()) > 1e-9;
+            const mesuresAvantM = ed.partition.mesures.length;
+            const okM = ed.corrigerDebordement();
+            const mesuresApresM = ed.partition.mesures.length;
+            const contenuApresM = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
+            const dureeApresM = dureeEn(ed.partition.mesures[0]);
+            const okRappelM = ed.corrigerDebordement();   // déjà valide : ne doit RIEN refaire
+
             return {
                 mesuresAvantA, okA, contenuMesure0ApresA, dureeMesure0ApresA, contenuMesure1ApresA, curseurApresA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
@@ -192,6 +214,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 mesuresAvantK, okK, mesuresApresUnSeulK, contenuMesure0ApresK,
                 mesuresAvantL, okL, contenuMesure0ApresL, dureeMesure0ApresL, dureeDernierSilenceApresL,
                 mesuresApresL, dureeMesure1ApresL, contenuMesure1ApresL, curseurApresL,
+                ecartAvantM, boutonVisibleAvantM, mesuresAvantM, okM, mesuresApresM, contenuApresM, dureeApresM, okRappelM,
             };
         });
 
@@ -249,6 +272,14 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         check(Math.abs(r.dureeMesure1ApresL - 4) < 1e-6, 'et cette mesure neuve retombe elle aussi exactement sur sa capacité');
         check(r.contenuMesure1ApresL.every(f => f === '_'), 'entièrement du silence : aucune note n\'a été déplacée, seul l\'excédent du silence l\'a été');
         check(r.curseurApresL.mesure === 0 && r.curseurApresL.evenement === 0, 'le curseur reste sur la croche allongée, restée dans la mesure d\'origine');
+
+        check(r.ecartAvantM < 0, 'M. une voix qui MANQUE de temps (jamais un débordement) donne un écart NÉGATIF');
+        check(r.boutonVisibleAvantM === true, 'et le bouton ⇥ Corriger apparaît quand même (Math.abs de l\'écart, pas seulement un excédent)');
+        exiger(r.okM === true, 'corrigerDebordement répare aussi ce manque, ne se limite plus au débordement');
+        check(r.mesuresApresM === r.mesuresAvantM, 'AUCUNE mesure neuve : il y avait déjà la place, un simple silence de fin suffit');
+        check(r.contenuApresM.join(',') === '5,7,5,_,_', 'les trois croches restent, complétées d\'un silence — rien perdu, rien déplacé');
+        check(Math.abs(r.dureeApresM - 4) < 1e-6, 'la mesure retombe exactement sur sa capacité');
+        check(r.okRappelM === false, 'un second appel ne fait plus rien : la mesure est déjà valide');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

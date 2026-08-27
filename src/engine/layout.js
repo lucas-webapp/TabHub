@@ -571,8 +571,21 @@ export function mettreEnPage(partition, options = {}) {
         y += hauteurSysteme + geo.ecartSystemes * S;
     });
 
+    // LA PAGE NE RÉTRÉCIT JAMAIS SON CONTENU POUR TENIR DANS largeurPage — un système qui ne peut
+    // matériellement pas accueillir sa mesure la plus large sans dépasser (zoom élevé sur un écran
+    // étroit, ou une seule mesure trop dense pour la largeur demandée) reste à sa largeur RÉELLE
+    // (voir plus haut, xFin de chaque système), jamais compressé : la largeur fixe des mesures
+    // (LARGEUR_PAR_NOIRE) est un invariant, pas une simple préférence qu'on écraserait ici en douce.
+    // Sans ce `Math.max`, `largeur` valait TOUJOURS `geo.largeurPage`, même quand le contenu réel
+    // allait plus loin — le SVG (voir render/svg.js, qui pose `width`/`viewBox` sur cette même
+    // valeur) rognait alors silencieusement tout ce qui dépassait, INVISIBLE et INACCESSIBLE : rien
+    // à voir, et donc rien à faire défiler pour l'atteindre — pas un geste de défilement bloqué, un
+    // contenu qui n'existait tout simplement plus à l'écran (trouvé en vérifiant un signalement
+    // « impossible de défiler horizontalement au téléphone »).
+    const largeurContenu = Math.max(0, ...ancrages.systemes.map(s => s.xFin)) + geo.margeDroite;
+
     return {
-        largeur: geo.largeurPage,
+        largeur: Math.max(geo.largeurPage, largeurContenu),
         hauteur: Math.max(y - geo.ecartSystemes * S, hauteurSysteme),
         primitives, ancrages,
         enTete: { debut: 0, fin: debutCorps },

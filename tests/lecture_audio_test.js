@@ -11,7 +11,7 @@ const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(25);
+    plan(27);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
@@ -104,13 +104,27 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
         await page.evaluate(() => window.app.editeur.basculerEffetEvenement('palmMute'));
         await page.click('#btn-jouer');
         await page.waitForTimeout(500);
-        const p1 = await page.evaluate(() => ({ etat: window.app.lecteur.etat, pos: window.app.lecteur.position, marques: window.app.marquesLecture().length }));
+        const p1 = await page.evaluate(() => ({
+            etat: window.app.lecteur.etat, pos: window.app.lecteur.position,
+            marques: window.app.marquesLecture().length,
+            couleursLecture: window.app.marquesLecture().map(m => m.couleur),
+            couleursCurseur: window.app.marquesCurseur().map(m => m.couleur),
+        }));
         exiger(p1.etat === 'lecture', 'la lecture démarre');
         check(p1.pos > 0, 'et le transport avance');
         // Trait + traînée (deux bandes translucides derrière lui) : voir marquesLecture dans
         // main.js — plus le bandeau de surlignage d'une version antérieure, remplacé par ce trait
         // qui parcourt toute la hauteur (portée, TAB, réglette).
         check(p1.marques === 3, 'la tête de lecture est dessinée (trait + traînée)');
+        // AMBRE, jamais le vert du curseur d'édition — les deux repères coexistent à l'écran et
+        // doivent rester reconnaissables l'un de l'autre (voir --lecture / --curseur dans style.css).
+        // Un vrai défaut trouvé ainsi : la tête de lecture se dessinait avec les MÊMES teintes que le
+        // curseur d'édition, donc invisible EN TANT QUE repère distinct (retour utilisateur : « je ne
+        // vois pas comment mettre en place la barre de lecture orange »).
+        check(p1.couleursLecture.every(c => c.includes('255, 152, 0') || c === 'var(--lecture)'),
+            'la tête de lecture est bien ambre (var(--lecture)), pas verte');
+        check(!p1.couleursLecture.some(c => p1.couleursCurseur.includes(c)),
+            'et ne partage AUCUNE des couleurs du curseur d\'édition');
 
         // Le trait doit lire la position RÉELLE du transport. On compare donc les deux : s'ils
         // s'accordent à toute vitesse, c'est qu'il n'y a pas deux horloges.

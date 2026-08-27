@@ -301,10 +301,15 @@ class TabHubApp {
         this.faireDefilerVers(a, haut, bas);
 
         const largeurTrait = Math.max(1.2, S * 0.15);
+        // AMBRE, jamais le vert du curseur d'édition : les deux repères coexistent à l'écran (on
+        // peut éditer une mesure pendant que la lecture tourne plus loin) et doivent rester
+        // reconnaissables au premier coup d'œil l'un de l'autre — voir la variable --lecture, restée
+        // inutilisée ici jusqu'à ce correctif (le trait de lecture se dessinait avec les mêmes
+        // teintes que le curseur, donc invisible EN TANT QUE tel : rien ne le distinguait).
         return [
-            { t: 'rect', x: x - S * 1.6, y: haut, w: S * 1.0, h: bas - haut, couleur: 'rgba(0, 200, 83, 0.07)' },
-            { t: 'rect', x: x - S * 0.6, y: haut, w: S * 0.6, h: bas - haut, couleur: 'rgba(0, 200, 83, 0.16)' },
-            { t: 'rect', x: x - largeurTrait / 2, y: haut, w: largeurTrait, h: bas - haut, couleur: 'var(--curseur)' },
+            { t: 'rect', x: x - S * 1.6, y: haut, w: S * 1.0, h: bas - haut, couleur: 'rgba(255, 152, 0, 0.07)' },
+            { t: 'rect', x: x - S * 0.6, y: haut, w: S * 0.6, h: bas - haut, couleur: 'rgba(255, 152, 0, 0.16)' },
+            { t: 'rect', x: x - largeurTrait / 2, y: haut, w: largeurTrait, h: bas - haut, couleur: 'var(--lecture)' },
         ];
     }
 

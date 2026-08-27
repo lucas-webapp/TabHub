@@ -593,11 +593,19 @@ export class Editeur {
                 }
                 total = capacite;   // la mesure est désormais pleine : plus rien après n'y tient
             }
-            return { gardes, enTrop, totalEnTrop: enTrop.reduce((t, e) => t + dureeEnNoires(e.duree), 0) };
+            // `total` s'arrête à `capacite` dès qu'une voix déborde (voir plus haut) : `manque` ne
+            // peut donc jamais être positif EN MÊME TEMPS que `enTrop` pour une même voix — un
+            // silence de fin trop COURT (voix qui ne remplit pas sa mesure, jamais produit par une
+            // édition en direct, mais possible dans un fichier ouvert d'avant ce garde-fou, ou d'avant
+            // le correctif du découpage des silences ci-dessus) est un défaut SÉPARÉ, à l'opposé du
+            // débordement, que `corrigerDebordement` doit pouvoir réparer lui aussi.
+            const manque = Math.max(0, capacite - total);
+            return { gardes, enTrop, manque, totalEnTrop: enTrop.reduce((t, e) => t + dureeEnNoires(e.duree), 0) };
         });
         return {
             index, m, capacite, parVoix,
             deborde: parVoix.some(v => v.enTrop.length),
+            sousRempli: parVoix.some(v => v.manque > 1e-9),
             impossible: parVoix.some(v => v.enTrop.some(e => dureeEnNoires(e.duree) > capacite + 1e-9)),
         };
     }
@@ -611,7 +619,21 @@ export class Editeur {
      * ces mesures neuves. PURE mutation — ni memoriser, ni prevenir, ni curseur : l'appelant en décide.
      */
     _appliquerRepartition({ index, m, capacite, parVoix }) {
-        m.voix.forEach((voix, i) => { voix.evenements = parVoix[i].gardes; });
+        // Une voix SOUS-remplie (voir `_diagnostiquerDebordement`) se complète sur PLACE, par un
+        // silence de fin — jamais besoin d'une mesure neuve pour ça, il lui restait justement de la
+        // place. Sans ce comblement, une voix qui n'avait rien en trop (`enTrop` vide) ne recevait
+        // jamais son silence manquant : le diagnostic le voyait, mais rien ne l'appliquait.
+        m.voix.forEach((voix, i) => {
+            const gardes = parVoix[i].gardes.slice();
+            if (parVoix[i].manque > 1e-9) gardes.push(...decouperEnEvenements(parVoix[i].manque));
+            voix.evenements = gardes;
+        });
+
+        // Aucune mesure neuve si rien ne déborde VRAIMENT (un simple comblement de manque, par
+        // exemple) : `Math.max(1, ...)` sans cette garde en créait une, vide, à chaque fois.
+        const totalEnTrop = parVoix.reduce((t, v) => t + v.totalEnTrop, 0);
+        if (totalEnTrop <= 1e-9) return;
+
         const nMesuresSupp = Math.max(1, ...parVoix.map(v => Math.ceil((v.totalEnTrop - 1e-9) / capacite)));
         const nouvelles = Array.from({ length: nMesuresSupp }, () => creerMesure({
             voix: m.voix.map(() => ({ evenements: [] })),
@@ -675,16 +697,18 @@ export class Editeur {
     }
 
     /**
-     * RÉPARE une mesure DÉJÀ trop pleine (déborde sa capacité) — commande AUTONOME (Alt+R), pour une
-     * mesure devenue invalide par un autre chemin qu'une édition en direct (un fichier ouvert d'avant
-     * ce garde-fou, par exemple) : rien ne la corrige toute seule, une mesure qui déborde ne dit
-     * jamais d'elle-même où l'excédent devrait aller. Voir `_diagnostiquerDebordement`/
-     * `_appliquerRepartition` pour le mécanisme, partagé avec l'édition en direct.
+     * RÉPARE une mesure DÉJÀ invalide (une voix ne totalise pas exactement sa capacité, trop OU pas
+     * assez) — commande AUTONOME (Alt+R), pour une mesure devenue invalide par un autre chemin qu'une
+     * édition en direct (un fichier ouvert d'avant ce garde-fou, ou d'avant le correctif du découpage
+     * des silences en débordement, par exemple) : rien ne la corrige toute seule, une mesure invalide
+     * ne dit jamais d'elle-même où l'excédent devrait aller, ni de combien la compléter. Voir
+     * `_diagnostiquerDebordement`/`_appliquerRepartition` pour le mécanisme, partagé avec l'édition
+     * en direct.
      */
     corrigerDebordement(index = this.curseur.mesure) {
         this.derniereErreur = null;
         const diag = this._diagnostiquerDebordement(index);
-        if (!diag.deborde) return false;   // déjà valide, rien à faire
+        if (!diag.deborde && !diag.sousRempli) return false;   // déjà valide, rien à faire
         if (diag.impossible) {
             this.derniereErreur = 'Une figure de cette mesure dépasse à elle seule la capacité d\'une mesure entière — impossible à répartir automatiquement.';
             return false;

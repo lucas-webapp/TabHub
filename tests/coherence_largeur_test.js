@@ -18,7 +18,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('cohérence de largeur');
 
 (async () => {
-    plan(7);
+    plan(10);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -55,7 +55,29 @@ const { check, exiger, plan, bilan } = creerHarnais('cohérence de largeur');
             const page2 = L.mettreEnPage(p, { largeurPage: 1300, S: 10 });
             const largeursPage2 = mesurer(page2);
 
-            return { largeursPage1, largeursPage2 };
+            // --- La page ne rogne JAMAIS son contenu pour tenir dans largeurPage ------------------
+            // Une seule mesure très dense (seize doubles-croches, 4/4), posée avec un `S` généreux
+            // mais une `largeurPage` délibérément trop étroite pour elle : aucun découpage en
+            // systèmes ne peut aider (une mesure ne se coupe jamais en deux), donc cette mesure DOIT
+            // dépasser la largeur demandée. Un vrai défaut trouvé ainsi (signalement : « impossible
+            // de défiler horizontalement au téléphone ») : `page.largeur` valait alors TOUJOURS
+            // `largeurPage`, quoi que contienne la mesure — le SVG (voir render/svg.js, qui pose
+            // `width`/`viewBox` sur cette même valeur) rognait donc le surplus, invisible et
+            // inatteignable par aucun défilement, puisque le conteneur ne le savait jamais assez
+            // large pour ça.
+            const pTrop = m.creerPartition('guitare');
+            pTrop.mesures = [m.creerMesure({
+                signature: { battements: 4, unite: 4 }, armure: 0,
+                voix: [{ evenements: Array.from({ length: 16 }, (_, i) => m.creerEvenement({ valeur: 16 }, [cr(0, (i % 20))])) }],
+            })];
+            const pageTrop = L.mettreEnPage(pTrop, { largeurPage: 200, S: 20 });
+            const finReelle = Math.max(...pageTrop.ancrages.mesures.map(a => a.xFin));
+
+            return {
+                largeursPage1, largeursPage2,
+                largeurPage1: page1.largeur, largeurPage2: page2.largeur,
+                largeurDemandeeTrop: 200, largeurObtenueTrop: pageTrop.largeur, finReelleTrop: finReelle,
+            };
         });
 
         const [l1] = [r.largeursPage1];
@@ -68,6 +90,12 @@ const { check, exiger, plan, bilan } = creerHarnais('cohérence de largeur');
         check(l2[1].largeur === l2[3].largeur, 'la même propriété tient à une largeur de page différente (facteur d\'étirement différent)');
         check(Math.abs(l2[0].ecartAvantBarre - l2[1].ecartAvantBarre) < 0.02, 'la marge avant la barre ne dépend toujours pas de l\'en-tête, même très étiré');
         check(Math.abs(l2[2].ecartAvantBarre - l2[1].ecartAvantBarre) < 0.02, 'et la mesure à armure change de largeur, pas sa marge finale');
+
+        check(r.largeurPage1 === 1150, 'quand le contenu tient dans la largeur demandée, la page GARDE exactement cette largeur (page large)');
+        check(r.largeurPage2 === 1300, 'même chose à une largeur demandée différente (aucun agrandissement inutile)');
+
+        exiger(r.largeurObtenueTrop >= r.finReelleTrop - 0.02, 'une mesure trop dense pour largeurPage fait GRANDIR la page plutôt que d\'en rogner le contenu');
+        check(r.largeurObtenueTrop > r.largeurDemandeeTrop, 'la page dépasse bien la largeur demandée dans ce cas (200px, très insuffisant ici)');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
