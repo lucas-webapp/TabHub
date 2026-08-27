@@ -144,6 +144,29 @@ export class Lecteur {
                 return this;
             },
         };
+        // LA VOIX DE BEND — monophonique, et à part. Un bend est le SEUL effet dont la hauteur bouge
+        // PENDANT que la note sonne, et ni Tone.Sampler ni Tone.PolySynth n'offrent la moindre prise
+        // sur la hauteur d'une voix déjà attaquée (vérifié sur la version vendue : `detune` absent de
+        // l'un comme de l'autre, aucun signal rampable). Seul `Tone.Synth`, monophonique, expose une
+        // `frequency` que l'on peut faire glisser — c'est donc lui, et lui seul, qui joue les notes
+        // bendées, avec une vraie rampe de hauteur.
+        //
+        // CE QUE ÇA COÛTE, EN TOUTE FRANCHISE : une note bendée n'a pas le timbre du piano
+        // échantillonné, mais celui de cette onde (la même recette que la doublure ci-dessus, pour
+        // détonner le moins possible). C'est le prix d'un bend RÉELLEMENT entendu comme un
+        // glissement de hauteur, plutôt que d'une note plaquée qui ne bouge pas — ce qui était
+        // exactement le défaut signalé (« à la lecture je n'entends rien »).
+        //
+        // Monophonique parce qu'un bend simultané sur deux cordes est rare, et qu'une voix unique
+        // évite d'allouer/détruire un synthé à chaque note bendée.
+        const filtreBend = new Tone.Filter({ type: 'lowpass', frequency: 3600, Q: 0.5 });
+        const volumeBend = new Tone.Volume(TRIM_DB);
+        this.voixBend = new Tone.Synth({
+            oscillator: { type: 'triangle' },
+            envelope: { attack: 0.006, decay: 0.42, sustain: 0.14, release: 1.1 },
+        });
+        this.voixBend.chain(filtreBend, volumeBend, Tone.Destination);
+
         this.pret = true;
     }
 
@@ -231,6 +254,10 @@ export class Lecteur {
                     duree: Math.max(0.05, sonnante),
                     note: midiVersNomTone(midi),
                     velocite: Math.max(0.05, Math.min(1, velocite)),
+                    // Le BEND voyage jusqu'à la programmation en DEMI-TONS, pas en nom de note : c'est
+                    // d'une hauteur qui GLISSE qu'il s'agit, et une rampe se calcule en fréquence (voir
+                    // la voix de bend, plus bas). `null` quand la note n'est pas bendée — le cas courant.
+                    bend: note.bend ? { midi, demiTons: note.bend.demiTons } : null,
                 });
             }
         });
@@ -247,12 +274,44 @@ export class Lecteur {
             Tone.Transport.schedule((temps) => {
                 // La DURÉE, elle, doit bien être en secondes au moment du déclenchement : on la
                 // convertit ici, donc au tempo courant, et non à celui d'il y a une minute.
-                this.synthe.triggerAttackRelease(e.note, Tone.Ticks(ticksDuree).toSeconds(), temps, e.velocite);
+                const secondes = Tone.Ticks(ticksDuree).toSeconds();
+                if (e.bend) this._jouerBend(e, secondes, temps);
+                else this.synthe.triggerAttackRelease(e.note, secondes, temps, e.velocite);
             }, `${Math.round(e.debut * PPQ)}i`);
         }
 
         // Arrêt net à la fin du morceau plutôt qu'un transport qui tourne dans le vide.
         Tone.Transport.schedule(() => { this.arreter(); }, `${Math.round((this.duree + 0.05) * PPQ)}i`);
+    }
+
+    /**
+     * Joue une note BENDÉE : attaque à la hauteur écrite, puis GLISSE jusqu'à la hauteur visée.
+     *
+     * LA FORME DU GESTE compte autant que la hauteur d'arrivée. Un bend de guitare n'est pas un saut :
+     * la corde est attaquée en place, le doigt pousse ensuite, et la hauteur monte progressivement.
+     * On garde donc la hauteur de départ un court instant (ATTENTE), puis on ramène en un temps
+     * proportionnel à la note (MONTEE) — jamais une durée fixe, sinon un bend sur une ronde
+     * s'expédierait aussi vite que sur une double-croche.
+     *
+     * `exponentialRampToValueAtTime` et non une rampe linéaire : la hauteur perçue suit le logarithme
+     * de la fréquence, donc une rampe linéaire en Hz s'entend comme une montée qui ralentit à la fin.
+     * L'exponentielle donne une montée régulière À L'OREILLE, ce que fait un doigt sur une corde.
+     */
+    _jouerBend(e, secondes, temps) {
+        const Tone = globalThis.Tone;
+        if (!this.voixBend) return;   // filet : jamais de note muette si la voix manque
+        const ATTENTE = 0.18, MONTEE = 0.42;   // en fraction de la durée sonnante
+        const freq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+        const depart = freq(e.bend.midi);
+        const arrivee = freq(e.bend.midi + e.bend.demiTons);
+
+        this.voixBend.frequency.cancelScheduledValues(temps);
+        this.voixBend.frequency.setValueAtTime(depart, temps);
+        this.voixBend.frequency.setValueAtTime(depart, temps + secondes * ATTENTE);
+        this.voixBend.frequency.exponentialRampToValueAtTime(arrivee, temps + secondes * (ATTENTE + MONTEE));
+        // `triggerAttackRelease` d'un Tone.Synth REPOSE sa propre fréquence à la note demandée : on lui
+        // passe donc la hauteur de DÉPART, et la rampe programmée juste au-dessus prend le relais.
+        this.voixBend.triggerAttackRelease(depart, secondes, temps, e.velocite);
     }
 
     async jouer(partition, depuis = null) {
@@ -274,6 +333,10 @@ export class Lecteur {
         if (this.etat !== 'lecture') return;
         Tone.Transport.pause();
         this.synthe?.releaseAll?.();
+        // La voix de bend est un Tone.Synth monophonique, à part du synthé principal (voir demarrer) :
+        // son `releaseAll` n'existe pas, et sans ce relâchement explicite une note bendée continuait
+        // de sonner après un arrêt ou une pause, seule au milieu du silence.
+        try { this.voixBend?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
         this.etat = 'pause';
         this._arreterSuivi();
         this._prevenir();
@@ -283,6 +346,10 @@ export class Lecteur {
         const Tone = globalThis.Tone;
         if (Tone) { Tone.Transport.stop(); Tone.Transport.ticks = 0; }
         this.synthe?.releaseAll?.();
+        // La voix de bend est un Tone.Synth monophonique, à part du synthé principal (voir demarrer) :
+        // son `releaseAll` n'existe pas, et sans ce relâchement explicite une note bendée continuait
+        // de sonner après un arrêt ou une pause, seule au milieu du silence.
+        try { this.voixBend?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
         this.etat = 'arret';
         this.position = 0;
         this._arreterSuivi();

@@ -767,6 +767,20 @@ export class Editeur {
         return true;
     }
 
+    /**
+     * Fait CIRCULER l'amplitude du bend de la note courante : aucun → ½ ton → ton entier → 1 ton ½,
+     * puis retour à aucun. Les trois amplitudes qu'un guitariste écrit réellement, dans l'ordre où il
+     * les rencontre — et toutes atteignables depuis la même touche, sans champ ni menu à ouvrir.
+     */
+    bendSuivant() {
+        const note = this.noteCourante();
+        if (!note) return false;
+        const AMPLITUDES = [0, 1, 2, 3];
+        const actuel = note.bend?.demiTons ?? 0;
+        const i = AMPLITUDES.indexOf(actuel);
+        return this.definirBend(AMPLITUDES[(i === -1 ? 0 : i + 1) % AMPLITUDES.length]);
+    }
+
     definirBend(demiTons) {
         const note = this.noteCourante();
         if (!note) return false;

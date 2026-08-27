@@ -986,7 +986,12 @@ function poserEvenement(out, partition, evenement, ctx) {
             taille: tailleChiffre, police: 'sans-serif', poids: '600', ancre: 'milieu',
         }));
         if (note.bend) {
-            out.push(texte(x + 0.9 * S, yLigne - tailleChiffre * 0.75, note.bend.demiTons >= 2 ? 'full' : '½', {
+            // Les trois amplitudes qu'un guitariste écrit, dans la notation qu'il lit : ½, full, 1½
+            // (voir Editeur.bendSuivant, qui les fait circuler). Une version antérieure n'en
+            // distinguait que deux (« full » dès deux demi-tons), donc un bend d'un ton et demi
+            // s'affichait comme un ton entier — deux gestes différents sous une même étiquette.
+            const LIBELLES_BEND = { 1: '½', 2: 'full', 3: '1½' };
+            out.push(texte(x + 0.9 * S, yLigne - tailleChiffre * 0.75, LIBELLES_BEND[note.bend.demiTons] || 'full', {
                 taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
             }));
         }

@@ -82,7 +82,7 @@ export function creerNote(corde, frette, extra = {}) {
         corde,
         frette,
         lien: null,
-        bend: null,       // { demiTons: 1 } — 1 = un ton entier au sens guitare (full bend)
+        bend: null,       // { demiTons } EN DEMI-TONS : 1 = ½ ton, 2 = « full » (un ton), 3 = 1½ ton
         ghost: false,
         ...extra,
     };

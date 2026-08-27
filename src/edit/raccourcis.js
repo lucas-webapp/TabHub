@@ -97,8 +97,12 @@ export const ACTIONS = [
       actif: ed => ed.noteCourante()?.lien === 'slide', faire: ed => ed.basculerLien('slide') },
     { id: 'tie', touches: ['t'], libelle: 'Liaison de prolongation', groupe: 'effet', apercu: { type: 'icone', nom: 'tie' },
       actif: ed => ed.noteCourante()?.lien === 'tie', faire: ed => ed.basculerLien('tie') },
-    { id: 'bend', touches: ['b'], libelle: 'Bend', groupe: 'effet', apercu: { type: 'icone', nom: 'bend' },
-      actif: ed => !!ed.noteCourante()?.bend, faire: ed => ed.definirBend(ed.noteCourante()?.bend ? 0 : 2) },
+    // Le bend CIRCULE entre ses amplitudes au lieu de basculer entre « rien » et « full » : une
+    // version antérieure imposait le ton entier, sans aucun moyen d'obtenir un demi-ton ni un ton et
+    // demi — l'amplitude était donc « difficile à définir » (retour utilisateur), pour ne pas dire
+    // impossible. Quatre appuis successifs parcourent tout : ½ → full → 1½ → plus de bend.
+    { id: 'bend', touches: ['b'], libelle: 'Bend (½ → full → 1½ → aucun)', groupe: 'effet', apercu: { type: 'icone', nom: 'bend' },
+      actif: ed => !!ed.noteCourante()?.bend, faire: ed => ed.bendSuivant() },
     { id: 'palmMute', touches: ['m'], libelle: 'Palm mute', groupe: 'effet', apercu: { type: 'texteLeger', texte: 'P.M.' },
       actif: ed => ed.evenementCourant().palmMute, faire: ed => ed.basculerEffetEvenement('palmMute') },
     { id: 'ghost', touches: ['x'], libelle: 'Note fantôme', groupe: 'effet', apercu: { type: 'glyphe', nom: 'TETE_CROIX' },
