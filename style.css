@@ -206,6 +206,11 @@ body > * { min-width: 0; }
     letter-spacing: .06em; font-weight: 700; margin-right: 3px; user-select: none;
 }
 
+/* Bouton « Effets » (voir ui/toolbar.js#basculerGroupeEffets) : invisible sur grand écran, où le
+   groupe Effets s'affiche en ligne comme tous les autres — ne prend vie qu'à l'étroit, voir
+   @media (max-width: 720px) plus bas. */
+.btn-outil.btn-effets-bascule { display: none; }
+
 /* FLÈCHES DE DÉFILEMENT DE LA BARRE D'OUTILS — voir ui/toolbar.js#flecheDefilement. `sticky` les
    colle au bord VISIBLE du conteneur qui défile (pas au bord du contenu, qui serait hors champ) :
    premier et dernier enfants de #barre-outils, elles restent donc à l'écran quel que soit le défilé.
@@ -688,6 +693,23 @@ kbd {
        un champ numérique à côté d'un métronome se comprend sans qu'on l'écrive. */
     .info-transport, .info-position, .info-selection { display: none; }
     .transport { padding: 0 8px; gap: 6px; }
+
+    /* GROUPE EFFETS -> UN SEUL BOUTON qui ouvre un POPOVER, plutôt que neuf boutons de geste toujours
+       visibles — sur un téléphone, la largeur est la ressource rare, et ces effets-là (hammer-on,
+       slide…) se posent moins souvent qu'une figure de durée (retour utilisateur : « trop de
+       boutons »). Voir ui/toolbar.js#basculerGroupeEffets : même mécanisme de positionnement que le
+       menu contextuel (position: fixed, mesuré au clic), gardé dans le module de la palette plutôt
+       que dupliqué ici. `.etiquette-groupe` (« EFFETS ») reste masquée par la règle plus haut : le
+       bouton replié porte déjà son propre libellé, pas besoin d'un second à l'intérieur du popover.
+     */
+    .btn-outil.btn-effets-bascule { display: inline-flex; }
+    .groupe-outils[data-groupe="effet"] { display: none; }
+    .groupe-outils[data-groupe="effet"].ouvert {
+        display: flex; flex-wrap: wrap;
+        position: fixed; z-index: 70;
+        width: max-content; max-width: min(230px, calc(100vw - 16px));
+        box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+    }
 }
 
 /* Très étroit (téléphone tenu debout) : le pavé prime sur tout le reste. Les chiffres se resserrent

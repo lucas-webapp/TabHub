@@ -135,12 +135,54 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     const flecheGauche = flecheDefilement('gauche');
     hote.appendChild(flecheGauche);
 
-    const groupe = (titre) => {
+    const groupe = (titre, cle) => {
         const el = document.createElement('div');
         el.className = 'groupe-outils';
+        if (cle) el.dataset.groupe = cle;   // sélecteur CSS/JS stable — voir le popover « Effets » plus bas
         if (titre) el.innerHTML = `<span class="etiquette-groupe">${titre}</span>`;
         hote.appendChild(el);
         return el;
+    };
+
+    /**
+     * Bouton « Effets » + POPOVER, sur téléphone seulement (voir style.css, @media max-width: 720px) —
+     * neuf boutons de geste (hammer-on, pull-off, slide…) touchés une fois de temps en temps pesaient
+     * aussi lourd dans la barre que les figures de durée, touchées à chaque note (retour utilisateur :
+     * « trop de boutons » sur téléphone). Sur grand écran, la media query ne s'applique pas : le
+     * groupe reste affiché en ligne exactement comme avant, ce bouton restant invisible et inerte.
+     *
+     * MÊME MÉCANISME que le menu contextuel (voir main.js#ouvrirMenuContextuel) : `position: fixed`
+     * posé et mesuré au clic (jamais en CSS pur, qui ne sait pas où se trouve LE bouton qui vient d'être
+     * touché), fermeture au clic ailleurs ou à Échap — mais gardé ICI, dans le module qui construit déjà
+     * ce groupe, plutôt que dupliqué dans main.js qui n'a pas à connaître le détail de la palette.
+     */
+    let detacherFermetureEffets = null;
+    const fermerGroupeEffets = (g, bascule) => {
+        g.classList.remove('ouvert');
+        bascule.setAttribute('aria-expanded', 'false');
+        detacherFermetureEffets?.();
+        detacherFermetureEffets = null;
+    };
+    const basculerGroupeEffets = (bascule, g) => {
+        if (g.classList.contains('ouvert')) { fermerGroupeEffets(g, bascule); return; }
+        g.classList.add('ouvert');
+        bascule.setAttribute('aria-expanded', 'true');
+        // Mesuré APRÈS l'ouverture (`.ouvert` pose `position: fixed` en CSS) : un élément encore
+        // `display: none` n'a ni largeur ni hauteur à lire.
+        const rBouton = bascule.getBoundingClientRect();
+        const rGroupe = g.getBoundingClientRect();
+        g.style.left = Math.max(4, Math.min(rBouton.left, window.innerWidth - rGroupe.width - 8)) + 'px';
+        g.style.top = Math.max(4, Math.min(rBouton.bottom + 4, window.innerHeight - rGroupe.height - 8)) + 'px';
+        const surAilleurs = (e) => { if (!g.contains(e.target) && e.target !== bascule) fermerGroupeEffets(g, bascule); };
+        const surEchap = (e) => { if (e.key === 'Escape') fermerGroupeEffets(g, bascule); };
+        setTimeout(() => {
+            document.addEventListener('pointerdown', surAilleurs);
+            document.addEventListener('keydown', surEchap);
+        }, 0);
+        detacherFermetureEffets = () => {
+            document.removeEventListener('pointerdown', surAilleurs);
+            document.removeEventListener('keydown', surEchap);
+        };
     };
 
     const boutonAction = (parent, action) => {
@@ -187,7 +229,32 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // dans la barre : on ne le construit donc plus du tout. `basculerVoix` reste utilisable au
     // clavier (Tab) pour un fichier déjà à deux voix, simplement sans bouton dans la palette.
     for (const cle of ['duree', 'effet', 'mesure']) {
-        const g = groupe(TITRES_GROUPES[cle]);
+        const g = groupe(TITRES_GROUPES[cle], cle);
+        if (cle === 'effet') {
+            const bascule = document.createElement('button');
+            bascule.type = 'button';
+            bascule.className = 'btn-outil btn-effets-bascule';
+            bascule.textContent = 'Effets';
+            bascule.title = 'Effets (hammer-on, pull-off, slide, liaison, bend, palm mute, note fantôme, accent, staccato)';
+            bascule.setAttribute('aria-label', bascule.title);
+            bascule.setAttribute('aria-haspopup', 'true');
+            bascule.setAttribute('aria-expanded', 'false');
+            bascule.addEventListener('click', () => basculerGroupeEffets(bascule, g));
+            hote.insertBefore(bascule, g);
+            // Un effet choisi referme le popover derrière lui — sur un téléphone, revenir le fermer à
+            // la main après CHAQUE note serait vite lassant. Écouteur unique sur le groupe (délégation) :
+            // il se déclenche après celui, propre à chaque bouton, posé par boutonAction (capture plus
+            // profonde d'abord), donc toujours APRÈS que l'action a été exécutée. Sans effet tant que le
+            // popover n'est pas ouvert (grand écran) : fermerGroupeEffets ne fait alors rien à défaire.
+            g.addEventListener('click', (e) => { if (e.target.closest('button')) fermerGroupeEffets(g, bascule); });
+            for (const a of ACTIONS.filter(x => x.groupe === cle && x.palette !== false)) boutonAction(g, a);
+            // Le bouton résume l'état de son groupe replié : un effet déjà posé sur la note courante
+            // (hammer-on, bend…) se voit sans avoir à ouvrir le popover pour le vérifier. Poussé APRÈS
+            // la boucle de boutons ci-dessus dans aRafraichir (même passe, donc déjà à jour) — voir
+            // boutonAction, qui bascule `.actif` sur chacun des neuf boutons de ce groupe.
+            aRafraichir.push(() => { bascule.classList.toggle('actif', !!g.querySelector('.btn-outil.actif')); });
+            continue;
+        }
         for (const a of ACTIONS.filter(x => x.groupe === cle && x.palette !== false)) boutonAction(g, a);
     }
 
