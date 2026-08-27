@@ -33,6 +33,10 @@ import { exporterPdf } from './io/pdf.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, capaciteMesure, positionDansMesure } from './model/score.js';
 import { ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './model/theory.js';
+import { VALEURS_FIGURES } from './model/duration.js';
+
+/** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
+const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
 
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_ZOOM = 'tabhub.zoom';
@@ -801,22 +805,89 @@ class TabHubApp {
         }
 
         const depart = { x: e.clientX, y: e.clientY };
-        let actif = false;
+        let mode = null;   // null tant qu'on ne sait pas : 'lasso' | 'duree'
         const SEUIL = 4;
+        // ÉTIRER UNE NOTE, OU LASSOTER ? La DIRECTION du geste tranche, et elle seule. Étirer une
+        // note pour la faire durer plus longtemps est un mouvement HORIZONTAL par nature — c'est
+        // l'axe du temps sur une partition ; encadrer plusieurs notes est un mouvement quelconque,
+        // presque toujours en diagonale. Un geste qui part franchement de côté, DEPUIS UNE NOTE,
+        // est donc un étirement ; tout le reste reste le lasso d'avant. Aucun modificateur à
+        // connaître, et les deux gestes ne se marchent pas dessus.
+        // (Retour utilisateur : « la longueur de la note à tenir, on ne comprend pas trop comment
+        // faire, je pense qu'il faut pouvoir étirer à la souris ».)
+        const surNote = this.noteSousLePointeur(e);
 
         const surMouvement = (ev) => {
-            if (!actif && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
-            if (!actif) { actif = true; this.demarrerLasso(depart); }
-            this.etendreLasso(ev);
+            const dx = ev.clientX - depart.x, dy = ev.clientY - depart.y;
+            if (!mode) {
+                if (Math.hypot(dx, dy) < SEUIL) return;
+                if (surNote && Math.abs(dx) > Math.abs(dy)) { mode = 'duree'; this.demarrerEtirement(surNote); }
+                else { mode = 'lasso'; this.demarrerLasso(depart); }
+            }
+            if (mode === 'duree') this.etendreEtirement(dx);
+            else this.etendreLasso(ev);
         };
         const surRelache = (ev) => {
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
-            if (actif) this.terminerLasso(ev);
+            if (mode === 'duree') this.terminerEtirement();
+            else if (mode === 'lasso') this.terminerLasso(ev);
             else this.clicPartition(e);   // pas de mouvement franc : un clic ordinaire
         };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
+    }
+
+    /**
+     * L'évènement SONNANT sous le pointeur, ou `null` (silence, espace vide, hors partition). Sert à
+     * décider si un glisser peut être un étirement de durée : on n'étire pas le vide.
+     */
+    noteSousLePointeur(e) {
+        const cible = this.cibleDepuisClic(e);
+        if (!cible) return null;
+        const evenement = this.editeur.partition.mesures[cible.mesure]?.voix[cible.voix]?.evenements[cible.evenement];
+        if (!evenement || evenement.silence || !evenement.notes.length) return null;
+        return cible;
+    }
+
+    /**
+     * ÉTIREMENT D'UNE DURÉE À LA SOURIS — le geste demandé pour régler « la longueur de la note à
+     * tenir » sans passer par la palette.
+     *
+     * APPLIQUÉ AU RELÂCHEMENT, PAS EN CONTINU. Changer une durée peut faire déborder la mesure et
+     * déclencher une répartition sur des mesures neuves (voir Editeur._essaierNouvelleDuree) : le
+     * faire à chaque pixel remettrait la partition en page des dizaines de fois par geste, et
+     * laisserait autant d'entrées d'annulation. On montre donc la figure VISÉE pendant le glisser, et
+     * on ne touche au document qu'une fois, à la fin — un seul Ctrl+Z pour tout défaire.
+     */
+    demarrerEtirement(cible) {
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
+        const valeur = this.editeur.evenementCourant().duree.valeur;
+        this._etirement = { indexDepart: VALEURS_FIGURES.indexOf(valeur), valeurVisee: valeur };
+    }
+
+    etendreEtirement(dx) {
+        if (!this._etirement) return;
+        // Un cran par PAS_ETIREMENT pixels : assez large pour qu'un tremblement ne change rien, assez
+        // court pour parcourir toute l'échelle des figures sans traverser l'écran.
+        const PAS_ETIREMENT = 34;
+        const crans = Math.round(dx / PAS_ETIREMENT);
+        // Vers la DROITE = plus LONG. Les valeurs vont de la ronde (1) à la triple-croche (32) : plus
+        // la valeur est grande, plus la figure est brève — l'index décroît donc quand on allonge.
+        const i = Math.max(0, Math.min(VALEURS_FIGURES.length - 1, this._etirement.indexDepart - crans));
+        const valeur = VALEURS_FIGURES[i];
+        if (valeur === this._etirement.valeurVisee) return;
+        this._etirement.valeurVisee = valeur;
+        this.message(`Durée : ${NOMS_FIGURES[i]}`, 1200);
+    }
+
+    terminerEtirement() {
+        const etirement = this._etirement;
+        this._etirement = null;
+        if (!etirement) return;
+        if (etirement.valeurVisee === VALEURS_FIGURES[etirement.indexDepart]) return;   // rien n'a changé
+        this.editeur.appliquerDuree(etirement.valeurVisee);
+        if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; }
     }
 
     /**
@@ -1085,6 +1156,9 @@ class TabHubApp {
             // fenêtre à part : sur un appareil hybride (portable à écran tactile), les deux jeux de
             // gestes coexistent, et les séparer obligerait à choisir lequel montrer.
             ['<kbd>♭</kbd> / <kbd>♯</kbd> (barre d\'outils)', 'Transposer TOUT le morceau d\'un demi-ton'],
+            // Étirer À LA SOURIS (voir demarrerEtirement) : un glisser n'a pas de touche non plus,
+            // pour la même raison que les gestes tactiles ci-dessous — listé ici, pas deviné.
+            ['<kbd>Glisser ↔</kbd> (souris, sur une note)', 'Étirer sa durée — droite = plus long, gauche = plus court'],
             ['<kbd>Tap</kbd>', 'Tactile : placer le curseur sur une note'],
             ['<kbd>Appui long</kbd>', 'Tactile : ouvrir le menu d\'une note (équivaut au clic droit)'],
             ['<kbd>Glisser</kbd>', 'Tactile : faire défiler la partition'],

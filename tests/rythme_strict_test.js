@@ -2,7 +2,7 @@
 // y insérant — mais PLUS AUCUNE de ces opérations ne REFUSE pour autant faute de place : l'excédent
 // est aussitôt réparti dans des mesures neuves, automatiquement.
 //
-// CE QU'IL PROTÈGE — TROIS GÉNÉRATIONS DE CE MÊME PRINCIPE :
+// CE QU'IL PROTÈGE — QUATRE GÉNÉRATIONS DE CE MÊME PRINCIPE :
 //   1. D'abord, le refus pur et simple : `appliquerDuree`/`basculerPoint`/`basculerTriolet` et
 //      `insererEvenement`/`insererAvant` refusaient tout ce qui ferait déborder la mesure courante.
 //      Une mesure à 4/4 qui grimpait à 13 temps sans jamais se corriger (bug signalé) a montré que ce
@@ -17,6 +17,12 @@
 //      inséré, où qu'il ait fini — dans la mesure courante si tout tenait, dans une mesure neuve
 //      sinon. Un seul cas reste un refus : une figure qui, À ELLE SEULE, dépasse la capacité d'une
 //      mesure entière — aucune répartition ne peut jamais l'y faire tenir.
+//   4. Le partage de l'excédent (2-3) traitait chaque évènement TOUT ENTIER, y compris un SILENCE :
+//      un silence qui ne tenait plus qu'à moitié basculait quand même en bloc dans la mesure neuve,
+//      et la mesure d'origine retombait alors SOUS sa capacité — exactement le défaut que ce
+//      mécanisme existe pour empêcher (trouvé en vérifiant l'étirement de durée à la souris). Un
+//      silence est désormais RACCOURCI pour absorber pile ce qui reste de place ; seule une NOTE
+//      continue de basculer entière, elle (voir cas L).
 //   • `supprimerEvenement` (Ctrl+Suppr — supprimer et DÉCALER, par opposition à Suppr/effacerNote qui
 //     vide en place) complète la fin de la mesure par un silence : décaler à gauche ne doit jamais
 //     laisser la mesure sous sa capacité (l'autre sens du même principe — jamais au-dessus, jamais
@@ -27,7 +33,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(34);
+    plan(42);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -148,6 +154,30 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const mesuresApresUnSeulK = ed.partition.mesures.length;
             const contenuMesure0ApresK = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
 
+            // --- L. un SILENCE en fin de voix est RACCOURCI pour absorber le débordement — jamais
+            //     déplacé TOUT ENTIER dans une mesure neuve, ce qui laissait la mesure d'origine
+            //     SOUS sa capacité (bug trouvé en vérifiant l'étirement de durée à la souris) --------
+            // Quatre croches (5, 7, 5, 3) puis un silence de 2 temps : 4 temps tout juste. La
+            // première croche s'allonge en noire (+0,5) ; la case qui la suit n'est PAS un silence —
+            // rien de CONTIGU à absorber (voir _essaierNouvelleDuree) — seul le silence final, plus
+            // loin dans la voix, a de la place à céder.
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                ...[5, 7, 5, 3].map(f => m.creerEvenement({ valeur: 8 }, [m.creerNote(0, f)])),
+                ...m.creerVoix(2).evenements,
+            ];
+            ed.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
+            const mesuresAvantL = ed.partition.mesures.length;
+            const okL = ed.appliquerDuree(4);   // croche (0,5) -> noire (1) : +0,5
+            const contenuMesure0ApresL = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
+            const dureeMesure0ApresL = dureeEn(ed.partition.mesures[0]);
+            const dernierEvtApresL = ed.partition.mesures[0].voix[0].evenements.at(-1);
+            const dureeDernierSilenceApresL = (4 / dernierEvtApresL.duree.valeur) * (dernierEvtApresL.duree.points ? 1.5 : 1);
+            const mesuresApresL = ed.partition.mesures.length;
+            const dureeMesure1ApresL = dureeEn(ed.partition.mesures[1]);
+            const contenuMesure1ApresL = ed.partition.mesures[1].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
+            const curseurApresL = { ...ed.curseur };
+
             return {
                 mesuresAvantA, okA, contenuMesure0ApresA, dureeMesure0ApresA, contenuMesure1ApresA, curseurApresA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
@@ -160,6 +190,8 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 okI, contenuApresI, curseurApresI,
                 okJ, contenuMesure0ApresJ, contenuMesure1ApresJ, curseurApresJ,
                 mesuresAvantK, okK, mesuresApresUnSeulK, contenuMesure0ApresK,
+                mesuresAvantL, okL, contenuMesure0ApresL, dureeMesure0ApresL, dureeDernierSilenceApresL,
+                mesuresApresL, dureeMesure1ApresL, contenuMesure1ApresL, curseurApresL,
             };
         });
 
@@ -208,6 +240,15 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         exiger(r.mesuresAvantK === 5 && r.okK === true, 'K. la mesure neuve créée par J existe bien avant l\'annulation, et Ctrl+Z réussit');
         check(r.mesuresApresUnSeulK === 4, 'UN SEUL Ctrl+Z retire la mesure neuve : insertion + répartition ne comptent que pour UNE annulation');
         check(r.contenuMesure0ApresK.join(',') === '1,2,3,4', 'et retrouve le contenu EXACT d\'avant le geste, rien de partiellement défait');
+
+        exiger(r.okL === true, 'L. un silence en fin de voix qui déborde : réussit (raccourci, ne refuse pas)');
+        check(r.contenuMesure0ApresL.join(',') === '5,7,5,3,_', 'les quatre croches restent, le silence final reste EN PLACE (raccourci), pas déplacé tout entier');
+        check(Math.abs(r.dureeMesure0ApresL - 4) < 1e-6, 'la mesure d\'origine retombe pile sur sa capacité — jamais SOUS-remplie, le bug même que ce cas protège');
+        check(Math.abs(r.dureeDernierSilenceApresL - 1.5) < 1e-6, 'le silence final a bien été RACCOURCI (2 temps -> 1,5), pas simplement déplacé identique');
+        check(r.mesuresApresL === r.mesuresAvantL + 1, 'seul le VRAI surplus (0,5 temps) part dans une mesure neuve — une seule suffit');
+        check(Math.abs(r.dureeMesure1ApresL - 4) < 1e-6, 'et cette mesure neuve retombe elle aussi exactement sur sa capacité');
+        check(r.contenuMesure1ApresL.every(f => f === '_'), 'entièrement du silence : aucune note n\'a été déplacée, seul l\'excédent du silence l\'a été');
+        check(r.curseurApresL.mesure === 0 && r.curseurApresL.evenement === 0, 'le curseur reste sur la croche allongée, restée dans la mesure d\'origine');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

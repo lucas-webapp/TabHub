@@ -211,8 +211,10 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
-- **Bends approximatifs** : l'amplitude est notée et le PDF l'affiche, mais la lecture ne courbe pas
-  encore la hauteur.
+- **Le bend est joué par un synthétiseur à part.** La hauteur se courbe bien pendant la lecture,
+  amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
+  simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en
+  hauteur en continu.
 
 ---
 

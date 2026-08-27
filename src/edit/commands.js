@@ -561,6 +561,13 @@ export class Editeur {
      * (`insererEvenement`, `insererAvant`, `_essaierNouvelleDuree`) : ces derniers n'ont plus à
      * refuser une modification faute de place — ils l'appliquent, puis en confient l'éventuel
      * débordement à ce même mécanisme, dans leur propre geste (voir `_absorberEtLocaliser`).
+     *
+     * Un SILENCE qui déborde est RACCOURCI pour ne garder que ce qui tient encore dans la mesure —
+     * seul le vrai surplus part vers une mesure neuve ; une NOTE, elle, ne se découpe jamais, elle
+     * bascule TOUJOURS entière (voir `_appliquerRepartition`). Sans ce découpage, un silence qui ne
+     * tenait plus tout entier basculait EN BLOC, et la mesure d'origine retombait sous sa capacité —
+     * exactement l'invariant que ce mécanisme existe pour garantir (trouvé en vérifiant l'étirement
+     * de durée à la souris sur une mesure notes + silence de fin).
      */
     _diagnostiquerDebordement(index) {
         const m = this.partition.mesures[index];
@@ -571,8 +578,20 @@ export class Editeur {
             const enTrop = [];
             for (const e of voix.evenements) {
                 const d = dureeEnNoires(e.duree);
-                (total + d <= capacite + 1e-9 ? gardes : enTrop).push(e);
-                if (total + d <= capacite + 1e-9) total += d;
+                if (total + d <= capacite + 1e-9) { gardes.push(e); total += d; continue; }
+                // Ça déborde ICI. S'il reste de la place et que c'est un SILENCE, on le RACCOURCIT
+                // pour qu'il occupe exactement ce qui reste (des morceaux de figures standard, voir
+                // `decouperEnEvenements`) ; seul le surplus réel part dans `enTrop`. Une note, elle,
+                // ne se prête pas à ça : elle part TOUJOURS entière, comme avant ce correctif.
+                const disponible = capacite - total;
+                const estSilence = e.silence || !e.notes.length;
+                if (estSilence && disponible > 1e-9) {
+                    gardes.push(...decouperEnEvenements(disponible));
+                    enTrop.push(...decouperEnEvenements(d - disponible));
+                } else {
+                    enTrop.push(e);
+                }
+                total = capacite;   // la mesure est désormais pleine : plus rien après n'y tient
             }
             return { gardes, enTrop, totalEnTrop: enTrop.reduce((t, e) => t + dureeEnNoires(e.duree), 0) };
         });
@@ -616,8 +635,12 @@ export class Editeur {
 
     /** Retrouve où un évènement précis (comparé par RÉFÉRENCE) a fini, dans une voix donnée, à partir
      *  d'un index de mesure — après une répartition, un évènement peut s'être déplacé dans une des
-     *  mesures neuves. `null` s'il reste introuvable (ne devrait pas arriver : rien n'est jamais
-     *  perdu par `_appliquerRepartition`, seulement déplacé). */
+     *  mesures neuves. `null` s'il reste introuvable : n'arrive normalement que si `ref` était
+     *  LUI-MÊME un silence qu'il a fallu raccourcir pour absorber le débordement (voir
+     *  `_diagnostiquerDebordement`) — ce silence-là a alors été remplacé par des morceaux neufs,
+     *  aucune référence ancienne n'y survit. Rien n'est pour autant perdu (la durée totale reste
+     *  exacte), seulement l'identité de CET évènement précis ; l'appelant retombe alors sur
+     *  `corrigerCurseur()`. */
     _localiserEvenement(ref, iVoix, depuisIndex) {
         for (let i = depuisIndex; i < this.partition.mesures.length; i++) {
             const voix = this.partition.mesures[i].voix[iVoix];
