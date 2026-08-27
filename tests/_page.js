@@ -26,9 +26,16 @@ const URL_BASE = process.env.TABHUB_URL || 'http://localhost:8945';
 async function ouvrirApp(options = {}) {
     const { chromium } = chargerPlaywright();
     const navigateur = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
+    // `hasTouch`/`isMobile` : ce qui fait qu'un banc éprouve VRAIMENT le tactile plutôt qu'une souris
+    // dans une petite fenêtre. Sans `hasTouch`, les gestes partent en `pointerType: 'mouse'` et
+    // `(pointer: coarse)` reste faux — les deux conditions exactes dont dépend toute l'interface
+    // tactile (voir main.js#demarrerGeste et appareilTactile). Absents par défaut : les autres bancs
+    // décrivent un ordinateur, et doivent continuer à le faire.
     const contexte = await navigateur.newContext({
         viewport: options.viewport || { width: 1320, height: 880 },
         acceptDownloads: true,
+        ...(options.hasTouch ? { hasTouch: true } : {}),
+        ...(options.isMobile ? { isMobile: true } : {}),
     });
     const page = await contexte.newPage();
     const erreurs = [];

@@ -2,12 +2,17 @@
 <html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <!-- `user-scalable=no` : le zoom du NAVIGATEUR est écarté au profit de celui de l'APPLICATION
+         (voir le champ Zoom, barre de transport), qui remet réellement la partition en page au lieu
+         d'en agrandir les pixels. Sans cette mention, viser des cases au doigt déclenchait sans cesse
+         le zoom par double-tap du téléphone — deux notes tapées vite l'une après l'autre au même
+         endroit sont exactement un double-tap. -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>TabHub — éditeur de tablatures</title>
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608260200">
+    <link rel="stylesheet" href="style.css?v=202608270100">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -62,6 +67,11 @@
      aria-label="Partition — flèches pour se déplacer, chiffres pour saisir une case">
     <div class="feuille" id="feuille"></div>
 </div>
+
+<!-- Pavé de saisie tactile — construit par src/ui/pave.js, replié tant qu'on n'en a pas besoin.
+     Il occupe SA PROPRE rangée de la grille (voir style.css) plutôt que de flotter par-dessus la
+     partition : un clavier qui recouvre ce qu'on écrit est précisément le défaut qu'il corrige. -->
+<div class="pave-tactile" id="pave-tactile" role="group" aria-label="Pavé de saisie tactile" hidden></div>
 
 <div class="transport">
     <button type="button" id="btn-jouer" class="btn-transport jouer" title="Lecture / Pause (Espace)" aria-label="Lecture"></button>
@@ -143,6 +153,14 @@
                         <option value="gauche">À gauche</option>
                     </select>
                 </div>
+                <div class="ligne-champ">
+                    <label for="champ-pave">Pavé tactile</label>
+                    <select id="champ-pave" class="champ">
+                        <option value="auto">Automatique (écran tactile)</option>
+                        <option value="toujours">Toujours affiché</option>
+                        <option value="jamais">Jamais</option>
+                    </select>
+                </div>
             </div>
         </div>
         <div class="fenetre-pied">
@@ -167,6 +185,6 @@
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608260200"></script>
+<script type="module" src="src/main.js?v=202608270100"></script>
 </body>
 </html>

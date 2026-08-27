@@ -23,6 +23,7 @@ import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils } from './ui/toolbar.js';
+import { construirePave } from './ui/pave.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
@@ -38,11 +39,28 @@ const CLE_ZOOM = 'tabhub.zoom';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_REGLETTE = 'tabhub.reglette';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
+const CLE_PAVE = 'tabhub.pave';
+
+/**
+ * Vrai si l'appareil désigne AU DOIGT plutôt qu'à la souris — la seule question qui compte pour
+ * décider de l'interface tactile, bien avant la taille de l'écran : une tablette de 11 pouces n'est
+ * pas « petite » mais se pilote au doigt, un portable de 13 pouces est l'inverse.
+ *
+ * `pointer: coarse` est l'interrogation NORMALISÉE de cette question (le pointeur principal est-il
+ * grossier ?), et non un reniflage de la chaîne d'agent utilisateur — laquelle ment, change à chaque
+ * version de navigateur, et ne dit rien d'un ordinateur à écran tactile.
+ */
+function appareilTactile() {
+    return window.matchMedia?.('(pointer: coarse)').matches ?? false;
+}
 
 class TabHubApp {
     constructor() {
         this.editeur = new Editeur();
         this.lecteur = new Lecteur();
+        // Voir Lecteur.brancherReveilAudio : sur téléphone, iOS suspend l'audio dès qu'on quitte
+        // l'application. Sans ce rattrapage, TabHub redevient définitivement muet au retour.
+        this.lecteur.brancherReveilAudio();
         this.page = null;
         this.interligne = parseFloat(localStorage.getItem(CLE_ZOOM)) || 9;
         // 0 = « Auto » (glouton). Une préférence d'AFFICHAGE, pas de contenu musical : elle
@@ -54,6 +72,12 @@ class TabHubApp {
         this.regletteVisible = brutReglette === null ? true : brutReglette === '1';
         this.positionOutils = localStorage.getItem(CLE_POSITION_OUTILS) === 'gauche' ? 'gauche' : 'haut';
         document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
+        // Pavé tactile : « auto » par défaut — présent au doigt, absent à la souris. Les deux
+        // réglages explicites existent quand même : « toujours » pour un ordinateur à écran tactile
+        // que la détection sous-estime (ou simplement par goût), « jamais » pour un écran tactile
+        // qu'on pilote au clavier physique.
+        const brutPave = localStorage.getItem(CLE_PAVE);
+        this.prefPave = ['auto', 'toujours', 'jamais'].includes(brutPave) ? brutPave : 'auto';
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
         // Sélection multiple (glisser un rectangle sur la partition) : un ensemble de clés
@@ -77,14 +101,21 @@ class TabHubApp {
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
             menuContextuel: document.getElementById('menu-contextuel'),
+            pave: document.getElementById('pave-tactile'),
         };
 
         this.restaurerBrouillon();
         this.poserIcones();
-        this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, {
+        const crochetsUi = {
             rendreLeFocus: () => this.el.zone.focus(),
             signalerErreur: (texte) => this.message(texte),
-        });
+        };
+        this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, crochetsUi);
+        // Le pavé tactile partage EXACTEMENT les mêmes crochets que la barre d'outils : les deux
+        // exécutent les mêmes actions et doivent donc signaler les mêmes refus et rendre le focus au
+        // même endroit — jamais deux comportements à tenir juste en parallèle.
+        this.rafraichirPave = construirePave(this.el.pave, this.editeur, crochetsUi);
+        this.appliquerPave(this.prefPave);
         this.brancherInterface();
         brancherClavier(this.editeur, {
             lectureAlternee: () => this.lectureAlternee(),
@@ -117,7 +148,13 @@ class TabHubApp {
     // ==========================================================================================
 
     dessiner() {
-        const largeur = Math.max(560, this.el.zone.clientWidth - 48);
+        // Le plancher de largeur existe pour qu'une fenêtre d'ordinateur momentanément rétrécie ne
+        // produise pas une mise en page absurde. Il valait 560 px — plus que l'écran d'un téléphone
+        // (390 px de large en général) : la partition s'y trouvait donc systématiquement mise en page
+        // PLUS LARGE que l'écran, débordant des deux côtés. Un plancher bas suffit à écarter
+        // l'absurde (une mesure par ligne y reste parfaitement lisible), et laisse la partition
+        // s'adapter réellement à l'écran dès qu'il est plus étroit que ça.
+        const largeur = Math.max(280, this.el.zone.clientWidth - 48);
         try {
             this.page = mettreEnPage(this.editeur.partition, {
                 S: this.interligne,
@@ -146,6 +183,7 @@ class TabHubApp {
         this._bandeDessinee = this.bandeVisible();
 
         this.rafraichirOutils();
+        this.rafraichirPave();
         this.rafraichirInfos();
     }
 
@@ -749,6 +787,19 @@ class TabHubApp {
      */
     demarrerGeste(e) {
         if (e.button !== 0) return;   // le lasso ne répond qu'au bouton principal
+
+        // AU DOIGT, GLISSER VEUT DIRE DÉFILER — jamais lassoter. Sur un téléphone, faire glisser la
+        // partition est le SEUL moyen d'atteindre le reste du morceau ; armer le lasso sur ce geste
+        // rendait la partition impossible à parcourir (et dessinait un rectangle de sélection à
+        // chaque tentative). Le tap simple, lui, garde tout son sens : il place le curseur, comme un
+        // clic. Le lasso reste donc un geste de SOURIS, disponible sur les appareils hybrides qui
+        // rapportent les deux pointeurs. Voir aussi `touch-action: pan-x pan-y` dans style.css, qui
+        // rend le défilement au navigateur sur ces mêmes appareils.
+        if (e.pointerType === 'touch' || e.pointerType === 'pen') {
+            this.demarrerGesteTactile(e);
+            return;
+        }
+
         const depart = { x: e.clientX, y: e.clientY };
         let actif = false;
         const SEUIL = 4;
@@ -766,6 +817,63 @@ class TabHubApp {
         };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
+    }
+
+    /**
+     * LE GESTE TACTILE SUR LA PARTITION, ses trois issues possibles :
+     *   • TAP franc (doigt levé sans avoir bougé) → place le curseur, comme un clic ;
+     *   • APPUI MAINTENU (550 ms sans bouger) → ouvre le menu contextuel, l'équivalent tactile du
+     *     clic droit — sans lui, supprimer/insérer sont purement inatteignables au doigt, un
+     *     téléphone n'ayant pas de second bouton ;
+     *   • GLISSER → on ne fait RIEN, et c'est le but : le navigateur fait défiler la partition (voir
+     *     `touch-action: pan-x pan-y` dans style.css), seul moyen d'atteindre le reste du morceau.
+     *
+     * Le tap est traité ICI plutôt que laissé au `click` de synthèse du navigateur : ce dernier
+     * arrive après un délai variable, et surtout il arriverait AUSSI après un appui long, rouvrant
+     * aussitôt le curseur sur la note dont on vient d'ouvrir le menu.
+     *
+     * Les réglages (550 ms, 10 px) sont ceux, éprouvés, de HarmoHub, plutôt que deux nouveaux nombres
+     * inventés : même geste, même famille d'applications, même impression sous le doigt. La tolérance
+     * compte autant que le délai — un doigt posé n'est jamais parfaitement immobile, sans elle l'appui
+     * long ne se déclencherait presque jamais ; trop grande, elle volerait le défilement.
+     */
+    demarrerGesteTactile(e) {
+        const DELAI = 550, TOLERANCE = 10;
+        const depart = { x: e.clientX, y: e.clientY };
+        let minuterie = null;
+        let resolu = false;   // le menu s'est ouvert, ou le doigt a franchement glissé : plus de tap
+
+        const detacher = () => {
+            if (minuterie) { clearTimeout(minuterie); minuterie = null; }
+            window.removeEventListener('pointermove', surMouvement);
+            window.removeEventListener('pointerup', surRelache);
+            window.removeEventListener('pointercancel', surAnnulation);
+        };
+        const surMouvement = (ev) => {
+            if (resolu) return;
+            // Un défilement franc annule l'appui long ET le tap : on voulait parcourir la partition,
+            // pas y écrire.
+            if (Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) > TOLERANCE) {
+                resolu = true;
+                detacher();
+            }
+        };
+        const surRelache = () => {
+            detacher();
+            if (!resolu) this.clicPartition(e);   // doigt levé sans avoir bougé : un tap
+        };
+        const surAnnulation = () => { resolu = true; detacher(); };
+
+        minuterie = setTimeout(() => {
+            minuterie = null;
+            resolu = true;
+            detacher();
+            this.ouvrirMenuContextuel(e);
+        }, DELAI);
+
+        window.addEventListener('pointermove', surMouvement, { passive: true });
+        window.addEventListener('pointerup', surRelache);
+        window.addEventListener('pointercancel', surAnnulation);
     }
 
     /** Crée l'overlay du rectangle : un simple <div>, pas une primitive de la liste d'affichage —
@@ -875,6 +983,24 @@ class TabHubApp {
         requestAnimationFrame(() => this.dessiner());
     }
 
+    /**
+     * Affiche ou replie le pavé de saisie tactile (voir ui/pave.js), selon la préférence — « auto »
+     * s'en remettant à l'appareil lui-même (voir appareilTactile).
+     *
+     * Le pavé prend de la hauteur à la partition (il occupe sa propre rangée de la grille, il ne la
+     * recouvre pas) : il faut donc remettre en page APRÈS que le navigateur a appliqué la nouvelle
+     * grille, sinon le découpage en systèmes se calcule sur la hauteur d'avant — d'où le passage par
+     * requestAnimationFrame, exactement comme pour la barre d'outils juste au-dessus.
+     */
+    appliquerPave(valeur) {
+        this.prefPave = ['auto', 'toujours', 'jamais'].includes(valeur) ? valeur : 'auto';
+        localStorage.setItem(CLE_PAVE, this.prefPave);
+        const visible = this.prefPave === 'toujours' || (this.prefPave === 'auto' && appareilTactile());
+        this.el.pave.hidden = !visible;
+        document.body.classList.toggle('avec-pave', visible);
+        requestAnimationFrame(() => this.dessiner());
+    }
+
     /** Peuple la fenêtre « Instrument et accordage » depuis l'état courant. */
     remplirReglages() {
         const piste = this.editeur.partition.piste;
@@ -933,6 +1059,10 @@ class TabHubApp {
         const selPosition = document.getElementById('champ-position-outils');
         selPosition.value = this.positionOutils;
         selPosition.onchange = () => this.positionnerOutils(selPosition.value);
+
+        const selPave = document.getElementById('champ-pave');
+        selPave.value = this.prefPave;
+        selPave.onchange = () => this.appliquerPave(selPave.value);
     }
 
     /** L'aide-mémoire se GÉNÈRE depuis la table des actions : elle ne peut pas mentir sur les touches. */
@@ -950,6 +1080,13 @@ class TabHubApp {
                 a.touches.map(t => `<kbd>${escapeHtml(toucheDeSig(t))}</kbd>`).join(' ou '),
                 a.libelle,
             ]),
+            // Les gestes TACTILES : ils n'ont pas de touche, donc rien dans la table des actions ne
+            // les décrit — et un appui long ne se devine pas. Listés à la suite plutôt que dans une
+            // fenêtre à part : sur un appareil hybride (portable à écran tactile), les deux jeux de
+            // gestes coexistent, et les séparer obligerait à choisir lequel montrer.
+            ['<kbd>Tap</kbd>', 'Tactile : placer le curseur sur une note'],
+            ['<kbd>Appui long</kbd>', 'Tactile : ouvrir le menu d\'une note (équivaut au clic droit)'],
+            ['<kbd>Glisser</kbd>', 'Tactile : faire défiler la partition'],
         ];
         table.innerHTML = lignes.map(([t, l]) => `<tr><td>${t}</td><td>${escapeHtml(l)}</td></tr>`).join('');
     }

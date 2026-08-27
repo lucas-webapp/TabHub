@@ -94,17 +94,32 @@ body {
     font-family: var(--font);
     font-size: var(--fs-base);
     display: grid;
-    grid-template-areas: "haut" "outils" "zone" "bas";
-    grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr var(--h-transport);
+    /* La rangée « pave » (pavé de saisie tactile) est TOUJOURS déclarée, dans les deux dispositions —
+       son gabarit `auto` la réduit à zéro tant que l'élément est `hidden` (donc display:none). Une
+       rangée conditionnelle aurait demandé de réécrire les deux `grid-template-areas` en JavaScript
+       à chaque bascule, pour un résultat identique. */
+    grid-template-areas: "haut" "outils" "zone" "pave" "bas";
+    grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
     grid-template-columns: 1fr;
     overflow: hidden;
     -webkit-font-smoothing: antialiased;
 }
 body.outils-gauche {
-    grid-template-areas: "haut haut" "outils zone" "bas bas";
-    grid-template-rows: var(--h-barre-haut) 1fr var(--h-transport);
+    grid-template-areas: "haut haut" "outils zone" "pave pave" "bas bas";
+    grid-template-rows: var(--h-barre-haut) 1fr auto var(--h-transport);
     grid-template-columns: var(--w-outils-gauche) 1fr;
 }
+
+/* UNE COLONNE DE GRILLE PEUT VRAIMENT SE RÉTRÉCIR. Un élément de grille vaut `min-width: auto` par
+   défaut : il refuse de descendre sous la largeur de son contenu. La feuille de partition ayant une
+   largeur en pixels bien à elle (voir main.js, qui la dimensionne d'après la mise en page), elle
+   élargissait la colonne `1fr` au-delà de l'écran — et avec elle TOUTES les autres rangées, qui
+   partagent cette colonne : barre du haut, pavé et transport se retrouvaient coupés à droite sur un
+   téléphone, alors qu'ils n'ont eux-mêmes rien de trop large. Le défaut ne s'est jamais vu sur
+   ordinateur, où la partition tient toujours dans la fenêtre. `min-width: 0` rend à la colonne le
+   droit de rétrécir ; c'est alors `.zone-partition` (overflow: auto) qui fait défiler la partition
+   à l'intérieur, ce qu'elle sait déjà faire. */
+body > * { min-width: 0; }
 
 .icone { width: 18px; height: 18px; flex: none; }
 
@@ -267,7 +282,11 @@ input.champ[type="number"] { width: 68px; text-align: center; }
     background: #07070a;
     padding: 22px 22px 60px;
     display: flex;
-    justify-content: center;
+    /* `safe center` et non `center` : une feuille PLUS LARGE que la zone (partition zoomée, écran
+       étroit) reste centrée tant qu'elle tient, mais se cale à gauche dès qu'elle déborde. Avec le
+       `center` ordinaire, le débordement se répartit des DEUX côtés et la partie gauche devient
+       inatteignable — aucun défilement ne remonte avant le bord de départ du conteneur. */
+    justify-content: safe center;
     align-items: flex-start;
     position: relative;   /* ancre le rectangle de sélection (voir .lasso-selection) */
 }
@@ -443,7 +462,106 @@ kbd {
 }
 .message.visible { opacity: 1; transform: translateX(-50%) translateY(0); }
 
+/* ============================================================
+   PAVÉ DE SAISIE TACTILE (voir src/ui/pave.js)
+   ============================================================
+   Deux rangées au bas de l'écran : les dix cases, puis les déplacements et corrections. Il vit dans
+   SA PROPRE rangée de la grille (« pave ») plutôt que flottant par-dessus la partition — un clavier
+   qui recouvre ce qu'on écrit est exactement le défaut du clavier système qu'il remplace. */
+.pave-tactile {
+    grid-area: pave;
+    display: flex; flex-direction: column; gap: 6px;
+    padding: 8px 10px;
+    background: var(--card-bg);
+    border-top: 1px solid var(--border);
+}
+.pave-tactile[hidden] { display: none; }
+
+.rangee-pave { display: flex; align-items: center; gap: 6px; }
+/* Les dix chiffres se partagent la largeur À PARTS ÉGALES, quelle que soit la taille de l'écran :
+   une rangée de cases doit rester une rangée de cases, jamais dix boutons de largeurs inégales où
+   le pouce vise moins bien à mesure qu'il descend le manche. */
+.rangee-cases .btn-case { flex: 1 1 0; min-width: 0; }
+
+.btn-pave {
+    min-height: 44px;   /* la cible tactile minimale recommandée — voir aussi @media (pointer:coarse) */
+    padding: 0 10px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9px;
+    border: 1px solid var(--btn-neutral-border);
+    background: linear-gradient(180deg, var(--fond-bouton-sombre) 0%, #12151a 100%);
+    color: var(--text-main);
+    font-family: var(--font); font-size: var(--fs-base); font-weight: 700;
+    cursor: pointer; white-space: nowrap;
+    /* Aucun délai de 300 ms, aucun surlignage bleu au doigt, aucune sélection de texte accidentelle
+       en tapant vite : trois réflexes de navigateur mobile qui n'ont aucun sens sur un pavé de saisie. */
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    user-select: none;
+}
+.btn-pave:active { background: var(--fond-bouton-sombre-survol); transform: translateY(1px); }
+.btn-pave-large { flex: 0 0 auto; font-size: var(--fs-sm); font-weight: 600; }
+.separateur-pave { width: 1px; align-self: stretch; background: var(--border); margin: 4px 4px; }
+.etat-pave {
+    margin-left: auto; padding-right: 4px;
+    font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted);
+    white-space: nowrap; user-select: none;
+}
+
+/* ============================================================
+   ÉCRANS TACTILES ET PETITS ÉCRANS
+   ============================================================ */
+
+/* Doigt plutôt que souris — quel que soit le format de l'écran (une tablette n'est pas « petite »,
+   elle est tactile). Les cibles grandissent partout où l'on vise, et les gestes propres au téléphone
+   (défilement du doigt sur la partition) reprennent leurs droits. */
+@media (pointer: coarse) {
+    .btn-outil { min-width: 40px; height: 40px; }
+    .btn-icone { width: 40px; height: 40px; }
+    .btn-transport { min-width: 44px; min-height: 44px; }
+    .menu-contextuel button { padding: 12px 12px; }
+    /* LE DOIGT DÉFILE, IL NE LASSOTE PAS. Le lasso de sélection multiple (voir main.js,
+       demarrerGeste) est un geste de SOURIS ; au doigt, glisser sur une partition veut dire la faire
+       défiler, sans exception — et c'est aussi le seul moyen d'atteindre le reste du morceau sur un
+       écran de téléphone. `touch-action: pan-x pan-y` rend ce défilement au navigateur : main.js
+       n'arme alors plus le lasso du tout sur un pointeur grossier (le geste reste disponible à la
+       souris sur les appareils hybrides, qui rapportent les deux). */
+    .zone-partition { touch-action: pan-x pan-y; }
+    .feuille { -webkit-tap-highlight-color: transparent; }
+}
+
 @media (max-width: 720px) {
     .logo-texte, .groupe-outils > .etiquette-groupe { display: none; }
     .zone-partition { padding: 10px 8px 40px; }
+    /* La barre d'outils reste sur UNE ligne et défile horizontalement plutôt que de se replier sur
+       trois rangées : sur un téléphone, la hauteur est la ressource rare — c'est la partition qui
+       doit la garder, pas la palette. */
+    .barre-outils { overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; }
+    /* « À gauche » n'a aucun sens sur un écran étroit : la barre reprend sa place en haut, quelle que
+       soit la préférence enregistrée (qui reste intacte pour le retour sur grand écran). */
+    body.outils-gauche {
+        grid-template-areas: "haut" "outils" "zone" "pave" "bas";
+        grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
+        grid-template-columns: 1fr;
+    }
+    body.outils-gauche .barre-outils {
+        height: var(--h-outils); flex-direction: row; align-items: center;
+        padding: 0 10px; border-right: none; border-bottom: 1px solid var(--border);
+        overflow-x: auto; overflow-y: hidden;
+    }
+    body.outils-gauche .groupe-outils { flex-wrap: nowrap; }
+    /* Le transport se resserre : Tempo et Zoom gardent leur champ, leurs ÉTIQUETTES s'effacent —
+       un champ numérique à côté d'un métronome se comprend sans qu'on l'écrive. */
+    .info-transport, .info-position, .info-selection { display: none; }
+    .transport { padding: 0 8px; gap: 6px; }
+}
+
+/* Très étroit (téléphone tenu debout) : le pavé prime sur tout le reste. Les chiffres se resserrent
+   plutôt que de déborder, et le rappel de position (« M3 · corde 2 ») s'efface — c'est le seul
+   élément du pavé qui informe sans qu'on puisse le toucher, donc le premier à céder la place quand
+   il n'y en a plus assez pour les boutons eux-mêmes. */
+@media (max-width: 420px) {
+    .btn-pave { padding: 0 4px; font-size: var(--fs-sm); }
+    .rangee-pave { gap: 4px; }
+    .etat-pave { display: none; }
 }

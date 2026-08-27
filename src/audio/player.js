@@ -57,6 +57,36 @@ export class Lecteur {
     _prevenir() { for (const fn of this.auditeurs) fn(this.position, this.etat); }
 
     /**
+     * REMET L'AUDIO EN MARCHE À CHAQUE GESTE, sur téléphone — la parade au silence total d'iOS.
+     *
+     * Safari iOS n'autorise la mise en marche d'un contexte audio que DANS la pile d'appel d'un vrai
+     * geste utilisateur, et il SUSPEND ce contexte dès qu'on quitte l'application, qu'un appel arrive
+     * ou que l'écran se verrouille — ce qui arrive sans cesse sur un téléphone. Sans ce rattrapage,
+     * l'application redevenait définitivement muette au retour : le transport avançait, le trait
+     * suivait, et pas un son ne sortait jusqu'au rechargement de la page.
+     *
+     * Branché sur TOUT geste, où qu'il tombe (pas seulement sur Lecture) : le tout premier geste de
+     * la session est souvent un tap qui ne joue rien — poser le curseur, ouvrir un menu — et c'est
+     * pourtant CELUI-LÀ qu'iOS compte. On ne se débranche jamais et on ne retient jamais « c'est
+     * fait » : la vérification coûte une comparaison de chaîne, et se répare toute seule à chaque
+     * suspension suivante. Repris tel quel de HarmoHub, où le même défaut avait été vécu et corrigé.
+     */
+    brancherReveilAudio() {
+        const reveiller = () => {
+            try {
+                const Tone = globalThis.Tone;
+                if (Tone && Tone.getContext().rawContext.state !== 'running') Tone.start().catch(() => {});
+            } catch (e) { /* contexte pas encore créé : le prochain geste réessaiera */ }
+        };
+        document.addEventListener('pointerdown', reveiller, { passive: true });
+        document.addEventListener('touchend', reveiller, { passive: true });
+        // Retour dans l'application après l'avoir quittée : on tente sans attendre un geste. iOS peut
+        // refuser hors geste utilisateur — le prochain toucher s'en chargera alors — mais quand ça
+        // passe, la lecture remarche sans que l'utilisateur ait rien à comprendre.
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) reveiller(); });
+    }
+
+    /**
      * Prépare le contexte audio. DOIT être appelé depuis un geste de l'utilisateur : tout navigateur
      * refuse de démarrer un contexte audio autrement, et l'appel silencieux échoue sans erreur — le
      * bouton « lecture » paraît alors simplement cassé.
