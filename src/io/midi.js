@@ -11,7 +11,7 @@
 // FORMAT 0 (une seule piste) : TabHub ne connaît qu'un instrument par fichier — inutile d'écrire
 // plusieurs pistes que rien, ici, ne distingue.
 
-import { aplatir, hauteurDeNote, positionDebutMesure, creerPartition, creerMesure, creerEvenement, creerNote, figuresPour, normaliser } from '../model/score.js';
+import { aplatir, hauteurDeNote, positionDebutMesure, signatureEffective, sectionsDe, creerPartition, creerMesure, creerEvenement, creerNote, figuresPour, normaliser } from '../model/score.js';
 import { noiresParMesure } from '../model/duration.js';
 import { INSTRUMENTS, hauteurDeCase, accordageParDefaut } from '../model/instruments.js';
 import { nomDeFichierSur, telecharger } from './json.js';
@@ -58,14 +58,34 @@ function chunk(type, octets) {
  * LE CHANGEMENT DE SIGNATURE VOYAGE AUSSI, au bon instant (positionDebutMesure de la mesure qui le
  * porte) — un fichier MIDI qui resterait figé sur la toute première signature mentirait sur tout
  * changement de mesure ultérieur.
+ *
+ * `options.debut`/`options.fin` (index de mesure INCLUSIFS, par défaut tout le morceau) EXPORTENT
+ * UN EXTRAIT plutôt que le morceau entier — l'export MIDI par SECTION (voir genererMidiSections),
+ * chacune sur SA PROPRE timeline à 0 (comme HarmoHub) : tout ce qui est hors bornes est ignoré, et
+ * tous les tics du fichier sont décalés d'autant que positionDebutMesure(partition, debut). Une
+ * liaison qui franchirait `fin` est coupée NETTE plutôt que suivie au-delà — un fichier par section
+ * ne doit jamais dépendre du contenu d'une autre, qu'il n'écrit pas. La signature EFFECTIVE au
+ * DÉBUT de l'extrait est toujours posée en tic 0, MÊME héritée d'une mesure hors de l'extrait : sans
+ * ça, un extrait commençant en 3/4 hérité s'ouvrirait sur un 4/4 par défaut, faux.
+ *
+ * `options.marqueurs` (`[{ tic, titre }]`, en tics ABSOLUS du morceau ENTIER, avant décalage) pose
+ * un repère MIDI (type 0x06) à chaque section — utilisé par exporterMidi pour le fichier UNIQUE :
+ * une section reste navigable dans un DAW même sans demander un fichier par section.
  */
-export function genererMidi(partition) {
-    const plat = aplatir(partition);
+export function genererMidi(partition, options = {}) {
+    const debut = options.debut ?? 0;
+    const fin = options.fin ?? (partition.mesures.length - 1);
+    const decalageTic = Math.round(positionDebutMesure(partition, debut) * PPQ);
+
+    const plat = aplatir(partition).filter(e => e.mesure >= debut && e.mesure <= fin);
     const parVoix = new Map();
     for (const entree of plat) {
         if (!parVoix.has(entree.voix)) parVoix.set(entree.voix, []);
         parVoix.get(entree.voix).push(entree);
     }
+    // Construite à partir du seul EXTRAIT filtré ci-dessus : une note en fin d'extrait, liée dans la
+    // partition complète à la mesure suivante, n'y trouve donc naturellement plus de suite (cette
+    // mesure est hors de `plat`) — la clôture à la borne `fin` vient de là, sans test supplémentaire.
     const suivantMemeVoix = new Map();
     for (const liste of parVoix.values()) {
         for (let k = 0; k + 1 < liste.length; k++) suivantMemeVoix.set(liste[k], liste[k + 1]);
@@ -103,25 +123,32 @@ export function genererMidi(partition) {
             let vitesse = evt.accent ? 116 : 88;
             if (note.ghost) vitesse = 32;
 
-            const debutTic = Math.round(entree.debut * PPQ);
-            const finTic = Math.max(debutTic + 1, Math.round((entree.debut + sonnante) * PPQ));
+            const debutTic = Math.round(entree.debut * PPQ) - decalageTic;
+            const finTic = Math.max(debutTic + 1, Math.round((entree.debut + sonnante) * PPQ) - decalageTic);
             evenements.push({ tic: debutTic, estDebut: true, hauteur: midi, vitesse });
             evenements.push({ tic: finTic, estDebut: false, hauteur: midi, vitesse: 0 });
         }
     }
 
     // --- Changements de signature, au tic de la mesure qui les porte -----------------------------
-    const signatures = [];
+    // La signature EFFECTIVE au tic 0 d'abord (voir la note ci-dessus), puis tout changement
+    // EXPLICITE strictement après — jamais celui de `debut` lui-même, déjà couvert par la première.
+    const signatures = [{ tic: 0, signature: signatureEffective(partition, debut) }];
     partition.mesures.forEach((m, i) => {
-        if (m.signature) signatures.push({ tic: Math.round(positionDebutMesure(partition, i) * PPQ), signature: m.signature });
+        if (i > debut && i <= fin && m.signature) {
+            signatures.push({ tic: Math.round(positionDebutMesure(partition, i) * PPQ) - decalageTic, signature: m.signature });
+        }
     });
-    if (!signatures.length) signatures.push({ tic: 0, signature: { battements: 4, unite: 4 } });
 
     // --- Assemblage : delta-tics, méta-évènements, note on/off -----------------------------------
     const brut = [];   // { tic, octets }
     brut.push({ tic: 0, octets: metaTexte(0x03, partition.meta.titre || 'Sans titre') });   // nom de piste
     brut.push({ tic: 0, octets: metaTempo(partition.meta.tempo || 120) });
     for (const s of signatures) brut.push({ tic: s.tic, octets: metaSignature(s.signature) });
+    for (const mk of (options.marqueurs || [])) {
+        const tic = Math.round(mk.tic) - decalageTic;
+        if (tic >= 0) brut.push({ tic, octets: metaTexte(0x06, mk.titre) });
+    }
     for (const e of evenements) {
         brut.push({ tic: e.tic, octets: [e.estDebut ? 0x90 : 0x80, e.hauteur & 0x7f, e.vitesse & 0x7f] });
     }
@@ -160,12 +187,62 @@ function metaSignature(signature) {
     return [0xff, 0x58, 0x04, signature.battements & 0xff, denomLog2 & 0xff, 24, 8];
 }
 
-/** Exporte et déclenche le téléchargement — le pendant de enregistrerPartition (io/json.js). */
+/**
+ * Repère de section faute de titre — « Partie N », comme HarmoHub (repli identique côté export
+ * MIDI ET, déjà, côté export PDF) : un repère de navigation même sur une section jamais nommée,
+ * plutôt que rien du tout.
+ */
+function titreSection(section, index) {
+    return section.titre || `Partie ${index + 1}`;
+}
+
+/**
+ * Exporte et déclenche le téléchargement — le pendant de enregistrerPartition (io/json.js).
+ *
+ * Un morceau qui a plusieurs SECTIONS (voir model/score.js#sectionsDe, d'après les annotations
+ * « Couplet »/« Refrain »…) pose un repère MIDI à chacune, même en un seul fichier : on peut alors
+ * naviguer par section dans un DAW sans pour autant avoir demandé un fichier PAR section (voir
+ * exporterMidiParPartie, l'autre choix proposé par main.js quand il y en a plus d'une).
+ */
 export function exporterMidi(partition) {
-    const octets = genererMidi(partition);
+    const sections = sectionsDe(partition);
+    const marqueurs = sections.length > 1
+        ? sections.map((s, i) => ({ tic: Math.round(positionDebutMesure(partition, s.debut) * PPQ), titre: titreSection(s, i) }))
+        : undefined;
+    const octets = genererMidi(partition, { marqueurs });
     const nom = nomDeFichierSur(partition.meta.titre, '.mid');
     telecharger(octets, nom, 'audio/midi');
     return nom;
+}
+
+/**
+ * Un fichier MIDI PAR SECTION, chacune sur sa PROPRE timeline à 0 — comme HarmoHub (« Un fichier
+ * par partie », voir main.js#exporterMidiFichier, qui propose ce choix seulement s'il y a plus
+ * d'une section). Pure : construit les octets de chaque fichier sans déclencher le moindre
+ * téléchargement, pour rester éprouvable directement (voir tests/midi_test.js) — c'est
+ * exporterMidiParPartie, juste en dessous, qui s'en charge.
+ */
+export function genererMidiSections(partition) {
+    const sections = sectionsDe(partition);
+    return sections.map((s, i) => {
+        const titre = titreSection(s, i);
+        return {
+            titre,
+            octets: genererMidi(partition, { debut: s.debut, fin: s.fin }),
+            nom: nomDeFichierSur(`${partition.meta.titre || 'Sans titre'} - ${titre}`, '.mid'),
+        };
+    });
+}
+
+/**
+ * Déclenche le téléchargement d'un fichier PAR SECTION. Décalés d'un petit délai chacun (retour
+ * navigateur, comme HarmoHub : plusieurs téléchargements déclenchés d'un coup peuvent être
+ * bloqués/regroupés) — largement assez pour les laisser tous passer.
+ */
+export function exporterMidiParPartie(partition) {
+    const fichiers = genererMidiSections(partition);
+    fichiers.forEach((f, i) => setTimeout(() => telecharger(f.octets, f.nom, 'audio/midi'), i * 200));
+    return fichiers.length;
 }
 
 // ---------------------------------------------------------------------------------------------

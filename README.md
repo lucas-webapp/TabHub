@@ -182,10 +182,15 @@ toucher au rythme ni aux mesures.
 - **Exporter PDF** écrit un PDF A4 vectoriel, paginé sans jamais couper un système en deux.
 - **Exporter en MIDI** écrit un `.mid` (format 0) lisible par n'importe quel séquenceur, DAW ou
   logiciel de notation — le modèle raisonnant déjà en hauteurs MIDI (voir `model/theory.js`), il n'y
-  avait qu'à écrire cette correspondance dans le format standard.
+  avait qu'à écrire cette correspondance dans le format standard. Un morceau qui a plusieurs
+  **sections** (les annotations « Couplet »/« Refrain »…, voir plus haut) propose, comme HarmoHub, un
+  seul fichier — avec un REPÈRE MIDI par section même alors — ou un fichier PAR section, chacune sur
+  sa propre timeline à 0, pour les retravailler indépendamment dans un DAW.
 - **Importer un fichier MIDI** relit un `.mid` dans l'instrument/accordage/capodastre en place : une
   note hors de portée du manche est abandonnée (jamais une case inventée), et le résultat est compté
-  dans le message de fin d'import.
+  dans le message de fin d'import. Vient-il REMPLACER le morceau en cours, ou s'AJOUTER à sa suite
+  comme une nouvelle section (annotée d'après le nom du fichier, sans toucher à ce qui existe déjà) ?
+  TabHub le demande à chaque import plutôt que de deviner.
 - Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Son
   état (présent ou non) et un bouton pour l'effacer vivent dans Réglages > Fichiers — jamais un
   gestionnaire multi-fichiers, TabHub n'en a qu'un à la fois.

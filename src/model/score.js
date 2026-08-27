@@ -277,6 +277,39 @@ export function positionDebutMesure(partition, index) {
 }
 
 /**
+ * Découpe le morceau en SECTIONS d'après les annotations posées sur les mesures (« Couplet 1 »,
+ * « Refrain »… — voir `mesure.annotation`, engine/layout.js) : chaque mesure annotée OUVRE une
+ * section qui court jusqu'à la prochaine annotation (ou la fin du morceau). Les mesures avant la
+ * toute première annotation forment leur propre section, `titre: ''` — jamais absorbées dans la
+ * suivante, pour ne rien perdre d'un export par section (voir io/midi.js) : une intro sans étiquette
+ * reste une section à part entière, simplement sans titre.
+ *
+ * Un morceau SANS AUCUNE annotation donne une seule section couvrant tout : c'est le signal, pour
+ * qui appelle cette fonction, qu'un découpage par section n'aurait aucun sens ici (voir
+ * exporterMidiFichier, qui ne propose le choix qu'à partir de deux).
+ *
+ * `{ titre, debut, fin }` — `debut`/`fin` sont des index de mesure INCLUSIFS, comme le reste du
+ * modèle (voir `index` de positionDebutMesure).
+ */
+export function sectionsDe(partition) {
+    const mesures = partition.mesures;
+    if (!mesures.length) return [{ titre: '', debut: 0, fin: -1 }];
+    const sections = [];
+    let debut = 0;
+    let titre = (mesures[0].annotation || '').trim();
+    for (let i = 1; i < mesures.length; i++) {
+        const a = (mesures[i].annotation || '').trim();
+        if (a) {
+            sections.push({ titre, debut, fin: i - 1 });
+            debut = i;
+            titre = a;
+        }
+    }
+    sections.push({ titre, debut, fin: mesures.length - 1 });
+    return sections;
+}
+
+/**
  * État de remplissage d'une VOIX de la mesure. Sert à l'affichage discret d'un repère (mesure
  * incomplète ou débordante) plutôt qu'à un refus de saisie : on n'interrompt pas quelqu'un en train
  * d'écrire parce que sa mesure n'est pas encore complète — elle ne l'est, par construction, jamais

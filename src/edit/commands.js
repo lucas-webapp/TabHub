@@ -732,6 +732,26 @@ export class Editeur {
         this.prevenir('edition');
     }
 
+    /**
+     * Ajoute une SUITE de mesures toutes faites À LA FIN du morceau — l'import MIDI « à la suite »
+     * (voir main.js#chargerFichierMidi), qui n'écrase rien de ce qui existe déjà, contrairement à
+     * remplacer(). Contrairement à ajouterMesure ci-dessus (une mesure vide, insérée au curseur),
+     * celles-ci arrivent déjà remplies, chacune sa propre signature/armure explicite dès la première
+     * (voir construirePartitionDepuisMidi) — c'est elle qui reçoit `annotation`, pour marquer d'un
+     * coup d'œil sur la partition où commence cette nouvelle partie.
+     */
+    ajouterMesures(mesures, annotation) {
+        if (!mesures.length) return;
+        this.memoriser();
+        if (annotation) mesures[0].annotation = annotation.slice(0, 40);
+        this.curseur.mesure = this.partition.mesures.length;
+        this.partition.mesures.push(...mesures);
+        this.curseur.voix = 0;
+        this.curseur.evenement = 0;
+        this.corrigerCurseur();
+        this.prevenir('edition');
+    }
+
     supprimerMesure() {
         if (this.partition.mesures.length <= 1) return false;
         this.memoriser();

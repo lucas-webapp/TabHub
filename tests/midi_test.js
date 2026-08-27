@@ -12,7 +12,12 @@
 //   • la lecture d'un VRAI fichier MIDI extérieur (RUNNING STATUS compris, la convention qu'utilisent
 //     la plupart des séquenceurs et que genererMidi, lui, n'a pas besoin d'écrire) ;
 //   • le geste complet à l'écran : un clic télécharge un .mid, en réimporter un reconstruit une
-//     partition jouable, un fichier corrompu prévient au lieu de planter.
+//     partition jouable, un fichier corrompu prévient au lieu de planter ;
+//   • L'EXPORT PAR SECTION (comme HarmoHub, retour utilisateur) : un morceau à plusieurs parties
+//     (voir model/score.js#sectionsDe, d'après les annotations) propose un fichier unique — avec un
+//     REPÈRE par section, même alors — ou un fichier PAR section, chacune sur SA PROPRE timeline à 0 ;
+//   • L'IMPORT À LA SUITE (même retour utilisateur) : un .mid peut REMPLACER le morceau en cours,
+//     comme avant, ou s'y AJOUTER comme une nouvelle partie annotée, sans toucher à ce qui existe.
 
 const fs = require('fs');
 const os = require('os');
@@ -22,7 +27,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('MIDI');
 
 (async () => {
-    plan(20);
+    plan(39);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-midi-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -125,6 +130,71 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         check(r.nbNotesRS === 2 && JSON.stringify(r.pitchesRS) === '[60,64]', 'le RUNNING STATUS (deux notes, la seconde sans octet de statut répété) se lit correctement');
         check(r.dureesRS.every(d => Math.abs(d - 2) < 1e-9), 'et les durées (delta-tics codés en VLQ) sont exactes');
 
+        // --- Sections : découpage, extrait décalé à 0, liaison coupée à la borne, repères -----------
+        const rs = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const midi = await import('/src/io/midi.js');
+            const sortie = {};
+
+            const sansAnnotation = m.creerPartition('guitare');
+            sansAnnotation.mesures = Array.from({ length: 4 }, () => m.creerMesure());
+            sortie.uneSeuleSection = m.sectionsDe(sansAnnotation).length;
+
+            const p = m.creerPartition('guitare');
+            p.mesures = Array.from({ length: 8 }, () => m.creerMesure());
+            p.mesures[3].annotation = 'Refrain';   // intro (0-2) SANS titre, puis Refrain (3-7)
+            const sections = m.sectionsDe(p);
+            sortie.decoupage = sections.map(s => ({ titre: s.titre, debut: s.debut, fin: s.fin }));
+
+            // Une note dans la 2e section, décodée seule : doit démarrer à noires=0 (pas 12, sa
+            // position dans le morceau ENTIER) — c'est toute la promesse d'« une timeline à 0 ».
+            const pNote = m.creerPartition('guitare');
+            const mA = m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 1)])] }] });
+            const mB = m.creerMesure({ annotation: 'Refrain', voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 5)])] }] });
+            pNote.mesures = [mA, mB];
+            const secNote = m.sectionsDe(pNote);
+            const octetsExtrait = midi.genererMidi(pNote, { debut: secNote[1].debut, fin: secNote[1].fin });
+            sortie.extraitDebutA0 = midi.analyserMidi(octetsExtrait).notes[0]?.debutNoires;
+
+            // Liaison qui franchirait la borne de section : coupée nette (1 noire), jamais fusionnée
+            // avec la note de la section suivante qui n'existe pas dans ce fichier-là.
+            const pTie = m.creerPartition('guitare');
+            const nLiee = m.creerNote(0, 3); nLiee.lien = 'tie';
+            const mC = m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 4 }, [nLiee])] }] });
+            const mD = m.creerMesure({ annotation: 'Pont', voix: [{ evenements: [m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 3)])] }] });
+            pTie.mesures = [mC, mD];
+            const secTie = m.sectionsDe(pTie);
+            const octetsCoupes = midi.genererMidi(pTie, { debut: secTie[0].debut, fin: secTie[0].fin });
+            const noteCoupee = midi.analyserMidi(octetsCoupes).notes[0];
+            sortie.dureeCoupeeALaBorne = noteCoupee ? (noteCoupee.finNoires - noteCoupee.debutNoires) : null;
+
+            // Un fichier PAR section : indépendantes, chacune décodée dès noires=0.
+            const fichiers = midi.genererMidiSections(p);
+            sortie.nFichiers = fichiers.length;
+            sortie.titresFichiers = fichiers.map(f => f.titre);
+            sortie.nomsDistincts = new Set(fichiers.map(f => f.nom)).size === fichiers.length;
+
+            // Fichier UNIQUE : des repères MIDI (0x06) marquent chaque section, même sans fichier
+            // séparé — le texte brut suffit à les retrouver dans les octets pour cette sonde.
+            const marqueurs = sections.map((s, i) => ({ tic: Math.round(m.positionDebutMesure(p, s.debut) * 480), titre: s.titre || `Partie ${i + 1}` }));
+            const octetsUnique = midi.genererMidi(p, { marqueurs });
+            const texteUnique = String.fromCharCode(...octetsUnique);
+            sortie.repereePartie1 = texteUnique.includes('Partie 1');
+            sortie.repereRefrain = texteUnique.includes('Refrain');
+
+            return sortie;
+        });
+
+        check(rs.uneSeuleSection === 1, 'un morceau sans annotation ne forme qu\'UNE section (aucun découpage possible)');
+        check(JSON.stringify(rs.decoupage) === JSON.stringify([{ titre: '', debut: 0, fin: 2 }, { titre: 'Refrain', debut: 3, fin: 7 }]),
+            'une intro SANS titre (avant la première annotation) forme sa propre section, jamais absorbée dans la suivante');
+        check(rs.extraitDebutA0 === 0, 'une section exportée seule démarre bien sa PROPRE timeline à 0, comme HarmoHub — pas à sa position dans le morceau entier');
+        check(rs.dureeCoupeeALaBorne === 1, 'une liaison qui franchirait la borne de la section est coupée NETTE (1 noire), jamais fusionnée avec une note d\'une autre section absente du fichier');
+        check(rs.nFichiers === 2 && JSON.stringify(rs.titresFichiers) === '["Partie 1","Refrain"]',
+            'genererMidiSections donne un fichier par section, celle sans titre repliée sur « Partie 1 » (comme HarmoHub)');
+        check(rs.nomsDistincts, 'et chaque fichier porte un nom de téléchargement distinct');
+        check(rs.repereePartie1 && rs.repereRefrain, 'le fichier UNIQUE porte lui aussi un repère par section (même sans avoir demandé un fichier par section)');
+
         // --- L'interface : un clic télécharge, un fichier réimporté rejoue --------------------------
         await page.evaluate(async () => {
             const m = await import('/src/model/score.js');
@@ -155,9 +225,84 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         await page.evaluate(() => window.app.editeur.nouveau('guitare'));
         await page.waitForTimeout(150);
         await page.setInputFiles('#entree-fichier-midi', cheminMidi);
-        await page.waitForTimeout(400);
+        await page.waitForTimeout(300);
+        exiger(await page.locator('#fenetre-choix-import-midi').isVisible(), 'importer un .mid demande TOUJOURS s\'il remplace le morceau ou s\'y ajoute — jamais deviné en silence');
+
+        // « Nouveau morceau » : remplace, comme le faisait l'ancien import direct.
+        await page.click('#fenetre-choix-import-midi [data-choix="nouveau"]');
+        await page.waitForTimeout(200);
         const apresImport = await page.evaluate(() => window.app.editeur.partition.mesures[0].voix[0].evenements.filter(e => e.notes.length).length);
-        check(apresImport === 4, 'réimporter ce même fichier .mid reconstruit bien les 4 notes jouées');
+        check(apresImport === 4, '« Nouveau morceau » reconstruit bien les 4 notes jouées, à la place de l\'existant');
+
+        // « Annuler » (croix) : rien ne change, comme si le fichier n'avait jamais été choisi.
+        const avantAnnulerImport = await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures));
+        await page.setInputFiles('#entree-fichier-midi', cheminMidi);
+        await page.waitForTimeout(200);
+        await page.click('#fenetre-choix-import-midi [data-fermer]');
+        await page.waitForTimeout(200);
+        check(!(await page.locator('#fenetre-choix-import-midi').isVisible()), 'Annuler referme la fenêtre de choix');
+        check((await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures))) === avantAnnulerImport, 'et laisse le morceau en cours parfaitement intact');
+
+        // « À la suite » : le morceau EXISTANT (deux mesures témoins) garde ses notes, le fichier
+        // importé s'ajoute APRÈS, sa première mesure portant une annotation dérivée du nom du fichier.
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures = [
+                m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 9)])] }] }),
+                m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 9)])] }] }),
+            ];
+            ed.prevenir('document');
+        });
+        const avantSuite = await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures.map(mm => mm.voix[0].evenements[0].notes[0]?.frette)));
+        await page.setInputFiles('#entree-fichier-midi', cheminMidi);
+        await page.waitForTimeout(200);
+        await page.click('#fenetre-choix-import-midi [data-choix="suite"]');
+        await page.waitForTimeout(300);
+        const apresSuite = await page.evaluate(() => ({
+            nMesures: window.app.editeur.partition.mesures.length,
+            debutIntact: JSON.stringify(window.app.editeur.partition.mesures.slice(0, 2).map(mm => mm.voix[0].evenements[0].notes[0]?.frette)),
+            annotationNouvellePartie: (window.app.editeur.partition.mesures[2]?.annotation || '').length > 0,
+            notesAjoutees: window.app.editeur.partition.mesures.slice(2).some(mm => mm.voix.some(v => v.evenements.some(e => e.notes.length))),
+        }));
+        check(apresSuite.debutIntact === avantSuite, '« À la suite » laisse les DEUX mesures déjà là parfaitement intactes');
+        check(apresSuite.nMesures > 2, 'et de nouvelles mesures arrivent bien après');
+        check(apresSuite.annotationNouvellePartie, 'la première mesure ajoutée porte une annotation (le nom du fichier), pour repérer où commence la nouvelle partie');
+        check(apresSuite.notesAjoutees, 'et le contenu du fichier importé s\'y retrouve bien joué');
+
+        // --- Export MIDI : proposé seulement à partir de deux sections, jamais sur un morceau simple --
+        exiger(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'préalable : la fenêtre de choix export n\'est pas déjà ouverte');
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures = Array.from({ length: 4 }, () => m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 1)])] }] }));
+            ed.prevenir('document');
+        });
+        const attenteDirecte = page.waitForEvent('download');
+        await page.click('#btn-midi-exporter');
+        await attenteDirecte;
+        check(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'un morceau à UNE seule section (aucune annotation) exporte directement, sans rien demander');
+
+        // Deux sections : la fenêtre apparaît, et « Un fichier par partie » télécharge bien DEUX fichiers.
+        await page.evaluate(async () => {
+            const ed = window.app.editeur;
+            ed.partition.mesures[2].annotation = 'Refrain';
+            ed.prevenir('document');
+        });
+        await page.click('#btn-midi-exporter');
+        await page.waitForTimeout(200);
+        exiger(await page.locator('#fenetre-choix-export-midi').isVisible(), 'deux sections proposent bien le choix « un seul fichier / un fichier par partie »');
+        const telechargementsPartie = [];
+        const surTelechargement = (d) => telechargementsPartie.push(d.suggestedFilename());
+        page.on('download', surTelechargement);
+        await page.click('#fenetre-choix-export-midi [data-choix="partie"]');
+        await page.waitForTimeout(900);
+        page.off('download', surTelechargement);
+        check(telechargementsPartie.length === 2 && telechargementsPartie.every(n => /\.mid$/.test(n)),
+            '« Un fichier par partie » télécharge bien un .mid PAR section (deux ici), pas un seul');
+        check(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'et la fenêtre se referme d\'elle-même une fois le choix fait');
 
         // --- Un fichier .mid corrompu prévient, ne casse rien -----------------------------------------
         const avantCorrompu = await page.evaluate(() => window.app.editeur.partition.meta.titre);

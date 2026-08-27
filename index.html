@@ -230,11 +230,51 @@
     </div>
 </div>
 
+<!-- Choix avant export MIDI — comme HarmoHub : proposé seulement s'il y a plusieurs SECTIONS (voir
+     model/score.js#sectionsDe, main.js#exporterMidiFichier), un fichier par section restant sans
+     intérêt pour un morceau qui n'en a qu'une. -->
+<div class="voile" id="fenetre-choix-export-midi" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-choix-export-midi">
+        <div class="fenetre-tete">
+            <h2 id="titre-choix-export-midi">Exporter en MIDI</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <p>Ce morceau a plusieurs parties : un seul fichier MIDI, ou un fichier par partie (chacune sur sa propre timeline, pour les gérer indépendamment dans ton logiciel de musique) ?</p>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-neutre" data-choix="partie">Un fichier par partie</button>
+            <button type="button" class="btn-plein" data-choix="seul">Un seul fichier</button>
+        </div>
+    </div>
+</div>
+
+<!-- Choix à l'import MIDI : un nouveau morceau (remplace tout, comme avant) ou à la suite de celui
+     en cours (nouvelle partie annotée, sans rien toucher à ce qui existe déjà) — voir
+     main.js#chargerFichierMidi/choisirDans, edit/commands.js#ajouterMesures. -->
+<div class="voile" id="fenetre-choix-import-midi" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-choix-import-midi">
+        <div class="fenetre-tete">
+            <h2 id="titre-choix-import-midi">Importer le MIDI</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <p>Ce fichier MIDI remplace-t-il le morceau en cours, ou vient-il s'ajouter à la suite, comme une nouvelle partie ?</p>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-neutre" data-choix="suite">À la suite du morceau</button>
+            <button type="button" class="btn-plein" data-choix="nouveau">Nouveau morceau</button>
+        </div>
+    </div>
+</div>
+
 <input type="file" id="entree-fichier" accept="application/json,.json" hidden>
 <input type="file" id="entree-fichier-midi" accept="audio/midi,audio/x-midi,.mid,.midi" hidden>
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608280300"></script>
+<script type="module" src="src/main.js?v=202608290100"></script>
 </body>
 </html>

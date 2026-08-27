@@ -30,9 +30,9 @@ import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
-import { exporterMidi, lireFichierMidi } from './io/midi.js';
+import { exporterMidi, exporterMidiParPartie, lireFichierMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe } from './model/score.js';
 import { nomDeHauteur } from './model/theory.js';
 import { VALEURS_FIGURES } from './model/duration.js';
 
@@ -628,11 +628,60 @@ class TabHubApp {
         }
     }
 
-    /** Exporter en .mid — le format qu'un séquenceur, un DAW ou un logiciel de notation sait lire. */
-    exporterMidiFichier() {
+    /**
+     * Affiche une fenêtre de CHOIX (voile+fenetre déjà dans index.html, boutons `[data-choix]`) et
+     * résout à la valeur du bouton cliqué, ou `null` si fermée autrement (croix, clic sur le fond) —
+     * un seul mécanisme pour les deux choix MIDI (export : un seul fichier/par partie ; import :
+     * nouveau morceau/à la suite) plutôt que de le dupliquer. La fermeture GÉNÉRIQUE (voir
+     * brancherInterface, fermerFenetres) reste câblée à côté et referme bien la fenêtre dans tous les
+     * cas — mais elle ne sait rien de cette promesse, d'où les écouteurs posés ici en plus, qui la
+     * résolvent à `null` par les mêmes deux portes (croix, fond).
+     */
+    choisirDans(idFenetre) {
+        const fenetre = document.getElementById(idFenetre);
+        fenetre.hidden = false;
+        return new Promise((resolve) => {
+            let repondu = false;
+            const finir = (valeur) => {
+                if (repondu) return;
+                repondu = true;
+                fenetre.hidden = true;
+                resolve(valeur);
+            };
+            for (const b of fenetre.querySelectorAll('[data-choix]')) b.onclick = () => finir(b.dataset.choix);
+            for (const b of fenetre.querySelectorAll('[data-fermer]')) b.addEventListener('click', () => finir(null), { once: true });
+            fenetre.addEventListener('pointerdown', function surFond(e) {
+                if (e.target !== fenetre) return;
+                fenetre.removeEventListener('pointerdown', surFond);
+                finir(null);
+            });
+        });
+    }
+
+    /**
+     * Exporter en .mid — le format qu'un séquenceur, un DAW ou un logiciel de notation sait lire.
+     * Un seul fichier directement s'il n'y a qu'une seule SECTION (voir model/score.js#sectionsDe) ;
+     * sinon demande d'abord si on préfère un fichier PAR section (chacune sa propre timeline à 0),
+     * comme HarmoHub — un standard .mid ne permettant pas de vraies coupures gérables indépendamment
+     * DANS un seul fichier (seulement des repères, voir genererMidi), donc pas d'autre choix que
+     * plusieurs fichiers pour qui doit gérer chaque partie séparément sans la redécouper à la main.
+     */
+    async exporterMidiFichier() {
         try {
-            const nom = exporterMidi(this.editeur.partition);
-            this.message(`Exporté → ${nom}`);
+            const sections = sectionsDe(this.editeur.partition);
+            let parPartie = false;
+            if (sections.length > 1) {
+                const choix = await this.choisirDans('fenetre-choix-export-midi');
+                if (choix == null) return;   // annulé
+                parPartie = choix === 'partie';
+            }
+            if (parPartie) {
+                const n = exporterMidiParPartie(this.editeur.partition);
+                this.message(`${n} fichiers MIDI téléchargés`);
+            } else {
+                const nom = exporterMidi(this.editeur.partition);
+                this.message(`Exporté → ${nom}`);
+            }
         } catch (err) {
             console.error(err);
             this.message('Échec de l\'export MIDI : ' + err.message);
@@ -643,15 +692,39 @@ class TabHubApp {
      *  rien de la lutherie, ce sont les réglages déjà en place qui décident où poser les notes. */
     ouvrirMidi() { this.el.entreeFichierMidi.click(); }
 
+    /**
+     * Un fichier MIDI peut REMPLACER le morceau en cours (comme avant), ou s'y AJOUTER À LA SUITE,
+     * comme une nouvelle partie annotée — sans toucher à ce qui existe déjà (retour utilisateur,
+     * inspiré de HarmoHub qui, lui, décide seul selon que le morceau est vide ou non : ici, on
+     * demande, dans les deux cas, lequel des deux est voulu).
+     */
     async chargerFichierMidi(fichier) {
         try {
             const piste = this.editeur.partition.piste;
             const { partition, abandonnees } = await lireFichierMidi(fichier, piste.instrument, piste.accordage, piste.capo);
+            const choix = await this.choisirDans('fenetre-choix-import-midi');
+            if (choix == null) return;   // annulé
+
             this.arreter();
-            this.editeur.remplacer(partition);
-            this.message(abandonnees
-                ? `Importé (${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''})`
-                : `Importé : ${partition.meta.titre}`, abandonnees ? 6000 : undefined);
+            if (choix === 'suite') {
+                const tempoActuel = this.editeur.partition.meta.tempo;
+                const titre = fichier.name.replace(/\.midi?$/i, '').trim().slice(0, 40) || 'Import';
+                this.editeur.ajouterMesures(partition.mesures, titre);
+                const parties = ['Ajouté à la suite du morceau'];
+                if (abandonnees) parties.push(`${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''}`);
+                // Le morceau en cours garde SON tempo (jamais celui, différent, d'un fichier qui vient
+                // s'ajouter) — mais le dire vaut mieux qu'un silence qui laisserait deviner pourquoi la
+                // nouvelle partie ne « sonne » pas à la vitesse attendue.
+                if (Math.round(partition.meta.tempo) !== Math.round(tempoActuel)) {
+                    parties.push(`fichier à ${Math.round(partition.meta.tempo)} BPM, morceau conservé à ${Math.round(tempoActuel)} BPM`);
+                }
+                this.message(parties.join(' · '), parties.length > 1 ? 6000 : undefined);
+            } else {
+                this.editeur.remplacer(partition);
+                this.message(abandonnees
+                    ? `Importé (${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''})`
+                    : `Importé : ${partition.meta.titre}`, abandonnees ? 6000 : undefined);
+            }
         } catch (err) {
             // Un fichier illisible est une entrée UTILISATEUR malvenue, pas un bug applicatif — comme
             // chargerFichier (.json) juste au-dessus, aucun console.error : le message suffit.
