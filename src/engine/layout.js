@@ -379,19 +379,23 @@ function mesurerMesure(m, besoins, clef, S) {
  * mesure seule qui déborde reste seule sur sa ligne plutôt que d'être coupée — une mesure coupée en
  * deux n'a aucun sens musical.
  */
-function decouperEnSystemesGloutons(mesures, largeurUtile, clef, S) {
+// `mesurer(m, premiereDuSysteme)` encapsule le mesurage propre à l'instrument (besoinsDe +
+// mesurerMesure, avec la clé qui va avec) : cette fonction ne connaît QUE le découpage en lignes,
+// jamais ce qui distingue une portée de guitare/basse (avec TAB) d'une portée de piano (sans TAB,
+// deux clés) — voir mettreEnPage et mettreEnPagePiano, qui lui passent chacun leur propre mesurage.
+function decouperEnSystemesGloutons(mesures, largeurUtile, mesurer) {
     const systemes = [];
     let courant = null;
     for (const m of mesures) {
         const premiereDuSysteme = !courant || courant.mesures.length === 0;
-        const largeurTotale = mesurerMesure(m, besoinsDe(m, premiereDuSysteme), clef, S);
+        const largeurTotale = mesurer(m, premiereDuSysteme);
         if (!courant) {
             courant = { mesures: [], largeur: 0 };
         } else if (courant.largeur + largeurTotale > largeurUtile && courant.mesures.length > 0) {
             systemes.push(courant);
             courant = { mesures: [], largeur: 0 };
             // Nouveau système : la clé et l'armure s'y redessinent, donc la mesure est remesurée.
-            mesurerMesure(m, besoinsDe(m, true), clef, S);
+            mesurer(m, true);
         }
         courant.mesures.push(m); courant.largeur += m.largeurTotale;
     }
@@ -414,7 +418,7 @@ function decouperEnSystemesGloutons(mesures, largeurUtile, clef, S) {
  * réessaie, jusqu'à n'en garder plus qu'une si littéralement une seule mesure ne tient déjà pas —
  * dans ce cas, elle reste seule, exactement comme le ferait le mode automatique.
  */
-function decouperEnSystemesParCompte(mesures, n, clef, S) {
+function decouperEnSystemesParCompte(mesures, n, mesurer) {
     // `n` est un CHOIX EXPLICITE (voir groupe-mesures-ligne) — contrairement au mode « Auto », qui
     // vise justement à toujours tenir dans la largeur, ce chiffre-ci dit combien de mesures l'œil
     // doit voir par ligne, quitte à ce que la ligne déborde et se parcoure au défilement horizontal
@@ -429,7 +433,7 @@ function decouperEnSystemesParCompte(mesures, n, clef, S) {
     let i = 0;
     while (i < mesures.length) {
         const tranche = mesures.slice(i, Math.min(i + n, mesures.length));
-        tranche.forEach((m, k) => mesurerMesure(m, besoinsDe(m, k === 0), clef, S));
+        tranche.forEach((m, k) => mesurer(m, k === 0));
         systemes.push({ mesures: tranche, largeur: tranche.reduce((t, m) => t + m.largeurTotale, 0) });
         i += tranche.length;
     }
@@ -447,6 +451,13 @@ function decouperEnSystemesParCompte(mesures, n, clef, S) {
  */
 export function mettreEnPage(partition, options = {}) {
     const geo = { ...GEO_DEFAUT, ...options };
+    // GRAND-PORTÉE (piano) : un instrument à clavier n'a ni corde ni case, sa portée n'a rien de
+    // commun avec la TAB — voir mettreEnPagePiano, un chemin volontairement à part plutôt qu'un
+    // maillage de conditions dans les 800 lignes qui suivent, pensées pour guitare/basse depuis le
+    // début. `nMesuresParLigne` s'y calcule de la même façon (voir plus bas) : les deux chemins
+    // partagent decouperEnSystemesGloutons/ParCompte, seul le MESURAGE (une portée, deux clés,
+    // jamais de TAB) diffère.
+    if (INSTRUMENTS[partition.piste.instrument]?.clef === 'grandPortee') return mettreEnPagePiano(partition, geo);
     const S = geo.S;
     const ST = S * geo.ratioTab;                        // interligne de la tablature
     const cordes = nbCordes(partition);
@@ -501,9 +512,10 @@ export function mettreEnPage(partition, options = {}) {
     //   • un nombre N : COMPTE FIXE — exactement N mesures par ligne, sauf à devenir illisible, une
     //     mesure à la fois, pour rester lisible quel que soit le chiffrage rythmique en cours.
     const nMesuresParLigne = geo.mesuresParLigne ? Math.max(1, Math.round(geo.mesuresParLigne)) : null;
+    const mesurer = (m, premiere) => mesurerMesure(m, besoinsDe(m, premiere), clef, S);
     const systemes = nMesuresParLigne
-        ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, clef, S)
-        : decouperEnSystemesGloutons(mesures, largeurUtile, clef, S);
+        ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, mesurer)
+        : decouperEnSystemesGloutons(mesures, largeurUtile, mesurer);
 
     // --- 3. (plus de justification) -------------------------------------------------------------
     // Une version antérieure étirait chaque système pour occuper toute la largeur utile, comme sur
@@ -568,6 +580,10 @@ export function mettreEnPage(partition, options = {}) {
 
         ancrages.systemes.push({
             index: iSys, y, hauteur: hauteurSysteme + extraAnnotation, yPortee, yTab, xDebut, xFin, hauteurTab,
+            // `yBas` : bas de la grille de notation, générique entre les deux mises en page (voir son
+            // pendant côté piano dans mettreEnPagePiano) — pour que la bande de boucle et le reste du
+            // code d'interaction n'aient jamais à savoir s'il existe une TAB sous la portée.
+            yBas: yTab + hauteurTab,
             debutPrimitives, finPrimitives: primitives.length,
             premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
         });
@@ -594,6 +610,222 @@ export function mettreEnPage(partition, options = {}) {
         enTete: { debut: 0, fin: debutCorps },
         geo: { ...geo, S, ST, cordes, hauteurPortee, hauteurTab, hauteurSysteme, clef },
     };
+}
+
+// ---------------------------------------------------------------------------------------------
+// PIANO — grand-portée (clé de sol + clé de fa), sans tablature.
+//
+// PREMIER JALON DU CHANTIER : la mise en page seule. Aucune note ne s'affiche encore (la saisie
+// directement sur la portée viendra ensuite) — chaque mesure, toujours entièrement vide à ce stade,
+// se dessine avec un simple silence de mesure entière sur chacune des deux portées, comme le fait
+// toute partition gravée pour une mesure qui ne joue rien. Partage delibérément le MOINS de code
+// possible avec mettreEnPage (seuls les découpages en systèmes, qui ignorent le contenu d'une
+// portée, et les fabriques de primitives) : un maillage de conditions dans une fonction pensée pour
+// guitare/basse depuis le début aurait fini par rendre LES DEUX plus difficiles à lire.
+// ---------------------------------------------------------------------------------------------
+
+function mettreEnPagePiano(partition, geo) {
+    const S = geo.S;
+    const clefSol = CLEFS.sol, clefFa = CLEFS.fa;
+    const hauteurPortee = 4 * S;
+    // Entre les deux portées : assez pour que la clé de fa, son armure et son chiffrage (chacune sa
+    // PROPRE portée les affiche, jamais partagés — la convention de gravure d'un grand-portée) s'y
+    // tiennent sans jamais toucher la portée de sol au-dessus.
+    const ecartPortees = 7 * S;
+    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPortees + hauteurPortee + geo.margeBas * S;
+    const largeurUtile = geo.largeurPage - geo.margeGauche - geo.margeDroite;
+
+    // --- 1. Mesurer : la largeur d'une mesure ne dépend QUE de sa capacité (LARGEUR_PAR_NOIRE,
+    // exactement la même règle que guitare/basse) — aucune note n'existe encore dont la densité
+    // pourrait la faire varier. L'en-tête (clé/armure/chiffrage) se calcule pour LES DEUX clés, et
+    // c'est la plus large des deux qui compte : les deux portées doivent démarrer leurs notes au
+    // MÊME x, sans quoi la promesse même d'un grand-portée (lire les deux mains ensemble) serait
+    // rompue au premier changement d'armure. -----------------------------------------------------
+    const mesures = partition.mesures.map((mesure, i) => {
+        const sig = signatureEffective(partition, i);
+        const arm = armureEffective(partition, i);
+        const capacite = noiresParMesure(sig);
+        return {
+            index: i, ref: mesure, signature: sig, armure: arm, capacite,
+            largeurNotes: capacite * LARGEUR_PAR_NOIRE * S,
+            changeSignature: !!mesure.signature,
+            changeArmure: mesure.armure !== null && mesure.armure !== undefined,
+        };
+    });
+
+    const besoinsDePiano = (m, premiereDuSysteme) => ({
+        clef: premiereDuSysteme,
+        armure: premiereDuSysteme || m.changeArmure,
+        signature: m.index === 0 || m.changeSignature,
+        repriseDebut: m.ref.repriseDebut,
+    });
+    const mesurerPiano = (m, besoins) => {
+        m.besoins = besoins;
+        m.enTete = Math.max(
+            largeurEnTete(besoins, m.armure, m.signature, clefSol, S),
+            largeurEnTete(besoins, m.armure, m.signature, clefFa, S),
+        );
+        m.largeurTotale = m.enTete + m.largeurNotes + 1.4 * S;
+        return m.largeurTotale;
+    };
+
+    // --- 2. Découpage en systèmes : les MÊMES fonctions que guitare/basse (voir plus haut) — elles
+    // ne lisent que largeurTotale/besoins, jamais ce qui distingue une TAB d'une seconde portée. ---
+    const nMesuresParLigne = geo.mesuresParLigne ? Math.max(1, Math.round(geo.mesuresParLigne)) : null;
+    const mesurer = (m, premiere) => mesurerPiano(m, besoinsDePiano(m, premiere));
+    const systemes = nMesuresParLigne
+        ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, mesurer)
+        : decouperEnSystemesGloutons(mesures, largeurUtile, mesurer);
+
+    // --- 3. Poser --------------------------------------------------------------------------------
+    const primitives = [];
+    const ancrages = { evenements: [], mesures: [], systemes: [] };
+    let y = geo.yDepart ?? 0;
+    if (geo.avecEnTete !== false) y = poserEnTete(primitives, partition, geo, y);
+    const debutCorps = primitives.length;
+
+    systemes.forEach((sys, iSys) => {
+        const debutPrimitives = primitives.length;
+        const yPortee = y + geo.margeHaut * S;          // portée de SOL — même nom que guitare/basse,
+        const yPorteeFa = yPortee + hauteurPortee + ecartPortees;   // pour que les ancrages restent lisibles pareil
+        const xDebut = geo.margeGauche;
+        const xFin = xDebut + sys.mesures.reduce((t, m) => t + m.enTete + m.largeurNotes + 1.4 * S, 0);
+
+        for (let i = 0; i < 5; i++) {
+            primitives.push(ligne(xDebut, yPortee + i * S, xFin, yPortee + i * S, G.EPAISSEURS.ligneePortee * S));
+            primitives.push(ligne(xDebut, yPorteeFa + i * S, xFin, yPorteeFa + i * S, G.EPAISSEURS.ligneePortee * S));
+        }
+        poserAccolade(primitives, xDebut, yPortee, yPorteeFa + 4 * S, S);
+
+        let x = xDebut;
+        sys.mesures.forEach((m, iDansSys) => {
+            const largeurMesure = m.enTete + m.largeurNotes + 1.4 * S;
+            const finMesure = x + largeurMesure;
+            x = poserMesurePiano(primitives, ancrages, m, {
+                x, finMesure, yPortee, yPorteeFa, S, iSys, premiereDuSysteme: iDansSys === 0,
+            });
+        });
+
+        ancrages.systemes.push({
+            index: iSys, y, hauteur: hauteurSysteme, yPortee, yPorteeFa, xDebut, xFin,
+            // Pendant de guitare/basse (voir l'autre ancrages.systemes.push) : bas de la portée de fa,
+            // pas de TAB à cette échelle.
+            yBas: yPorteeFa + hauteurPortee,
+            debutPrimitives, finPrimitives: primitives.length,
+            premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
+        });
+        y += hauteurSysteme + geo.ecartSystemes * S;
+    });
+
+    // Même invariant que guitare/basse (voir mettreEnPage) : la page grandit pour accueillir un
+    // système trop large plutôt que d'en rogner le contenu.
+    const largeurContenu = Math.max(0, ...ancrages.systemes.map(s => s.xFin)) + geo.margeDroite;
+
+    return {
+        largeur: Math.max(geo.largeurPage, largeurContenu),
+        hauteur: Math.max(y - geo.ecartSystemes * S, hauteurSysteme),
+        primitives, ancrages,
+        enTete: { debut: 0, fin: debutCorps },
+        geo: { ...geo, S, hauteurPortee, hauteurSysteme, ecartPortees, grandPortee: true },
+    };
+}
+
+/** Une mesure de piano : clé(s), armure, chiffrage — sur les DEUX portées —, un silence de mesure
+ *  entière sur chacune (aucune note n'existe encore à ce stade du chantier), et la barre de fin,
+ *  qui doit traverser les DEUX portées d'un seul trait — la convention de gravure d'un grand-portée,
+ *  à la différence de guitare/basse où portée et TAB restent deux systèmes verticalement distincts. */
+function poserMesurePiano(out, ancrages, m, ctx) {
+    const { yPortee, yPorteeFa, S } = ctx;
+    const xDebutMesure = ctx.x;
+
+    const poserEnTeteStaff = (x0, yP, clef) => {
+        let x = x0;
+        if (m.besoins.clef) {
+            out.push(glyphe(clef.glyphe, x + 0.45 * S, yP + clef.ligne * S, S));
+            x += (G.largeurDe(clef.glyphe) + 0.9) * S;
+        }
+        if (m.besoins.armure && m.armure !== 0) {
+            const alt = m.armure > 0 ? G.DIESE : G.BEMOL;
+            const avance = (G.largeurDe(alt) + 0.08) * S;
+            positionsArmure(m.armure, clef).forEach(pas => {
+                out.push(glyphe(alt, x, yDeLaPosition(pas, yP, S, clef), S));
+                x += avance;
+            });
+            x += 0.5 * S;
+        }
+        if (m.besoins.signature) {
+            const haut = G.chiffresDe(m.signature.battements);
+            const bas = G.chiffresDe(m.signature.unite);
+            const largeur = Math.max(haut.largeur, bas.largeur);
+            const poserSuite = (suite, y) => {
+                let cx = x + 0.45 * S + ((largeur - suite.largeur) / 2) * S;
+                for (const g of suite.glyphes) {
+                    cx += (G.largeurDe(g) / 2) * S;
+                    out.push(glyphe(g, cx, y, S));
+                    cx += (G.largeurDe(g) / 2) * S;
+                }
+            };
+            poserSuite(haut, yP + 1 * S);
+            poserSuite(bas, yP + 3 * S);
+            x += (largeur + 0.9) * S;
+        }
+    };
+    // Barre de reprise ouvrante — comme la barre de fin plus bas, un seul trait/une seule paire de
+    // points qui traverse les DEUX portées (jamais deux barres de reprise indépendantes) : décale le
+    // point de départ des DEUX en-têtes d'autant, exactement l'espace réservé par largeurEnTete.
+    let xApresReprise = xDebutMesure;
+    if (m.ref.repriseDebut) {
+        const yBasGrandPortee = yPorteeFa + 4 * S;
+        out.push(rect(xDebutMesure, yPortee, G.EPAISSEURS.barreEpaisse * S, yBasGrandPortee - yPortee));
+        const xf = xDebutMesure + G.EPAISSEURS.barreEpaisse * S + 0.32 * S;
+        out.push(ligne(xf, yPortee, xf, yBasGrandPortee, G.EPAISSEURS.barreMesure * S));
+        const xp = xf + 0.55 * S;
+        out.push(glyphe(G.POINT, xp, yPortee + 1.5 * S, S));
+        out.push(glyphe(G.POINT, xp, yPortee + 2.5 * S, S));
+        out.push(glyphe(G.POINT, xp, yPorteeFa + 1.5 * S, S));
+        out.push(glyphe(G.POINT, xp, yPorteeFa + 2.5 * S, S));
+        xApresReprise = xp + 0.9 * S;
+    }
+    poserEnTeteStaff(xApresReprise, yPortee, CLEFS.sol);
+    poserEnTeteStaff(xApresReprise, yPorteeFa, CLEFS.fa);
+
+    // Numéro de mesure, au-dessus de la portée de sol — la même place que guitare/basse.
+    out.push(texte(xDebutMesure + m.enTete + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {
+        taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
+    }));
+
+    // Silence de mesure entière, sur CHAQUE portée — jamais le découpage réel en figures (voir
+    // model/score.js#decouperEnEvenements, qui peut très bien donner une blanche pointée pour une
+    // mesure à 3/4) : une mesure vide se grave TOUJOURS avec le même signe, quel que soit son
+    // chiffrage, la convention qui dit « rien ne joue ici » plutôt qu'un silence d'une durée précise.
+    const xNotes = xDebutMesure + m.enTete;
+    const centreNotes = xNotes + m.largeurNotes / 2;
+    const gSilence = G.SILENCES[1];
+    const demiSilence = (G.largeurDe(gSilence) / 2) * S;
+    out.push(glyphe(gSilence, centreNotes - demiSilence, yPortee + (G.LIGNE_SILENCE[1] ?? 1) * S, S));
+    out.push(glyphe(gSilence, centreNotes - demiSilence, yPorteeFa + (G.LIGNE_SILENCE[1] ?? 1) * S, S));
+
+    // Barre de fin de mesure — un seul trait continu du haut de la portée de sol au bas de celle de
+    // fa (jamais deux traits séparés comme portée/TAB) : sur un grand-portée, c'est la MÊME barre.
+    const xBarre = ctx.finMesure;
+    if (m.ref.repriseFin) {
+        const xp = xBarre - 1.5 * S;
+        out.push(glyphe(G.POINT, xp, yPortee + 1.5 * S, S));
+        out.push(glyphe(G.POINT, xp, yPortee + 2.5 * S, S));
+        out.push(glyphe(G.POINT, xp, yPorteeFa + 1.5 * S, S));
+        out.push(glyphe(G.POINT, xp, yPorteeFa + 2.5 * S, S));
+        const xf = xBarre - 0.75 * S;
+        out.push(ligne(xf, yPortee, xf, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
+        out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yPortee, G.EPAISSEURS.barreEpaisse * S, (yPorteeFa + 4 * S) - yPortee));
+    } else {
+        out.push(ligne(xBarre, yPortee, xBarre, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
+    }
+
+    ancrages.mesures.push({
+        index: m.index, x: xDebutMesure, xFin: xBarre, xNotes, yPortee, yPorteeFa, systeme: ctx.iSys,
+        capacite: m.capacite, largeurNotes: m.largeurNotes,
+    });
+    return xBarre;
 }
 
 // ---------------------------------------------------------------------------------------------

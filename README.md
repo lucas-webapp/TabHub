@@ -2,7 +2,9 @@
 
 Éditeur web de **tablatures et partitions** pour guitare et basse : saisie au clavier, double portée
 solfège + TAB synchronisées, lecture audio avec tête de lecture, boucle de lecture pour retravailler
-un passage, export PDF vectoriel, fichiers `.json` et **MIDI** (import et export).
+un passage, export PDF vectoriel, fichiers `.json` et **MIDI** (import et export). Un premier support
+**piano** (grand-portée clé de sol + clé de fa) pose la mise en page ; la saisie directement sur la
+portée arrive dans un second temps (voir « Ce que la V1 ne fait pas encore »).
 
 Application compagnon de [HarmoHub](https://github.com/lucas-webapp/HarmoHub), dont elle reprend
 l'architecture et le vocabulaire visuel.
@@ -158,6 +160,11 @@ alternatifs prédéfinis (Drop D, demi-ton plus bas, un ton plus bas, Drop C, Op
 do aigu…), réglage **corde par corde**, et capodastre. Un accordage réglé à la main qui reconstitue un
 prédéfini est reconnu comme tel.
 
+**Piano** : ni corde ni case, donc ni accordage ni capodastre — la partition se grave en grand-portée
+(clé de sol et clé de fa, chacune sa propre armure et son propre chiffrage, reliées par une accolade).
+Basculer un morceau existant vers piano vide ses notes (elles n'ont plus de corde où vivre) sans
+toucher au rythme ni aux mesures.
+
 ### Fichiers
 
 - **Enregistrer** télécharge un `.json` indenté, qui est le modèle tel quel — lisible et modifiable à
@@ -231,6 +238,10 @@ Dit franchement, pour que la suite se décide sur des faits :
   amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
   simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en
   hauteur en continu.
+- **Piano : la mise en page seulement.** Le grand-portée se dessine (clé de sol + clé de fa, armure,
+  chiffrage, reprises, tout comme guitare/basse), mais on ne peut pas encore y écrire : ni saisie
+  directement sur la portée, ni deuxième voix. Une mesure piano reste donc toujours vide (silence de
+  ronde sur les deux portées) jusqu'à ce chantier.
 
 ---
 

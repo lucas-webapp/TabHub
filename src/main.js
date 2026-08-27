@@ -1172,7 +1172,7 @@ class TabHubApp {
         const boucle = this.lecteur.boucleLecture;
         const marques = [];
         for (const sys of systemes) {
-            const y = sys.yTab + sys.hauteurTab + HAUT_BANDE_BOUCLE * S;
+            const y = sys.yBas + HAUT_BANDE_BOUCLE * S;
             const h = (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE) * S;
             marques.push({ t: 'rect', x: sys.xDebut, y, w: sys.xFin - sys.xDebut, h,
                 couleur: 'rgba(255, 152, 0, 0)', classe: 'bande-boucle' });
@@ -1202,7 +1202,7 @@ class TabHubApp {
         const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
-            y >= s.yTab + s.hauteurTab + HAUT_BANDE_BOUCLE * S && y <= s.yTab + s.hauteurTab + BAS_BANDE_BOUCLE * S);
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + BAS_BANDE_BOUCLE * S);
         if (!systeme) return null;
         return this._mesureDuSysteme(systeme, x);
     }
@@ -1223,7 +1223,7 @@ class TabHubApp {
         const systemes = this.page.ancrages.systemes;
         let systeme = null, ecart = Infinity;
         for (const s of systemes) {
-            const e = Math.abs(y - (s.yTab + s.hauteurTab));
+            const e = Math.abs(y - s.yBas);
             if (e < ecart) { ecart = e; systeme = s; }
         }
         if (!systeme) return null;
@@ -1345,7 +1345,7 @@ class TabHubApp {
         const liste = ACCORDAGES[piste.instrument] || [];
         const connu = liste.some(a => a.id === piste.accordage.id);
         selAccordage.innerHTML = liste
-            .map(a => `<option value="${a.id}"${a.id === piste.accordage.id ? ' selected' : ''}>${a.nom} — ${libelleAccordage(a.cordes)}</option>`).join('')
+            .map(a => `<option value="${a.id}"${a.id === piste.accordage.id ? ' selected' : ''}>${a.nom}${a.cordes.length ? ' — ' + libelleAccordage(a.cordes) : ''}</option>`).join('')
             + (connu ? '' : `<option value="personnalise" selected>Personnalisé — ${libelleAccordage(piste.accordage.cordes)}</option>`);
         selAccordage.onchange = () => { if (selAccordage.value !== 'personnalise') this.editeur.definirAccordage(selAccordage.value); };
 

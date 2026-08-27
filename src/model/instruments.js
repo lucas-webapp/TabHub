@@ -44,6 +44,20 @@ export const INSTRUMENTS = {
         casesMax: 24,
         accordageDefaut: 'standard',
     },
+    // PREMIER JALON DU CHANTIER PIANO — la mise en page (portée à deux clés, sans tablature) : la
+    // saisie directement sur la portée viendra ensuite. `clef: 'grandPortee'` est un marqueur
+    // reconnu par engine/layout.js (mettreEnPagePiano), PAS une clé de CLEFS : le piano n'a ni corde
+    // ni case, donc ni accordage ni capodastre au sens des trois instruments ci-dessus — `nbCordes`
+    // et `casesMax` restent à 0 pour que le reste du modèle (qui suppose leur présence) continue de
+    // fonctionner sans jamais y trouver quoi que ce soit à placer.
+    piano: {
+        id: 'piano',
+        nom: 'Piano',
+        nbCordes: 0,
+        clef: 'grandPortee',
+        casesMax: 0,
+        accordageDefaut: 'aucun',
+    },
 };
 
 /**
@@ -75,6 +89,11 @@ export const ACCORDAGES = {
         { id: 'aigu', nom: 'Do aigu (Mi–Do)', cordes: [48, 43, 38, 33, 28] },
         { id: 'dropA', nom: 'Drop A', cordes: [43, 38, 33, 28, 21] },
         { id: 'demiTon', nom: 'Demi-ton plus bas (Mi♭)', cordes: [42, 37, 32, 27, 22] },
+    ],
+    // Un seul « accordage », sans cordes : accordageParDefaut(instrumentId) réclame au moins une
+    // entrée pour toute la famille des instruments, sans quoi elle retomberait sur guitare.
+    piano: [
+        { id: 'aucun', nom: 'Piano', cordes: [] },
     ],
 };
 
