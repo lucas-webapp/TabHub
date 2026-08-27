@@ -148,6 +148,10 @@ export function creerMesure(extra = {}) {
         id: nouvelId('m'),
         signature: null,
         armure: null,
+        // Le MODE ('majeur' | 'mineur') voyage AVEC l'armure, et hérite comme elle (voir modeEffectif) :
+        // il est ce qui distingue deux relatives, que l'armure seule ne sait pas départager (do majeur
+        // et la mineur portent exactement les mêmes altérations). Voir theory.js, TONALITES.
+        mode: null,
         repriseDebut: false,
         repriseFin: false,
         nbFois: 2,
@@ -164,7 +168,7 @@ export function creerMesure(extra = {}) {
 export function creerPartition(instrumentId = 'guitare') {
     const instrument = INSTRUMENTS[instrumentId] ? instrumentId : 'guitare';
     const maintenant = new Date().toISOString();
-    const premiere = creerMesure({ signature: { battements: 4, unite: 4 }, armure: 0 });
+    const premiere = creerMesure({ signature: { battements: 4, unite: 4 }, armure: 0, mode: 'majeur' });
     return {
         format: FORMAT,
         version: VERSION_FORMAT,
@@ -205,6 +209,19 @@ export function armureEffective(partition, index) {
         if (a !== null && a !== undefined) return a;
     }
     return 0;
+}
+
+/**
+ * Le MODE en vigueur à cette mesure, hérité de la dernière mesure qui l'a fixé — exactement la même
+ * règle qu'`armureEffective` juste au-dessus, dont il est le jumeau : les deux ensemble forment la
+ * TONALITÉ (voir theory.js, TONALITES). « majeur » à défaut, comme l'armure vaut 0 à défaut.
+ */
+export function modeEffectif(partition, index) {
+    for (let i = Math.min(index, partition.mesures.length - 1); i >= 0; i--) {
+        const m = partition.mesures[i].mode;
+        if (m === 'majeur' || m === 'mineur') return m;
+    }
+    return 'majeur';
 }
 
 /** Nombre de voix effectivement présentes dans une mesure — 1 la plupart du temps, 2 au maximum. */
@@ -325,6 +342,14 @@ function normaliserEvenement(eb, cordes, fiche) {
             bend: nb?.bend && Number.isFinite(Number(nb.bend.demiTons))
                 ? { demiTons: Math.min(6, Math.max(0.5, Number(nb.bend.demiTons))) } : null,
             ghost: !!nb?.ghost,
+            // `horsManche` / `hauteurVoulue` : posés par une transposition qui n'a trouvé aucune corde
+            // capable de jouer la note (voir Editeur.transposerMorceau). Ils doivent SURVIVRE à un
+            // aller-retour par le .json — cette liste est blanche, tout ce qui n'y figure pas est
+            // silencieusement perdu : sans ces deux lignes, rouvrir un morceau effaçait les marques
+            // rouges et laissait des notes rabattues au bord du manche sans plus rien pour le dire,
+            // ni de quoi retrouver la hauteur voulue.
+            ...(nb?.horsManche ? { horsManche: true } : {}),
+            ...(Number.isFinite(Number(nb?.hauteurVoulue)) ? { hauteurVoulue: Number(nb.hauteurVoulue) } : {}),
         }));
     }
     return creerEvenement(duree, notes, {
@@ -395,6 +420,11 @@ export function normaliser(brut) {
             };
         }
         if (mb?.armure !== null && mb?.armure !== undefined) mesure.armure = borne(mb.armure, -7, 7, 0);
+        // Un fichier ANTÉRIEUR au mode n'en porte pas : la mesure qui fixe une armure sans mode est
+        // réputée MAJEURE, l'interprétation d'usage d'une armure seule — et celle que l'application
+        // affichait déjà, faute de mieux, avant que le mode existe.
+        if (mb?.mode === 'majeur' || mb?.mode === 'mineur') mesure.mode = mb.mode;
+        else if (mesure.armure !== null && mesure.armure !== undefined) mesure.mode = 'majeur';
         mesure.repriseDebut = !!mb?.repriseDebut;
         mesure.repriseFin = !!mb?.repriseFin;
         mesure.nbFois = borne(mb?.nbFois, 2, 99, 2);
@@ -418,6 +448,7 @@ export function normaliser(brut) {
     // les dessine sans condition, et un `null` ici deviendrait un trou dans l'en-tête de portée.
     if (!partition.mesures[0].signature) partition.mesures[0].signature = { battements: 4, unite: 4 };
     if (partition.mesures[0].armure === null) partition.mesures[0].armure = 0;
+    if (partition.mesures[0].mode !== 'majeur' && partition.mesures[0].mode !== 'mineur') partition.mesures[0].mode = 'majeur';
 
     return partition;
 }

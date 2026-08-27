@@ -565,3 +565,8 @@ kbd {
     .rangee-pave { gap: 4px; }
     .etat-pave { display: none; }
 }
+
+/* Les deux boutons de transposition (voir ui/toolbar.js) : un ♭ et un ♯ à leur taille de lecture,
+   nettement plus grands qu'un libellé de bouton ordinaire — ce sont des SIGNES musicaux, et un
+   bémol rendu au corps du texte courant se confond avec un « b » minuscule. */
+.btn-transposer { font-size: 17px; font-weight: 700; line-height: 1; padding-bottom: 2px; }

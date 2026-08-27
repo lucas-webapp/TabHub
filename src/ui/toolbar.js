@@ -13,6 +13,7 @@
 import { ACTIONS, toucheDe } from '../edit/raccourcis.js';
 import * as G from '../engine/glyphs.js';
 import { icone } from './icons.js';
+import { armureEffective, modeEffectif } from '../model/score.js';
 
 const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
 
@@ -174,33 +175,65 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     });
     gMesure.appendChild(selSignature);
 
-    const selArmure = document.createElement('select');
-    selArmure.className = 'champ';
-    selArmure.title = 'Armure de la mesure courante';
-    selArmure.setAttribute('aria-label', 'Armure');
-    gMesure.appendChild(selArmure);
-    // Peuplée depuis la table des armures du modèle, pour ne pas réécrire quinze libellés ici.
-    import('../model/theory.js').then(({ NOMS_ARMURES }) => {
-        for (const a of NOMS_ARMURES) {
+    // LA TONALITÉ, et non plus « l'armure ». Une version antérieure listait les quinze ARMURES, chacune
+    // libellée par sa paire de relatives (« Do M / La m ») : le choix décrivait fidèlement les
+    // altérations à la clé, mais ne permettait pas de dire si le morceau était en do majeur ou en la
+    // mineur — impossible de trancher (retour utilisateur). Les trente TONALITÉS sont donc listées une
+    // à une, en notation internationale (voir theory.js, TONALITES) : choisir « Am » choisit pour de bon.
+    const selTonalite = document.createElement('select');
+    selTonalite.className = 'champ';
+    selTonalite.title = 'Tonalité de la mesure courante (armure + mode)';
+    selTonalite.setAttribute('aria-label', 'Tonalité');
+    gMesure.appendChild(selTonalite);
+    // Peuplée depuis la table du modèle, pour ne pas réécrire trente libellés ici. La valeur encode
+    // le COUPLE armure/mode (« -3|mineur ») : les deux sont indissociables, voir definirTonalite.
+    import('../model/theory.js').then(({ TONALITES }) => {
+        for (const t of TONALITES) {
             const o = document.createElement('option');
-            o.value = String(a.armure);
-            o.textContent = `${a.majeur} / ${a.mineur}`;
-            selArmure.appendChild(o);
+            o.value = `${t.armure}|${t.mode}`;
+            o.textContent = t.nom;
+            selTonalite.appendChild(o);
         }
         rafraichir();
     });
-    selArmure.addEventListener('change', () => {
-        editeur.definirArmure(parseInt(selArmure.value, 10));
+    selTonalite.addEventListener('change', () => {
+        const [armure, mode] = selTonalite.value.split('|');
+        editeur.definirTonalite(parseInt(armure, 10), mode);
         actionsFichier.rendreLeFocus?.();
     });
+
+    // TRANSPOSER LE MORCEAU ENTIER, demi-ton par demi-ton. Deux boutons plutôt qu'un champ : on
+    // transpose en tâtonnant à l'oreille (« encore un demi-ton »), pas en calculant un nombre à
+    // l'avance. Chaque appui déplace TOUT — portée, tablature et tonalité — voir transposerMorceau.
+    const transposer = (delta, libelle, titre) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = 'btn-outil btn-transposer';
+        b.dataset.action = 'transposer' + (delta > 0 ? 'Haut' : 'Bas');
+        b.textContent = libelle;
+        b.title = titre;
+        b.setAttribute('aria-label', titre);
+        b.addEventListener('click', () => {
+            const bilan = editeur.transposerMorceau(delta);
+            // Un bilan honnête, y compris quand tout s'est bien passé : une transposition qui déplace
+            // des notes sur d'autres cordes change le doigté, et le taire serait une surprise.
+            if (editeur.derniereErreur) { actionsFichier.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
+            else if (bilan.deplacees) actionsFichier.signalerErreur?.(`Transposé — ${bilan.deplacees} note(s) déplacée(s) sur une autre corde.`);
+            actionsFichier.rendreLeFocus?.();
+        });
+        gMesure.appendChild(b);
+    };
+    transposer(-1, '♭', 'Transposer tout le morceau d\'un demi-ton vers le BAS');
+    transposer(1, '♯', 'Transposer tout le morceau d\'un demi-ton vers le HAUT');
 
     aRafraichir.push(() => {
         const sig = editeur.mesureCourante().signature
             || (() => { let i = editeur.curseur.mesure; while (i >= 0 && !editeur.partition.mesures[i].signature) i--; return editeur.partition.mesures[Math.max(0, i)].signature; })();
         if (sig) selSignature.value = `${sig.battements}/${sig.unite}`;
-        let i = editeur.curseur.mesure;
-        while (i >= 0 && (editeur.partition.mesures[i].armure === null || editeur.partition.mesures[i].armure === undefined)) i--;
-        selArmure.value = String(i >= 0 ? editeur.partition.mesures[i].armure : 0);
+        // L'armure ET le mode EN VIGUEUR ici — hérités de la dernière mesure qui les a fixés, chacun
+        // par sa propre remontée (voir armureEffective/modeEffectif) : une mesure peut fort bien tenir
+        // son armure d'un endroit et son mode d'un autre, si le morceau n'a changé que l'un des deux.
+        selTonalite.value = `${armureEffective(editeur.partition, editeur.curseur.mesure)}|${modeEffectif(editeur.partition, editeur.curseur.mesure)}`;
     });
 
     const rafraichir = () => { for (const fn of aRafraichir) fn(); };

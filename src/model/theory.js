@@ -57,6 +57,41 @@ export const NOMS_ARMURES = [
 ];
 
 /**
+ * LES TRENTE TONALITÉS, en notation INTERNATIONALE — quinze armures × deux modes.
+ *
+ * POURQUOI CETTE TABLE EXISTE. `NOMS_ARMURES` ci-dessus nomme une armure par sa PAIRE de relatives
+ * (« Do M / La m »), ce qui décrit fidèlement l'armure — les deux partagent exactement les mêmes
+ * altérations — mais ne permet pas de dire LAQUELLE des deux est la tonalité du morceau. On ne
+ * pouvait donc pas trancher : un morceau en la mineur s'annonçait « Do M / La m », comme un morceau
+ * en do majeur (retour utilisateur : « je dois obligatoirement trancher pour définir la tonalité »).
+ * Ici chaque tonalité est une entrée à part entière, et choisir, c'est choisir pour de bon.
+ *
+ * CE QUE LE MODE CHANGE, ET CE QU'IL NE CHANGE PAS. Il ne change RIEN aux altérations dessinées à la
+ * clé : do majeur et la mineur ont la même armure, c'est la définition même de relatives. Il porte
+ * le NOM du morceau (« Am » et non « CM »), et il sert à la transposition, qui doit savoir de quelle
+ * tonique elle part pour nommer celle où elle arrive.
+ *
+ * NOTATION INTERNATIONALE (C, D, E… plutôt que Do, Ré, Mi), comme demandé : « CM » pour do majeur,
+ * « Cm » pour do mineur. Les altérations gardent leurs signes typographiques (♭ et ♯) plutôt que
+ * « b » et « # », pour rester lisibles à côté du M/m qui les suit immédiatement.
+ */
+const TONIQUES_MAJEURES = ['C♭', 'G♭', 'D♭', 'A♭', 'E♭', 'B♭', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F♯', 'C♯'];
+const TONIQUES_MINEURES = ['A♭', 'E♭', 'B♭', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F♯', 'C♯', 'G♯', 'D♯', 'A♯'];
+
+export const TONALITES = [
+    ...TONIQUES_MAJEURES.map((tonique, i) => ({ armure: i - 7, mode: 'majeur', tonique, nom: tonique + 'M' })),
+    ...TONIQUES_MINEURES.map((tonique, i) => ({ armure: i - 7, mode: 'mineur', tonique, nom: tonique + 'm' })),
+].sort((a, b) => a.armure - b.armure || (a.mode === 'majeur' ? -1 : 1));
+
+/** La tonalité (armure + mode) désignée par ce couple, ou do majeur à défaut — jamais `undefined`,
+ *  pour qu'un appelant n'ait pas à se garder d'un fichier importé au mode absent ou fantaisiste. */
+export function tonaliteDe(armure, mode) {
+    return TONALITES.find(t => t.armure === armure && t.mode === mode)
+        || TONALITES.find(t => t.armure === armure && t.mode === 'majeur')
+        || TONALITES.find(t => t.armure === 0 && t.mode === 'majeur');
+}
+
+/**
  * Écriture d'une hauteur MIDI dans une armure donnée.
  *
  * LE PROBLÈME. Une touche de piano (une classe de hauteur) a plusieurs noms possibles : la case 6 de

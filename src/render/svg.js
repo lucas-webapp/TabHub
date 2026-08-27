@@ -18,6 +18,10 @@ export const PALETTE = {
     lecture: '#FFB300',
     selection: 'rgba(0, 230, 118, 0.16)',
     avertissement: 'rgba(213, 46, 46, 0.14)',
+    // Une note qu'aucune corde ne peut jouer après transposition (voir Editeur.transposerMorceau) :
+    // un rouge FRANC, sur le chiffre lui-même — assez visible pour qu'on aille la redéfinir, sans
+    // ressembler pour autant au fond teinté d'une mesure invalide, qui dit autre chose.
+    horsManche: '#D52E2E',
 };
 
 const ech = (v) => (Math.round(v * 100) / 100);

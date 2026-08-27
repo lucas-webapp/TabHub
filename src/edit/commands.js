@@ -19,10 +19,11 @@
 
 import {
     creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
-    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, decouperEnEvenements, MAX_VOIX,
+    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure,
+    decouperEnEvenements, MAX_VOIX,
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
-import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage } from '../model/instruments.js';
+import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage, hauteurDeCase } from '../model/instruments.js';
 
 const MAX_HISTORIQUE = 150;
 /** Fenêtre pendant laquelle un second chiffre complète le premier (« 1 » puis « 2 » → case 12). */
@@ -289,7 +290,10 @@ export class Editeur {
         const evenement = this.evenementCourant();
         evenement.silence = false;
         const existante = evenement.notes.find(n => n.corde === c.corde);
-        if (existante) existante.frette = frette;
+        // REDÉFINIR une case efface la marque « hors du manche » posée par une transposition (voir
+        // transposerMorceau) : c'est précisément le geste par lequel on répare une de ces notes, et
+        // elle doit cesser d'être signalée dès qu'on lui a donné une case jouable.
+        if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; }
         else evenement.notes.push(creerNote(c.corde, frette));
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
@@ -721,9 +725,122 @@ export class Editeur {
         this.prevenir('edition');
     }
 
-    definirArmure(armure) {
+    /**
+     * Fixe la TONALITÉ de la mesure courante : armure ET mode, indissociables.
+     *
+     * Les deux se posent ENSEMBLE et jamais l'un sans l'autre — une mesure qui changerait d'armure en
+     * gardant le mode de la précédente (ou l'inverse) désignerait une tonalité que personne n'a
+     * choisie. C'est aussi pourquoi `definirArmure` n'existe plus seul : il laissait le mode derrière
+     * lui, hérité d'on ne sait où.
+     */
+    /**
+     * TRANSPOSE LE MORCEAU ENTIER de `demiTons` demi-tons — portée, tablature et tonalité ensemble.
+     *
+     * SUR QUELLE CORDE ? La même, d'abord : décaler la case de N sur la corde d'origine décale la
+     * hauteur de N tout en PRÉSERVANT LE DOIGTÉ, ce qui est exactement ce qu'un guitariste attend
+     * d'une transposition — la position de main reste la même, plus haut ou plus bas sur le manche.
+     *
+     * QUAND ÇA SORT DU MANCHE, on cherche une AUTRE corde capable de donner la même hauteur dans ses
+     * cases jouables, en évitant celles que l'accord occupe déjà (deux notes sur une même corde sont
+     * physiquement injouables — le modèle l'interdit d'ailleurs, voir normaliser). Le doigté change
+     * alors, mais la musique est juste et reste jouable, ce qui vaut mieux qu'une note perdue.
+     *
+     * QUAND AUCUNE CORDE NE PEUT LA JOUER — transposer vers le grave au-delà de la corde la plus
+     * basse, typiquement — la note est marquée `horsManche` et gardée à la case la plus proche du
+     * manche. Elle s'affiche alors en couleur (voir engine/layout.js) plutôt que de disparaître en
+     * silence : le morceau reste transposé, et c'est à l'utilisateur de décider quoi mettre là. Poser
+     * une case dessus efface la marque (voir saisirChiffre).
+     *
+     * @returns {{transposees, deplacees, horsManche}} de quoi rendre compte honnêtement du résultat.
+     */
+    transposerMorceau(demiTons) {
+        this.derniereErreur = null;
+        if (!demiTons) return { transposees: 0, deplacees: 0, horsManche: 0 };
+        const accordage = this.partition.piste.accordage;
+        const casesMax = INSTRUMENTS[this.partition.piste.instrument]?.casesMax ?? 24;
+        const capo = this.partition.piste.capo || 0;
+        const cordes = accordage.cordes;
+
         this.memoriser();
-        this.mesureCourante().armure = armure;
+        let transposees = 0, deplacees = 0, horsManche = 0;
+
+        for (const mesure of this.partition.mesures) {
+            for (const voix of mesure.voix) {
+                for (const evenement of voix.evenements) {
+                    // Les cordes DÉJÀ prises dans cet accord, pour ne jamais en réutiliser une —
+                    // relevées avant de toucher quoi que ce soit, sinon une note déplacée fausserait
+                    // le relevé des suivantes.
+                    const prises = new Set(evenement.notes.map(n => n.corde));
+                    for (const note of evenement.notes) {
+                        transposees++;
+                        // LA HAUTEUR DONT ON PART est celle que la note VOULAIT sonner, quand une
+                        // transposition précédente l'a laissée hors du manche : sa case a alors été
+                        // rabattue au bord du manche, ce qui perd la hauteur réelle. Repartir de la
+                        // case rabattue rendrait la transposition IRRÉVERSIBLE — monter de 5 puis
+                        // redescendre de 5 ne rendait pas le morceau de départ, les notes rabattues
+                        // revenant à une hauteur qui n'avait jamais été la leur. `hauteurVoulue`
+                        // garde donc l'intention, et c'est elle qui se transpose.
+                        const depart = note.hauteurVoulue ?? hauteurDeCase(accordage, note.corde, note.frette, capo);
+                        const cible = depart + demiTons;
+                        const surPlace = cible - cordes[note.corde] - capo;
+                        if (surPlace >= 0 && surPlace <= casesMax) {
+                            note.frette = surPlace;
+                            delete note.horsManche;
+                            delete note.hauteurVoulue;
+                            continue;
+                        }
+                        // Corde de repli : celle qui joue la hauteur visée en restant sur le manche,
+                        // la plus proche possible de la corde d'origine pour déranger le moins le doigté.
+                        let meilleure = null;
+                        for (let c = 0; c < cordes.length; c++) {
+                            if (c === note.corde || prises.has(c)) continue;
+                            const f = cible - cordes[c] - capo;
+                            if (f < 0 || f > casesMax) continue;
+                            if (!meilleure || Math.abs(c - note.corde) < Math.abs(meilleure.corde - note.corde)) {
+                                meilleure = { corde: c, frette: f };
+                            }
+                        }
+                        if (meilleure) {
+                            prises.delete(note.corde);
+                            prises.add(meilleure.corde);
+                            note.corde = meilleure.corde;
+                            note.frette = meilleure.frette;
+                            delete note.horsManche;
+                            delete note.hauteurVoulue;
+                            deplacees++;
+                        } else {
+                            note.frette = Math.max(0, Math.min(casesMax, surPlace));
+                            note.horsManche = true;
+                            note.hauteurVoulue = cible;   // l'intention, pour que le retour soit exact
+                            horsManche++;
+                        }
+                    }
+                }
+            }
+        }
+
+        // LA TONALITÉ SUIT, sans quoi la partition afficherait les altérations de l'ancienne — et
+        // toutes les notes s'orthographieraient dans une armure qui n'est plus la sienne. Le cycle des
+        // quintes fait qu'un demi-ton vaut SEPT quintes : d'où le `7 * demiTons`, ramené dans
+        // [-5, 6] pour toujours retenir l'écriture la moins chargée en altérations (do♯ majeur et ses
+        // sept dièses cèdent ainsi la place à ré♭ majeur et ses cinq bémols).
+        // Le MODE, lui, ne bouge pas : transposer un morceau mineur donne un morceau mineur.
+        for (const mesure of this.partition.mesures) {
+            if (mesure.armure === null || mesure.armure === undefined) continue;
+            mesure.armure = ((mesure.armure + 7 * demiTons + 5) % 12 + 12) % 12 - 5;
+        }
+        if (horsManche) {
+            this.derniereErreur = `${horsManche} note(s) hors du manche après transposition — affichées en couleur, à redéfinir.`;
+        }
+        this.prevenir('edition');
+        return { transposees, deplacees, horsManche };
+    }
+
+    definirTonalite(armure, mode) {
+        this.memoriser();
+        const m = this.mesureCourante();
+        m.armure = armure;
+        m.mode = mode === 'mineur' ? 'mineur' : 'majeur';
         this.prevenir('edition');
     }
 
@@ -801,6 +918,10 @@ export class Editeur {
         if (suivant < 0 || suivant > casesMax) return false;
         this.memoriser('transposer');
         note.frette = suivant;
+        // Une case posée à la main est jouable par construction (bornée ci-dessus) : la note cesse
+        // d'être hors manche, et l'intention mémorisée n'a plus lieu d'être.
+        delete note.horsManche;
+        delete note.hauteurVoulue;
         this.prevenir('edition');
         return true;
     }

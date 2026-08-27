@@ -1084,6 +1084,7 @@ class TabHubApp {
             // les décrit — et un appui long ne se devine pas. Listés à la suite plutôt que dans une
             // fenêtre à part : sur un appareil hybride (portable à écran tactile), les deux jeux de
             // gestes coexistent, et les séparer obligerait à choisir lequel montrer.
+            ['<kbd>♭</kbd> / <kbd>♯</kbd> (barre d\'outils)', 'Transposer TOUT le morceau d\'un demi-ton'],
             ['<kbd>Tap</kbd>', 'Tactile : placer le curseur sur une note'],
             ['<kbd>Appui long</kbd>', 'Tactile : ouvrir le menu d\'une note (équivaut au clic droit)'],
             ['<kbd>Glisser</kbd>', 'Tactile : faire défiler la partition'],

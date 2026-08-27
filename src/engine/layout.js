@@ -984,6 +984,10 @@ function poserEvenement(out, partition, evenement, ctx) {
         out.push(rect(x - demiLargeur, yLigne - tailleChiffre * 0.5, demiLargeur * 2, tailleChiffre, 'papier'));
         out.push(texte(x, yLigne + tailleChiffre * 0.35, libelle, {
             taille: tailleChiffre, police: 'sans-serif', poids: '600', ancre: 'milieu',
+            // `horsManche` : posé par une transposition qui n'a trouvé AUCUNE corde capable de jouer
+            // la hauteur voulue (voir Editeur.transposerMorceau). La note reste écrite et éditable,
+            // mais en rouge — c'est le seul signe qui dise « celle-ci est à reprendre ».
+            couleur: note.horsManche ? 'horsManche' : undefined,
         }));
         if (note.bend) {
             // Les trois amplitudes qu'un guitariste écrit, dans la notation qu'il lit : ½, full, 1½
