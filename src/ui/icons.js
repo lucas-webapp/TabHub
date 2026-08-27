@@ -55,6 +55,16 @@ const D = {
     // « ajouter du texte »), pas une bulle de dialogue — qui aurait évoqué un commentaire ou une
     // discussion, alors qu'une annotation de section s'imprime sur la partition elle-même.
     annotation: '<path d="M5 6h14"/><path d="M12 6v14"/><path d="M9 20h6"/>',
+    // MIDI : le connecteur DIN 5 broches, seul symbole vraiment associé au format — les mêmes
+    // flèches que ouvrir/exporter auraient prêté à confusion juste à côté d'elles. Cinq points
+    // (les broches), une encoche en haut (le détrompeur du vrai connecteur) : reconnaissable sans
+    // description, pour qui a déjà vu un câble MIDI.
+    midi: '<circle cx="12" cy="13" r="8.4"/><path d="M8.6 6.4a5 5 0 0 1 6.8 0"/>'
+        + '<circle cx="12" cy="9.3" r="1" fill="currentColor" stroke="none"/>'
+        + '<circle cx="8.9" cy="12.1" r="1" fill="currentColor" stroke="none"/>'
+        + '<circle cx="15.1" cy="12.1" r="1" fill="currentColor" stroke="none"/>'
+        + '<circle cx="9.8" cy="16" r="1" fill="currentColor" stroke="none"/>'
+        + '<circle cx="14.2" cy="16" r="1" fill="currentColor" stroke="none"/>',
 };
 
 /** Icône prête à insérer. `extra` ajoute des classes CSS au <svg>. */

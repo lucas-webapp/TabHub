@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608272300">
+    <link rel="stylesheet" href="style.css?v=202608280100">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -32,6 +32,9 @@
     <button type="button" id="btn-exporter" class="btn-icone" title="Exporter en .json (Ctrl+Maj+S)" aria-label="Exporter"></button>
     <button type="button" id="btn-enregistrer" class="btn-icone btn-icone-accent" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"></button>
     <button type="button" id="btn-pdf" class="btn-icone" title="Exporter en PDF (Ctrl+P)" aria-label="Exporter en PDF"></button>
+    <span class="separateur"></span>
+    <button type="button" id="btn-midi-ouvrir" class="btn-icone" title="Importer un fichier MIDI (.mid)" aria-label="Importer un fichier MIDI"></button>
+    <button type="button" id="btn-midi-exporter" class="btn-icone" title="Exporter en MIDI (.mid)" aria-label="Exporter en MIDI"></button>
     <span class="separateur"></span>
     <button type="button" id="btn-reglages" class="btn-icone" title="Instrument et accordage" aria-label="Instrument et accordage"></button>
     <button type="button" id="btn-aide" class="btn-icone" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
@@ -190,9 +193,10 @@
 </div>
 
 <input type="file" id="entree-fichier" accept="application/json,.json" hidden>
+<input type="file" id="entree-fichier-midi" accept="audio/midi,audio/x-midi,.mid,.midi" hidden>
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608272300"></script>
+<script type="module" src="src/main.js?v=202608280100"></script>
 </body>
 </html>

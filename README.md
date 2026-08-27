@@ -1,8 +1,8 @@
 # TabHub
 
 Éditeur web de **tablatures et partitions** pour guitare et basse : saisie au clavier, double portée
-solfège + TAB synchronisées, lecture audio avec tête de lecture, export PDF vectoriel et fichiers
-`.json`.
+solfège + TAB synchronisées, lecture audio avec tête de lecture, boucle de lecture pour retravailler
+un passage, export PDF vectoriel, fichiers `.json` et **MIDI** (import et export).
 
 Application compagnon de [HarmoHub](https://github.com/lucas-webapp/HarmoHub), dont elle reprend
 l'architecture et le vocabulaire visuel.
@@ -141,6 +141,16 @@ orthographe des altérations selon l'armure, hampes, ligatures, lignes suppléme
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
 table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire.
 
+### Lecture
+
+Un **métronome** optionnel (deux boutons du transport) suit la signature en vigueur — binaire ou
+ternaire, jamais un simple clic uniforme — avec une option « croche » pour une subdivision en plus.
+
+Une **boucle de lecture** se définit en glissant (souris ou doigt) sur la fine bande sous la
+tablature de chaque système : la zone se rejoue indéfiniment, pour retravailler un passage sans
+repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
+C'est une préférence de SESSION, jamais sauvée avec le morceau.
+
 ### Instruments et accordages
 
 Guitare 6 cordes, basse 4 cordes, basse 5 cordes. Accordage standard par instrument, accordages
@@ -155,6 +165,12 @@ prédéfini est reconnu comme tel.
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
 - **Exporter PDF** écrit un PDF A4 vectoriel, paginé sans jamais couper un système en deux.
+- **Exporter en MIDI** écrit un `.mid` (format 0) lisible par n'importe quel séquenceur, DAW ou
+  logiciel de notation — le modèle raisonnant déjà en hauteurs MIDI (voir `model/theory.js`), il n'y
+  avait qu'à écrire cette correspondance dans le format standard.
+- **Importer un fichier MIDI** relit un `.mid` dans l'instrument/accordage/capodastre en place : une
+  note hors de portée du manche est abandonnée (jamais une case inventée), et le résultat est compté
+  dans le message de fin d'import.
 - Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien.
 
 ---

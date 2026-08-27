@@ -112,6 +112,20 @@ export function creerEvenement(duree = { valeur: 4, points: 0, nolet: null }, no
  * dans toute mesure qui n'est pas en 4/4.
  */
 export function decouperEnEvenements(noires, notes = [], silence = true) {
+    const figures = figuresPour(noires);
+    const sortie = figures.map(({ valeur, points }) => creerEvenement({ valeur, points }, silence ? [] : notes, { silence }));
+    return sortie.length ? sortie : [creerEvenement({ valeur: 4 }, [], { silence: true })];
+}
+
+/**
+ * Décompose une durée en noires en la plus longue suite de figures STANDARD qui la couvre (pointée
+ * d'abord — voir decouperEnEvenements). Extrait à part pour être réutilisé par l'import MIDI
+ * (io/midi.js) : lui a besoin de VRAIES notes, chacune sa propre copie et liées par une prolongation
+ * d'une figure à l'autre — decouperEnEvenements, pensé pour un silence (qu'on ne relie jamais), donne
+ * la même liste de figures à toutes les copies d'un même tableau `notes`, un partage sans risque
+ * seulement parce qu'un silence n'a justement aucune note à partager.
+ */
+export function figuresPour(noires) {
     const EPS = 1e-9;
     const sortie = [];
     let reste = noires;
@@ -121,7 +135,7 @@ export function decouperEnEvenements(noires, notes = [], silence = true) {
             for (const points of [1, 0]) {   // pointée d'abord : couvre plus large en un seul évènement
                 const d = dureeEnNoires({ valeur, points });
                 if (d <= reste + EPS) {
-                    sortie.push(creerEvenement({ valeur, points }, silence ? [] : notes, { silence }));
+                    sortie.push({ valeur, points });
                     reste -= d;
                     posee = true;
                     break;
@@ -131,7 +145,7 @@ export function decouperEnEvenements(noires, notes = [], silence = true) {
         }
         if (!posee) break;   // reste plus court qu'une triple-croche : on n'ira pas plus loin
     }
-    return sortie.length ? sortie : [creerEvenement({ valeur: 4 }, [], { silence: true })];
+    return sortie;
 }
 
 /**

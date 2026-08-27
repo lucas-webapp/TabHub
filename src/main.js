@@ -30,6 +30,7 @@ import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
+import { exporterMidi, lireFichierMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure } from './model/score.js';
 import { ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './model/theory.js';
@@ -118,6 +119,7 @@ class TabHubApp {
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
+            entreeFichierMidi: document.getElementById('entree-fichier-midi'),
             menuContextuel: document.getElementById('menu-contextuel'),
             pave: document.getElementById('pave-tactile'),
         };
@@ -592,6 +594,37 @@ class TabHubApp {
         }
     }
 
+    /** Exporter en .mid — le format qu'un séquenceur, un DAW ou un logiciel de notation sait lire. */
+    exporterMidiFichier() {
+        try {
+            const nom = exporterMidi(this.editeur.partition);
+            this.message(`Exporté → ${nom}`);
+        } catch (err) {
+            console.error(err);
+            this.message('Échec de l\'export MIDI : ' + err.message);
+        }
+    }
+
+    /** Importer un .mid — dans l'instrument/accordage/capodastre ACTUELS : un fichier MIDI ne dit
+     *  rien de la lutherie, ce sont les réglages déjà en place qui décident où poser les notes. */
+    ouvrirMidi() { this.el.entreeFichierMidi.click(); }
+
+    async chargerFichierMidi(fichier) {
+        try {
+            const piste = this.editeur.partition.piste;
+            const { partition, abandonnees } = await lireFichierMidi(fichier, piste.instrument, piste.accordage, piste.capo);
+            this.arreter();
+            this.editeur.remplacer(partition);
+            this.message(abandonnees
+                ? `Importé (${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''})`
+                : `Importé : ${partition.meta.titre}`, abandonnees ? 6000 : undefined);
+        } catch (err) {
+            // Un fichier illisible est une entrée UTILISATEUR malvenue, pas un bug applicatif — comme
+            // chargerFichier (.json) juste au-dessus, aucun console.error : le message suffit.
+            this.message(err.message || 'Impossible d\'ouvrir ce fichier MIDI');
+        }
+    }
+
     nouveau() {
         if (this.editeur.peutAnnuler() && !confirm('Abandonner la tablature en cours ?')) return;
         this.arreter();
@@ -636,6 +669,7 @@ class TabHubApp {
         const paires = {
             'btn-annuler': 'annuler', 'btn-retablir': 'retablir', 'btn-nouveau': 'nouveau',
             'btn-ouvrir': 'ouvrir', 'btn-exporter': 'exporter', 'btn-enregistrer': 'enregistrer', 'btn-pdf': 'pdf',
+            'btn-midi-ouvrir': 'midi', 'btn-midi-exporter': 'midi',
             'btn-reglages': 'reglages', 'btn-aide': 'aide', 'btn-stop': 'stop',
         };
         for (const [id, nom] of Object.entries(paires)) {
@@ -657,6 +691,8 @@ class TabHubApp {
         surClic('btn-exporter', () => this.exporterJson());
         surClic('btn-enregistrer', () => this.enregistrer());
         surClic('btn-pdf', () => this.exporterPdf());
+        surClic('btn-midi-ouvrir', () => this.ouvrirMidi());
+        surClic('btn-midi-exporter', () => this.exporterMidiFichier());
         surClic('btn-reglages', () => { this.remplirReglages(); this.ouvrirFenetre('fenetre-reglages'); });
         surClic('btn-aide', () => { this.remplirAide(); this.ouvrirFenetre('fenetre-aide'); });
         surClic('btn-jouer', () => this.lectureAlternee());
@@ -666,6 +702,11 @@ class TabHubApp {
             const f = e.target.files?.[0];
             if (f) this.chargerFichier(f);
             e.target.value = '';   // réinitialisé pour que rouvrir LE MÊME fichier redéclenche l'évènement
+        });
+        this.el.entreeFichierMidi.addEventListener('change', (e) => {
+            const f = e.target.files?.[0];
+            if (f) this.chargerFichierMidi(f);
+            e.target.value = '';
         });
 
         this.el.titre.addEventListener('input', () => this.editeur.definirMeta('titre', this.el.titre.value));
