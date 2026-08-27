@@ -171,22 +171,24 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         check(apresGlisser.evenement === curseurAvantGlisser.evenement && apresGlisser.corde === curseurAvantGlisser.corde,
             'et un glisser ne déplace pas non plus le curseur (ce n\'était pas un tap)');
 
-        // --- La préférence : « jamais » replie le pavé, et ça survit au rechargement -------------------
-        await page.evaluate(() => window.app.appliquerPave('jamais'));
+        // --- La préférence : éteindre l'interrupteur replie le pavé, et ça survit au rechargement -----
+        await page.evaluate(() => window.app.appliquerPave(false));
         await page.waitForTimeout(150);
-        check(!(await pave.isVisible()), 'le réglage « jamais » replie le pavé');
+        check(!(await pave.isVisible()), 'éteindre l\'interrupteur replie le pavé');
         await page.reload({ waitUntil: 'domcontentloaded' });
         await page.waitForFunction(() => window.app && window.app.page, null, { timeout: 20000 });
         await page.waitForTimeout(250);
         check(!(await page.locator('#pave-tactile').isVisible()),
             'et ce choix survit au rechargement : le pavé reste replié');
-        // Le sélecteur, lui, se peuple à l'OUVERTURE du panneau (voir remplirReglages) — comme tous
+        // L'interrupteur, lui, se peuple à l'OUVERTURE du panneau (voir remplirReglages) — comme tous
         // les champs de ce panneau. On l'ouvre donc pour le lire, ce qui est aussi le seul moment où
-        // l'utilisateur le voit.
+        // l'utilisateur le voit (uniquement sur un appareil tactile, exactement ce que ce banc émule).
         await page.click('#btn-reglages');
         await page.waitForTimeout(200);
-        check((await page.evaluate(() => document.getElementById('champ-pave').value)) === 'jamais',
-            'et le sélecteur des Réglages montre bien « jamais » quand on l\'ouvre');
+        check(!(await page.evaluate(() => document.getElementById('ligne-pave').hidden)),
+            'sur un appareil tactile, le réglage du pavé est bien montré dans les Réglages');
+        check((await page.evaluate(() => document.getElementById('champ-pave').getAttribute('aria-checked'))) === 'false',
+            'et l\'interrupteur y montre bien « éteint »');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

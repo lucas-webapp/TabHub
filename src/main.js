@@ -33,7 +33,7 @@ import { exporterPdf } from './io/pdf.js';
 import { exporterMidi, lireFichierMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure } from './model/score.js';
-import { ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './model/theory.js';
+import { nomDeHauteur } from './model/theory.js';
 import { VALEURS_FIGURES } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
@@ -54,6 +54,8 @@ const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
 const CLE_METRONOME = 'tabhub.metronome';
 const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
+const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
+const CLE_VOLUME_METRONOME = 'tabhub.volumeMetronome';
 
 /**
  * Vrai si l'appareil désigne AU DOIGT plutôt qu'à la souris — la seule question qui compte pour
@@ -91,14 +93,22 @@ class TabHubApp {
         this.lecteur.metronomeSubdivision = localStorage.getItem(CLE_METRONOME_SUBDIVISION) === '1';
         this.positionOutils = localStorage.getItem(CLE_POSITION_OUTILS) === 'gauche' ? 'gauche' : 'haut';
         document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
-        // Pavé tactile : « auto » par défaut — présent au doigt, absent à la souris. Les deux
-        // réglages explicites existent quand même : « toujours » pour un ordinateur à écran tactile
-        // que la détection sous-estime (ou simplement par goût), « jamais » pour un écran tactile
-        // qu'on pilote au clavier physique.
-        const brutPave = localStorage.getItem(CLE_PAVE);
-        this.prefPave = ['auto', 'toujours', 'jamais'].includes(brutPave) ? brutPave : 'auto';
+        // Pavé tactile : présent au doigt, absent à la souris — SANS réglage à comprendre sur
+        // ordinateur (retour utilisateur : « je ne comprends pas ces paramètres »), et un simple
+        // interrupteur pour l'éteindre sur un appareil tactile qui n'en veut pas. L'ancienne valeur
+        // « jamais » (trois branches : auto/toujours/jamais) se relit comme « éteint » ; toute autre
+        // valeur, y compris absente, comme « allumé » — ce qu'était déjà « auto » dans l'immense
+        // majorité des cas.
+        this.paveActif = localStorage.getItem(CLE_PAVE) !== 'jamais' && localStorage.getItem(CLE_PAVE) !== '0';
+        // Volumes : appliqués au lecteur dès la construction (voir Lecteur, qui les rejoue lui-même
+        // au premier `demarrer()`, avant même que Réglages n'ait été ouvert une seule fois).
+        const volGeneral = parseInt(localStorage.getItem(CLE_VOLUME_GENERAL), 10);
+        const volMetronome = parseInt(localStorage.getItem(CLE_VOLUME_METRONOME), 10);
+        this.lecteur.definirVolumeGeneral(Number.isFinite(volGeneral) ? volGeneral : this.lecteur.volumeGeneral);
+        this.lecteur.definirVolumeMetronome(Number.isFinite(volMetronome) ? volMetronome : this.lecteur.volumeMetronome);
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
+        this._tapTempoInstants = [];   // voir tapTempo() — horodatages des derniers clics sur TAP
         // Sélection multiple (glisser un rectangle sur la partition) : un ensemble de clés
         // "mesure:voix:evenement:corde" — le MÊME format que celui déjà utilisé par le lecteur audio
         // pour identifier une note sans ambiguïté (voir audio/player.js). État d'INTERFACE, jamais
@@ -135,7 +145,7 @@ class TabHubApp {
         // exécutent les mêmes actions et doivent donc signaler les mêmes refus et rendre le focus au
         // même endroit — jamais deux comportements à tenir juste en parallèle.
         this.rafraichirPave = construirePave(this.el.pave, this.editeur, crochetsUi);
-        this.appliquerPave(this.prefPave);
+        this.appliquerPave(this.paveActif);
         this.brancherInterface();
         brancherClavier(this.editeur, {
             lectureAlternee: () => this.lectureAlternee(),
@@ -399,6 +409,33 @@ class TabHubApp {
     }
 
     /**
+     * TAP TEMPO — comme HarmoHub : cliquer plusieurs fois au rythme voulu règle le tempo sans avoir
+     * à connaître ni taper une valeur précise (retour utilisateur : le simple champ numérique
+     * « n'est pas très clair »).
+     *
+     * Repart de zéro si plus de 2 s s'écoulent entre deux clics (une nouvelle estimation, pas la
+     * continuation d'un tempo très lent) ; ne garde que les 8 derniers pour rester réactif à un
+     * changement de rythme en cours de route plutôt que de figer une moyenne sur toute la séance. Un
+     * seul clic ne donne encore aucun écart à mesurer : il ne fait qu'amorcer la séquence.
+     */
+    tapTempo() {
+        const maintenant = performance.now();
+        const instants = this._tapTempoInstants;
+        if (instants.length > 0 && maintenant - instants[instants.length - 1] > 2000) instants.length = 0;
+        instants.push(maintenant);
+        if (instants.length > 8) instants.shift();
+        if (instants.length < 2) return;
+
+        const ecarts = [];
+        for (let i = 1; i < instants.length; i++) ecarts.push(instants[i] - instants[i - 1]);
+        const moyenneMs = ecarts.reduce((a, b) => a + b, 0) / ecarts.length;
+        // Bornes du champ numérique lui-même (voir index.html#champ-tempo) : un tap frénétique ou
+        // hésitant ne doit jamais produire une valeur que ce même champ refuserait.
+        const bpm = Math.min(400, Math.max(20, Math.round(60000 / moyenneMs)));
+        this.editeur.definirTempo(bpm);
+    }
+
+    /**
      * Le nombre de mesures par ligne, EN BOUTONS plutôt qu'en menu déroulant — mis en avant à la
      * demande (retour utilisateur : « c'est un bouton utile », après avoir signalé qu'on ne voit
      * qu'une seule mesure à l'horizontale sur téléphone : c'est justement ce réglage, resté sur
@@ -459,10 +496,7 @@ class TabHubApp {
             : `Corde ${numeroCorde}`;
         if (note) {
             const midi = hauteurDeNote(this.editeur.partition, note);
-            if (midi != null) {
-                const e = ecrireHauteur(midi, 0);
-                texte += ` · case ${note.frette} · ${LETTRE_VERS_FRANCAIS[e.lettre]}${SYMBOLE_ALTERATION[String(e.alteration)]}${e.octave}`;
-            }
+            if (midi != null) texte += ` · case ${note.frette} · ${nomDeHauteur(midi)}`;
         }
         const ecart = this.editeur.ecartMesure();
         if (Math.abs(ecart) > 1e-9) {
@@ -712,6 +746,7 @@ class TabHubApp {
         this.el.titre.addEventListener('input', () => this.editeur.definirMeta('titre', this.el.titre.value));
         this.el.tempo.addEventListener('change', () => this.editeur.definirTempo(parseInt(this.el.tempo.value, 10)));
         this.el.tempo.addEventListener('input', () => this.lecteur.definirTempo(parseInt(this.el.tempo.value, 10) || 120));
+        surClic('btn-tap-tempo', () => this.tapTempo());
 
         this.construireBoutonsMesuresLigne();
 
@@ -1312,18 +1347,20 @@ class TabHubApp {
     }
 
     /**
-     * Affiche ou replie le pavé de saisie tactile (voir ui/pave.js), selon la préférence — « auto »
-     * s'en remettant à l'appareil lui-même (voir appareilTactile).
+     * Affiche ou replie le pavé de saisie tactile (voir ui/pave.js). TOUJOURS absent sur un appareil
+     * non tactile (aucun réglage ne peut l'y faire apparaître : la souris fait déjà tout) ; sur un
+     * appareil tactile, visible sauf si `actif` est éteint dans les Réglages (voir remplirReglages,
+     * le seul endroit où ce réglage est même montré).
      *
      * Le pavé prend de la hauteur à la partition (il occupe sa propre rangée de la grille, il ne la
      * recouvre pas) : il faut donc remettre en page APRÈS que le navigateur a appliqué la nouvelle
      * grille, sinon le découpage en systèmes se calcule sur la hauteur d'avant — d'où le passage par
      * requestAnimationFrame, exactement comme pour la barre d'outils juste au-dessus.
      */
-    appliquerPave(valeur) {
-        this.prefPave = ['auto', 'toujours', 'jamais'].includes(valeur) ? valeur : 'auto';
-        localStorage.setItem(CLE_PAVE, this.prefPave);
-        const visible = this.prefPave === 'toujours' || (this.prefPave === 'auto' && appareilTactile());
+    appliquerPave(actif) {
+        this.paveActif = !!actif;
+        localStorage.setItem(CLE_PAVE, this.paveActif ? '1' : '0');
+        const visible = this.paveActif && appareilTactile();
         this.el.pave.hidden = !visible;
         document.body.classList.toggle('avec-pave', visible);
         requestAnimationFrame(() => this.dessiner());
@@ -1358,16 +1395,12 @@ class TabHubApp {
         const cordes = piste.accordage.cordes;
         grille.innerHTML = cordes.map((midi, i) => i).reverse().map((i) => {
             const midi = cordes[i];
-            const e = ecrireHauteur(midi, 0);
-            const nom = `${LETTRE_VERS_FRANCAIS[e.lettre]}${SYMBOLE_ALTERATION[String(e.alteration)]}${e.octave}`;
             return `<label class="corde-reglage">
                 <span>Corde ${cordes.length - i}</span>
                 <select class="champ" data-corde="${i}">
                     ${Array.from({ length: 49 }, (_, k) => midi - 24 + k)
                         .filter(m => m >= 12 && m <= 96)
-                        .map(m => { const w = ecrireHauteur(m, 0);
-                            const l = `${LETTRE_VERS_FRANCAIS[w.lettre]}${SYMBOLE_ALTERATION[String(w.alteration)]}${w.octave}`;
-                            return `<option value="${m}"${m === midi ? ' selected' : ''}>${l}</option>`; }).join('')}
+                        .map(m => `<option value="${m}"${m === midi ? ' selected' : ''}>${nomDeHauteur(m)}</option>`).join('')}
                 </select>
             </label>`;
         }).join('');
@@ -1388,9 +1421,60 @@ class TabHubApp {
         selPosition.value = this.positionOutils;
         selPosition.onchange = () => this.positionnerOutils(selPosition.value);
 
-        const selPave = document.getElementById('champ-pave');
-        selPave.value = this.prefPave;
-        selPave.onchange = () => this.appliquerPave(selPave.value);
+        // Le réglage lui-même n'a de sens QUE sur un appareil tactile (voir appliquerPave) : sur
+        // ordinateur, la ligne entière reste masquée plutôt que d'exposer un interrupteur qui ne
+        // ferait jamais rien.
+        const lignePave = document.getElementById('ligne-pave');
+        const btnPave = document.getElementById('champ-pave');
+        lignePave.hidden = !appareilTactile();
+        if (!lignePave.hidden) {
+            btnPave.setAttribute('aria-checked', String(this.paveActif));
+            btnPave.onclick = () => {
+                this.appliquerPave(!this.paveActif);
+                btnPave.setAttribute('aria-checked', String(this.paveActif));
+            };
+        }
+
+        const curseurVolGeneral = document.getElementById('champ-volume-general');
+        const valeurVolGeneral = document.getElementById('valeur-volume-general');
+        curseurVolGeneral.value = this.lecteur.volumeGeneral;
+        valeurVolGeneral.textContent = this.lecteur.volumeGeneral;
+        curseurVolGeneral.oninput = () => {
+            const p = parseInt(curseurVolGeneral.value, 10);
+            this.lecteur.definirVolumeGeneral(p);
+            valeurVolGeneral.textContent = p;
+            localStorage.setItem(CLE_VOLUME_GENERAL, String(p));
+        };
+
+        const curseurVolMetronome = document.getElementById('champ-volume-metronome');
+        const valeurVolMetronome = document.getElementById('valeur-volume-metronome');
+        curseurVolMetronome.value = this.lecteur.volumeMetronome;
+        valeurVolMetronome.textContent = this.lecteur.volumeMetronome;
+        curseurVolMetronome.oninput = () => {
+            const p = parseInt(curseurVolMetronome.value, 10);
+            this.lecteur.definirVolumeMetronome(p);
+            valeurVolMetronome.textContent = p;
+            localStorage.setItem(CLE_VOLUME_METRONOME, String(p));
+        };
+
+        // Fichiers : TabHub n'a qu'un seul brouillon (voir CLE_BROUILLON, planifierBrouillon) —
+        // jamais un gestionnaire multi-fichiers façon HarmoHub, hors de propos pour une appli sans
+        // bibliothèque de morceaux. Ce que ce petit bloc ajoute réellement : un moyen de vérifier
+        // qu'un brouillon existe, et de l'effacer sans avoir à créer un nouveau morceau pour ça.
+        const etatBrouillon = document.getElementById('etat-brouillon');
+        const btnViderBrouillon = document.getElementById('btn-vider-brouillon');
+        const aUnBrouillon = !!localStorage.getItem(CLE_BROUILLON);
+        etatBrouillon.textContent = aUnBrouillon
+            ? 'Un brouillon de ce morceau est enregistré automatiquement dans ce navigateur.'
+            : 'Aucun brouillon enregistré ici pour l\'instant.';
+        btnViderBrouillon.disabled = !aUnBrouillon;
+        btnViderBrouillon.onclick = () => {
+            if (!confirm('Effacer le brouillon enregistré dans ce navigateur ?')) return;
+            localStorage.removeItem(CLE_BROUILLON);
+            etatBrouillon.textContent = 'Aucun brouillon enregistré ici pour l\'instant.';
+            btnViderBrouillon.disabled = true;
+            this.message('Brouillon local effacé');
+        };
     }
 
     /** L'aide-mémoire se GÉNÈRE depuis la table des actions : elle ne peut pas mentir sur les touches. */

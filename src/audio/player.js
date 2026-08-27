@@ -16,6 +16,15 @@ import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
 /** Réduction du volume par rapport au 0 dB de Tone.js : une polyphonie à six voix sature vite. */
 const TRIM_DB = -9;
 
+/**
+ * Pourcentage (0-100, plus intuitif qu'un dB) -> décibels, comme HarmoHub : un plancher à -40 dB
+ * pour que « presque muet » reste audible sans à-coup plutôt que de couper d'un coup, silence vrai
+ * uniquement à 0.
+ */
+function pourcentVersDb(pourcent) {
+    return pourcent <= 0 ? -Infinity : -40 + (pourcent / 100) * 40;
+}
+
 // SON RÉEL (Sampler) + DOUBLURE SYNTHÉTISÉE — comme HarmoHub (voir son INSTRUMENT_BANKS.piano), plutôt
 // que le synthé nu d'une version antérieure : une onde triangulaire brute, seule, sonne clairement
 // synthétique, quand un vrai piano échantillonné (Salamander, la même bibliothèque publique que
@@ -64,10 +73,36 @@ export class Lecteur {
         // boucle qui survivrait en silence à un rechargement rouvrirait l'appli en train de rejouer
         // indéfiniment quatre mesures sans que rien ne l'explique.
         this.boucleLecture = null;
+        // Volumes (0-100), comme HarmoHub : un pourcentage se règle au jugé, un dB se calcule. 100 =
+        // plein volume (0 dB), 80 par défaut pour le métronome — un repère qu'on entend, jamais celui
+        // qu'on écoute. Les DEUX s'appliquent MÊME AVANT `demarrer()` (l'utilisateur peut ouvrir les
+        // Réglages avant tout premier clic sur Lecture) : les accesseurs ci-dessous n'écrivent sur
+        // Tone.Destination/this.metronome que s'ils existent déjà, et demarrer() rejoue les deux
+        // valeurs mémorisées une fois le contexte audio prêt, pour ne jamais perdre un réglage posé
+        // trop tôt. Persistance (localStorage) du ressort de main.js, comme le reste de ce bloc.
+        this.volumeGeneral = 100;
+        this.volumeMetronome = 80;
     }
 
     surPosition(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
     _prevenir() { for (const fn of this.auditeurs) fn(this.position, this.etat); }
+
+    /**
+     * Volume général (0-100) : agit sur `Tone.Destination`, donc sur TOUT ce qui sonne — notes ET
+     * métronome — sans changer leur équilibre relatif l'un par rapport à l'autre (voir
+     * `volumeMetronome`, qui lui n'agit que sur le second).
+     */
+    definirVolumeGeneral(pourcent) {
+        this.volumeGeneral = pourcent;
+        const Tone = globalThis.Tone;
+        if (Tone?.Destination) Tone.Destination.volume.value = pourcentVersDb(pourcent);
+    }
+
+    /** Volume du métronome seul (0-100) — relatif au volume général ci-dessus, jamais au-dessus. */
+    definirVolumeMetronome(pourcent) {
+        this.volumeMetronome = pourcent;
+        if (this.metronome) this.metronome.volume.value = pourcentVersDb(pourcent);
+    }
 
     /**
      * REMET L'AUDIO EN MARCHE À CHAQUE GESTE, sur téléphone — la parade au silence total d'iOS.
@@ -188,6 +223,14 @@ export class Lecteur {
             oscillator: { type: 'triangle' },
             envelope: { attack: 0.001, decay: 0.04, sustain: 0, release: 0.02 },
         }).toDestination();
+
+        // Rejoue les DEUX volumes déjà mémorisés (valeur par défaut, ou déjà réglés par
+        // l'utilisateur avant ce tout premier `demarrer()`, voir definirVolumeGeneral/Metronome et
+        // leur commentaire dans le constructeur) : Tone.Destination existe dès l'import, mais
+        // `this.metronome` vient tout juste d'être créé ci-dessus — sans ce rattrapage, un réglage
+        // posé avant la toute première lecture serait mémorisé sans jamais s'entendre.
+        this.definirVolumeGeneral(this.volumeGeneral);
+        this.definirVolumeMetronome(this.volumeMetronome);
 
         this.pret = true;
     }

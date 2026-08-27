@@ -30,6 +30,11 @@ const hauteurs = (page) => page.evaluate(async () => {
 
         // --- Drop D : seule la corde grave change ---------------------------------------------------
         await page.click('#btn-reglages');
+        // Capodastre et corde par corde vivent maintenant sous « Options avancées » (repliée par
+        // défaut, voir index.html) : l'ouvrir UNE fois suffit pour tout le reste du banc — remplir-
+        // Reglages() ne reconstruit que le CONTENU de #champ-capo/#grille-cordes à chaque changement
+        // d'instrument ou d'accordage, jamais le <details> lui-même, qui garde son état ouvert.
+        await page.click('.repli-avance summary');
         await page.selectOption('#champ-accordage', 'dropD');
         await page.waitForTimeout(200);
         e = await lireEtat(page);

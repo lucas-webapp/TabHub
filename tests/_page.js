@@ -47,7 +47,7 @@ async function ouvrirApp(options = {}) {
         // style de repli pour les polices, une doublure synthétisée pour le piano (voir onerror sur le
         // Sampler, qui l'absorbe déjà côté application ; c'est le NAVIGATEUR qui journalise malgré
         // tout l'échec réseau lui-même en console, hors de portée de ce onerror applicatif).
-        if (m.type() === 'error' && !/fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED/.test(m.text())) {
+        if (m.type() === 'error' && !/fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_CERT_AUTHORITY_INVALID/.test(m.text())) {
             erreurs.push('console : ' + m.text());
         }
     });

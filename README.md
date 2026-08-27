@@ -153,11 +153,19 @@ tablature de chaque système : la zone se rejoue indéfiniment, pour retravaille
 repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
 C'est une préférence de SESSION, jamais sauvée avec le morceau.
 
+Le **tempo** se règle au champ numérique du transport, ou au bouton **TAP** juste à côté : cliquer
+plusieurs fois au rythme voulu le règle sans avoir à connaître ni taper une valeur précise.
+
+Deux **volumes** indépendants (Réglages > Son) : général (agit sur tout ce qui sonne) et métronome
+seul (relatif au premier) — 0 à 100, avec lecture immédiate.
+
 ### Instruments et accordages
 
 Guitare 6 cordes, basse 4 cordes, basse 5 cordes. Accordage standard par instrument, accordages
-alternatifs prédéfinis (Drop D, demi-ton plus bas, un ton plus bas, Drop C, Open G, DADGAD, Drop A,
-do aigu…), réglage **corde par corde**, et capodastre. Un accordage réglé à la main qui reconstitue un
+alternatifs prédéfinis (Drop D, Eb Standard, D Standard, Drop C, Open G, DADGAD, Drop A, High C…),
+en **notation anglo-saxonne** (E A D G B E, pas Mi La Ré Sol Si Mi — plus simple à lire). Réglage
+**corde par corde** et **capodastre** existent toujours, repliés sous « Options avancées » : ce sont
+des réglages de cas précis, pas d'usage courant. Un accordage réglé à la main qui reconstitue un
 prédéfini est reconnu comme tel.
 
 **Piano** : ni corde ni case, donc ni accordage ni capodastre — la partition se grave en grand-portée
@@ -178,7 +186,9 @@ toucher au rythme ni aux mesures.
 - **Importer un fichier MIDI** relit un `.mid` dans l'instrument/accordage/capodastre en place : une
   note hors de portée du manche est abandonnée (jamais une case inventée), et le résultat est compté
   dans le message de fin d'import.
-- Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien.
+- Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Son
+  état (présent ou non) et un bouton pour l'effacer vivent dans Réglages > Fichiers — jamais un
+  gestionnaire multi-fichiers, TabHub n'en a qu'un à la fois.
 
 ---
 

@@ -38,7 +38,9 @@ const { check, exiger, plan, bilan } = creerHarnais('modèle');
     // --- Instruments et accordages ---------------------------------------------------------------
     check(I.accordageParDefaut('guitare').cordes.length === 6, 'la guitare a six cordes');
     check(I.accordageParDefaut('basse5').cordes.length === 5, 'la basse 5 en a cinq');
-    check(I.libelleAccordage(I.accordageParDefaut('guitare').cordes) === 'Mi La Ré Sol Si Mi', 'accordage énoncé du grave à l\'aigu, comme un instrumentiste');
+    // En lettres anglo-saxonnes (E A D G B E), pas en noms français (Mi La Ré Sol Si Mi) — retour
+    // utilisateur : « plus simple à lire » (voir instruments.js#libelleAccordage).
+    check(I.libelleAccordage(I.accordageParDefaut('guitare').cordes) === 'E A D G B E', 'accordage énoncé du grave à l\'aigu, comme un instrumentiste');
     check(I.accordagePredefini('guitare', 'dropD').cordes[5] === 38, 'le drop D descend la corde grave à ré');
     check(I.hauteurDeCase(I.accordageParDefaut('guitare'), 5, 5) === 45, 'case 5 de la corde grave = la2');
     check(I.hauteurDeCase(I.accordageParDefaut('guitare'), 5, 5, 2) === 47, 'un capodastre case 2 monte tout de deux demi-tons');

@@ -4,11 +4,11 @@
 //     `cordes[0]` est la corde du HAUT de la tablature, donc la plus AIGUË.
 // C'est l'ordre dans lequel une tablature se lit et se dessine (ligne 0 en haut), donc l'index d'une
 // note EST son numéro de ligne, sans table de conversion ni inversion à retenir. Le prix à payer est
-// que la liste se lit « à l'envers » de la façon dont un guitariste énonce son accordage (« mi la ré
-// sol si mi », du grave à l'aigu) : `libelleAccordage` s'en charge pour l'interface, et c'est le seul
+// que la liste se lit « à l'envers » de la façon dont un guitariste énonce son accordage (« E A D G
+// B E », du grave à l'aigu) : `libelleAccordage` s'en charge pour l'interface, et c'est le seul
 // endroit de l'appli où l'ordre s'inverse.
 
-import { nomVersMidi, ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './theory.js';
+import { nomVersMidi, ecrireHauteur, SYMBOLE_ALTERATION } from './theory.js';
 
 /**
  * Les trois instruments de la V1.
@@ -70,25 +70,25 @@ export const INSTRUMENTS = {
  */
 export const ACCORDAGES = {
     guitare: [
-        { id: 'standard', nom: 'Standard (Mi)', cordes: [64, 59, 55, 50, 45, 40] },
+        { id: 'standard', nom: 'Standard', cordes: [64, 59, 55, 50, 45, 40] },
         { id: 'dropD', nom: 'Drop D', cordes: [64, 59, 55, 50, 45, 38] },
-        { id: 'demiTon', nom: 'Demi-ton plus bas (Mi♭)', cordes: [63, 58, 54, 49, 44, 39] },
-        { id: 'tonEntier', nom: 'Un ton plus bas (Ré)', cordes: [62, 57, 53, 48, 43, 38] },
+        { id: 'demiTon', nom: 'Eb Standard', cordes: [63, 58, 54, 49, 44, 39] },
+        { id: 'tonEntier', nom: 'D Standard', cordes: [62, 57, 53, 48, 43, 38] },
         { id: 'dropC', nom: 'Drop C', cordes: [62, 57, 53, 48, 43, 36] },
         { id: 'openG', nom: 'Open G', cordes: [62, 59, 55, 50, 43, 38] },
         { id: 'dadgad', nom: 'DADGAD', cordes: [62, 57, 55, 50, 45, 38] },
     ],
     basse4: [
-        { id: 'standard', nom: 'Standard (Mi)', cordes: [43, 38, 33, 28] },
+        { id: 'standard', nom: 'Standard', cordes: [43, 38, 33, 28] },
         { id: 'dropD', nom: 'Drop D', cordes: [43, 38, 33, 26] },
-        { id: 'demiTon', nom: 'Demi-ton plus bas (Mi♭)', cordes: [42, 37, 32, 27] },
-        { id: 'tonEntier', nom: 'Un ton plus bas (Ré)', cordes: [41, 36, 31, 26] },
+        { id: 'demiTon', nom: 'Eb Standard', cordes: [42, 37, 32, 27] },
+        { id: 'tonEntier', nom: 'D Standard', cordes: [41, 36, 31, 26] },
     ],
     basse5: [
-        { id: 'standard', nom: 'Standard (Si grave)', cordes: [43, 38, 33, 28, 23] },
-        { id: 'aigu', nom: 'Do aigu (Mi–Do)', cordes: [48, 43, 38, 33, 28] },
+        { id: 'standard', nom: 'Standard', cordes: [43, 38, 33, 28, 23] },
+        { id: 'aigu', nom: 'High C', cordes: [48, 43, 38, 33, 28] },
         { id: 'dropA', nom: 'Drop A', cordes: [43, 38, 33, 28, 21] },
-        { id: 'demiTon', nom: 'Demi-ton plus bas (Mi♭)', cordes: [42, 37, 32, 27, 22] },
+        { id: 'demiTon', nom: 'Bb Standard', cordes: [42, 37, 32, 27, 22] },
     ],
     // Un seul « accordage », sans cordes : accordageParDefaut(instrumentId) réclame au moins une
     // entrée pour toute la famille des instruments, sans quoi elle retomberait sur guitare.
@@ -111,14 +111,18 @@ export function accordagePredefini(instrumentId, accordageId) {
 }
 
 /**
- * Libellé « Mi La Ré Sol Si Mi » — du GRAVE à l'AIGU, l'ordre dans lequel un instrumentiste énonce
- * son accordage et le seul qui lui parle. Sans octave : c'est un repère de doigté, pas une hauteur.
+ * Libellé « E A D G B E » — du GRAVE à l'AIGU, l'ordre dans lequel un instrumentiste énonce son
+ * accordage et le seul qui lui parle. Sans octave : c'est un repère de doigté, pas une hauteur.
+ *
+ * En lettres anglo-saxonnes (E, A, D…), pas en noms français (Mi, La, Ré…) : plus simple à lire,
+ * et c'est la notation que la quasi-totalité des ressources (tablatures, forums, accordages
+ * affichés par les instruments eux-mêmes) emploient déjà — voir aussi la grille corde par corde
+ * dans main.js#remplirReglages, qui suit la même règle.
  */
-export function libelleAccordage(cordes, francais = true) {
+export function libelleAccordage(cordes) {
     return cordes.slice().reverse().map(midi => {
         const e = ecrireHauteur(midi, 0);
-        const base = francais ? LETTRE_VERS_FRANCAIS[e.lettre] : e.lettre;
-        return base + SYMBOLE_ALTERATION[String(e.alteration)];
+        return e.lettre + SYMBOLE_ALTERATION[String(e.alteration)];
     }).join(' ');
 }
 

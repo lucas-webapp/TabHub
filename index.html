@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608280100">
+    <link rel="stylesheet" href="style.css?v=202608280300">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -36,7 +36,7 @@
     <button type="button" id="btn-midi-ouvrir" class="btn-icone" title="Importer un fichier MIDI (.mid)" aria-label="Importer un fichier MIDI"></button>
     <button type="button" id="btn-midi-exporter" class="btn-icone" title="Exporter en MIDI (.mid)" aria-label="Exporter en MIDI"></button>
     <span class="separateur"></span>
-    <button type="button" id="btn-reglages" class="btn-icone" title="Instrument et accordage" aria-label="Instrument et accordage"></button>
+    <button type="button" id="btn-reglages" class="btn-icone" title="Réglages" aria-label="Réglages"></button>
     <button type="button" id="btn-aide" class="btn-icone" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
 
     <span class="pousse"></span>
@@ -83,6 +83,11 @@
     <label class="info-transport" for="champ-tempo">Tempo</label>
     <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
     <span class="info-transport">BPM</span>
+    <!-- TAP TEMPO — comme HarmoHub : cliquer plusieurs fois au rythme voulu règle le tempo sans
+         connaître ni taper une valeur précise. Retour utilisateur : le simple champ numérique
+         « n'est pas très clair » — ce bouton donne une SECONDE façon, plus physique, de le régler,
+         et par la même occasion signale que ce coin de la barre est bien interactif. -->
+    <button type="button" id="btn-tap-tempo" class="btn-transport-texte" title="Tap tempo : cliquer plusieurs fois au rythme voulu pour régler le tempo">TAP</button>
     <span class="separateur"></span>
     <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
     <span class="pousse"></span>
@@ -118,7 +123,7 @@
 <div class="voile" id="fenetre-reglages" hidden>
     <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-reglages">
         <div class="fenetre-tete">
-            <h2 id="titre-reglages">Instrument et accordage</h2>
+            <h2 id="titre-reglages">Réglages</h2>
             <span class="pousse"></span>
             <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
         </div>
@@ -133,16 +138,24 @@
                     <label for="champ-accordage">Accordage</label>
                     <select id="champ-accordage" class="champ"></select>
                 </div>
-                <div class="ligne-champ">
-                    <label for="champ-capo">Capodastre</label>
-                    <select id="champ-capo" class="champ"></select>
-                </div>
-            </div>
-            <div class="rubrique">
-                <h3>Accordage corde par corde</h3>
-                <!-- Les cordes s'affichent du GRAVE à l'AIGU, l'ordre dans lequel un instrumentiste
-                     énonce son accordage — l'inverse de l'ordre interne (voir model/instruments.js). -->
-                <div class="grille-cordes" id="grille-cordes"></div>
+                <!-- REPLIÉES PAR DÉFAUT : capodastre et réglage corde par corde ne servent que dans
+                     des cas précis (retour utilisateur) — les sortir de la vue courante évite d'y
+                     réfléchir à chaque ouverture, sans les rendre plus difficiles à atteindre qu'un
+                     clic. Un <details> natif : aucun état à mémoriser, toujours refermé à l'ouverture
+                     suivante des Réglages. -->
+                <details class="repli-avance">
+                    <summary>Options avancées</summary>
+                    <div class="repli-avance-corps">
+                        <div class="ligne-champ">
+                            <label for="champ-capo">Capodastre</label>
+                            <select id="champ-capo" class="champ"></select>
+                        </div>
+                        <!-- Les cordes s'affichent du GRAVE à l'AIGU, l'ordre dans lequel un
+                             instrumentiste énonce son accordage — l'inverse de l'ordre interne (voir
+                             model/instruments.js). -->
+                        <div class="grille-cordes" id="grille-cordes"></div>
+                    </div>
+                </details>
             </div>
             <div class="rubrique">
                 <h3>Morceau</h3>
@@ -156,6 +169,23 @@
                 </div>
             </div>
             <div class="rubrique">
+                <h3>Son</h3>
+                <div class="ligne-curseur">
+                    <div class="ligne-curseur-tete">
+                        <label for="champ-volume-general">Volume général</label>
+                        <span class="valeur" id="valeur-volume-general">100</span>
+                    </div>
+                    <input type="range" id="champ-volume-general" min="0" max="100" value="100">
+                </div>
+                <div class="ligne-curseur">
+                    <div class="ligne-curseur-tete">
+                        <label for="champ-volume-metronome">Volume du métronome</label>
+                        <span class="valeur" id="valeur-volume-metronome">80</span>
+                    </div>
+                    <input type="range" id="champ-volume-metronome" min="0" max="100" value="80">
+                </div>
+            </div>
+            <div class="rubrique">
                 <h3>Interface</h3>
                 <div class="ligne-champ">
                     <label for="champ-position-outils">Barre d'outils</label>
@@ -164,14 +194,22 @@
                         <option value="gauche">À gauche</option>
                     </select>
                 </div>
-                <div class="ligne-champ">
-                    <label for="champ-pave">Pavé tactile</label>
-                    <select id="champ-pave" class="champ">
-                        <option value="auto">Automatique (écran tactile)</option>
-                        <option value="toujours">Toujours affiché</option>
-                        <option value="jamais">Jamais</option>
-                    </select>
+                <!-- PAVÉ TACTILE : masqué d'emblée (`hidden`) — sur ordinateur, ce réglage ne veut
+                     rien dire, mieux vaut ne pas le montrer que de laisser deviner à quoi il sert
+                     (retour utilisateur : « je ne comprends pas ces paramètres »). remplirReglages()
+                     ne le démasque QUE sur un appareil tactile, seul contexte où la question se pose
+                     — et alors un simple interrupteur, plus jamais un choix à trois branches. -->
+                <div class="ligne-champ" id="ligne-pave" hidden>
+                    <label for="champ-pave">Pavé de saisie tactile</label>
+                    <button type="button" id="champ-pave" class="interrupteur" role="switch" aria-checked="true">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
                 </div>
+            </div>
+            <div class="rubrique">
+                <h3>Fichiers</h3>
+                <p class="texte-discret" id="etat-brouillon"></p>
+                <button type="button" class="btn-neutre" id="btn-vider-brouillon">Vider le brouillon local</button>
             </div>
         </div>
         <div class="fenetre-pied">
@@ -197,6 +235,6 @@
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608280200"></script>
+<script type="module" src="src/main.js?v=202608280300"></script>
 </body>
 </html>

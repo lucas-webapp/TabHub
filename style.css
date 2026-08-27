@@ -412,6 +412,18 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 .btn-transport:disabled { opacity: .34; cursor: default; }
 
+/* TAP TEMPO — même hauteur que les boutons de transport, mais largeur libre pour son texte. */
+.btn-transport-texte {
+    height: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
+    border-radius: 9px; cursor: pointer;
+    border: 1px solid var(--btn-neutral-border);
+    background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
+    color: var(--text-main); font-family: var(--font); font-size: var(--fs-xs); font-weight: 800; letter-spacing: .04em;
+    transition: background .12s, border-color .12s;
+}
+.btn-transport-texte:hover { border-color: var(--btn-neutral-border-hover); }
+.btn-transport-texte:active { background: var(--btn-green-1); border-color: var(--btn-green-border); color: var(--btn-text); }
+
 .info-transport { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .info-transport strong { color: var(--text-main); font-weight: 700; }
 
@@ -469,6 +481,60 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .ligne-champ { display: flex; align-items: center; gap: 10px; margin-bottom: 8px; }
 .ligne-champ > label { flex: 0 0 132px; font-size: var(--fs-sm); color: var(--text-muted); }
 .ligne-champ > .champ, .ligne-champ > input { flex: 1 1 auto; }
+/* Sans cette règle, `hidden` ne masque rien : `display: flex` ci-dessus l'emporte sur le
+   `display: none` que le navigateur applique par défaut à `[hidden]`, à spécificité égale — le
+   même piège déjà paré ailleurs (voir .voile[hidden], .pave-tactile[hidden]). Sert la ligne du
+   pavé tactile dans les Réglages (voir main.js#remplirReglages), masquée sur un appareil non
+   tactile où le réglage ne voudrait rien dire. */
+.ligne-champ[hidden] { display: none; }
+
+.texte-discret { margin: 0 0 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+
+/* Curseur de volume (Réglages > Son) : étiquette + valeur au-dessus, glissière en dessous — comme
+   HarmoHub, dont ce panneau reprend le principe. */
+.ligne-curseur { margin-bottom: 14px; }
+.ligne-curseur:last-child { margin-bottom: 0; }
+.ligne-curseur-tete { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; font-size: var(--fs-sm); color: var(--text-muted); }
+.ligne-curseur-tete .valeur { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; min-width: 2.4em; text-align: right; }
+.ligne-curseur input[type="range"] { width: 100%; accent-color: var(--accent); }
+
+/* Interrupteur on/off générique (Réglages) — le pavé tactile en est le premier emploi : un choix
+   binaire mérite un geste, pas un menu déroulant à trois branches pour deux réponses possibles. */
+.interrupteur {
+    position: relative; flex: none; width: 40px; height: 22px; padding: 0;
+    border-radius: 999px; border: 1px solid var(--btn-neutral-border);
+    background: var(--fond-bouton-sombre); cursor: pointer;
+    transition: background .15s ease, border-color .15s ease;
+}
+.interrupteur-curseur {
+    position: absolute; top: 1px; left: 1px; width: 18px; height: 18px;
+    border-radius: 50%; background: var(--text-muted);
+    transition: transform .15s ease, background .15s ease;
+}
+.interrupteur[aria-checked="true"] { background: rgba(0, 230, 118, .22); border-color: var(--btn-green-border); }
+.interrupteur[aria-checked="true"] .interrupteur-curseur { transform: translateX(18px); background: var(--accent); }
+
+/* Repli « Options avancées » (Réglages > Instrument) : un <details> natif, replié à chaque
+   ouverture — la place d'un réglage qu'on pose une fois et ne revoit plus (retour utilisateur :
+   « l'accordage corde par corde ne sert que dans des cas très spécifiques »). Un liseré au-dessus
+   plutôt qu'un fond de carte : c'est une porte vers d'autres réglages, pas un réglage de plus.
+   Repris de HarmoHub, dans les tons de TabHub. */
+.repli-avance { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
+.repli-avance > summary {
+    display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
+    min-height: 34px; padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
+    color: var(--text-muted); user-select: none;
+}
+.repli-avance > summary::-webkit-details-marker { display: none; }
+.repli-avance > summary::before {
+    content: ''; flex: none; width: 6px; height: 6px;
+    border-right: 2px solid currentColor; border-bottom: 2px solid currentColor;
+    transform: rotate(-45deg); transition: transform .15s ease;
+}
+.repli-avance[open] > summary::before { transform: rotate(45deg); }
+.repli-avance > summary:hover { color: var(--text-main); }
+.repli-avance-corps { padding-top: 10px; }
+.repli-avance-corps > .grille-cordes { margin-top: 8px; }
 
 .btn-plein {
     height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
