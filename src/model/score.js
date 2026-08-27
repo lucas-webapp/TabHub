@@ -249,6 +249,20 @@ export function capaciteMesure(partition, index) {
 }
 
 /**
+ * Position en noires du DÉBUT de la mesure `index` — la somme des capacités de toutes celles qui la
+ * précèdent. Un repère de temps partagé par tout ce qui doit situer une mesure entière sur l'axe
+ * global : lancer la lecture depuis le curseur (main.js#positionDuCurseurEnNoires), borner une boucle
+ * de lecture (audio/player.js#Lecteur.definirBoucle). `index === partition.mesures.length` est un
+ * appel volontairement valide : il donne la FIN du morceau (le début de la mesure « après la
+ * dernière »), sans borne à retirer chez l'appelant.
+ */
+export function positionDebutMesure(partition, index) {
+    let t = 0;
+    for (let m = 0; m < index; m++) t += capaciteMesure(partition, m);
+    return t;
+}
+
+/**
  * État de remplissage d'une VOIX de la mesure. Sert à l'affichage discret d'un repère (mesure
  * incomplète ou débordante) plutôt qu'à un refus de saisie : on n'interrompt pas quelqu'un en train
  * d'écrire parce que sa mesure n'est pas encore complète — elle ne l'est, par construction, jamais

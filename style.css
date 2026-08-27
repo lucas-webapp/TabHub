@@ -582,6 +582,15 @@ kbd {
     .feuille { -webkit-tap-highlight-color: transparent; }
 }
 
+/* BANDE DE BOUCLE DE LECTURE (voir main.js#marquesBoucle/demarrerGesteBoucle) — la piste invisible
+   posée sous la TAB de chaque système, où glisser une zone de mesures à rejouer en boucle. Hors de
+   la règle ci-dessus, et volontairement PAS dans son media query : au doigt (pointer: coarse) comme
+   à la souris, un geste qui commence ICI doit dessiner une zone plutôt que faire défiler la
+   partition — `touch-action: none` l'emporte sur le `pan-x pan-y` de .zone-partition dès que le
+   doigt se pose PRÉCISÉMENT sur cette bande (résolution par élément, la plus spécifique gagne),
+   sans rien retirer au défilement partout ailleurs sur la partition. */
+.bande-boucle { touch-action: none; cursor: ew-resize; }
+
 @media (max-width: 720px) {
     .logo-texte, .groupe-outils > .etiquette-groupe { display: none; }
     .zone-partition { padding: 10px 8px 40px; }

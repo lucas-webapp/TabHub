@@ -39,7 +39,10 @@ function primitiveVersSvg(p, palette) {
             return `<line x1="${ech(p.x1)}" y1="${ech(p.y1)}" x2="${ech(p.x2)}" y2="${ech(p.y2)}" stroke="${c}" stroke-width="${ech(p.ep)}" stroke-linecap="butt"${tirets}/>`;
         }
         case 'rect':
-            return `<rect x="${ech(p.x)}" y="${ech(p.y)}" width="${ech(p.w)}" height="${ech(p.h)}" fill="${c}"/>`;
+            // `classe`, optionnelle : seuls les calques d'INTERFACE (voir main.js#marquesBoucle) en
+            // posent une — la bande de boucle a besoin d'un `touch-action: none` CIBLÉ en CSS (voir
+            // style.css), qu'aucune primitive de la partition elle-même n'a jamais eu besoin de porter.
+            return `<rect x="${ech(p.x)}" y="${ech(p.y)}" width="${ech(p.w)}" height="${ech(p.h)}" fill="${c}"${p.classe ? ` class="${p.classe}"` : ''}/>`;
         case 'poly':
             return `<polygon points="${p.pts.map(([x, y]) => `${ech(x)},${ech(y)}`).join(' ')}" fill="${c}"/>`;
         case 'courbe':

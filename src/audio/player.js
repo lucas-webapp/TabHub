@@ -10,7 +10,7 @@
 // minuterie parallèle, il lit la position réelle du transport audio. Les deux ne peuvent pas diverger.
 
 import { midiVersNomTone } from '../model/theory.js';
-import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure } from '../model/score.js';
+import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, positionDebutMesure } from '../model/score.js';
 import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
 
 /** Réduction du volume par rapport au 0 dB de Tone.js : une polyphonie à six voix sature vite. */
@@ -57,6 +57,13 @@ export class Lecteur {
         // main.js, comme le tempo ou le zoom — ce module ne connaît que l'état courant.
         this.metronomeActif = false;
         this.metronomeSubdivision = false;
+        // Boucle de lecture (barre orange glissée sous la TAB, voir main.js#marquesBoucle/
+        // gesteBoucle*) : {debut, fin}, en INDEX DE MESURE, fin comprise — ou null, aucune boucle.
+        // Un état de SESSION, comme metronomeActif juste au-dessus, jamais écrit dans le .json ni
+        // dans localStorage : HarmoHub (dont ce geste est repris) ne le fait pas non plus — une
+        // boucle qui survivrait en silence à un rechargement rouvrirait l'appli en train de rejouer
+        // indéfiniment quatre mesures sans que rien ne l'explique.
+        this.boucleLecture = null;
     }
 
     surPosition(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
@@ -297,8 +304,63 @@ export class Lecteur {
 
         if (this.metronomeActif) this._programmerMetronome(partition, PPQ);
 
-        // Arrêt net à la fin du morceau plutôt qu'un transport qui tourne dans le vide.
+        // Arrêt net à la fin du morceau plutôt qu'un transport qui tourne dans le vide — sans effet
+        // si une boucle est active (voir _appliquerBoucle juste en dessous) : les tics du transport
+        // ne traversent alors plus jamais cette position, ce point d'arrêt reste programmé mais
+        // inatteignable, exactement comme prévu.
         Tone.Transport.schedule(() => { this.arreter(); }, `${Math.round((this.duree + 0.05) * PPQ)}i`);
+
+        this._appliquerBoucle(partition, PPQ);
+    }
+
+    /**
+     * Définit (ou étend/déplace) la boucle de lecture sur [mesureDebut, mesureFin] (fin comprise).
+     * Appelable À TOUT MOMENT, lecture en cours ou non — glisser la barre PENDANT que ça joue doit
+     * faire sentir le nouveau bornage tout de suite, pas seulement au prochain démarrage : on ne
+     * passe donc pas par programmer() ici (qui annulerait puis reprogrammerait TOUTES les notes,
+     * un à-coup audible), seul le point de bouclage de l'horloge bouge.
+     */
+    definirBoucle(partition, mesureDebut, mesureFin) {
+        const r = this.boucleLecture;
+        // Rien de changé -> rien à refaire (glisser la barre déclenche ceci à chaque évènement de
+        // pointeur ; sans ce garde-fou, la MÊME plage réécrirait Transport.loopStart/loopEnd à
+        // chaque micro-mouvement du doigt, pour un résultat identique).
+        if (r && r.debut === mesureDebut && r.fin === mesureFin) return;
+        this.boucleLecture = { debut: mesureDebut, fin: mesureFin };
+        const Tone = globalThis.Tone;
+        if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+    }
+
+    /** Retire la boucle : la lecture continue tout droit au lieu de rebrousser chemin. */
+    retirerBoucle() {
+        this.boucleLecture = null;
+        const Tone = globalThis.Tone;
+        if (Tone?.Transport) Tone.Transport.loop = false;
+    }
+
+    /**
+     * Pose les deux bornes natives de l'horloge audio (Tone.Transport.loop/loopStart/loopEnd)
+     * d'après `this.boucleLecture`, en TICS — jamais en secondes, pour rester cohérent avec le reste
+     * de la programmation (voir programmer : une position en tics ne dépend pas du tempo, un
+     * changement de BPM pendant une boucle ne la fait donc ni dériver ni changer de longueur).
+     *
+     * EPSILON D'UN TIC SUR LES DEUX BORNES : Tone.Transport, vérifié empiriquement, ne redéclenche
+     * jamais un évènement programmé PILE sur `loopStart` — la note posée tout au début de la mesure
+     * de départ se tairait donc à chaque tour SAUF le premier. Reculer `loopStart` d'un tic la fait
+     * retomber franchement AVANT cette note, qui redevient un évènement normal que le transport
+     * traverse en tournant. `loopEnd` recule du MÊME tic (pas seulement loopStart) : la boucle garde
+     * ainsi exactement sa longueur réelle plutôt que de s'allonger d'un tic à chaque définition.
+     */
+    _appliquerBoucle(partition, PPQ) {
+        const Tone = globalThis.Tone;
+        if (!Tone?.Transport || !this.boucleLecture) return;
+        const EPSILON = 1;
+        const { debut, fin } = this.boucleLecture;
+        const ticksDebut = Math.max(0, Math.round(positionDebutMesure(partition, debut) * PPQ) - EPSILON);
+        const ticksFin = Math.max(ticksDebut + 1, Math.round(positionDebutMesure(partition, fin + 1) * PPQ) - EPSILON);
+        Tone.Transport.loopStart = `${ticksDebut}i`;
+        Tone.Transport.loopEnd = `${ticksFin}i`;
+        Tone.Transport.loop = true;
     }
 
     /**

@@ -31,12 +31,21 @@ import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, capaciteMesure, positionDansMesure } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure } from './model/score.js';
 import { ecrireHauteur, SYMBOLE_ALTERATION, LETTRE_VERS_FRANCAIS } from './model/theory.js';
 import { VALEURS_FIGURES } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
 const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
+
+// Bande de boucle de lecture, sous la TAB de chaque système — en S, partagées par le rendu
+// (marquesBoucle) et le geste (mesureDansBandeBoucle) pour que les deux s'accordent toujours sur le
+// même endroit à l'écran. Loge entièrement dans geo.margeBas (3.4 S, voir engine/layout.js) : elle
+// n'a donc besoin d'AUCUNE réservation d'espace supplémentaire, à la différence de l'annotation de
+// section, qui elle grandit la page — cette bande n'a jamais existé que sur l'écran (jamais posée
+// dans la liste d'affichage partagée avec le PDF).
+const HAUT_BANDE_BOUCLE = 0.5;
+const BAS_BANDE_BOUCLE = 1.9;
 
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
@@ -181,7 +190,7 @@ class TabHubApp {
             return;
         }
 
-        const calques = [...this.marquesLecture(), ...this.marquesCurseur(), ...this.marquesSelection()];
+        const calques = [...this.marquesLecture(), ...this.marquesCurseur(), ...this.marquesSelection(), ...this.marquesBoucle()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
         this.el.feuille.style.height = `${this.page.hauteur}px`;
         this.el.feuille.innerHTML = rendreSvg(this.page, {
@@ -334,6 +343,11 @@ class TabHubApp {
     // ==========================================================================================
 
     surChangementEditeur(raison) {
+        // Un morceau NEUF ne doit jamais hériter de la boucle du précédent — c'est un état de
+        // SESSION (voir Lecteur.boucleLecture), jamais sauvé, mais justement pour ça : rien à
+        // l'écran ne montrerait qu'un morceau tout juste ouvert continue de rejouer quatre mesures
+        // de l'ancien en boucle (même précaution que HarmoHub, dont ce geste est repris).
+        if (raison === 'document') this.lecteur.retirerBoucle();
         this.dessiner();
         // Le curseur reste à l'écran. Nécessaire depuis que seuls les systèmes visibles sont
         // dessinés : un curseur poussé hors de la bande dessinée s'afficherait sur du vide, sans
@@ -465,9 +479,11 @@ class TabHubApp {
             else if (this.lecteur.etat === 'pause') { await this.lecteur.jouer(this.editeur.partition); }
             else {
                 // Lancer DEPUIS LE CURSEUR plutôt que du début : quand on retouche la mesure 14, on
-                // veut réentendre la mesure 14, pas les treize précédentes à chaque essai.
-                const depuis = this.positionDuCurseurEnNoires();
-                await this.lecteur.jouer(this.editeur.partition, depuis);
+                // veut réentendre la mesure 14, pas les treize précédentes à chaque essai — SAUF si
+                // une boucle est active et que le curseur est resté en dehors : la lecture partirait
+                // sinon d'un endroit que la boucle ne traverse peut-être jamais (voir
+                // positionDeDepartLecture).
+                await this.lecteur.jouer(this.editeur.partition, this.positionDeDepartLecture());
             }
         } catch (err) {
             this.message(err.message || 'Impossible de démarrer l\'audio');
@@ -490,9 +506,26 @@ class TabHubApp {
      */
     positionDuCurseurEnNoires() {
         const c = this.editeur.curseur;
-        let t = 0;
-        for (let m = 0; m < c.mesure; m++) t += capaciteMesure(this.editeur.partition, m);
-        return t + positionDansMesure(this.editeur.partition.mesures[c.mesure], c.evenement, c.voix);
+        return positionDebutMesure(this.editeur.partition, c.mesure)
+            + positionDansMesure(this.editeur.partition.mesures[c.mesure], c.evenement, c.voix);
+    }
+
+    /**
+     * D'où repartir quand on relance depuis l'arrêt : le curseur, comme toujours — SAUF si une
+     * boucle de lecture est active et que le curseur est resté EN DEHORS d'elle, auquel cas la
+     * lecture partirait d'un endroit que la boucle ne traverse peut-être jamais une fois lancée
+     * (elle ne revient au début de la boucle qu'à la PROCHAINE fois qu'elle atteint sa fin — voir
+     * Lecteur._appliquerBoucle). Repartir directement du début de la boucle est le seul choix qui ne
+     * surprenne pas : on entend tout de suite ce qu'on a défini, jamais un passage qui n'a rien à
+     * voir avec elle en attendant que le transport y arrive par hasard.
+     */
+    positionDeDepartLecture() {
+        const boucle = this.lecteur.boucleLecture;
+        const c = this.editeur.curseur;
+        if (boucle && (c.mesure < boucle.debut || c.mesure > boucle.fin)) {
+            return positionDebutMesure(this.editeur.partition, boucle.debut);
+        }
+        return this.positionDuCurseurEnNoires();
     }
 
     rafraichirTransport() {
@@ -840,6 +873,12 @@ class TabHubApp {
     demarrerGeste(e) {
         if (e.button !== 0) return;   // le lasso ne répond qu'au bouton principal
 
+        // LA BANDE DE BOUCLE, SOUS LA TAB, AVANT TOUTE AUTRE LECTURE DU GESTE — souris ET doigt à la
+        // fois (voir demarrerGesteBoucle) : un geste qui commence là ne doit jamais être confondu
+        // avec un lasso, un étirement de durée, ou un défilement tactile de la partition.
+        const mesureAncre = this.mesureDansBandeBoucle(e.clientX, e.clientY);
+        if (mesureAncre != null) { this.demarrerGesteBoucle(e, mesureAncre); return; }
+
         // AU DOIGT, GLISSER VEUT DIRE DÉFILER — jamais lassoter. Sur un téléphone, faire glisser la
         // partition est le SEUL moyen d'atteindre le reste du morceau ; armer le lasso sur ce geste
         // rendait la partition impossible à parcourir (et dessinait un rectangle de sélection à
@@ -1069,6 +1108,135 @@ class TabHubApp {
             }
         }
         return marques;
+    }
+
+    /**
+     * Bande de boucle de lecture : une piste fine sous la TAB de chaque système visible, où glisser
+     * (souris ou doigt, voir demarrerGesteBoucle) une zone de mesures à rejouer en boucle — le même
+     * principe que HarmoHub (loopRange), déplacé sous la grille plutôt que sur les numéros de
+     * mesure : exactement l'espace qu'occupait la réglette avant son retrait, resté vide depuis.
+     *
+     * TOUJOURS UNE PISTE PAR SYSTÈME, même sans aucune boucle active, INVISIBLE (couleur alpha nul) :
+     * c'est elle qui reçoit le geste de départ (voir mesureDansBandeBoucle) et qui porte
+     * `touch-action: none` (voir style.css, .bande-boucle) — sans elle, un geste au doigt à cet
+     * endroit ferait défiler la partition au lieu de dessiner une zone, exactement ce que ce module
+     * évite déjà pour tout le reste de la partition (voir demarrerGesteTactile). La zone elle-même,
+     * quand il y en a une, se dessine PAR-DESSUS cette piste (couleur bien visible cette fois) —
+     * l'ordre ne change rien ici, la piste étant invisible.
+     */
+    marquesBoucle() {
+        if (!this.page) return [];
+        const S = this.page.geo.S;
+        const systemes = this.systemesVisibles() || this.page.ancrages.systemes;
+        const boucle = this.lecteur.boucleLecture;
+        const marques = [];
+        for (const sys of systemes) {
+            const y = sys.yTab + sys.hauteurTab + HAUT_BANDE_BOUCLE * S;
+            const h = (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE) * S;
+            marques.push({ t: 'rect', x: sys.xDebut, y, w: sys.xFin - sys.xDebut, h,
+                couleur: 'rgba(255, 152, 0, 0)', classe: 'bande-boucle' });
+
+            if (!boucle) continue;
+            const touche = this.page.ancrages.mesures.filter(a =>
+                a.systeme === sys.index && a.index >= boucle.debut && a.index <= boucle.fin);
+            if (!touche.length) continue;
+            const x1 = Math.min(...touche.map(a => a.x));
+            const x2 = Math.max(...touche.map(a => a.xFin));
+            marques.push({ t: 'rect', x: x1, y, w: x2 - x1, h, couleur: 'var(--lecture-halo)' });
+        }
+        return marques;
+    }
+
+    /**
+     * Mesure visée par un point d'écran DANS LA BANDE DE BOUCLE (voir marquesBoucle) — ou `null` hors
+     * de cette bande. Même conversion écran -> SVG que cibleDepuisClic ; une bande à part, pour ne
+     * jamais confondre ce geste avec celui qui place le curseur.
+     */
+    mesureDansBandeBoucle(clientX, clientY) {
+        if (!this.page) return null;
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return null;
+        const boite = svg.getBoundingClientRect();
+        const x = (clientX - boite.left) * (this.page.largeur / boite.width);
+        const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
+        const S = this.page.geo.S;
+        const systeme = this.page.ancrages.systemes.find(s =>
+            y >= s.yTab + s.hauteurTab + HAUT_BANDE_BOUCLE * S && y <= s.yTab + s.hauteurTab + BAS_BANDE_BOUCLE * S);
+        if (!systeme) return null;
+        return this._mesureDuSysteme(systeme, x);
+    }
+
+    /**
+     * Système le plus proche d'un point, en Y — pour la SUITE d'un glisser de boucle déjà commencé
+     * (voir demarrerGesteBoucle) : une fois le geste engagé, un tremblement vertical ne doit jamais
+     * l'interrompre, à la différence du point de départ (mesureDansBandeBoucle), qui lui reste précis
+     * pour ne jamais confisquer un clic destiné à autre chose.
+     */
+    mesureLaPlusProche(clientX, clientY) {
+        if (!this.page) return null;
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return null;
+        const boite = svg.getBoundingClientRect();
+        const x = (clientX - boite.left) * (this.page.largeur / boite.width);
+        const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
+        const systemes = this.page.ancrages.systemes;
+        let systeme = null, ecart = Infinity;
+        for (const s of systemes) {
+            const e = Math.abs(y - (s.yTab + s.hauteurTab));
+            if (e < ecart) { ecart = e; systeme = s; }
+        }
+        if (!systeme) return null;
+        return this._mesureDuSysteme(systeme, x);
+    }
+
+    /** Mesure d'un système donné la plus proche de l'abscisse `x` — partagé par les deux méthodes ci-dessus. */
+    _mesureDuSysteme(systeme, x) {
+        const mesures = this.page.ancrages.mesures.filter(a => a.systeme === systeme.index);
+        if (!mesures.length) return null;
+        const dans = mesures.find(a => x >= a.x && x < a.xFin);
+        return (dans || (x < mesures[0].x ? mesures[0] : mesures[mesures.length - 1])).index;
+    }
+
+    /**
+     * GLISSER LA BANDE DE BOUCLE : définit une zone [mesureAncre, mesure courante] à rejouer en
+     * boucle. Un tap/clic SANS glisser retire la boucle en place, s'il y en avait une — sans ça,
+     * aucun moyen tactile d'en annuler une (à la souris, Échap ne fait pas ce lien).
+     *
+     * APPLIQUÉE AU RELÂCHEMENT SEULEMENT, PAS EN CONTINU — comme l'étirement de durée (voir
+     * demarrerEtirement/terminerEtirement), mais pour une raison PLUS STRICTE encore ici : appeler
+     * dessiner() PENDANT un glisser TACTILE détruit l'élément SVG qui porte la capture implicite du
+     * doigt (innerHTML remplacé sous lui), et le navigateur cesse alors purement et simplement de
+     * livrer la suite du geste — plus aucun pointermove/pointerup, la boucle reste figée sur sa toute
+     * première position (vérifié directement : un seul mouvement passait avant que tout s'arrête).
+     * Un simple message tient lieu de retour pendant qu'on glisse ; le document (et l'écran) ne
+     * bougent qu'une fois, à la fin.
+     */
+    demarrerGesteBoucle(e, mesureAncre) {
+        e.preventDefault();
+        const depart = { x: e.clientX, y: e.clientY };
+        const SEUIL = 6;
+        let bouge = false;
+        let lo = mesureAncre, hi = mesureAncre;
+
+        const surMouvement = (ev) => {
+            if (!bouge && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
+            bouge = true;
+            const courante = this.mesureLaPlusProche(ev.clientX, ev.clientY) ?? mesureAncre;
+            lo = Math.min(mesureAncre, courante);
+            hi = Math.max(mesureAncre, courante);
+            this.message(lo === hi ? `Boucle : mesure ${lo + 1}` : `Boucle : mesures ${lo + 1} à ${hi + 1}`, 4000);
+        };
+        const surRelache = () => {
+            window.removeEventListener('pointermove', surMouvement);
+            window.removeEventListener('pointerup', surRelache);
+            window.removeEventListener('pointercancel', surRelache);
+            if (bouge) { this.lecteur.definirBoucle(this.editeur.partition, lo, hi); this.dessiner(); }
+            else if (this.lecteur.boucleLecture) { this.lecteur.retirerBoucle(); this.dessiner(); }
+            this.el.zone.focus();
+        };
+        window.addEventListener('pointermove', surMouvement);
+        window.addEventListener('pointerup', surRelache);
+        window.addEventListener('pointercancel', surRelache);
     }
 
     /** Efface toutes les notes sélectionnées en UNE seule action d'annulation (voir Editeur.effacerNotes). */
