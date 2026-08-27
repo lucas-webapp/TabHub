@@ -30,7 +30,7 @@ import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
-import { exporterMidi, exporterMidiParPartie, lireFichierMidi } from './io/midi.js';
+import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe } from './model/score.js';
 import { nomDeHauteur } from './model/theory.js';
@@ -659,6 +659,38 @@ class TabHubApp {
     }
 
     /**
+     * Popule puis affiche la fenêtre de choix de ZONE DE MANCHE à l'import MIDI (voir
+     * io/midi.js#analyserZonesManche) : un bouton par zone PERTINENTE POUR CE FICHIER — jamais
+     * une liste générique, une zone qu'aucune note du fichier n'atteint n'étant pas proposée —
+     * plus l'échappatoire « Manche entier » toujours disponible en pied de fenêtre. Un
+     * avertissement s'affiche en plus si des notes du fichier sont hors de portée de
+     * l'instrument, quelle que soit la zone choisie (tropGraves/tropAigues) : rien à voir avec CE
+     * choix, mais le bon moment pour le dire, avant que l'utilisateur ne décide d'une zone.
+     * Renvoie, via choisirDans, `"{debut}-{fin}"`, `"tout"`, ou `null` si annulé.
+     */
+    choisirZoneManche(infosZones) {
+        const conteneur = document.getElementById('liste-zones-manche');
+        conteneur.innerHTML = '';
+        for (const z of infosZones.zones) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn-neutre';
+            b.dataset.choix = `${z.debut}-${z.fin}`;
+            const debutTxt = z.debut === 0 ? 'Sillet' : `Case ${z.debut}`;
+            b.textContent = `${debutTxt} → case ${z.fin} (${z.reachable}/${infosZones.totalNotes} note${infosZones.totalNotes > 1 ? 's' : ''})`;
+            conteneur.appendChild(b);
+        }
+        const avertissement = document.getElementById('avertissement-zone-manche');
+        const bits = [];
+        if (infosZones.tropGraves) bits.push(`${infosZones.tropGraves} note${infosZones.tropGraves > 1 ? 's' : ''} trop grave${infosZones.tropGraves > 1 ? 's' : ''}`);
+        if (infosZones.tropAigues) bits.push(`${infosZones.tropAigues} note${infosZones.tropAigues > 1 ? 's' : ''} trop aiguë${infosZones.tropAigues > 1 ? 's' : ''}`);
+        const total = infosZones.tropGraves + infosZones.tropAigues;
+        avertissement.hidden = bits.length === 0;
+        avertissement.textContent = bits.length ? `⚠ ${bits.join(', ')} pour cet instrument : abandonnée${total > 1 ? 's' : ''} quelle que soit la zone choisie.` : '';
+        return this.choisirDans('fenetre-zone-manche');
+    }
+
+    /**
      * Exporter en .mid — le format qu'un séquenceur, un DAW ou un logiciel de notation sait lire.
      * Un seul fichier directement s'il n'y a qu'une seule SECTION (voir model/score.js#sectionsDe) ;
      * sinon demande d'abord si on préfère un fichier PAR section (chacune sa propre timeline à 0),
@@ -697,13 +729,48 @@ class TabHubApp {
      * comme une nouvelle partie annotée — sans toucher à ce qui existe déjà (retour utilisateur,
      * inspiré de HarmoHub qui, lui, décide seul selon que le morceau est vide ou non : ici, on
      * demande, dans les deux cas, lequel des deux est voulu).
+     *
+     * Sur guitare/basse (jamais piano, qui n'a pas de manche), une étape PRÉALABLE demande la ZONE
+     * DE JEU voulue sur le manche — sillet-case 5, case 5-10, etc, voir
+     * io/midi.js#analyserZonesManche/choisirZoneManche — pour une tablature jouable d'une seule
+     * position plutôt que la case la plus basse n'importe où, qui peut faire sauter d'un bout à
+     * l'autre du manche à chaque note. Sautée quand une seule zone (ou aucune) touche les notes du
+     * fichier : rien à choisir dans ce cas, la contrainte ne changerait rien au résultat. Les notes
+     * hors de portée de l'INSTRUMENT TOUT ENTIER (quelle que soit la zone) sont signalées à part.
      */
     async chargerFichierMidi(fichier) {
         try {
             const piste = this.editeur.partition.piste;
-            const { partition, abandonnees } = await lireFichierMidi(fichier, piste.instrument, piste.accordage, piste.capo);
+            const analyse = await analyserFichierMidi(fichier);
+
+            let zone = null;
+            let infosZones = null;
+            if (piste.instrument !== 'piano') {
+                infosZones = analyserZonesManche(analyse, piste.instrument, piste.accordage, piste.capo);
+                if (infosZones.zones.length > 1) {
+                    const choixZone = await this.choisirZoneManche(infosZones);
+                    if (choixZone == null) return;   // annulé
+                    if (choixZone !== 'tout') {
+                        const [debut, fin] = choixZone.split('-').map(Number);
+                        zone = { debut, fin };
+                    }
+                }
+            }
+
+            const { partition, abandonnees } = construirePartitionDepuisMidi(analyse, piste.instrument, piste.accordage, piste.capo, zone);
             const choix = await this.choisirDans('fenetre-choix-import-midi');
             if (choix == null) return;   // annulé
+
+            // Détail de CAUSE pour les notes abandonnées : hors de portée de l'instrument (aucune
+            // zone n'y aurait rien changé) plutôt qu'exclues par la zone choisie — deux raisons très
+            // différentes, la seconde attendue quand on restreint volontairement le manche.
+            const detailHorsPortee = (() => {
+                if (!infosZones) return '';
+                const bits = [];
+                if (infosZones.tropGraves) bits.push(`${infosZones.tropGraves} trop grave${infosZones.tropGraves > 1 ? 's' : ''}`);
+                if (infosZones.tropAigues) bits.push(`${infosZones.tropAigues} trop aiguë${infosZones.tropAigues > 1 ? 's' : ''}`);
+                return bits.length ? ` (${bits.join(', ')} pour l'instrument)` : '';
+            })();
 
             this.arreter();
             if (choix === 'suite') {
@@ -711,7 +778,7 @@ class TabHubApp {
                 const titre = fichier.name.replace(/\.midi?$/i, '').trim().slice(0, 40) || 'Import';
                 this.editeur.ajouterMesures(partition.mesures, titre);
                 const parties = ['Ajouté à la suite du morceau'];
-                if (abandonnees) parties.push(`${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''}`);
+                if (abandonnees) parties.push(`${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''}${detailHorsPortee}`);
                 // Le morceau en cours garde SON tempo (jamais celui, différent, d'un fichier qui vient
                 // s'ajouter) — mais le dire vaut mieux qu'un silence qui laisserait deviner pourquoi la
                 // nouvelle partie ne « sonne » pas à la vitesse attendue.
@@ -722,7 +789,7 @@ class TabHubApp {
             } else {
                 this.editeur.remplacer(partition);
                 this.message(abandonnees
-                    ? `Importé (${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''})`
+                    ? `Importé (${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''}${detailHorsPortee})`
                     : `Importé : ${partition.meta.titre}`, abandonnees ? 6000 : undefined);
             }
         } catch (err) {

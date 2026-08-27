@@ -27,7 +27,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('MIDI');
 
 (async () => {
-    plan(39);
+    plan(59);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-midi-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -130,6 +130,53 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         check(r.nbNotesRS === 2 && JSON.stringify(r.pitchesRS) === '[60,64]', 'le RUNNING STATUS (deux notes, la seconde sans octet de statut répété) se lit correctement');
         check(r.dureesRS.every(d => Math.abs(d - 2) < 1e-9), 'et les durées (delta-tics codés en VLQ) sont exactes');
 
+        // --- Cohérence de doigté par ZONE DE MANCHE (guitare/basse), hors interface ------------------
+        const rz = await page.evaluate(async () => {
+            const instr = await import('/src/model/instruments.js');
+            const midi = await import('/src/io/midi.js');
+            const accord = instr.ACCORDAGES.guitare.find(a => a.id === 'standard');   // [64,59,55,50,45,40]
+            const analyseDe = (pitches) => ({
+                notes: pitches.map(p => ({ pitch: p, debutNoires: 0, finNoires: 1 })),
+                signatures: [{ noires: 0, battements: 4, unite: 4 }], tempo: 120, titre: null,
+            });
+
+            // pitch 64 : jouable sur les SIX cordes (fret0 corde0 ... fret24 corde5) -> une zone
+            // candidate sur toute la largeur du manche. pitch 40 : atteignable SEULEMENT à vide sur
+            // la corde grave -> isolée en zone [0,5]. 20/95 : hors de portée (absMin=40, absMax=88).
+            const zTropGraveAigu = midi.analyserZonesManche(analyseDe([20, 95, 40, 64]), 'guitare', accord, 0);
+            const zToutHorsPortee = midi.analyserZonesManche(analyseDe([10, 20, 100]), 'guitare', accord, 0);
+            const zUneSeule = midi.analyserZonesManche(analyseDe([40]), 'guitare', accord, 0);
+
+            const noteDe = (res) => res.partition.mesures[0].voix[0].evenements[0].notes[0];
+            const sansZone = noteDe(midi.construirePartitionDepuisMidi(analyseDe([64]), 'guitare', accord, 0, null));
+            const avecZone = noteDe(midi.construirePartitionDepuisMidi(analyseDe([64]), 'guitare', accord, 0, { debut: 15, fin: 20 }));
+            const contrainte = midi.construirePartitionDepuisMidi(analyseDe([40]), 'guitare', accord, 0, { debut: 15, fin: 20 });
+
+            return {
+                totalNotes: zTropGraveAigu.totalNotes, tropGraves: zTropGraveAigu.tropGraves, tropAigues: zTropGraveAigu.tropAigues,
+                zonesReachable: zTropGraveAigu.zones.map(z => z.reachable),
+                nZonesHorsPortee: zToutHorsPortee.zones.length,
+                nZonesUneSeule: zUneSeule.zones.length, zoneUnique: zUneSeule.zones[0],
+                sansZone: { corde: sansZone.corde, frette: sansZone.frette },
+                avecZone: { corde: avecZone.corde, frette: avecZone.frette },
+                abandonneeParZone: contrainte.abandonnees,
+                notesPlaceesParZone: contrainte.partition.mesures[0].voix[0].evenements[0].notes.length,
+            };
+        });
+
+        check(rz.totalNotes === 4 && rz.tropGraves === 1 && rz.tropAigues === 1,
+            'analyserZonesManche compte juste les notes hors de portée de l\'instrument (une trop grave, une trop aiguë)');
+        check(rz.zonesReachable.length === 5 && rz.zonesReachable[0] === 2,
+            'les 5 tranches du manche sont candidates dès qu\'une hauteur s\'y joue sur une corde ou une autre, celle du sillet cumulant les deux notes qui s\'y jouent');
+        check(rz.nZonesHorsPortee === 0, 'quand AUCUNE note du fichier n\'entre dans la portée de l\'instrument, aucune zone n\'est proposée (rien à choisir)');
+        check(rz.nZonesUneSeule === 1 && rz.zoneUnique.debut === 0 && rz.zoneUnique.fin === 5,
+            'une note isolée à une seule position (corde grave à vide) ne rend qu\'UNE seule zone pertinente');
+        exiger(rz.sansZone.corde === 0 && rz.sansZone.frette === 0, 'sans zone, la case la plus BASSE gagne, quelle que soit la corde (comportement historique)');
+        exiger(rz.avecZone.corde === 4 && rz.avecZone.frette === 19,
+            'LE CŒUR DU CÂBLAGE : avec la zone case15-case20, seule la corde qui y tombe (ici la 5e, case 19) est choisie — jamais la case la plus basse hors zone');
+        check(rz.abandonneeParZone === 1 && rz.notesPlaceesParZone === 0,
+            'une note hors de la zone CHOISIE (mais atteignable ailleurs sur le manche) est abandonnée, comme une note vraiment hors de portée');
+
         // --- Sections : découpage, extrait décalé à 0, liaison coupée à la borne, repères -----------
         const rs = await page.evaluate(async () => {
             const m = await import('/src/model/score.js');
@@ -196,6 +243,20 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         check(rs.repereePartie1 && rs.repereRefrain, 'le fichier UNIQUE porte lui aussi un repère par section (même sans avoir demandé un fichier par section)');
 
         // --- L'interface : un clic télécharge, un fichier réimporté rejoue --------------------------
+
+        // Aux points d'import déjà existants ci-dessous (pas eux-mêmes le sujet du test), la fenêtre
+        // de ZONE DE MANCHE (nouvelle, guitare/basse — voir plus bas pour ses tests DÉDIÉS) peut
+        // désormais s'intercaler avant celle du mode d'import : on la traverse ici via « Manche
+        // entier » (le comportement d'avant cette fonctionnalité), pour ne pas changer ce que ces
+        // vérifications-là éprouvent réellement.
+        const passerZoneSiPresente = async () => {
+            await page.waitForTimeout(150);
+            if (await page.locator('#fenetre-zone-manche').isVisible()) {
+                await page.click('#fenetre-zone-manche [data-choix="tout"]');
+                await page.waitForTimeout(150);
+            }
+        };
+
         await page.evaluate(async () => {
             const m = await import('/src/model/score.js');
             const ed = window.app.editeur;
@@ -226,6 +287,7 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         await page.waitForTimeout(150);
         await page.setInputFiles('#entree-fichier-midi', cheminMidi);
         await page.waitForTimeout(300);
+        await passerZoneSiPresente();
         exiger(await page.locator('#fenetre-choix-import-midi').isVisible(), 'importer un .mid demande TOUJOURS s\'il remplace le morceau ou s\'y ajoute — jamais deviné en silence');
 
         // « Nouveau morceau » : remplace, comme le faisait l'ancien import direct.
@@ -238,6 +300,7 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         const avantAnnulerImport = await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures));
         await page.setInputFiles('#entree-fichier-midi', cheminMidi);
         await page.waitForTimeout(200);
+        await passerZoneSiPresente();
         await page.click('#fenetre-choix-import-midi [data-fermer]');
         await page.waitForTimeout(200);
         check(!(await page.locator('#fenetre-choix-import-midi').isVisible()), 'Annuler referme la fenêtre de choix');
@@ -258,6 +321,7 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         const avantSuite = await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures.map(mm => mm.voix[0].evenements[0].notes[0]?.frette)));
         await page.setInputFiles('#entree-fichier-midi', cheminMidi);
         await page.waitForTimeout(200);
+        await passerZoneSiPresente();
         await page.click('#fenetre-choix-import-midi [data-choix="suite"]');
         await page.waitForTimeout(300);
         const apresSuite = await page.evaluate(() => ({
@@ -270,6 +334,110 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         check(apresSuite.nMesures > 2, 'et de nouvelles mesures arrivent bien après');
         check(apresSuite.annotationNouvellePartie, 'la première mesure ajoutée porte une annotation (le nom du fichier), pour repérer où commence la nouvelle partie');
         check(apresSuite.notesAjoutees, 'et le contenu du fichier importé s\'y retrouve bien joué');
+
+        // --- Cohérence de doigté par ZONE DE MANCHE : le geste complet à l'écran ----------------------
+        // Un fichier à deux notes délibérément écartées : le pitch d'une corde à vide jouable PARTOUT
+        // sur le manche (une corde différente par zone), et un pitch isolé, atteignable SEULEMENT en
+        // zone [0,5] — de quoi forcer plusieurs zones candidates ET un contraste net une fois une zone
+        // choisie (voir le bloc « hors interface » plus haut pour les mêmes cas en pur, déjà vérifiés).
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures = [
+                m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 0)])] }] }),   // pitch 64
+                m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(5, 0)])] }] }),   // pitch 40
+            ];
+            ed.prevenir('document');
+        });
+        const attenteZone = page.waitForEvent('download');
+        await page.click('#btn-midi-exporter');
+        const telZone = await attenteZone;
+        const cheminZone = path.join(dossier, 'zone.mid');
+        await telZone.saveAs(cheminZone);
+
+        await page.evaluate(() => window.app.editeur.nouveau('guitare'));
+        await page.setInputFiles('#entree-fichier-midi', cheminZone);
+        await page.waitForTimeout(300);
+        exiger(await page.locator('#fenetre-zone-manche').isVisible(), 'plusieurs zones pertinentes : la fenêtre de zone de manche apparaît AVANT celle du mode d\'import');
+        check((await page.locator('#liste-zones-manche [data-choix]').count()) === 5, 'une zone candidate par tranche de 5 cases sur un manche de 24 cases (sillet-5, 5-10, 10-15, 15-20, 20-24)');
+        check(!(await page.locator('#avertissement-zone-manche').isVisible()), 'aucun avertissement quand toutes les notes du fichier sont dans la portée de l\'instrument');
+
+        await page.click('#fenetre-zone-manche [data-choix="15-20"]');
+        await page.waitForTimeout(150);
+        exiger(await page.locator('#fenetre-choix-import-midi').isVisible(), 'la zone choisie, la fenêtre du mode d\'import (nouveau/à la suite) prend le relais');
+        await page.click('#fenetre-choix-import-midi [data-choix="nouveau"]');
+        await page.waitForTimeout(200);
+        const apresZoneChoisie = await page.evaluate(() => {
+            const ms = window.app.editeur.partition.mesures;
+            return {
+                notePlacee: ms[0]?.voix[0].evenements[0].notes[0],
+                secondeAbandonnee: !ms[1] || ms[1].voix[0].evenements.every(e => !e.notes.length),
+            };
+        });
+        check(apresZoneChoisie.notePlacee?.corde === 4 && apresZoneChoisie.notePlacee?.frette === 19,
+            'la note jouable partout est bien contrainte à LA zone choisie (case 15-20), pas à la case la plus basse du manche entier');
+        check(apresZoneChoisie.secondeAbandonnee, 'et la note isolée hors de cette zone est abandonnée — cause : la zone choisie, pas l\'instrument');
+
+        // « Manche entier » : reproduit le comportement d'avant cette fonctionnalité, sans contrainte.
+        await page.evaluate(() => window.app.editeur.nouveau('guitare'));
+        await page.setInputFiles('#entree-fichier-midi', cheminZone);
+        await page.waitForTimeout(300);
+        await page.click('#fenetre-zone-manche [data-choix="tout"]');
+        await page.waitForTimeout(150);
+        await page.click('#fenetre-choix-import-midi [data-choix="nouveau"]');
+        await page.waitForTimeout(200);
+        const apresMancheEntier = await page.evaluate(() => window.app.editeur.partition.mesures.map(mm => mm.voix[0].evenements[0].notes[0]));
+        check(apresMancheEntier[0]?.corde === 0 && apresMancheEntier[0]?.frette === 0 && apresMancheEntier[1]?.corde === 5 && apresMancheEntier[1]?.frette === 0,
+            '« Manche entier » replace bien les DEUX notes à leur case la plus basse, comme avant cette fonctionnalité');
+
+        // Annuler (croix) sur la fenêtre de ZONE : import abandonné dans son ENSEMBLE, morceau intact.
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures = [m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(2, 5)])] }] })];
+            ed.prevenir('document');
+        });
+        const avantAnnulerZone = await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures));
+        await page.setInputFiles('#entree-fichier-midi', cheminZone);
+        await page.waitForTimeout(300);
+        await page.click('#fenetre-zone-manche [data-fermer]');
+        await page.waitForTimeout(200);
+        check(!(await page.locator('#fenetre-zone-manche').isVisible()) && !(await page.locator('#fenetre-choix-import-midi').isVisible()),
+            'annuler à l\'étape de la zone referme tout, sans passer par le choix du mode d\'import');
+        check((await page.evaluate(() => JSON.stringify(window.app.editeur.partition.mesures))) === avantAnnulerZone, 'et laisse le morceau en cours parfaitement intact');
+
+        // Une seule zone pertinente (une seule note, isolée) : la fenêtre de zone est SAUTÉE.
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures = [m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 1 }, [m.creerNote(5, 0)])] }] })];   // pitch 40, isolée
+            ed.prevenir('document');
+        });
+        const attenteSeule = page.waitForEvent('download');
+        await page.click('#btn-midi-exporter');
+        const telSeule = await attenteSeule;
+        const cheminSeule = path.join(dossier, 'zone-unique.mid');
+        await telSeule.saveAs(cheminSeule);
+
+        await page.evaluate(() => window.app.editeur.nouveau('guitare'));
+        await page.setInputFiles('#entree-fichier-midi', cheminSeule);
+        await page.waitForTimeout(300);
+        check(!(await page.locator('#fenetre-zone-manche').isVisible()), 'une seule zone pertinente : rien à choisir, la fenêtre de zone est SAUTÉE');
+        exiger(await page.locator('#fenetre-choix-import-midi').isVisible(), 'et l\'import passe directement au choix du mode d\'import');
+        await page.click('#fenetre-choix-import-midi [data-choix="nouveau"]');
+        await page.waitForTimeout(150);
+
+        // Piano : pas de manche, donc jamais de fenêtre de zone, quel que soit le fichier.
+        await page.evaluate(() => window.app.editeur.nouveau('piano'));
+        await page.setInputFiles('#entree-fichier-midi', cheminZone);
+        await page.waitForTimeout(300);
+        check(!(await page.locator('#fenetre-zone-manche').isVisible()), 'au piano (pas de manche), la fenêtre de zone n\'apparaît JAMAIS, même pour un fichier qui la déclencherait ailleurs');
+        exiger(await page.locator('#fenetre-choix-import-midi').isVisible(), 'et l\'import passe directement au choix du mode d\'import');
+        await page.click('#fenetre-choix-import-midi [data-fermer]');
+        await page.waitForTimeout(150);
 
         // --- Export MIDI : proposé seulement à partir de deux sections, jamais sur un morceau simple --
         exiger(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'préalable : la fenêtre de choix export n\'est pas déjà ouverte');

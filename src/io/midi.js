@@ -356,16 +356,63 @@ const snap = (noires) => Math.round(noires / GRILLE_NOIRES) * GRILLE_NOIRES;
  * ici, sans case de départ à ajuster, on cherche directement la meilleure. `null` si aucune corde
  * n'atteint cette hauteur dans le manche : la note est alors abandonnée plutôt que placée n'importe
  * où (voir importerMidi, qui compte ces abandons pour le message de fin d'import).
+ *
+ * `zone` (`{ debut, fin }`, cases INCLUSIVES) restreint la recherche à une PLAGE DE JEU choisie par
+ * l'utilisateur (voir analyserZonesManche, main.js#choisirZoneManche) — une note qui tomberait sur
+ * une case hors zone, même atteignable ailleurs sur le manche, est écartée comme si elle n'existait
+ * pas : c'est tout le principe d'une cohérence de doigté (jouable d'une seule main, sans sauter
+ * d'un bout à l'autre du manche à chaque note).
  */
-function meilleurePositionPour(pitch, accordage, capo, casesMax, cordesUtilisees) {
+function meilleurePositionPour(pitch, accordage, capo, casesMax, cordesUtilisees, zone = null) {
     let meilleure = null;
     for (let c = 0; c < accordage.cordes.length; c++) {
         if (cordesUtilisees.has(c)) continue;
         const f = pitch - accordage.cordes[c] - capo;
         if (f < 0 || f > casesMax) continue;
+        if (zone && (f < zone.debut || f > zone.fin)) continue;
         if (!meilleure || f < meilleure.frette) meilleure = { corde: c, frette: f };
     }
     return meilleure;
+}
+
+/**
+ * Largeur d'une zone de jeu, en cases — un empan de main confortable. Les zones proposées à
+ * l'import (voir analyserZonesManche) couvrent le manche par tranches contiguës de cette largeur,
+ * chacune touchant la suivante à sa case de bord (une note pile sur ce bord se joue depuis l'une ou
+ * l'autre position) : « position ouverte » (sillet-case 5), « case 5-10 », etc.
+ */
+const LARGEUR_ZONE = 5;
+
+/**
+ * Zones de jeu candidates pour un import donné, chacune avec le nombre de notes du fichier qu'elle
+ * atteint — de quoi proposer un choix RÉELLEMENT adapté au fichier (voir main.js#choisirZoneManche)
+ * plutôt qu'une liste générique : une zone qui n'atteindrait AUCUNE note du morceau n'est pas
+ * proposée. `tropGraves`/`tropAigues` comptent les notes hors de portée de l'instrument tout entier
+ * (capodastre compris), quelle que soit la zone choisie — celles-là, aucun choix de position ne les
+ * sauve, et l'appelant doit le dire AVANT de demander une zone (voir main.js).
+ */
+export function analyserZonesManche(analyse, instrumentId, accordage, capo = 0) {
+    const fiche = INSTRUMENTS[instrumentId] ? instrumentId : 'guitare';
+    const accord = accordage || accordageParDefaut(fiche);
+    const casesMax = INSTRUMENTS[fiche].casesMax;
+    const pitches = analyse.notes.map(n => n.pitch);
+    const cordesOuvertes = accord.cordes.map(c => c + capo);
+    const absMin = Math.min(...cordesOuvertes);
+    const absMax = Math.max(...cordesOuvertes) + casesMax;
+
+    const zones = [];
+    for (let debut = 0; debut < casesMax; debut += LARGEUR_ZONE) {
+        const fin = Math.min(casesMax, debut + LARGEUR_ZONE);
+        const reachable = pitches.filter(p => cordesOuvertes.some(o => p - o >= debut && p - o <= fin)).length;
+        if (reachable > 0) zones.push({ debut, fin, reachable });
+    }
+
+    return {
+        totalNotes: pitches.length,
+        tropGraves: pitches.filter(p => p < absMin).length,
+        tropAigues: pitches.filter(p => p > absMax).length,
+        zones,
+    };
 }
 
 /**
@@ -377,8 +424,12 @@ function meilleurePositionPour(pitch, accordage, capo, casesMax, cordesUtilisees
  * même mécanisme qui fait qu'une ronde tenue par-dessus une barre de mesure s'entend correctement à
  * la lecture (voir audio/player.js#programmer, qui fusionne déjà les liaisons), même si le tracé de
  * l'arc, lui, ne franchit pas la barre (limite connue, voir README).
+ *
+ * `zone` (`{ debut, fin }` ou `null`) contraint chaque note à une PLAGE DE CASES — voir
+ * meilleurePositionPour/analyserZonesManche, main.js#choisirZoneManche : une cohérence de doigté
+ * plutôt que la case la plus basse n'importe où sur le manche.
  */
-export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare', accordage = null, capo = 0) {
+export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare', accordage = null, capo = 0, zone = null) {
     const fiche = INSTRUMENTS[instrumentId] ? instrumentId : 'guitare';
     const accord = accordage || accordageParDefaut(fiche);
     const casesMax = INSTRUMENTS[fiche].casesMax;
@@ -450,7 +501,7 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
             const cordesUtilisees = new Set();
             const notesAssignees = [];
             for (const pitch of g.pitches) {
-                const pos = meilleurePositionPour(pitch, accord, capo, casesMax, cordesUtilisees);
+                const pos = meilleurePositionPour(pitch, accord, capo, casesMax, cordesUtilisees, zone);
                 if (!pos) { abandonnees++; continue; }
                 cordesUtilisees.add(pos.corde);
                 notesAssignees.push(pos);
@@ -490,14 +541,25 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
 }
 
 /**
- * Lit un fichier .mid choisi par l'utilisateur et renvoie {partition, abandonnees} — le nombre de
- * notes qu'aucune corde de l'instrument/accordage visé n'atteignait, pour que l'appelant en informe
- * l'utilisateur (voir main.js) plutôt que de les faire disparaître en silence.
+ * Lit et analyse un fichier .mid choisi par l'utilisateur, SANS encore le transformer en partition —
+ * le premier des deux temps de l'import (voir lireFichierMidi ci-dessous pour les deux réunis), à
+ * part pour qui doit regarder DEDANS avant de construire quoi que ce soit (voir
+ * main.js#chargerFichierMidi, qui propose une zone de manche d'après les hauteurs trouvées ici).
  */
-export async function lireFichierMidi(fichier, instrumentId, accordage, capo) {
+export async function analyserFichierMidi(fichier) {
     if (!fichier) throw new Error('Aucun fichier sélectionné.');
     if (fichier.size > 5 * 1024 * 1024) throw new Error('Fichier trop volumineux pour un fichier MIDI (plus de 5 Mo).');
     const octets = new Uint8Array(await fichier.arrayBuffer());
-    const analyse = analyserMidi(octets);
-    return construirePartitionDepuisMidi(analyse, instrumentId, accordage, capo);
+    return analyserMidi(octets);
+}
+
+/**
+ * Lit un fichier .mid choisi par l'utilisateur et renvoie {partition, abandonnees} — le nombre de
+ * notes qu'aucune corde de l'instrument/accordage visé (dans la zone de manche donnée, voir
+ * analyserZonesManche) n'atteignait, pour que l'appelant en informe l'utilisateur (voir main.js)
+ * plutôt que de les faire disparaître en silence.
+ */
+export async function lireFichierMidi(fichier, instrumentId, accordage, capo, zone = null) {
+    const analyse = await analyserFichierMidi(fichier);
+    return construirePartitionDepuisMidi(analyse, instrumentId, accordage, capo, zone);
 }

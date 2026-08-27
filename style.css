@@ -455,6 +455,13 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .fenetre-corps { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .fenetre-pied { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
 
+/* Fenêtre de choix de ZONE DE MANCHE à l'import MIDI (voir main.js#choisirZoneManche) : une
+   colonne de boutons pleine largeur, texte aligné à gauche — plus lisible qu'un bouton centré
+   pour une ligne « Case 5 → case 10 (4/12 notes) ». */
+#liste-zones-manche { display: flex; flex-direction: column; gap: 8px; }
+#liste-zones-manche .btn-neutre { width: 100%; height: auto; min-height: 34px; padding: 8px 14px; text-align: left; }
+.avertissement { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: var(--fs-sm); line-height: 1.4; color: #f3a99a; background: var(--btn-red-2); border: 1px solid var(--btn-red-border); }
+
 /* ============================================================
    MENU CONTEXTUEL (clic droit sur une note)
    ============================================================ */

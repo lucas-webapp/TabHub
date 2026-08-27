@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608280300">
+    <link rel="stylesheet" href="style.css?v=202608290200">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -250,6 +250,29 @@
     </div>
 </div>
 
+<!-- Choix de la ZONE DE MANCHE à l'import MIDI — guitare/basse seulement (jamais piano, qui n'a
+     pas de manche) : la liste de zones est RECALCULÉE pour CHAQUE fichier, d'après ses notes
+     réelles (voir io/midi.js#analyserZonesManche, main.js#choisirZoneManche), pour une tablature
+     jouable d'une seule position plutôt que la case la plus basse n'importe où sur le manche.
+     Sautée quand une seule zone (ou aucune) convient : rien à choisir. -->
+<div class="voile" id="fenetre-zone-manche" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-zone-manche">
+        <div class="fenetre-tete">
+            <h2 id="titre-zone-manche">Zone de jeu sur le manche</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <p>Pour une tablature jouable d'une seule position de main, quelle zone du manche utiliser pour ce fichier ?</p>
+            <p class="avertissement" id="avertissement-zone-manche" hidden></p>
+            <div id="liste-zones-manche"></div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-neutre" data-choix="tout">Manche entier</button>
+        </div>
+    </div>
+</div>
+
 <!-- Choix à l'import MIDI : un nouveau morceau (remplace tout, comme avant) ou à la suite de celui
      en cours (nouvelle partie annotée, sans rien toucher à ce qui existe déjà) — voir
      main.js#chargerFichierMidi/choisirDans, edit/commands.js#ajouterMesures. -->
@@ -275,6 +298,6 @@
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608290100"></script>
+<script type="module" src="src/main.js?v=202608290200"></script>
 </body>
 </html>
