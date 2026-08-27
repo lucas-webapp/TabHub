@@ -125,6 +125,19 @@ export const ACTIONS = [
       actif: ed => ed.mesureCourante().repriseDebut, faire: ed => ed.basculerReprise('debut') },
     { id: 'repriseFin', touches: [], libelle: 'Reprise fermante', groupe: 'mesure', apercu: { type: 'icone', nom: 'repriseFin' },
       actif: ed => ed.mesureCourante().repriseFin, faire: ed => ed.basculerReprise('fin') },
+    // Étiquette de section au-dessus de la mesure courante (« Couplet 1 », « Refrain », « Pont »…).
+    // Un simple window.prompt() plutôt qu'un dialogue maison : un seul champ de texte libre, sans
+    // équivalent clavier possible (aucune combinaison ne saisit du texte) — comme toute action de la
+    // palette qui a besoin d'une VALEUR plutôt que d'un simple déclenchement, elle reste déclarée ICI,
+    // avec les autres, plutôt qu'à part dans l'interface : la palette continue de dériver du même
+    // tableau, sans dérogation.
+    { id: 'annotation', touches: [], libelle: 'Annotation de section (couplet, refrain, pont…)', groupe: 'mesure', apercu: { type: 'icone', nom: 'annotation' },
+      actif: ed => !!ed.mesureCourante().annotation,
+      faire: ed => {
+          const actuelle = ed.mesureCourante().annotation || '';
+          const saisie = window.prompt('Annotation au-dessus de cette mesure (vide pour la retirer) :', actuelle);
+          if (saisie !== null) ed.definirAnnotation(saisie);
+      } },
 
     // --- Voix — voir edit/commands.js ------------------------------------------------------------
     // « + Voix »/« − Voix » ont disparu de la palette pour la guitare et la basse (retour direct :

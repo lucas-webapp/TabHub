@@ -881,6 +881,20 @@ export class Editeur {
         this.prevenir('edition');
     }
 
+    /**
+     * Étiquette de section (« Couplet 1 », « Refrain », « Pont »…) au-dessus de la mesure courante —
+     * vide (ou rien que des espaces) la retire. À la différence d'une durée, jamais de refus faute de
+     * place : l'espace qu'une annotation réclame est réservé par la mise en page elle-même (voir
+     * engine/layout.js, HAUTEUR_ANNOTATION), jamais prélevé sur la mesure — elle se pose ou disparaît,
+     * un point, c'est tout.
+     */
+    definirAnnotation(texte) {
+        this.memoriser();
+        const m = this.mesureCourante();
+        m.annotation = String(texte ?? '').trim().slice(0, 40) || null;
+        this.prevenir('edition');
+    }
+
     // -- Effets --------------------------------------------------------------------------------------
 
     /** Effets portés par l'évènement entier (palm mute, accent, staccato). */

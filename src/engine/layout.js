@@ -209,6 +209,15 @@ function repartirParTemps(colonnes, capacite, unite, largeurNotes) {
 const LARGEUR_PAR_NOIRE = 5;
 
 /**
+ * Bande RÉSERVÉE au-dessus d'un système pour une annotation de section (« Couplet 1 », « Refrain »,
+ * « Pont »…, voir Editeur.definirAnnotation), en S. Ajoutée à `geo.margeHaut` — jamais à la place de
+ * cette marge, qui garde son rôle propre (numéro de mesure, lignes supplémentaires) — et SEULEMENT
+ * pour les systèmes qui en ont réellement besoin (voir mettreEnPage) : une partition qui n'utilise
+ * jamais cette fonctionnalité ne paie donc rien pour elle, système après système.
+ */
+const HAUTEUR_ANNOTATION = 2.4;
+
+/**
  * Découpe une mesure en COLONNES : les instants de temps où AU MOINS UNE voix attaque une note ou un
  * silence, triés, avec la largeur que chacun réclame (voir largeurColonne). Une seule voix produit
  * exactement la même suite de colonnes que ses propres évènements ; deux voix produisent l'UNION de
@@ -520,7 +529,13 @@ export function mettreEnPage(partition, options = {}) {
     const debutCorps = primitives.length;
     systemes.forEach((sys, iSys) => {
         const debutPrimitives = primitives.length;
-        const yPortee = y + geo.margeHaut * S;
+        // Bande d'annotation : réservée pour CE système SEULEMENT si l'une de ses mesures en porte
+        // une (voir HAUTEUR_ANNOTATION) — jamais pour tous les systèmes, une partition qui n'annote
+        // rien ne doit voir aucune de ses lignes s'écarter.
+        const aUneAnnotation = sys.mesures.some(m => (m.ref.annotation || '').trim());
+        const extraAnnotation = aUneAnnotation ? HAUTEUR_ANNOTATION * S : 0;
+        const yAnnotation = y + 1.6 * S;
+        const yPortee = y + geo.margeHaut * S + extraAnnotation;
         const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
         const xDebut = geo.margeGauche;
         // Largeur RÉELLE de ce système : la somme des largeurs FIXES de ses propres mesures (voir
@@ -546,17 +561,17 @@ export function mettreEnPage(partition, options = {}) {
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
                 x, largeurMesure, facteur: facteurEffectif, finMesure,
-                yPortee, yTab, S, ST, cordes, clef, geo, iSys,
+                yPortee, yTab, yAnnotation, S, ST, cordes, clef, geo, iSys,
                 premiereDuSysteme: iDansSys === 0,
             });
         });
 
         ancrages.systemes.push({
-            index: iSys, y, hauteur: hauteurSysteme, yPortee, yTab, xDebut, xFin, hauteurTab,
+            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation, yPortee, yTab, xDebut, xFin, hauteurTab,
             debutPrimitives, finPrimitives: primitives.length,
             premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
         });
-        y += hauteurSysteme + geo.ecartSystemes * S;
+        y += hauteurSysteme + extraAnnotation + geo.ecartSystemes * S;
     });
 
     // LA PAGE NE RÉTRÉCIT JAMAIS SON CONTENU POUR TENIR DANS largeurPage — un système qui ne peut
@@ -672,7 +687,7 @@ function poserCleTab(out, x, yTab, ST, cordes) {
 // ---------------------------------------------------------------------------------------------
 
 function poserMesure(out, ancrages, partition, m, ctx) {
-    const { yPortee, yTab, S, ST, cordes, clef, geo, facteur } = ctx;
+    const { yPortee, yTab, yAnnotation, S, ST, cordes, clef, geo, facteur } = ctx;
     const hauteurTab = (cordes - 1) * ST;
     let x = ctx.x;
     const xDebutMesure = x;
@@ -743,6 +758,17 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     out.push(texte(x + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {
         taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
     }));
+
+    // Annotation de section (« Couplet 1 », « Refrain »…) — encre pleine et nettement plus grande
+    // que le numéro de mesure juste en dessous : c'est elle qu'on doit repérer d'un coup d'œil en
+    // parcourant la partition, le numéro de mesure ne sert qu'une fois qu'on a déjà localisé l'endroit.
+    // `yAnnotation` n'est calculé par mettreEnPage QUE pour un système qui a réservé la bande
+    // correspondante — jamais posé sur un système qui n'a aucune mesure annotée.
+    if (m.ref.annotation) {
+        out.push(texte(x + 0.2 * S, yAnnotation, m.ref.annotation, {
+            taille: S * 1.5, police: 'sans-serif', poids: '700', ancre: 'debut', couleur: 'encre',
+        }));
+    }
 
     // --- Les COLONNES : une abscisse par instant, PARTAGÉE par toutes les voix -------------------
     // C'est ce qui aligne verticalement une mélodie et une basse tenue qui n'ont pas le même rythme :

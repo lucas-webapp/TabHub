@@ -155,6 +155,12 @@ export function creerMesure(extra = {}) {
         repriseDebut: false,
         repriseFin: false,
         nbFois: 2,
+        // Étiquette de section (« Couplet 1 », « Refrain », « Pont »…) affichée au-dessus de CETTE
+        // mesure précise — jamais héritée par les suivantes, à la différence de la signature ou de
+        // l'armure : une section commence à un endroit exact, elle ne se prolonge pas en silence
+        // tant qu'une autre ne la referme pas. `null` : rien à afficher (voir engine/layout.js, qui
+        // ne réserve de place au-dessus d'un système que si l'une de ses mesures en porte une).
+        annotation: null,
         voix: [creerVoix(4)],
         ...extra,
     };
@@ -428,6 +434,10 @@ export function normaliser(brut) {
         mesure.repriseDebut = !!mb?.repriseDebut;
         mesure.repriseFin = !!mb?.repriseFin;
         mesure.nbFois = borne(mb?.nbFois, 2, 99, 2);
+        // Bornée en longueur : contrairement au titre (affiché une fois, dans l'en-tête), une
+        // annotation se pose au-dessus d'UNE mesure qui peut être étroite — une chaîne sans limite
+        // déborderait allègrement sur les mesures voisines (le rendu ne fait aucun retour à la ligne).
+        if (typeof mb?.annotation === 'string' && mb.annotation.trim()) mesure.annotation = mb.annotation.trim().slice(0, 40);
 
         // Format courant (mesure.voix) si présent ; sinon un fichier antérieur aux voix, dont
         // l'unique liste d'évènements à plat devient la voix 0.

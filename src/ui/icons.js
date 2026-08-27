@@ -51,6 +51,10 @@ const D = {
     // « reprise » plutôt que comme un simple séparateur.
     repriseDebut: '<rect x="5" y="4" width="2.6" height="16" rx=".6" fill="currentColor" stroke="none"/><path d="M11 4v16"/><circle cx="15.5" cy="10.4" r="1.3" fill="currentColor" stroke="none"/><circle cx="15.5" cy="13.6" r="1.3" fill="currentColor" stroke="none"/>',
     repriseFin: '<rect x="16.4" y="4" width="2.6" height="16" rx=".6" fill="currentColor" stroke="none"/><path d="M13 4v16"/><circle cx="8.5" cy="10.4" r="1.3" fill="currentColor" stroke="none"/><circle cx="8.5" cy="13.6" r="1.3" fill="currentColor" stroke="none"/>',
+    // Annotation de section : un « T » d'outil-texte (la convention des logiciels de dessin pour
+    // « ajouter du texte »), pas une bulle de dialogue — qui aurait évoqué un commentaire ou une
+    // discussion, alors qu'une annotation de section s'imprime sur la partition elle-même.
+    annotation: '<path d="M5 6h14"/><path d="M12 6v14"/><path d="M9 20h6"/>',
 };
 
 /** Icône prête à insérer. `extra` ajoute des classes CSS au <svg>. */
