@@ -161,9 +161,20 @@ export class Editeur {
             const dernier = this.curseur.evenement === voix.evenements.length - 1;
             if (dernier) {
                 const reste = capaciteMesure(this.partition, this.curseur.mesure) - dureeEcrite(this.mesureCourante(), this.curseur.voix);
-                if (reste >= dureeEnNoires(this.dureeCourante) - 1e-9) {
+                const dureeNouvel = dureeEnNoires(this.dureeCourante);
+                if (reste >= dureeNouvel - 1e-9) {
                     this.memoriser('prolonger');
                     voix.evenements.push(creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+                    // Le RESTE de la mesure, au-delà de cette seule case neuve, doit rester représenté
+                    // par du VRAI silence plutôt qu'implicitement absent — sans quoi la voix retombe
+                    // sous sa capacité dès qu'on n'enchaîne pas jusqu'au bout (avancer une fois, puis
+                    // s'arrêter là — cas le plus courant de tous). C'est cette dette silencieuse qui
+                    // rendait ensuite un silence de fin trop court pour être allongé, symptôme du
+                    // retour utilisateur (« l'application m'empêche de modifier la durée d'un
+                    // silence ») — et qui, accumulée mesure après mesure, ne laissait plus d'autre
+                    // recours que supprimer et tout refaire.
+                    const restant = reste - dureeNouvel;
+                    if (restant > 1e-9) voix.evenements.push(...decouperEnEvenements(restant));
                     this.curseur.evenement += 1;
                     this._dernierChiffre = null;
                     this.prevenir('curseur');
@@ -306,7 +317,22 @@ export class Editeur {
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
         if (evenement.notes.length === 1 && !enchaine) {
-            evenement.duree = { ...this.dureeCourante };
+            // REDIMENSIONNE à la durée courante plutôt que d'écraser le champ tel quel : un silence
+            // vierge n'a AUCUNE raison de faire déjà la bonne taille (une mesure neuve, par exemple,
+            // n'est qu'UN silence couvrant toute la mesure — bien plus grand qu'une croche). Écraser
+            // directement `duree` cassait alors l'invariant « une voix somme toujours exactement sa
+            // mesure » dès la toute première case tapée, sans qu'aucun `memoriser`/`_essaierNouvelleDuree`
+            // n'ait eu la main pour redistribuer la différence : la mesure se retrouvait sous sa
+            // capacité sans que rien ne le signale, jusqu'à ce qu'un ALLONGEMENT plus tard tombe sur
+            // un silence de fin trop court pour absorber quoi que ce soit — exactement le symptôme du
+            // retour utilisateur (« l'application m'empêche de modifier la durée d'un silence »).
+            // `_essaierNouvelleDuree` sait déjà rendre ce redimensionnement sûr (rétrécir rend
+            // toujours le surplus en silence juste après, ce qui est le cas le plus fréquent ici) ; un
+            // agrandissement qui échoue faute de place ne doit en revanche jamais refuser la case
+            // elle-même — la note se pose alors avec la durée déjà en place, jamais bloquée par une
+            // erreur qui n'a rien à voir avec le chiffre qu'on vient de taper.
+            this._essaierNouvelleDuree({ ...this.dureeCourante }, { dejaMemorise: true });
+            this.derniereErreur = null;
         }
         this._dernierChiffre = { temps: maintenant, mesure: c.mesure, evenement: c.evenement, corde: c.corde, valeur: frette };
         this.prevenir('saisie');
@@ -337,7 +363,15 @@ export class Editeur {
             evenement.notes.push(creerNote(0, midi));
             // La durée collante ne s'applique qu'à un évènement encore VIERGE (voir saisirChiffre) :
             // ajouter une seconde hauteur à un accord déjà écrit ne doit pas en changer le rythme.
-            if (evenement.notes.length === 1) evenement.duree = { ...this.dureeCourante };
+            // REDIMENSIONNE en sûreté plutôt que d'écraser `duree` — même raison qu'à saisirChiffre :
+            // un silence vierge n'a aucune raison de déjà faire la bonne taille (une mesure neuve
+            // n'est qu'UN SEUL silence couvrant toute la mesure), et écraser directement cassait
+            // l'invariant de capacité dès la première hauteur cliquée, sans jamais redistribuer la
+            // différence.
+            if (evenement.notes.length === 1) {
+                this._essaierNouvelleDuree({ ...this.dureeCourante }, { dejaMemorise: true });
+                this.derniereErreur = null;
+            }
         }
         this._dernierChiffre = null;
         this.prevenir('saisie');
@@ -435,8 +469,12 @@ export class Editeur {
      *
      * N'appelle PAS prevenir() : à l'appelant de le faire, une fois qu'il a fini de poser ses propres
      * champs (dureeCourante, par exemple), pour ne prévenir qu'une seule fois par geste.
+     *
+     * `dejaMemorise` : sert à saisirChiffre/saisirHauteur, qui ont déjà ouvert leur propre point
+     * d'annulation avant d'appeler ceci — sans ce drapeau, l'appel imbriqué en ouvrirait un SECOND,
+     * et défaire « une case tapée » aurait demandé deux Ctrl+Z au lieu d'un.
      */
-    _essaierNouvelleDuree(nouvelleDuree) {
+    _essaierNouvelleDuree(nouvelleDuree, { dejaMemorise = false } = {}) {
         this.derniereErreur = null;
         const voix = this.voixCourante();
         const iEvt = this.curseur.evenement;
@@ -467,7 +505,7 @@ export class Editeur {
             }
         }
 
-        this.memoriser();
+        if (!dejaMemorise) this.memoriser();
         evenement.duree = nouvelleDuree;
 
         if (delta > 1e-9) {
