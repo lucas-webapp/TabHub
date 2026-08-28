@@ -23,7 +23,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(22);
+    plan(23);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -43,6 +43,12 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         check(existeEtOuvert.ouvert === false, 'et il est REPLIÉ par défaut, à la toute première ouverture');
         check(!(await page.locator('#champ-capo').isVisible()) && !(await page.locator('#grille-cordes').isVisible()),
             'capodastre et grille corde par corde sont donc hors de vue tant qu\'on ne l\'ouvre pas');
+
+        // Le trait au-dessus de « Options avancées » doit vraiment se voir : `--border` (#333 sur
+        // #161616) s'efface trop pour un trait qui flotte seul, sans texte ni carte tout proche
+        // (retour utilisateur, capture à l'appui : « lignes vides » là où il y avait ce séparateur).
+        check((await page.evaluate(() => getComputedStyle(document.querySelector('.repli-avance')).borderTopColor)) === 'rgb(74, 74, 74)',
+            'et il utilise une couleur assez contrastée pour ça (pas --border, trop proche du fond)');
 
         await page.click('.repli-avance summary');
         await page.waitForTimeout(100);

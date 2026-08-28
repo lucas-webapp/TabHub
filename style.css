@@ -514,7 +514,17 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 .menu-contextuel button:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); }
 .menu-contextuel button:disabled { color: var(--text-muted); cursor: default; }
-.menu-contextuel .separateur { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+/* `--border` (#333) sur `--card-bg` (#161616) — un contraste minime déjà éprouvé ailleurs, mais qui
+   compte sur du texte ou un bord de carte tout PROCHE pour se voir. Un trait flottant seul, sans
+   rien d'autre à proximité pour l'œil, avec un tel écart de teinte, devient quasi invisible sur un
+   vrai écran de téléphone — ce que ce menu montrait (retour utilisateur, capture à l'appui) : deux
+   « lignes vides » là où il y avait en fait un trait de séparation, jamais vu. `--btn-neutral-
+   border-hover`, déjà utilisé ailleurs pour un bord qui doit vraiment se remarquer, remplace
+   `--border` ICI SEULEMENT (pas le jeton général, qui sert très bien son usage habituel contre du
+   contenu). `height: 0` reste en défense : la hauteur par défaut d'un `<hr>` (pensé pour un
+   document, pas une fine ligne de menu) varie selon le navigateur, autant ne rien lui laisser au
+   hasard. */
+.menu-contextuel .separateur { height: 0; border: none; border-top: 1px solid var(--btn-neutral-border-hover); margin: 4px 2px; }
 
 .rubrique > h3 {
     margin: 0 0 8px; font-size: var(--fs-2xs); font-weight: 800;
@@ -561,7 +571,12 @@ input.champ[type="number"] { width: 68px; text-align: center; }
    « l'accordage corde par corde ne sert que dans des cas très spécifiques »). Un liseré au-dessus
    plutôt qu'un fond de carte : c'est une porte vers d'autres réglages, pas un réglage de plus.
    Repris de HarmoHub, dans les tons de TabHub. */
-.repli-avance { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
+/* Même correctif que .menu-contextuel .separateur juste plus haut, même raison : `--border` (#333)
+   sur `--card-bg` (#161616) se voit contre du texte ou une carte, mais un trait qui flotte SEUL —
+   ici entre Accordage et « Options avancées », rien d'autre autour pour l'œil — devenait quasi
+   invisible sur un vrai téléphone (retour utilisateur, capture à l'appui) : un espace qui semblait
+   vide plutôt qu'une séparation voulue. */
+.repli-avance { margin-top: 4px; border-top: 1px solid var(--btn-neutral-border-hover); padding-top: 10px; }
 .repli-avance > summary {
     display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
     min-height: 34px; padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
