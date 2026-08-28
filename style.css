@@ -336,7 +336,15 @@ select.champ:focus, input.champ:focus { outline: none; border-color: var(--accen
 input.champ[type="number"] { width: 68px; text-align: center; }
 
 /* MESURES PAR LIGNE — un rang de boutons plutôt qu'un menu déroulant, voir
-   main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste. */
+   main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste.
+   Le bouton replié (voir @media max-width: 720px) reste invisible et inerte tant que la barre de
+   transport a la place de tout montrer en ligne — même logique que .btn-outil.btn-effets-bascule
+   plus haut, jamais affichés tous les deux à la fois. Sélecteur COMPOSÉ (deux classes), pas
+   `.btn-mesures-ligne-bascule` seul : sa spécificité doit battre celle de `.btn-transport-texte`
+   (display: inline-flex, plus bas dans la feuille) — même technique que .btn-outil.btn-effets-
+   bascule juste au-dessus, pour exactement la même raison. Trouvé au test : sans ce doublement, le
+   bouton restait visible sur grand écran malgré cette règle. */
+.btn-transport-texte.btn-mesures-ligne-bascule { display: none; }
 .groupe-mesures-ligne { display: inline-flex; gap: 2px; flex: none; }
 .btn-mesures-ligne {
     min-width: 26px; height: 30px; padding: 0 6px;
@@ -769,6 +777,24 @@ kbd {
     .groupe-outils[data-groupe="effet"].ouvert {
         display: flex; flex-wrap: wrap;
         position: fixed; z-index: 70;
+        width: max-content; max-width: min(230px, calc(100vw - 16px));
+        box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+    }
+
+    /* MESURES PAR LIGNE -> MÊME POPOVER, même raison (retour utilisateur : « la barre de transport
+       est trop tassée » — six boutons toujours visibles, dans une rangée qui porte déjà Lecture/
+       Stop, Tempo, TAP et Métronome). Voir main.js#basculerGroupeMesuresLigne : positionné et fermé
+       par les mêmes _positionnerPanneau/_fermerAuClicAilleurs que le popover Fichiers, gardés ici
+       plutôt que dupliqués puisque c'est main.js qui construit déjà ce groupe (comme Effets reste
+       dans toolbar.js, qui construit LE SIEN). `.groupe-mesures-ligne` n'a pas le fond/bordure de
+       `.groupe-outils` (elle vit nue dans la barre de transport à l'accoutumée) : le popover les
+       pose lui-même, plutôt que d'en hériter comme le fait le groupe Effets. */
+    .btn-transport-texte.btn-mesures-ligne-bascule { display: inline-flex; }
+    .groupe-mesures-ligne { display: none; }
+    .groupe-mesures-ligne.ouvert {
+        display: inline-flex; flex-wrap: wrap; gap: 4px;
+        position: fixed; z-index: 70;
+        background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
         width: max-content; max-width: min(230px, calc(100vw - 16px));
         box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
     }

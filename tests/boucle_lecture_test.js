@@ -15,13 +15,24 @@
 //     (c'est un état de SESSION, jamais sauvé — voir Lecteur.boucleLecture) ;
 //   • rien de tout ça ne doit gêner le lasso, l'étirement de durée ou le simple clic ailleurs sur la
 //     partition (voir demarrerGeste, qui teste la bande AVANT tout le reste).
+//
+// AJOUTÉ (retour utilisateur, HarmoHub cité en modèle) : « c'est trop proche du bord en bas et sur
+// les côtés [...] il faut ajouter des poignées comme sur HarmoHub ». Deux défauts distincts, un seul
+// et même geste responsable — glisser N'IMPORTE OÙ dans la bande redéfinissait TOUTE la zone depuis
+// ce point, sans jamais permettre de retoucher un seul bord :
+//   • le trait plein collait pile aux bords de mesure, sans le moindre ajour (voir marquesBoucle,
+//     MARGE_BOUCLE_LATERALE/VERTICALE) — cosmétique seulement, la zone de saisie reste, elle, sur
+//     les bords RÉELS ;
+//   • deux POIGNÉES (voir LARGEUR_POIGNEE_BOUCLE/PRISE_POIGNEE_BOUCLE/poigneeBoucleAuPoint) se
+//     dessinent sur les VRAIS bords globaux de la zone et s'attrapent avec une marge bien plus large
+//     que ce qu'elles montrent — glisser L'UNE d'elles étire ce bord SEUL, l'autre restant fixe.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(19);
+    plan(25);
     // hasTouch : nécessaire pour que le glisser tactile RÉEL (cas 10, Input.dispatchTouchEvent) soit
     // bien rapporté en pointerType 'touch' — sans lui, ces évènements CDP repartent en 'mouse' (voir
     // tests/_page.js) et ne prouveraient donc rien de spécifique au doigt. N'affecte pas les gestes
@@ -67,6 +78,22 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
                 y: b.top + (yBande / window.app.page.hauteur) * b.height,
             };
         }, i);
+        /** Point d'écran sur le VRAI bord ('debut' = a.x, 'fin' = a.xFin) de la mesure `i`, à la
+         *  hauteur de la bande — là où se dessine et se saisit une poignée (voir marquesBoucle/
+         *  poigneeBoucleAuPoint), par opposition à pointMesure ci-dessus qui vise son CENTRE. */
+        const pointBordMesure = (i, bord) => page.evaluate(({ i, bord }) => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = window.app.page.ancrages.mesures.find(x => x.index === i);
+            const S = window.app.page.geo.S;
+            const yBande = a.yTab + a.hauteurTab + 1.2 * S;
+            const xSvg = bord === 'debut' ? a.x : a.xFin;
+            return {
+                x: b.left + (xSvg / window.app.page.largeur) * b.width,
+                y: b.top + (yBande / window.app.page.hauteur) * b.height,
+            };
+        }, { i, bord });
+
         const glisserSouris = async (depuis, vers) => {
             await page.mouse.move(depuis.x, depuis.y);
             await page.mouse.down();
@@ -193,6 +220,58 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         }, { p1: await pointMesure(0), p2: await pointMesure(2) });
         exiger(resultatTactile && resultatTactile.debut === 0 && resultatTactile.fin === 2,
             'un glisser en pointerType \'touch\' (bas -> haut -> relâché) traverse tout le geste et définit bien [0, 2]');
+
+        // --- 11. POIGNÉES : étirer un SEUL bord, l'autre restant FIXE (retour utilisateur, HarmoHub
+        // cité en modèle : « il faut ajouter des poignées ») -----------------------------------------
+        await page.evaluate(() => { window.app.lecteur.definirBoucle(window.app.editeur.partition, 2, 4); window.app.dessiner(); });
+        await page.waitForTimeout(100);
+
+        await glisserSouris(await pointBordMesure(4, 'fin'), await pointMesure(6));
+        const apres11 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        check(apres11.debut === 2 && apres11.fin === 6, 'glisser la poignée DROITE étire la boucle par la FIN seulement (début inchangé)');
+
+        await glisserSouris(await pointBordMesure(2, 'debut'), await pointMesure(0));
+        const apres12 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        check(apres12.debut === 0 && apres12.fin === 6, 'et la poignée GAUCHE étire par le DÉBUT seulement (fin inchangée)');
+
+        // --- 12. Une poignée poussée au-delà du bord fixe BUTE dessus, sans jamais inverser les deux --
+        await glisserSouris(await pointBordMesure(0, 'debut'), await pointMesure(7));
+        const apres13 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        check(apres13.debut === 6 && apres13.fin === 6,
+            'la poignée GAUCHE poussée AU-DELÀ du bord droit (fixe) bute dessus (même choix que HarmoHub, voir onLoopRangeMove)');
+
+        // --- 13. Un tap SANS glisser, PILE sur une poignée, NE SUPPRIME PAS la boucle — à la
+        // différence d'un tap sur le CORPS de la bande (cas 4 plus haut) : saisir précisément un bord
+        // n'est jamais le geste de « je veux l'annuler » -------------------------------------------
+        await page.evaluate(() => { window.app.lecteur.definirBoucle(window.app.editeur.partition, 1, 3); window.app.dessiner(); });
+        await page.waitForTimeout(100);
+        const pPoignee = await pointBordMesure(1, 'debut');
+        await page.mouse.click(pPoignee.x, pPoignee.y);
+        await page.waitForTimeout(100);
+        const apres14 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        check(apres14 !== null && apres14.debut === 1 && apres14.fin === 3,
+            'un tap SANS glisser pile sur une poignée laisse la boucle intacte, contrairement à un tap sur le corps de la bande');
+
+        // --- 14. Exactement deux poignées se dessinent pour une boucle qui tient sur un seul système --
+        const compteHandles = await page.evaluate(() => {
+            const svg = document.querySelector('#feuille svg');
+            return [...svg.querySelectorAll('rect')].filter(r => r.getAttribute('fill') === 'var(--lecture)').length;
+        });
+        check(compteHandles === 2, 'et il y en a bien exactement DEUX (un bord de chaque côté), ni plus ni moins');
+
+        // --- 15. MARGE D'AFFICHAGE : le halo ne touche plus pile les bords de mesure (retour
+        // utilisateur : « c'est trop proche du bord [...] sur les côtés ») ---------------------------
+        const marges = await page.evaluate(() => {
+            const svg = document.querySelector('#feuille svg');
+            const halo = [...svg.querySelectorAll('rect')].find(r => r.getAttribute('fill') === 'var(--lecture-halo)');
+            const boucle = window.app.lecteur.boucleLecture;
+            const touche = window.app.page.ancrages.mesures.filter(a => a.index >= boucle.debut && a.index <= boucle.fin);
+            const x1 = Math.min(...touche.map(a => a.x));
+            const x2 = Math.max(...touche.map(a => a.xFin));
+            return { margeGauche: +halo.getAttribute('x') - x1, margeDroite: x2 - (+halo.getAttribute('x') + +halo.getAttribute('width')) };
+        });
+        check(marges.margeGauche > 1 && marges.margeDroite > 1,
+            'le halo affiché est bien EN RETRAIT des bords réels de mesure, des deux côtés — plus de trait collé pile dessus');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608300100">
+    <link rel="stylesheet" href="style.css?v=202608300300">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -105,7 +105,16 @@
          utilisateur : « je peux voir uniquement une mesure en horizontal » sur téléphone — c'est
          justement ce champ, en « Auto », qui décidait de n'en montrer qu'une). Un rang de boutons,
          pas un menu déroulant cliqué à l'aveugle : chaque valeur se voit et se choisit d'un seul
-         geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne. -->
+         geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne.
+         Sur téléphone (retour utilisateur : « la barre de transport est trop tassée »), ces six
+         boutons se replient derrière #btn-mesures-ligne-bascule — même popover que « Effets » dans
+         la barre d'outils, voir style.css @media(max-width:720px) et
+         main.js#basculerGroupeMesuresLigne : TOUJOURS un rang de boutons une fois ouvert, jamais un
+         menu déroulant, la contrainte ci-dessus reste entière. Invisible tant qu'il y a la place
+         (voir .btn-mesures-ligne-bascule), donc vide dans le HTML — son texte suit la valeur active,
+         posé par rafraichirBoutonsMesuresLigne. -->
+    <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
+        aria-haspopup="true" aria-expanded="false"></button>
     <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
     <span class="separateur"></span>
     <!-- Métronome — repris de HarmoHub : deux boutons, l'icône du second reflétant son propre état
@@ -326,6 +335,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202608300100"></script>
+<script type="module" src="src/main.js?v=202608300300"></script>
 </body>
 </html>
