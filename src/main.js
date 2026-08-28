@@ -47,6 +47,23 @@ const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 't
 // dans la liste d'affichage partagée avec le PDF).
 const HAUT_BANDE_BOUCLE = 0.5;
 const BAS_BANDE_BOUCLE = 1.9;
+// AU DOIGT (pointer: coarse), LA ZONE DE SAISIE DEVIENT BIEN PLUS HAUTE (retour utilisateur : « je
+// ne peux pas placer la bande orange ou l'étirer comme je veux avec le doigt »). Une souris vise au
+// pixel près ; la bande d'origine (1.4 S de haut, guère plus de 12 px à l'interligne par défaut)
+// restait bien EN DESSOUS du minimum tactile déjà appliqué PARTOUT AILLEURS dans cette appli
+// (.btn-outil/.btn-transport, 40-44 px, voir style.css @media pointer:coarse) — jamais relevé ici
+// jusque-là. Seul le BAS grandit (le haut reste juste sous la TAB) : jusqu'à PRESQUE toute la marge
+// déjà réservée pour cette bande (geo.margeBas, 3.4 S), jamais au-delà, sans quoi il faudrait
+// réserver PLUS d'espace de page rien que pour le tactile — un changement bien plus large que ce
+// simple correctif, qui ferait varier la PAGINATION selon l'appareil. Voir marquesBoucle : le TRAIT
+// VISUEL, lui, garde la MÊME épaisseur qu'à la souris, centré dans cette zone de prise agrandie
+// plutôt qu'étiré avec elle — ni plus large ni plus haut à l'œil, seulement bien plus facile à
+// toucher tout autour.
+const BAS_BANDE_BOUCLE_TACTILE = 3.3;
+/** Bas de la zone de SAISIE de la boucle (mouse: BAS_BANDE_BOUCLE, doigt: BAS_BANDE_BOUCLE_TACTILE) —
+ *  seule cette borne varie ; le HAUT et le trait VISUEL restent identiques sur les deux appareils. */
+function basBandeBoucle() { return appareilTactile() ? BAS_BANDE_BOUCLE_TACTILE : BAS_BANDE_BOUCLE; }
+
 // MARGE D'AFFICHAGE — le trait plein de la boucle collait pile aux bords de mesure et de piste,
 // sans le moindre ajour ni sur les côtés ni en haut/bas (retour utilisateur : « trop proche du
 // bord »), voir marquesBoucle. Retranchée du TRAIT VISUEL (halo + poignées) seulement — jamais de
@@ -54,7 +71,8 @@ const BAS_BANDE_BOUCLE = 1.9;
 // plus généreuse que ce qu'elle montre, jamais plus chiche (même principe que PRISE_POIGNEE_BOUCLE
 // juste plus bas).
 const MARGE_BOUCLE_LATERALE = 0.35;   // × S
-const MARGE_BOUCLE_VERTICALE = 0.2;   // × S
+const MARGE_BOUCLE_VERTICALE = 0.2;   // × S — À LA SOURIS ; voir basBandeBoucle pour le doigt, où le
+                                       // trait visuel reste centré sur la même épaisseur qu'ici.
 // POIGNÉES de la boucle (retour utilisateur, HarmoHub cité en modèle : « il faut ajouter des
 // poignées ») — un repère à chaque VRAI bord de la zone, pour étirer un seul côté sans retracer
 // toute la zone. Hauteur alignée sur la marge d'affichage ci-dessus (voir marquesBoucle) — donc
@@ -63,9 +81,13 @@ const MARGE_BOUCLE_VERTICALE = 0.2;   // × S
 // qui, lui, laisse le navigateur faire défiler la page — exactement le geste qu'on cherche à saisir
 // ici. La zone de PRISE (voir poigneeBoucleAuPoint), elle, déborde largement le trait visuel, comme
 // HarmoHub élargit pareillement la sienne (« souvent trop étroite au doigt ») — mais seulement en
-// LARGEUR, jamais en hauteur, pour la même raison de touch-action.
+// LARGEUR, jamais en hauteur, pour la même raison de touch-action. AU DOIGT, cette prise s'élargit
+// encore (même raison que basBandeBoucle ci-dessus) : rien ne la contraint comme le fait geo.margeBas
+// pour la hauteur, elle peut donc grandir bien plus largement.
 const LARGEUR_POIGNEE_BOUCLE = 0.6;   // × S — largeur du repère visuel
-const PRISE_POIGNEE_BOUCLE = 1.1;     // × S — demi-largeur de la zone de saisie (bien plus généreuse)
+const PRISE_POIGNEE_BOUCLE = 1.1;     // × S — demi-largeur de la zone de saisie, à la souris
+const PRISE_POIGNEE_BOUCLE_TACTILE = 2.4;   // × S — au doigt
+function prisePoigneeBoucle() { return (appareilTactile() ? PRISE_POIGNEE_BOUCLE_TACTILE : PRISE_POIGNEE_BOUCLE); }
 
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
@@ -1612,7 +1634,7 @@ class TabHubApp {
         const marques = [];
         for (const sys of systemes) {
             const y = sys.yBas + HAUT_BANDE_BOUCLE * S;
-            const h = (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE) * S;
+            const h = (basBandeBoucle() - HAUT_BANDE_BOUCLE) * S;   // zone de SAISIE — grandit au doigt
             marques.push({ t: 'rect', x: sys.xDebut, y, w: sys.xFin - sys.xDebut, h,
                 couleur: 'rgba(255, 152, 0, 0)', classe: 'bande-boucle' });
 
@@ -1623,11 +1645,15 @@ class TabHubApp {
             const x1 = Math.min(...touche.map(a => a.x));
             const x2 = Math.max(...touche.map(a => a.xFin));
             // Marge d'affichage (voir MARGE_BOUCLE_LATERALE/VERTICALE) : x1/x2/y/h restent les
-            // valeurs BRUTES (zone de saisie, inchangée) ; xAff*/yAff/hAff sont celles, en retrait,
-            // qu'on montre réellement — halo ET poignées ci-dessous.
-            const margeCote = MARGE_BOUCLE_LATERALE * S, margeVert = MARGE_BOUCLE_VERTICALE * S;
+            // valeurs BRUTES (zone de saisie, celle ci-dessus) ; xAff*/yAff/hAff sont celles, en
+            // retrait, qu'on montre réellement — halo ET poignées ci-dessous. L'ÉPAISSEUR visuelle
+            // (hVisuel) reste TOUJOURS celle qu'aurait la bande à la SOURIS, CENTRÉE dans la zone de
+            // saisie ci-dessus — laquelle, elle, grandit au doigt (voir basBandeBoucle) : l'œil ne
+            // voit donc jamais cette différence, seule la PRISE tout autour s'élargit.
+            const margeCote = MARGE_BOUCLE_LATERALE * S;
             const xAff1 = x1 + margeCote, xAff2 = x2 - margeCote;
-            const yAff = y + margeVert, hAff = Math.max(0, h - 2 * margeVert);
+            const hAff = Math.max(0, (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE - 2 * MARGE_BOUCLE_VERTICALE) * S);
+            const yAff = y + (h - hAff) / 2;
             marques.push({ t: 'rect', x: xAff1, y: yAff, w: Math.max(0, xAff2 - xAff1), h: hAff, couleur: 'var(--lecture-halo)' });
 
             // POIGNÉES (voir LARGEUR_POIGNEE_BOUCLE) — seulement sur le VRAI bord GLOBAL de la
@@ -1664,7 +1690,7 @@ class TabHubApp {
         const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
-            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + BAS_BANDE_BOUCLE * S);
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + basBandeBoucle() * S);
         if (!systeme) return null;
         return this._mesureDuSysteme(systeme, x);
     }
@@ -1689,12 +1715,12 @@ class TabHubApp {
         const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
-            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + BAS_BANDE_BOUCLE * S);
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + basBandeBoucle() * S);
         if (!systeme) return null;
         const touche = this.page.ancrages.mesures.filter(a =>
             a.systeme === systeme.index && a.index >= boucle.debut && a.index <= boucle.fin);
         if (!touche.length) return null;
-        const prise = PRISE_POIGNEE_BOUCLE * S;
+        const prise = prisePoigneeBoucle() * S;
         if (touche.some(a => a.index === boucle.debut)) {
             const x1 = Math.min(...touche.map(a => a.x));
             if (Math.abs(x - x1) <= prise) return 'debut';

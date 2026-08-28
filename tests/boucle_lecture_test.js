@@ -26,17 +26,62 @@
 //   • deux POIGNÉES (voir LARGEUR_POIGNEE_BOUCLE/PRISE_POIGNEE_BOUCLE/poigneeBoucleAuPoint) se
 //     dessinent sur les VRAIS bords globaux de la zone et s'attrapent avec une marge bien plus large
 //     que ce qu'elles montrent — glisser L'UNE d'elles étire ce bord SEUL, l'autre restant fixe.
+//
+// AJOUTÉ (retour utilisateur : « sur téléphone, je ne peux pas placer la bande orange ou l'étirer
+// comme je veux avec le doigt ») : la zone de saisie elle-même — bande ET poignées — reste bien trop
+// ÉTROITE au doigt (voir basBandeBoucle/prisePoigneeBoucle) : 1,4 S de haut (guère plus de 12 px à
+// l'interligne par défaut), là où .btn-outil/.btn-transport visent déjà 40-44 px au doigt ailleurs
+// dans l'appli. Elle double au moins de hauteur, et sa prise horizontale plus que double, dès que
+// `pointer: coarse` (voir appareilTactile) — SANS jamais épaissir le trait VISUEL, qui reste centré
+// dans cette zone agrandie à la même épaisseur qu'à la souris : ce que l'œil voit ne change pas, ce
+// que le doigt peut manquer, si.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(25);
+    plan(30);
+
+    // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
+    // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
+    const refSouris = await (async () => {
+        const { page, erreurs, fermer } = await ouvrirApp();
+        try {
+            await page.evaluate(async () => {
+                const m = await import('/src/model/score.js');
+                const ed = window.app.editeur;
+                ed.nouveau('guitare');
+                ed.partition.mesures = Array.from({ length: 4 }, () => m.creerMesure({
+                    voix: [{ evenements: [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)])) }],
+                }));
+                // prevenir('document') D'ABORD : il efface lui-même toute boucle en cours (voir
+                // surChangementEditeur, « un morceau neuf ne doit jamais hériter de la boucle du
+                // précédent ») — la poser APRÈS, comme ici, est le seul ordre qui la garde en place.
+                ed.prevenir('document');
+                window.app.lecteur.definirBoucle(ed.partition, 0, 1);
+                window.app.dessiner();
+            });
+            await page.waitForTimeout(150);
+            const geo = await page.evaluate(() => {
+                const svg = document.querySelector('#feuille svg');
+                return {
+                    bandeH: +svg.querySelector('rect.bande-boucle').getAttribute('height'),
+                    haloH: +[...svg.querySelectorAll('rect')].find(r => r.getAttribute('fill') === 'var(--lecture-halo)').getAttribute('height'),
+                };
+            });
+            check(erreurs.length === 0, 'aucune erreur JavaScript (page de référence, à la souris)');
+            return geo;
+        } finally { await fermer(); }
+    })();
+
     // hasTouch : nécessaire pour que le glisser tactile RÉEL (cas 10, Input.dispatchTouchEvent) soit
     // bien rapporté en pointerType 'touch' — sans lui, ces évènements CDP repartent en 'mouse' (voir
     // tests/_page.js) et ne prouveraient donc rien de spécifique au doigt. N'affecte pas les gestes
-    // page.mouse.*, qui restent du VRAI pointerType 'mouse' quel que soit ce réglage.
+    // page.mouse.*, qui restent du VRAI pointerType 'mouse' quel que soit ce réglage. C'est aussi ce
+    // qui fait passer `pointer: coarse` (voir appareilTactile) à vrai pour TOUTE cette page, y
+    // compris les gestes page.mouse.* de ce banc : la zone de saisie AGRANDIE (voir l'en-tête) est
+    // donc bien celle exercée dans tout ce qui suit, comparée à refSouris ci-dessus.
     const { page, erreurs, fermer } = await ouvrirApp({ hasTouch: true });
     try {
         await page.evaluate(async () => {
@@ -124,6 +169,20 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
                 getComputedStyle(r).fill !== '' && r.getAttribute('fill') === 'var(--lecture-halo)');
         });
         check(zoneDessinee, 'la zone se dessine avec la couleur de LECTURE (--lecture-halo), pas celle du curseur d\'édition');
+
+        // --- 2b. AU DOIGT (cette page, hasTouch), LA ZONE DE SAISIE EST NETTEMENT PLUS HAUTE QU'À LA
+        // SOURIS (refSouris ci-dessus) — mais le trait VISUEL, lui, garde l'épaisseur d'origine -------
+        const geoTactile = await page.evaluate(() => {
+            const svg = document.querySelector('#feuille svg');
+            return {
+                bandeH: +svg.querySelector('rect.bande-boucle').getAttribute('height'),
+                haloH: +[...svg.querySelectorAll('rect')].find(r => r.getAttribute('fill') === 'var(--lecture-halo)').getAttribute('height'),
+            };
+        });
+        check(geoTactile.bandeH > refSouris.bandeH * 1.5,
+            `au doigt, la zone de SAISIE est nettement plus haute qu'à la souris (${geoTactile.bandeH.toFixed(1)} px contre ${refSouris.bandeH.toFixed(1)} px)`);
+        check(Math.abs(geoTactile.haloH - refSouris.haloH) < 0.5,
+            'mais le trait VISUEL garde exactement la même épaisseur, souris ou doigt — seule la prise change, jamais ce que l\'œil voit');
 
         // --- 3. Glisser en SENS INVERSE (5 -> 2) normalise quand même en [2, 5] ---------------------
         await glisserSouris(await pointMesure(5), await pointMesure(2));
@@ -272,6 +331,49 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         });
         check(marges.margeGauche > 1 && marges.margeDroite > 1,
             'le halo affiché est bien EN RETRAIT des bords réels de mesure, des deux côtés — plus de trait collé pile dessus');
+
+        // --- 16. Un point trop bas pour l'ANCIENNE bande (souris, 1,4 S de haut) place bien la
+        // boucle avec la NOUVELLE (retour utilisateur : « je ne peux pas placer la bande orange... ») --
+        await page.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.dessiner(); });
+        const pointBas = await page.evaluate((i) => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = window.app.page.ancrages.mesures.find(x => x.index === i);
+            const S = window.app.page.geo.S;
+            // 2,6 S sous la TAB : au-delà de l'ancienne borne basse (1,9 S, --  jamais atteignable à
+            // la souris), toujours en-deçà de la nouvelle (3,3 S, voir BAS_BANDE_BOUCLE_TACTILE).
+            const y = a.yTab + a.hauteurTab + 2.6 * S;
+            return {
+                x: b.left + ((a.x + a.xFin) / 2 / window.app.page.largeur) * b.width,
+                y: b.top + (y / window.app.page.hauteur) * b.height,
+            };
+        }, 2);
+        await glisserSouris(pointBas, await pointMesure(4));
+        const apres16 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        check(apres16 !== null && apres16.debut === 2 && apres16.fin === 4,
+            'un point 2,6 S sous la TAB (hors de portée d\'une bande à la souris, 1,4 S de haut) place bien la boucle au doigt : la zone de saisie a vraiment grandi, pas seulement sur le papier');
+
+        // --- 17. Une poignée saisie avec un écart trop grand pour l'ANCIENNE prise (1,1 S) s'attrape
+        // bien avec la NOUVELLE (2,4 S) -----------------------------------------------------------
+        await page.evaluate(() => { window.app.lecteur.definirBoucle(window.app.editeur.partition, 2, 5); window.app.dessiner(); });
+        await page.waitForTimeout(100);
+        const pointLoin = await page.evaluate(() => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = window.app.page.ancrages.mesures.find(x => x.index === 2);
+            const S = window.app.page.geo.S;
+            const yBande = a.yTab + a.hauteurTab + 1.2 * S;
+            // 1,8 S à gauche du VRAI bord : hors de portée d'une souris (prise 1,1 S), toujours
+            // en-deçà de la nouvelle prise au doigt (2,4 S, voir PRISE_POIGNEE_BOUCLE_TACTILE).
+            return {
+                x: b.left + ((a.x - 1.8 * S) / window.app.page.largeur) * b.width,
+                y: b.top + (yBande / window.app.page.hauteur) * b.height,
+            };
+        });
+        await glisserSouris(pointLoin, await pointMesure(0));
+        const apres17 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        check(apres17 !== null && apres17.debut === 0 && apres17.fin === 5,
+            'saisir la poignée gauche 1,8 S à côté de son vrai bord (hors de portée d\'une souris) l\'attrape bien au doigt — étire le début SEULEMENT, la fin (5) reste inchangée');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
