@@ -266,11 +266,16 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
             ed.prevenir('document');
         });
 
-        exiger(await page.evaluate(() => !!document.getElementById('btn-midi-exporter') && !!document.getElementById('btn-midi-ouvrir')),
-            'les deux boutons MIDI (import/export) sont posés dans l\'en-tête');
+        exiger(await page.evaluate(() =>
+            !!document.querySelector('#popover-fichiers [data-action="midi-exporter"]') && !!document.querySelector('#popover-fichiers [data-action="midi-ouvrir"]')),
+            'les deux actions MIDI (import/export) sont bien dans le popover Fichiers');
 
         const attenteMidi = page.waitForEvent('download');
-        await page.click('#btn-midi-exporter');
+        // « Exporter en MIDI » vit désormais dans le popover Fichiers (retour utilisateur : icônes
+        // MIDI peu claires, prises isolément — voir main.js#basculerPopoverFichiers), plus un bouton
+        // à part dans l'en-tête : deux clics au lieu d'un.
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="midi-exporter"]');
         const telMidi = await attenteMidi;
         const cheminMidi = path.join(dossier, 'temoin.mid');
         await telMidi.saveAs(cheminMidi);
@@ -351,7 +356,8 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
             ed.prevenir('document');
         });
         const attenteZone = page.waitForEvent('download');
-        await page.click('#btn-midi-exporter');
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="midi-exporter"]');
         const telZone = await attenteZone;
         const cheminZone = path.join(dossier, 'zone.mid');
         await telZone.saveAs(cheminZone);
@@ -417,7 +423,8 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
             ed.prevenir('document');
         });
         const attenteSeule = page.waitForEvent('download');
-        await page.click('#btn-midi-exporter');
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="midi-exporter"]');
         const telSeule = await attenteSeule;
         const cheminSeule = path.join(dossier, 'zone-unique.mid');
         await telSeule.saveAs(cheminSeule);
@@ -449,7 +456,8 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
             ed.prevenir('document');
         });
         const attenteDirecte = page.waitForEvent('download');
-        await page.click('#btn-midi-exporter');
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="midi-exporter"]');
         await attenteDirecte;
         check(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'un morceau à UNE seule section (aucune annotation) exporte directement, sans rien demander');
 
@@ -459,7 +467,8 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
             ed.partition.mesures[2].annotation = 'Refrain';
             ed.prevenir('document');
         });
-        await page.click('#btn-midi-exporter');
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="midi-exporter"]');
         await page.waitForTimeout(200);
         exiger(await page.locator('#fenetre-choix-export-midi').isVisible(), 'deux sections proposent bien le choix « un seul fichier / un fichier par partie »');
         const telechargementsPartie = [];

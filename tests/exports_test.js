@@ -85,7 +85,10 @@ const empreinte = (page) => page.evaluate(() => {
         // s'est spécialisé dans la persistance LOCALE (voir main.js) — un clic dessus n'ouvre aucun
         // téléchargement, ce que ce banc ne doit pas confondre avec un défaut.
         const attenteJson = page.waitForEvent('download');
-        await page.click('#btn-exporter');
+        // « Exporter »/« Exporter PDF » vivent désormais dans le popover Fichiers (retour utilisateur :
+        // icônes peu claires prises isolément — voir main.js#basculerPopoverFichiers).
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="exporter-json"]');
         const telJson = await attenteJson;
         const cheminJson = path.join(dossier, 'temoin.json');
         await telJson.saveAs(cheminJson);
@@ -130,7 +133,8 @@ const empreinte = (page) => page.evaluate(() => {
 
         // --- Export PDF ---------------------------------------------------------------------------------
         const attentePdf = page.waitForEvent('download');
-        await page.click('#btn-pdf');
+        await page.click('#btn-fichiers');
+        await page.click('#popover-fichiers [data-action="pdf"]');
         const telPdf = await attentePdf;
         const cheminPdf = path.join(dossier, 'temoin.pdf');
         await telPdf.saveAs(cheminPdf);

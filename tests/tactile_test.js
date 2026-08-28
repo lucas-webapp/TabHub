@@ -132,8 +132,8 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         }, p);
         await page.waitForTimeout(750);   // au-delà des 550 ms de l'appui long
         exiger(await menu.isVisible(), 'un APPUI LONG sur une note ouvre le menu contextuel (équivalent tactile du clic droit)');
-        check((await menu.locator('button').allTextContents()).length === 4,
-            'avec les quatre mêmes actions qu\'au clic droit');
+        check((await menu.locator('button').allTextContents()).length === 7,
+            'avec les sept mêmes actions qu\'au clic droit');
         // On relâche : le menu doit RESTER ouvert (le doigt levé après un appui long ne l'annule pas).
         await page.evaluate(({ x, y }) => {
             const opts = { pointerType: 'touch', clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true, isPrimary: true };

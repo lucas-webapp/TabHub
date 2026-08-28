@@ -131,6 +131,8 @@ class TabHubApp {
             entreeFichier: document.getElementById('entree-fichier'),
             entreeFichierMidi: document.getElementById('entree-fichier-midi'),
             menuContextuel: document.getElementById('menu-contextuel'),
+            btnFichiers: document.getElementById('btn-fichiers'),
+            popoverFichiers: document.getElementById('popover-fichiers'),
             pave: document.getElementById('pave-tactile'),
         };
 
@@ -847,10 +849,11 @@ class TabHubApp {
     // ==========================================================================================
 
     poserIcones() {
+        // Nouveau/Ouvrir/Exporter (json)/PDF/Import-Export MIDI n'ont plus d'icône À EUX depuis leur
+        // regroupement dans le popover Fichiers (voir #btn-fichiers, un simple libellé texte) —
+        // retirés d'ici plutôt que laissés en entrées mortes.
         const paires = {
-            'btn-annuler': 'annuler', 'btn-retablir': 'retablir', 'btn-nouveau': 'nouveau',
-            'btn-ouvrir': 'ouvrir', 'btn-exporter': 'exporter', 'btn-enregistrer': 'enregistrer', 'btn-pdf': 'pdf',
-            'btn-midi-ouvrir': 'midi', 'btn-midi-exporter': 'midi',
+            'btn-annuler': 'annuler', 'btn-retablir': 'retablir', 'btn-enregistrer': 'enregistrer',
             'btn-reglages': 'reglages', 'btn-aide': 'aide', 'btn-stop': 'stop',
         };
         for (const [id, nom] of Object.entries(paires)) {
@@ -867,13 +870,20 @@ class TabHubApp {
         const surClic = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
         surClic('btn-annuler', () => this.editeur.annuler());
         surClic('btn-retablir', () => this.editeur.retablir());
-        surClic('btn-nouveau', () => this.nouveau());
-        surClic('btn-ouvrir', () => this.ouvrir());
-        surClic('btn-exporter', () => this.exporterJson());
         surClic('btn-enregistrer', () => this.enregistrer());
-        surClic('btn-pdf', () => this.exporterPdf());
-        surClic('btn-midi-ouvrir', () => this.ouvrirMidi());
-        surClic('btn-midi-exporter', () => this.exporterMidiFichier());
+        surClic('btn-fichiers', () => this.basculerPopoverFichiers());
+        // Popover Fichiers : un seul câblage par délégation plutôt que six `surClic` séparés — les
+        // boutons sont fixes (voir index.html), leur `data-action` suffit à les distinguer.
+        const actionsFichiers = {
+            nouveau: () => this.nouveau(), ouvrir: () => this.ouvrir(), 'exporter-json': () => this.exporterJson(),
+            pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
+        };
+        this.el.popoverFichiers.addEventListener('click', (e) => {
+            const b = e.target.closest('[data-action]');
+            if (!b) return;
+            this.fermerPopoverFichiers();
+            actionsFichiers[b.dataset.action]?.();
+        });
         surClic('btn-reglages', () => { this.remplirReglages(); this.ouvrirFenetre('fenetre-reglages'); });
         surClic('btn-aide', () => { this.remplirAide(); this.ouvrirFenetre('fenetre-aide'); });
         surClic('btn-jouer', () => this.lectureAlternee());
@@ -1076,10 +1086,48 @@ class TabHubApp {
     // ==========================================================================================
 
     /**
+     * Positionne un panneau flottant (menu contextuel, popover Fichiers…) près d'un point d'ancrage,
+     * sans jamais déborder de la fenêtre — un panneau qui commencerait hors écran (clic près d'un
+     * bord, bouton collé au bord droit) serait aussi inutilisable qu'absent. `ancre` est soit un
+     * POINT `{x, y}` (le clic droit qui a ouvert le menu contextuel), soit un ÉLÉMENT (le bouton
+     * Fichiers : le panneau se pose alors juste EN DESSOUS de lui, pas à son coin).
+     */
+    _positionnerPanneau(panneau, ancre) {
+        const r = panneau.getBoundingClientRect();
+        const point = ancre instanceof Element
+            ? (() => { const ra = ancre.getBoundingClientRect(); return { x: ra.left, y: ra.bottom + 4 }; })()
+            : ancre;
+        panneau.style.left = Math.max(4, Math.min(point.x, window.innerWidth - r.width - 8)) + 'px';
+        panneau.style.top = Math.max(4, Math.min(point.y, window.innerHeight - r.height - 8)) + 'px';
+    }
+
+    /**
+     * Ferme `panneau` au clic ailleurs ou à Échap ; renvoie le détacheur à appeler quand il se
+     * referme par un autre chemin (choisir une action, par exemple) — le même mécanisme pour le menu
+     * contextuel et le popover Fichiers. Les écouteurs se posent APRÈS ce tour d'évènement : le
+     * geste qui vient d'ouvrir le panneau (clic droit, clic sur le bouton) ne doit pas aussitôt le
+     * refermer. `exclure`, s'il est donné, ignore les clics sur cet élément (le bouton qui ouvre le
+     * panneau lui-même) : sans quoi le rappuyer dessus le rouvrirait sitôt refermé au lieu de basculer.
+     */
+    _fermerAuClicAilleurs(panneau, fermer, exclure = null) {
+        const surAilleurs = (e) => { if (!panneau.contains(e.target) && e.target !== exclure) fermer(); };
+        const surEchap = (e) => { if (e.key === 'Escape') fermer(); };
+        setTimeout(() => {
+            document.addEventListener('pointerdown', surAilleurs);
+            document.addEventListener('keydown', surEchap);
+        }, 0);
+        return () => {
+            document.removeEventListener('pointerdown', surAilleurs);
+            document.removeEventListener('keydown', surEchap);
+        };
+    }
+
+    /**
      * Clic droit sur une case : petit menu d'actions RAPIDES centrées dessus (supprimer, supprimer
-     * et décaler, insérer à gauche/à droite), sans repasser par le clavier. Réutilise EXACTEMENT le
-     * même ciblage que le clic gauche (cibleDepuisClic) — clic gauche et clic droit doivent désigner
-     * la même case au même endroit.
+     * et décaler, insérer à gauche/à droite, puis — ajouté sur retour utilisateur — ajouter une
+     * mesure avant/après et supprimer la mesure), sans repasser par le clavier. Réutilise EXACTEMENT
+     * le même ciblage que le clic gauche (cibleDepuisClic) — clic gauche et clic droit doivent
+     * désigner la même case au même endroit.
      */
     ouvrirMenuContextuel(evenement) {
         evenement.preventDefault();   // jamais le menu natif du navigateur sur la partition
@@ -1106,6 +1154,14 @@ class TabHubApp {
             null,
             { texte: 'Insérer une note à gauche', faire: action(() => this.editeur.insererAvant()) },
             { texte: 'Insérer une note à droite', faire: action(() => this.editeur.insererEvenement()) },
+            null,
+            // AJOUTÉ (retour utilisateur) : la mesure elle-même se gérait jusqu'ici SEULEMENT depuis
+            // la palette (« + Mesure »/« − Mesure », groupe Mesure) — jamais depuis l'endroit même où
+            // on vient de cliquer, alors que « ajouter une mesure ICI » est une pensée qui naît sur la
+            // note qu'on regarde, pas dans une barre d'outils à part.
+            { texte: 'Ajouter une mesure avant', faire: action(() => this.editeur.ajouterMesure(false)) },
+            { texte: 'Ajouter une mesure après', faire: action(() => this.editeur.ajouterMesure(true)) },
+            { texte: 'Supprimer cette mesure', faire: action(() => this.editeur.supprimerMesure()) },
         ];
 
         const menu = this.el.menuContextuel;
@@ -1119,31 +1175,39 @@ class TabHubApp {
             menu.appendChild(b);
         }
         menu.hidden = false;
-
-        // Position au point de clic, sans jamais déborder de la fenêtre — un menu qui commence hors
-        // écran (clic près d'un bord) serait aussi inutilisable qu'absent.
-        const rMenu = menu.getBoundingClientRect();
-        menu.style.left = Math.max(4, Math.min(evenement.clientX, window.innerWidth - rMenu.width - 8)) + 'px';
-        menu.style.top = Math.max(4, Math.min(evenement.clientY, window.innerHeight - rMenu.height - 8)) + 'px';
-
-        // Fermeture au clic ailleurs ou à Échap — attachés APRÈS ce tour d'évènement : le pointerdown
-        // qui a ouvert ce menu (clic droit) ne doit pas aussi le refermer aussitôt.
-        const surAilleurs = (e) => { if (!menu.contains(e.target)) this.fermerMenuContextuel(); };
-        const surEchap = (e) => { if (e.key === 'Escape') this.fermerMenuContextuel(); };
-        setTimeout(() => {
-            document.addEventListener('pointerdown', surAilleurs);
-            document.addEventListener('keydown', surEchap);
-        }, 0);
-        this._detacherMenuContextuel = () => {
-            document.removeEventListener('pointerdown', surAilleurs);
-            document.removeEventListener('keydown', surEchap);
-        };
+        this._positionnerPanneau(menu, { x: evenement.clientX, y: evenement.clientY });
+        this._detacherMenuContextuel = this._fermerAuClicAilleurs(menu, () => this.fermerMenuContextuel());
     }
 
     fermerMenuContextuel() {
         this.el.menuContextuel.hidden = true;
         this._detacherMenuContextuel?.();
         this._detacherMenuContextuel = null;
+    }
+
+    /**
+     * Bouton « Fichiers » (barre du haut) : les actions de fichier — jusqu'ici six icônes séparées,
+     * peu claires prises isolément (retour utilisateur : « on ne comprend pas assez ») — réunies
+     * dans un seul panneau à libellés en toutes lettres. Même mécanique que le menu contextuel
+     * juste au-dessus (_positionnerPanneau/_fermerAuClicAilleurs), posé sous le bouton plutôt qu'au
+     * point de clic ; ses boutons sont peuplés UNE FOIS dans index.html, câblés dans
+     * brancherInterface — leurs actions ne dépendent jamais de ce qui a été cliqué, rien à
+     * reconstruire à chaque ouverture, à la différence du menu contextuel.
+     */
+    basculerPopoverFichiers() {
+        if (!this.el.popoverFichiers.hidden) { this.fermerPopoverFichiers(); return; }
+        const popover = this.el.popoverFichiers;
+        popover.hidden = false;
+        this.el.btnFichiers.setAttribute('aria-expanded', 'true');
+        this._positionnerPanneau(popover, this.el.btnFichiers);
+        this._detacherPopoverFichiers = this._fermerAuClicAilleurs(popover, () => this.fermerPopoverFichiers(), this.el.btnFichiers);
+    }
+
+    fermerPopoverFichiers() {
+        this.el.popoverFichiers.hidden = true;
+        this.el.btnFichiers.setAttribute('aria-expanded', 'false');
+        this._detacherPopoverFichiers?.();
+        this._detacherPopoverFichiers = null;
     }
 
     // ==========================================================================================

@@ -52,8 +52,13 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         const menu = page.locator('#menu-contextuel');
         exiger(await menu.isVisible(), 'le clic droit ouvre le menu contextuel');
         const textes = await menu.locator('button').allTextContents();
-        check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite',
-            'les quatre actions attendues, dans cet ordre');
+        // Depuis le retour utilisateur (« ajoute des options pour ajouter une mesure avant ou après »),
+        // trois actions de mesure se sont ajoutées à la suite des quatre d'origine — jamais à leur place :
+        // les quatre premières restent le clic droit « historique » sur une NOTE, les trois dernières
+        // portent sur la MESURE entière (voir main.js#ouvrirMenuContextuel).
+        check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite'
+            + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure',
+            'les sept actions attendues, dans cet ordre');
         const boiteMenu = await menu.boundingBox();
         check(Math.abs(boiteMenu.x - p.x) < 20 && Math.abs(boiteMenu.y - p.y) < 20, 'le menu s\'ouvre AU POINT du clic, pas ailleurs');
 

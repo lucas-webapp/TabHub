@@ -457,7 +457,12 @@ export class Editeur {
                 j++;
             }
             if (reste > 1e-9) {
-                this.derniereErreur = 'Pas assez de place dans la mesure pour cette durée.';
+                // Le rappel d'Alt+R répond à une attente récurrente (retour utilisateur : « je me
+                // disais que le reste allait se décaler sur la droite ») — le refus reste volontaire
+                // (voir le docblock de la méthode), mais le message doit dire OÙ trouver le décalage
+                // quand il est vraiment voulu, plutôt que de laisser deviner.
+                this.derniereErreur = 'Pas assez de place dans la mesure pour cette durée. '
+                    + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
                 return false;
             }
         }
@@ -556,7 +561,8 @@ export class Editeur {
         if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
             const enBoutDeVoix = this.curseur.evenement === voix.evenements.length - 1;
             if (!enBoutDeVoix) {
-                this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici.';
+                this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
+                    + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
                 return false;
             }
             this.memoriser();
@@ -603,7 +609,8 @@ export class Editeur {
         const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
         const dureeNouvel = dureeEnNoires(this.dureeCourante);
         if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
-            this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici.';
+            this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
+                + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
             return false;
         }
         this.memoriser();

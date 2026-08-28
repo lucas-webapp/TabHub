@@ -181,8 +181,16 @@ hauteurs cliquées au même instant construisent un accord.
 
 ### Fichiers
 
-- **Enregistrer** télécharge un `.json` indenté, qui est le modèle tel quel — lisible et modifiable à
-  la main.
+Nouveau, Ouvrir, Exporter, PDF et MIDI vivent groupés derrière un seul bouton **Fichiers** (barre du
+haut) plutôt qu'en icônes séparées — six pictogrammes à deviner un par un s'est révélé peu clair à
+l'usage, un menu à libellés en toutes lettres ne laisse rien à deviner. **Enregistrer** reste seul,
+à part : c'est le geste le plus fréquent (persistance locale immédiate, pas un téléchargement), il
+garde donc son propre bouton vert toujours visible plutôt que de se noyer dans le menu.
+
+- **Enregistrer** range le morceau dans le navigateur (`localStorage`) — aucun téléchargement,
+  seulement le geste le plus fréquent rendu instantané (aussi `Ctrl+S`).
+- **Exporter** télécharge, lui, un `.json` indenté qui est le modèle tel quel — lisible et modifiable
+  à la main ; c'est le fichier à archiver ou à faire circuler.
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
 - **Exporter PDF** écrit un PDF A4 vectoriel, paginé sans jamais couper un système en deux.

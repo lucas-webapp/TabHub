@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608290300">
+    <link rel="stylesheet" href="style.css?v=202608300100">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -27,14 +27,14 @@
     <button type="button" id="btn-annuler" class="btn-icone" title="Annuler (Ctrl+Z)" aria-label="Annuler" disabled></button>
     <button type="button" id="btn-retablir" class="btn-icone" title="Rétablir (Ctrl+Y)" aria-label="Rétablir" disabled></button>
     <span class="separateur"></span>
-    <button type="button" id="btn-nouveau" class="btn-icone" title="Nouvelle tablature" aria-label="Nouvelle tablature"></button>
-    <button type="button" id="btn-ouvrir" class="btn-icone" title="Importer un fichier .json (Ctrl+O)" aria-label="Importer"></button>
-    <button type="button" id="btn-exporter" class="btn-icone" title="Exporter en .json (Ctrl+Maj+S)" aria-label="Exporter"></button>
+    <!-- FICHIERS — un seul bouton à libellé clair plutôt que six icônes prises isolément (retour
+         utilisateur : « on ne comprend pas assez »), et six boutons de moins à caser sur un
+         téléphone étroit (retour : « les boutons dépassent de l'écran » — voir aussi Réglages, qui
+         se retrouvait poussé hors champ). Enregistrer reste seul, à côté : c'est le geste le plus
+         fréquent (Ctrl+S), il ne doit pas se cacher derrière un second clic. Popover peuplé une
+         fois, voir main.js#basculerPopoverFichiers/#popover-fichiers plus bas. -->
+    <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers</button>
     <button type="button" id="btn-enregistrer" class="btn-icone btn-icone-accent" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"></button>
-    <button type="button" id="btn-pdf" class="btn-icone" title="Exporter en PDF (Ctrl+P)" aria-label="Exporter en PDF"></button>
-    <span class="separateur"></span>
-    <button type="button" id="btn-midi-ouvrir" class="btn-icone" title="Importer un fichier MIDI (.mid)" aria-label="Importer un fichier MIDI"></button>
-    <button type="button" id="btn-midi-exporter" class="btn-icone" title="Exporter en MIDI (.mid)" aria-label="Exporter en MIDI"></button>
     <span class="separateur"></span>
     <button type="button" id="btn-reglages" class="btn-icone" title="Réglages" aria-label="Réglages"></button>
     <button type="button" id="btn-aide" class="btn-icone" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
@@ -298,6 +298,20 @@
 <div class="message" id="message" role="status" aria-live="polite"></div>
 <div class="menu-contextuel" id="menu-contextuel" role="menu" hidden></div>
 
-<script type="module" src="src/main.js?v=202608290400"></script>
+<!-- Popover Fichiers (voir #btn-fichiers dans la barre du haut) — même style que le menu contextuel
+     juste au-dessus (`.menu-contextuel`, réutilisée telle quelle : c'est le même genre de panneau,
+     une liste d'actions posée près d'un point d'ancrage), peuplé une fois pour toutes ici plutôt que
+     reconstruit à chaque ouverture, ses actions ne dépendant jamais de ce qui a été cliqué. -->
+<div class="menu-contextuel" id="popover-fichiers" role="menu" aria-label="Fichiers" hidden>
+    <button type="button" data-action="nouveau">Nouvelle tablature</button>
+    <button type="button" data-action="ouvrir">Ouvrir un fichier .json…</button>
+    <button type="button" data-action="exporter-json">Exporter en .json</button>
+    <button type="button" data-action="pdf">Exporter en PDF</button>
+    <hr class="separateur">
+    <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
+    <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
+</div>
+
+<script type="module" src="src/main.js?v=202608300100"></script>
 </body>
 </html>
