@@ -108,7 +108,18 @@ body {
     grid-template-areas: "haut" "outils" "zone" "pave" "bas";
     grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
     grid-template-columns: 1fr;
-    overflow: hidden;
+    /* `overflow-y: auto` plutôt que `hidden` : `100dvh` (voir plus haut) fait déjà correspondre cette
+       grille à ce qui est VRAIMENT visible dans le cas normal, mais rien ne garantit qu'il en aille
+       ainsi sur CHAQUE navigateur/webview réel (Samsung Internet, une appli qui embarque son propre
+       navigateur, une version de Safari qui calcule mal la barre du bas…) — autant de conditions
+       injouables ici, en Playwright, avec une taille de fenêtre fixe. Un débordement qui subsiste
+       malgré tout doit rester ATTEIGNABLE par un simple geste de défilement plutôt que d'être
+       silencieusement rogné et perdu (c'est là, avec `hidden`, qu'était le vrai défaut du retour
+       utilisateur « les boutons dépassent de l'écran en bas » — pas seulement le mauvais calcul de
+       hauteur que corrige `100dvh`). Ce filet ne change rien tant que tout tient déjà dans le
+       viewport (aucune barre de défilement n'apparaît) : voir tests/tactile_test.js. */
+    overflow-x: hidden;
+    overflow-y: auto;
     -webkit-font-smoothing: antialiased;
 }
 body.outils-gauche {
@@ -252,6 +263,11 @@ body > * { min-width: 0; }
    toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté. */
 .fleche-outils.invisible { opacity: 0; pointer-events: none; }
 body.outils-gauche .fleche-outils { display: none; }   /* colonne verticale : rien à faire défiler ainsi */
+/* .fleche-outils sert aussi la barre de TRANSPORT (voir main.js#brancherFlechesTransport) — mêmes
+   règles, aucune ne mentionne #barre-outils : rien à dupliquer pour un second conteneur qui défile
+   pour la même raison (mesuré : 180px de débordement à 390px, les boutons Métronome entièrement
+   hors champ — `overflow-x: auto` sur .transport les rendait déjà ATTEIGNABLES, mais rien ne le
+   montrait, exactement le défaut que ces flèches réparaient déjà ici). */
 
 /* BARRE À GAUCHE (préférence, voir Réglages > Interface). La barre elle-même devient une COLONNE
    pleine hauteur ; chaque groupe s'y empile, et SES boutons à lui se remettent à la ligne (au lieu
@@ -692,6 +708,16 @@ kbd {
 
 @media (max-width: 720px) {
     .logo-texte, .groupe-outils > .etiquette-groupe { display: none; }
+    /* DÉBORDEMENT PRÉEXISTANT (mesuré, indépendant des repositionnements ci-dessus) : même le logo,
+       icône seule, ne tenait déjà plus sur un téléphone étroit à côté d'Annuler/Fichiers/Réglages/
+       Aide et d'un titre à son plancher de 120px (débordement mesuré : 97px à 390px) — invisible
+       jusqu'ici parce qu'`overflow-x: auto` (voir .barre-haut plus haut) le rend techniquement
+       ATTEIGNABLE par un défilement que rien ne signale, sans flèches comme .barre-outils : la marque
+       elle-même restait donc hors champ par défaut. Un titre plus étroit + une barre plus resserrée
+       referment l'essentiel de cet écart sans rien retirer : le titre reste un CHAMP DE SAISIE (on
+       peut toujours cliquer dedans et voir le reste en tapant), pas un simple libellé tronqué. */
+    .titre-morceau { min-width: 44px; }
+    .barre-haut { gap: 4px; padding: 0 8px; }
     .zone-partition { padding: 10px 8px 40px; }
     /* La barre d'outils reste sur UNE ligne et défile horizontalement plutôt que de se replier sur
        trois rangées : sur un téléphone, la hauteur est la ressource rare — c'est la partition qui
@@ -731,6 +757,22 @@ kbd {
         width: max-content; max-width: min(230px, calc(100vw - 16px));
         box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
     }
+}
+
+/* RÉGLAGES/AIDE contre le logo, mais SEULEMENT dès que ça tient (complément du media query ci-dessus,
+   pas un doublon : au-delà de 720px, c'est ici que la barre du haut prend sa forme définitive).
+   Séparés d'Annuler/Fichiers, ces deux boutons d'APPLI se lisent mieux collés à la marque qu'au
+   même endroit que les actions de DOCUMENT (même logique que HarmoHub, qui place son bouton
+   Paramètres « juste avant le titre, plutôt qu'au tout début de la barre du haut »). En dessous de
+   721px, `.groupe-reglages` (index.html) reste dans l'ORDRE NATUREL du DOM, avec Annuler/Fichiers :
+   les deux boutons + le logo, VRAIMENT accolés au bout d'un téléphone étroit, ne tiennent plus
+   (mesuré : 97px de débordement à 390px, le titre déjà ramené à son plancher de 120px) — la marque
+   déborderait hors champ exactement comme Réglages avant #60/#61. `order` (flex) fait ce déplacement
+   SANS toucher au DOM : les deux boutons restent à leur place naturelle tant qu'il n'y a pas la place
+   ailleurs, seul leur RENDU visuel change. */
+@media (min-width: 721px) {
+    .groupe-reglages { order: 1; }
+    .logo { order: 2; }
 }
 
 /* Très étroit (téléphone tenu debout) : le pavé prime sur tout le reste. Les chiffres se resserrent

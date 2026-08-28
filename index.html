@@ -35,9 +35,17 @@
          fois, voir main.js#basculerPopoverFichiers/#popover-fichiers plus bas. -->
     <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers</button>
     <button type="button" id="btn-enregistrer" class="btn-icone btn-icone-accent" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"></button>
-    <span class="separateur"></span>
-    <button type="button" id="btn-reglages" class="btn-icone" title="Réglages" aria-label="Réglages"></button>
-    <button type="button" id="btn-aide" class="btn-icone" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
+    <!-- RÉGLAGES/AIDE : dans le DOM ici (avec Annuler/Fichiers), mais VISUELLEMENT déplacés contre le
+         logo dès qu'il y a la place (voir style.css, .groupe-reglages — `order` en flex, à partir de
+         721px). Même logique que HarmoHub (son bouton Paramètres, commenté « juste avant le titre,
+         plutôt qu'au tout début de la barre du haut ») : deux actions d'APPLI ne devraient pas se
+         mêler à Annuler/Fichiers, deux actions de DOCUMENT touchées à chaque édition. Mais les DEUX
+         boutons + logo, une fois VRAIMENT accolés au bout d'un écran de téléphone étroit, ne
+         tiennent plus (mesuré : 97px de débordement à 390px, le titre déjà à son plancher de
+         120px) — d'où le repli sur cette position, plus large mais toujours à l'abri, en dessous. -->
+    <span class="separateur groupe-reglages"></span>
+    <button type="button" id="btn-reglages" class="btn-icone groupe-reglages" title="Réglages" aria-label="Réglages"></button>
+    <button type="button" id="btn-aide" class="btn-icone groupe-reglages" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
 
     <span class="pousse"></span>
     <input type="text" id="champ-titre" class="titre-morceau" value="Sans titre" aria-label="Titre du morceau" spellcheck="false">
@@ -206,8 +214,14 @@
                     </button>
                 </div>
             </div>
+            <!-- « Brouillon local », pas « Fichiers » : ce nom-là appartient déjà au bouton de la barre
+                 du haut (Nouveau/Ouvrir/Exporter/PDF/MIDI, voir #btn-fichiers) — deux rubriques
+                 « Fichiers » à deux endroits différents, l'une pour ouvrir/exporter et l'autre pour un
+                 unique bouton « vider le brouillon », aurait fait chercher l'une dans l'autre. Ici, il
+                 ne s'agit QUE de la persistance locale automatique (voir Editeur.enregistrer), un sujet
+                 assez différent pour mériter son propre nom. -->
             <div class="rubrique">
-                <h3>Fichiers</h3>
+                <h3>Brouillon local</h3>
                 <p class="texte-discret" id="etat-brouillon"></p>
                 <button type="button" class="btn-neutre" id="btn-vider-brouillon">Vider le brouillon local</button>
             </div>

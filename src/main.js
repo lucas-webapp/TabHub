@@ -22,7 +22,7 @@
 import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
-import { construireBarreOutils } from './ui/toolbar.js';
+import { construireBarreOutils, flecheOutilsSvg } from './ui/toolbar.js';
 import { construirePave } from './ui/pave.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
@@ -579,6 +579,43 @@ class TabHubApp {
         btn.innerHTML = icone(enLecture ? 'pause' : 'lecture');
         btn.title = enLecture ? 'Pause (Espace)' : 'Lecture (Espace)';
         btn.setAttribute('aria-label', btn.title);
+        this.rafraichirFlechesTransport?.();
+    }
+
+    /**
+     * Flèches de défilement de la barre de transport — même remède que la barre d'outils (voir
+     * ui/toolbar.js#flecheOutilsSvg, exporté pour ça) : `overflow-x: auto` (voir .transport dans
+     * style.css) rendait déjà Métronome ATTEIGNABLE sur un téléphone étroit, mais rien ne le
+     * montrait — mesuré : 180px de débordement à 390px, les DEUX boutons Métronome entièrement
+     * hors champ, sans la moindre flèche pour le suggérer (contrairement à la barre d'outils, qui
+     * avait déjà reçu ce traitement). Posées UNE FOIS ici plutôt que reconstruites à chaque
+     * rafraîchissement — .transport ne gagne ni ne perd de boutons en cours de route, à la
+     * différence de la barre d'outils (groupe Effets qui s'ouvre/referme).
+     */
+    brancherFlechesTransport() {
+        const hote = document.querySelector('.transport');
+        const PAS_DEFILEMENT = 160;
+        const fleche = (sens) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = `fleche-outils fleche-outils-${sens}`;
+            b.innerHTML = flecheOutilsSvg(sens);
+            b.title = sens === 'gauche' ? 'Défiler la barre de transport vers la gauche' : 'Défiler la barre de transport vers la droite';
+            b.setAttribute('aria-label', b.title);
+            b.addEventListener('click', () => hote.scrollBy({ left: sens === 'gauche' ? -PAS_DEFILEMENT : PAS_DEFILEMENT, behavior: 'smooth' }));
+            return b;
+        };
+        const flecheGauche = fleche('gauche');
+        const flecheDroite = fleche('droite');
+        hote.insertBefore(flecheGauche, hote.firstChild);
+        hote.appendChild(flecheDroite);
+        const rafraichirFleches = () => {
+            flecheGauche.classList.toggle('invisible', hote.scrollLeft <= 1);
+            flecheDroite.classList.toggle('invisible', hote.scrollLeft + hote.clientWidth >= hote.scrollWidth - 1);
+        };
+        rafraichirFleches();
+        hote.addEventListener('scroll', rafraichirFleches, { passive: true });
+        return rafraichirFleches;
     }
 
     // ==========================================================================================
@@ -906,6 +943,7 @@ class TabHubApp {
         surClic('btn-tap-tempo', () => this.tapTempo());
 
         this.construireBoutonsMesuresLigne();
+        this.rafraichirFlechesTransport = this.brancherFlechesTransport();
 
         // Métronome : ne touche à rien de la lecture EN COURS (voir Lecteur.jouer, qui ne
         // reprogramme le transport qu'au prochain départ depuis l'arrêt) — comme tout autre

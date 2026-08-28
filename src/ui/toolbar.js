@@ -17,10 +17,11 @@ import { armureEffective, modeEffectif } from '../model/score.js';
 
 const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
 
-/** Chevron d'une flèche de défilement de la barre d'outils — dessiné, pas une police (voir la même
- *  logique dans ui/pave.js pour les flèches de déplacement, un besoin distinct qui n'a pas à
- *  partager ce petit bout de SVG). */
-function flecheOutilsSvg(sens) {
+/** Chevron d'une flèche de défilement — dessiné, pas une police (voir la même logique dans
+ *  ui/pave.js pour les flèches de DÉPLACEMENT du curseur, un besoin distinct qui n'a pas à
+ *  partager ce petit bout de SVG). Exporté : main.js le reprend tel quel pour la barre de
+ *  transport, qui défile pour la même raison que celle-ci — même sens, même dessin. */
+export function flecheOutilsSvg(sens) {
     return `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M${sens === 'gauche' ? '15 6 L9 12 L15 18' : '9 6 L15 12 L9 18'}"
         fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
 }
