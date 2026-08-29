@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608301000">
+    <link rel="stylesheet" href="style.css?v=202608301100">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -201,17 +201,6 @@
                     </div>
                     <input type="range" id="champ-volume-metronome" min="0" max="100" value="80">
                 </div>
-                <!-- Vitesse de lecture (retour utilisateur : ralentir pour mieux entendre une grille
-                     d'accords, sans toucher au tempo écrit sur la partition — voir audio/player.js
-                     #definirVitesseLecture). Jamais au-dessus de 100 : ce réglage ralentit, il
-                     n'accélère pas au-delà de ce qui est écrit. -->
-                <div class="ligne-curseur">
-                    <div class="ligne-curseur-tete">
-                        <label for="champ-vitesse-lecture">Vitesse de lecture</label>
-                        <span class="valeur" id="valeur-vitesse-lecture">100</span>
-                    </div>
-                    <input type="range" id="champ-vitesse-lecture" min="25" max="100" value="100">
-                </div>
             </div>
             <div class="rubrique">
                 <h3>Interface</h3>
@@ -360,6 +349,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202608301000"></script>
+<script type="module" src="src/main.js?v=202608301100"></script>
 </body>
 </html>
