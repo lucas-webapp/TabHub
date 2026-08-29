@@ -12,6 +12,18 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
+    <!-- ÉCRAN D'ACCUEIL IPHONE (retour utilisateur : « mettre en forme le logo [...] sur mon bureau
+         iPhone ») : Safari iOS ignore le manifest.json (et un favicon SVG) pour l'icône d'écran
+         d'accueil — sans ce lien précis, il photographie la page elle-même et pose CE screenshot en
+         icône. `apple-touch-icon.png` : même dessin que favicon.svg (six cordes), mais en PNG carré
+         PLEIN CADRE plutôt qu'à coins déjà arrondis — c'est iOS qui découpe la forme finale, un fond
+         déjà arrondi laisserait un liseré visible entre les deux découpes (voir icons/favicon.svg,
+         régénérées par le même dessin — tests/pwa_test.js). `web-app-capable` + le titre : lancée en
+         PLEIN ÉCRAN depuis l'icône, sans barre d'adresse Safari, sous le nom « TabHub » et non l'URL. -->
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TabHub">
     <link rel="stylesheet" href="style.css?v=202608301100">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
