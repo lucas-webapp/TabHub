@@ -901,7 +901,7 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, S, staff.yPortee);
+        poserNolets(out, poses, groupes, S, staff.yPortee);
         poserLiaisons(out, poses, S, undefined);
     });
 
@@ -1197,7 +1197,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, S, yPortee);
+        poserNolets(out, poses, groupes, S, yPortee);
         poserLiaisons(out, poses, S, ST);
     });
 
@@ -1326,9 +1326,23 @@ function poserEvenement(out, partition, evenement, ctx) {
                 // 1½ (voir Editeur.bendSuivant, qui les fait circuler). Une version antérieure n'en
                 // distinguait que deux (« full » dès deux demi-tons), donc un bend d'un ton et demi
                 // s'affichait comme un ton entier — deux gestes différents sous une même étiquette.
+                //
+                // La flèche montante (et non le seul texte) : c'est la convention de gravure réelle
+                // d'un bend — cf. la capture de référence fournie par l'utilisateur, où l'amplitude
+                // surmonte une pointe de flèche plutôt que de flotter seule. Un seul segment « C »,
+                // comme arcLiaison ci-dessus : jsPDF#analyserChemin ne sait lire que M/L/C/Z — un
+                // « Q » y ressortirait silencieusement vide, et le PDF ne serait plus ce qu'on voit.
                 const LIBELLES_BEND = { 1: '½', 2: 'full', 3: '1½' };
-                out.push(texte(x + 0.9 * S, yLigne - tailleChiffre * 0.75, LIBELLES_BEND[note.bend.demiTons] || 'full', {
-                    taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
+                const xA = x + demiLargeur + 0.2 * S, yA = yLigne - tailleChiffre * 0.1;
+                const xB = xA + 0.5 * S, yB = yLigne - tailleChiffre * 1.9;
+                out.push(courbe(
+                    `M ${xA.toFixed(2)} ${yA.toFixed(2)} C ${(xA + 0.1 * S).toFixed(2)} ${(yA + (yB - yA) * 0.4).toFixed(2)} ${(xB - 0.05 * S).toFixed(2)} ${(yA + (yB - yA) * 0.85).toFixed(2)} ${xB.toFixed(2)} ${yB.toFixed(2)}`,
+                    G.EPAISSEURS.liaison * S, 'discret',
+                ));
+                const demiPointe = 0.22 * S, hautPointe = 0.4 * S;
+                out.push(poly([[xB, yB], [xB - demiPointe, yB + hautPointe], [xB + demiPointe, yB + hautPointe]], 'discret'));
+                out.push(texte(xB, yB - 0.3 * S, LIBELLES_BEND[note.bend.demiTons] || 'full', {
+                    taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'milieu', couleur: 'discret',
                 }));
             }
             pose.notes.push({ note, yTab: ligneTab(note, yTab, ST), demiLargeurTab: demiLargeur });
@@ -1627,8 +1641,19 @@ function poserArticulations(out, poses, S) {
  * Sans ce chiffre, trois croches en triolet sont IMPOSSIBLES à distinguer de trois croches
  * ordinaires : le dessin des notes est identique, seule la durée change. C'est le seul cas de la
  * notation où l'information rythmique ne tient pas dans la forme des notes.
+ *
+ * `groupes` (les MÊMES groupes de ligature que poserHampes, jamais recalculés ici) sert à ne JAMAIS
+ * laisser une course de n-olets enjamber deux TEMPS différents. Sans ça (trouvé en reproduisant un
+ * rythme en triolets répété tout du long, retour utilisateur) : plusieurs temps consécutifs de
+ * triolets, qui partagent tous le MÊME descripteur `{dans, valent}`, se voyaient fusionnés en une
+ * seule course par la seule comparaison de descripteur — un unique « 3 » pour toute la suite, centré
+ * n'importe où, au lieu d'un par temps. L'appartenance à un groupe de ligature (ou son absence)
+ * referme la course aussi sûrement qu'un descripteur différent.
  */
-function poserNolets(out, poses, S, yPortee) {
+function poserNolets(out, poses, groupes, S, yPortee) {
+    const groupeDe = new Map();
+    groupes.forEach((g, ig) => { for (const p of g) groupeDe.set(p, ig); });
+
     let i = 0;
     while (i < poses.length) {
         const nolet = poses[i].ref.duree.nolet;
@@ -1637,6 +1662,7 @@ function poserNolets(out, poses, S, yPortee) {
         while (j + 1 < poses.length) {
             const suivant = poses[j + 1].ref.duree.nolet;
             if (!suivant || suivant.dans !== nolet.dans || suivant.valent !== nolet.valent) break;
+            if (groupeDe.get(poses[j]) !== groupeDe.get(poses[j + 1])) break;
             j++;
         }
         const groupe = poses.slice(i, j + 1);

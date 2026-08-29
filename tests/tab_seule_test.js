@@ -20,13 +20,18 @@
 //     rendu à l'écran ET au PDF (même liste d'affichage partagée) ; c'est une préférence d'AFFICHAGE
 //     comme les autres (mesuresParLigne, positionOutils…) — locale au navigateur, jamais dans le
 //     .json de la partition.
+//   • COLLER À UNE VRAIE RÉFÉRENCE (retour utilisateur, capture d'une tablature trouvée en ligne à
+//     l'appui) : poserNolets ne doit PAS fusionner deux TEMPS DE TRIOLET consécutifs (motif « gallop »
+//     très courant) en un seul chiffre « 3 » — chacun garde le sien, tout en préservant le cas d'un
+//     triolet NON ligaturé (ex. trois noires) qui, lui, garde bien UN SEUL chiffre pour ses trois
+//     notes ; et le BEND se dessine en flèche montante gravée (courbe + pointe), pas en texte flottant.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('TAB seule');
 
 (async () => {
-    plan(25);
+    plan(30);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : un cas complet (rythme varié, silence, n-olet, liaison,
@@ -120,6 +125,59 @@ const { check, exiger, plan, bilan } = creerHarnais('TAB seule');
                 aUneHampeSurSilence: verts.some(v => Math.abs(v.x1 - evts[3].x) < 2 * S),
             };
         });
+
+        // --- Coller au modèle (capture d'une tablature réelle) : chiffre de n-olet par TEMPS, pas
+        // fusionné sur toute une ligature de plusieurs temps — et bend en flèche gravée ------------
+        const modele = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const L = await import('/src/engine/layout.js');
+            const S = 12;
+            const glyphesNolet = (pg) => pg.primitives.filter(pr => pr.t === 'glyphe' && /^chiffreNolet\d/.test(pr.nom || ''));
+
+            // Motif « gallop » : DEUX temps de croches en triolet consécutifs, même descripteur
+            // {dans:3,valent:2} — exactement ce qui fusionnait à tort en un seul « 3 » (voir
+            // poserNolets, désormais borné par `groupes`, le même regroupement que poserHampes).
+            const pGallop = m.creerPartition('guitare');
+            const triolet = (f) => m.creerEvenement({ valeur: 8, nolet: { dans: 3, valent: 2 } }, [m.creerNote(0, f)]);
+            pGallop.mesures = [m.creerMesure({ voix: [{ evenements: [
+                triolet(0), triolet(1), triolet(2), triolet(3), triolet(4), triolet(5),
+            ] }] })];
+            const pgGallop = L.mettreEnPage(pGallop, { S, largeurPage: 900, avecPortee: false });
+            const nolets = glyphesNolet(pgGallop);
+
+            // Cas à préserver : un triolet NON ligaturé (trois NOIRES, crochets 0 -> jamais groupées
+            // par grouperLigatures) garde bien UN SEUL chiffre pour ses trois notes.
+            const pIsole = m.creerPartition('guitare');
+            pIsole.mesures = [m.creerMesure({ voix: [{ evenements: [
+                m.creerEvenement({ valeur: 4, nolet: { dans: 3, valent: 2 } }, [m.creerNote(0, 0)]),
+                m.creerEvenement({ valeur: 4, nolet: { dans: 3, valent: 2 } }, [m.creerNote(0, 1)]),
+                m.creerEvenement({ valeur: 4, nolet: { dans: 3, valent: 2 } }, [m.creerNote(0, 2)]),
+            ] }] })];
+            const pgIsole = L.mettreEnPage(pIsole, { S, largeurPage: 900, avecPortee: false });
+
+            // Bend seul (aucun lien, aucun groupement) : la SEULE courbe et le SEUL polygone de la
+            // page doivent être la flèche (hampe non ligaturée -> aucun autre poly/courbe possible).
+            const nBend = m.creerNote(0, 5);
+            nBend.bend = { demiTons: 2 };
+            const pBend = m.creerPartition('guitare');
+            pBend.mesures = [m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 4 }, [nBend])] }] })];
+            const pgBend = L.mettreEnPage(pBend, { S, largeurPage: 900, avecPortee: false });
+
+            return {
+                nbNoletsGallop: nolets.length,
+                xNoletsGallop: nolets.map(g => g.x),
+                nbNoletsIsole: glyphesNolet(pgIsole).length,
+                nbPolyBend: pgBend.primitives.filter(pr => pr.t === 'poly').length,
+                nbCourbeBend: pgBend.primitives.filter(pr => pr.t === 'courbe').length,
+                labelBend: pgBend.primitives.find(pr => pr.t === 'texte' && /[½]|full/.test(pr.s)),
+            };
+        });
+
+        exiger(modele.nbNoletsGallop === 2, 'deux temps de triolet consécutifs (même descripteur) -> DEUX chiffres « 3 », un par temps — pas un seul fusionné sur toute la ligature');
+        check(modele.xNoletsGallop[1] > modele.xNoletsGallop[0] + 2 * 12, 'et les deux chiffres sont bien à des abscisses distinctes (un par temps, pas superposés)');
+        check(modele.nbNoletsIsole === 1, 'à l\'inverse, un triolet NON ligaturé (trois noires) garde UN SEUL chiffre pour ses trois notes — le regroupement par descripteur seul reste valide sans ligature');
+        check(modele.nbPolyBend === 1 && modele.nbCourbeBend === 1, 'le bend se dessine en flèche gravée : une courbe montante + une pointe (polygone), pas seulement du texte flottant');
+        check(!!modele.labelBend && modele.labelBend.ancre === 'milieu', 'l\'amplitude du bend est centrée SUR la pointe de la flèche (ancre milieu), plus posée à côté au hasard');
 
         check(r.hauteurSans < r.hauteurAvec, 'sans portée, la page est plus BASSE (l\'espace d\'une portée à 5 lignes n\'est plus réservé)');
         exiger(r.lignesHorizAvec >= 5 + 6, 'avec portée : au moins les 5 lignes de portée + les 6 de TAB (une mesure, une voix, un système)');
