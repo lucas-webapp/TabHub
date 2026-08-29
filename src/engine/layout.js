@@ -1259,11 +1259,26 @@ function poserEvenement(out, partition, evenement, ctx) {
         notes: [], yHampe: null, sensHampe: 1, yTeteExtreme: null,
     };
 
-    // ANCRE COMMUNE DES HAMPES EN MODE « TAB SEULE » (voir HAUTEUR_ZONE_HAMPE_TAB/ECART_ZONE_HAMPE_TAB) :
-    // sans portée, aucune tête de note n'a de hauteur réelle à rejoindre — toutes les hampes d'une
-    // même voix partent donc du MÊME point fixe, juste au-dessus (sens < 0, voix seule ou voix 0) ou
-    // en dessous (sens > 0, voix 1 à deux voix) de la TAB, comme Guitar Pro en vue TAB seule.
-    const sensTab = sensImpose ?? -1;
+    // ANCRE DES HAMPES EN MODE « TAB SEULE » (voir HAUTEUR_ZONE_HAMPE_TAB/ECART_ZONE_HAMPE_TAB) :
+    // sans portée, aucune tête de note n'a de hauteur réelle à rejoindre — chaque hampe part donc
+    // d'un point fixe, juste au-dessus OU en dessous de la TAB. LEQUEL exactement suit la MÊME règle
+    // que sur la portée (retour utilisateur : « les hampes doivent pouvoir descendre [...] comme pour
+    // une vraie partition », pas un sens unique et fixe pour toute la voix) : c'est la CORDE la plus
+    // éloignée du milieu du manche qui décide — une corde AIGUË (index bas, près du haut du manche)
+    // pousse la hampe vers le BAS, une corde GRAVE vers le HAUT, exactement le même principe que
+    // ecartHaut/ecartBas plus bas pour la hauteur réelle, appliqué à la seule chose qui varie ici : la
+    // position de corde. `sensImpose` garde priorité (deux voix : mélodie toujours en haut, basse
+    // toujours en bas, quelle que soit la corde — même raison qu'en notation). Les SILENCES, qui ne
+    // jouent aucune corde, gardent le sens par défaut de la voix : rien à faire varier pour eux, comme
+    // sur la portée (ecartHaut/ecartBas, plus bas, ne portent déjà que sur des notes SONNANTES).
+    let sensTab = sensImpose ?? -1;
+    if (!estSilence && evenement.notes.length && cordes > 0) {
+        const pasMedianTab = -(cordes - 1) / 2;
+        const positionsTab = evenement.notes.map(n => -n.corde);
+        const ecartHautTab = Math.max(...positionsTab) - pasMedianTab;
+        const ecartBasTab = pasMedianTab - Math.min(...positionsTab);
+        sensTab = sensImpose ?? (ecartHautTab >= ecartBasTab ? 1 : -1);
+    }
     const yAncreTab = sensTab < 0 ? yTab - ECART_ZONE_HAMPE_TAB * S : yTab + (cordes - 1) * ST + ECART_ZONE_HAMPE_TAB * S;
 
     if (estSilence) {
