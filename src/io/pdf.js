@@ -69,6 +69,9 @@ export function construirePdf(partition, options = {}) {
         avecEnTete: true,
         yDepart: 0,
         avertirErreurs: false,   // fond translucide : couleur écran, non portable vers jsPDF
+        // TAB seule (voir main.js#appliquerTabSeule) : le PDF suit le même réglage que l'écran, la
+        // même liste d'affichage partagée s'en charge sans code de plus ici.
+        avecPortee: options.avecPortee,
     });
 
     const hauteurEnTete = page.ancrages.systemes.length ? page.ancrages.systemes[0].y : 0;

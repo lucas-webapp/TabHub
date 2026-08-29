@@ -93,6 +93,7 @@ const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
+const CLE_TAB_SEULE = 'tabhub.tabSeule';
 const CLE_METRONOME = 'tabhub.metronome';
 const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
@@ -141,6 +142,13 @@ class TabHubApp {
         // valeur, y compris absente, comme « allumé » — ce qu'était déjà « auto » dans l'immense
         // majorité des cas.
         this.paveActif = localStorage.getItem(CLE_PAVE) !== 'jamais' && localStorage.getItem(CLE_PAVE) !== '0';
+        // TAB SEULE (retour utilisateur : « visualiser uniquement la portée de tablature, sans la
+        // partition ») : une préférence d'AFFICHAGE comme les autres ci-dessus — locale au
+        // navigateur, jamais dans le .json (voir engine/layout.js#mettreEnPage, option `avecPortee`).
+        // Sans effet au piano (mettreEnPagePiano ne lit jamais cette option), et le réglage lui-même
+        // reste masqué là (voir remplirReglages) plutôt que d'exposer un interrupteur qui ne ferait
+        // jamais rien — même principe que le pavé tactile juste au-dessus.
+        this.tabSeule = localStorage.getItem(CLE_TAB_SEULE) === '1';
         // Volumes : appliqués au lecteur dès la construction (voir Lecteur, qui les rejoue lui-même
         // au premier `demarrer()`, avant même que Réglages n'ait été ouvert une seule fois).
         const volGeneral = parseInt(localStorage.getItem(CLE_VOLUME_GENERAL), 10);
@@ -235,6 +243,9 @@ class TabHubApp {
                 largeurPage: largeur,
                 yDepart: 6,
                 mesuresParLigne: this.mesuresParLigne || null,
+                // Sans effet au piano (mettreEnPagePiano ne lit jamais cette option, voir son propre
+                // aiguillage en tête de mettreEnPage) : rien à conditionner ici sur l'instrument.
+                avecPortee: !this.tabSeule,
             });
         } catch (err) {
             // Un écran noir SANS EXPLICATION est le pire des échecs — c'est exactement ce que
@@ -722,7 +733,9 @@ class TabHubApp {
     exporterPdf() {
         try {
             this.message('Génération du PDF…', 20000);
-            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition);
+            // TAB seule (voir appliquerTabSeule) : le PDF suit le même réglage que l'écran — sans
+            // effet au piano, comme sur l'écran (mettreEnPagePiano ne lit jamais cette option).
+            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition, { avecPortee: !this.tabSeule });
             this.message(`PDF téléchargé → ${nomFichier} (${nbPages} page${nbPages > 1 ? 's' : ''})`);
         } catch (err) {
             console.error(err);
@@ -1895,6 +1908,13 @@ class TabHubApp {
         requestAnimationFrame(() => this.dessiner());
     }
 
+    /** TAB seule (voir dessiner, engine/layout.js#mettreEnPage option `avecPortee`). */
+    appliquerTabSeule(actif) {
+        this.tabSeule = !!actif;
+        localStorage.setItem(CLE_TAB_SEULE, this.tabSeule ? '1' : '0');
+        this.dessiner();
+    }
+
     /** Peuple la fenêtre « Instrument et accordage » depuis l'état courant. */
     remplirReglages() {
         const piste = this.editeur.partition.piste;
@@ -1961,6 +1981,19 @@ class TabHubApp {
             btnPave.onclick = () => {
                 this.appliquerPave(!this.paveActif);
                 btnPave.setAttribute('aria-checked', String(this.paveActif));
+            };
+        }
+
+        // TAB SEULE : n'a de sens que pour un instrument qui A une tablature (voir appliquerTabSeule) —
+        // masqué au piano, même logique que le pavé tactile juste au-dessus.
+        const ligneTabSeule = document.getElementById('ligne-tab-seule');
+        const btnTabSeule = document.getElementById('champ-tab-seule');
+        ligneTabSeule.hidden = piste.instrument === 'piano';
+        if (!ligneTabSeule.hidden) {
+            btnTabSeule.setAttribute('aria-checked', String(this.tabSeule));
+            btnTabSeule.onclick = () => {
+                this.appliquerTabSeule(!this.tabSeule);
+                btnTabSeule.setAttribute('aria-checked', String(this.tabSeule));
             };
         }
 

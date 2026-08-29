@@ -12,7 +12,7 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608300400">
+    <link rel="stylesheet" href="style.css?v=202608300500">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -222,6 +222,20 @@
                         <span class="interrupteur-curseur"></span>
                     </button>
                 </div>
+                <!-- TAB SEULE : masqué au piano (`hidden`), qui n'a pas de tablature — remplirReglages()
+                     ne le démasque QUE pour guitare/basse, même logique que le pavé tactile juste
+                     au-dessus. Retour utilisateur : « visualiser uniquement la portée de tablature, sans
+                     la partition [...] le rythme doit être visible sur la portée de la tablature
+                     directement » — voir engine/layout.js#mettreEnPage, option `avecPortee`, qui déplace
+                     alors hampes/crochets/silences/n-olets directement sur la TAB (même convention que
+                     Guitar Pro en vue TAB seule), plutôt que de simplement masquer une portée qui
+                     resterait la SEULE à porter le rythme. -->
+                <div class="ligne-champ" id="ligne-tab-seule" hidden>
+                    <label for="champ-tab-seule">TAB seule (sans portée)</label>
+                    <button type="button" id="champ-tab-seule" class="interrupteur" role="switch" aria-checked="false">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
+                </div>
             </div>
             <!-- « Brouillon local », pas « Fichiers » : ce nom-là appartient déjà au bouton de la barre
                  du haut (Nouveau/Ouvrir/Exporter/PDF/MIDI, voir #btn-fichiers) — deux rubriques
@@ -335,6 +349,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202608300400"></script>
+<script type="module" src="src/main.js?v=202608300500"></script>
 </body>
 </html>
