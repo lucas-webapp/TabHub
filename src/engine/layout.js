@@ -255,9 +255,10 @@ function calculerColonnes(mesure, capaciteNoires, S) {
  * antérieure portait une table de largeurs écrite à la main ; elle a cessé d'être juste dès que les
  * dessins ont changé, et les altérations d'armure se chevauchaient.
  */
-function largeurEnTete(besoins, armure, signature, clef, S) {
+function largeurEnTete(besoins, armure, signature, clef, S, ST, cordes) {
     let w = 0;
     if (besoins.clef) w += (G.largeurDe(clef.glyphe) + 0.9) * S;
+    if (besoins.cleTab) w += largeurCleTab(ST, cordes) + 0.9 * S;
     if (besoins.armure && armure !== 0) {
         w += Math.abs(armure) * (G.largeurDe(armure > 0 ? G.DIESE : G.BEMOL) + 0.08) * S + 0.5 * S;
     }
@@ -381,6 +382,11 @@ function memoireAlterations(armure) {
 function besoinsDe(m, premiereDuSysteme, avecPortee = true) {
     return {
         clef: avecPortee && premiereDuSysteme,
+        // Sans portée, la clé de TAB (déjà dessinée par système, voir poserCleTab) partage
+        // désormais la même ligne que la signature (voir plus bas, poserMesure) : sa largeur doit
+        // être réservée en tête de mesure exactement comme l'était celle de la clé de notation —
+        // sans quoi la signature viendrait s'y superposer (retour utilisateur, capture à l'appui).
+        cleTab: !avecPortee && premiereDuSysteme,
         armure: avecPortee && (premiereDuSysteme || m.changeArmure),
         signature: m.index === 0 || m.changeSignature,
         repriseDebut: m.ref.repriseDebut,
@@ -388,9 +394,9 @@ function besoinsDe(m, premiereDuSysteme, avecPortee = true) {
 }
 
 /** Calcule et mémorise l'en-tête et la largeur totale d'une mesure pour les besoins donnés. */
-function mesurerMesure(m, besoins, clef, S) {
+function mesurerMesure(m, besoins, clef, S, ST, cordes) {
     m.besoins = besoins;
-    m.enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S);
+    m.enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S, ST, cordes);
     m.largeurTotale = m.enTete + m.largeurNotes + 1.4 * S;   // marge avant la barre de mesure
     return m.largeurTotale;
 }
@@ -540,7 +546,7 @@ export function mettreEnPage(partition, options = {}) {
     //   • un nombre N : COMPTE FIXE — exactement N mesures par ligne, sauf à devenir illisible, une
     //     mesure à la fois, pour rester lisible quel que soit le chiffrage rythmique en cours.
     const nMesuresParLigne = geo.mesuresParLigne ? Math.max(1, Math.round(geo.mesuresParLigne)) : null;
-    const mesurer = (m, premiere) => mesurerMesure(m, besoinsDe(m, premiere, avecPortee), clef, S);
+    const mesurer = (m, premiere) => mesurerMesure(m, besoinsDe(m, premiere, avecPortee), clef, S, ST, cordes);
     const systemes = nMesuresParLigne
         ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, mesurer)
         : decouperEnSystemesGloutons(mesures, largeurUtile, mesurer);
@@ -1012,15 +1018,24 @@ function poserAccolade(out, x, yHaut, yBas, S) {
  * l'un sur l'autre, comme dans une version antérieure, se lisaient comme un mot écrit à la verticale,
  * pas comme une clé.
  */
+/** Échelle et largeur RÉELLES (glyphe étiré à la hauteur de la TAB) — voir poserCleTab et
+ * largeurEnTete, qui doivent s'accorder sur le MÊME calcul plutôt que le deviner chacune à part. */
+function echelleCleTab(ST, cordes) {
+    const hauteur = (cordes - 1) * ST;
+    const g = G.cleTabPour(cordes);
+    return hauteur / (G.boiteDe(g).bas - G.boiteDe(g).haut);
+}
+function largeurCleTab(ST, cordes) {
+    return G.largeurDe(G.cleTabPour(cordes)) * echelleCleTab(ST, cordes);
+}
+
 function poserCleTab(out, x, yTab, ST, cordes) {
     const hauteur = (cordes - 1) * ST;
     const g = G.cleTabPour(cordes);
-    const b = G.boiteDe(g);
     // Le glyphe est dessiné pour une portée standard : on l'étire à la hauteur RÉELLE de la
     // tablature, qui dépend du nombre de cordes et de l'espacement choisi. Exactement à cette
     // hauteur, sans marge : la clé de tablature ENJAMBE la portée, elle n'en déborde pas.
-    const echelle = hauteur / (b.bas - b.haut);
-    out.push(glyphe(g, x + 0.5 * ST, yTab + hauteur / 2, echelle));
+    out.push(glyphe(g, x + 0.5 * ST, yTab + hauteur / 2, echelleCleTab(ST, cordes)));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1066,6 +1081,10 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         out.push(glyphe(clef.glyphe, x + 0.45 * S, yPortee + clef.ligne * S, S));
         x += (G.largeurDe(clef.glyphe) + 0.9) * S;
     }
+    // Sans portée : RIEN à dessiner ici (la clé de TAB se dessine une fois par système, voir
+    // poserCleTab plus haut) — seulement laisser filer `x` de la même largeur que largeurEnTete en
+    // a réservée, pour que la signature ci-dessous ne vienne pas s'y superposer.
+    if (m.besoins.cleTab) x += largeurCleTab(ST, cordes) + 0.9 * S;
 
     // Armure
     if (m.besoins.armure && m.armure !== 0) {
@@ -1094,8 +1113,20 @@ function poserMesure(out, ancrages, partition, m, ctx) {
                 cx += (G.largeurDe(g) / 2) * S;
             }
         };
-        poserSuite(haut, yPortee + 1 * S);   // centré entre la ligne du haut et la médiane
-        poserSuite(bas, yPortee + 3 * S);    // centré entre la médiane et la ligne du bas
+        if (avecPortee) {
+            poserSuite(haut, yPortee + 1 * S);   // centré entre la ligne du haut et la médiane
+            poserSuite(bas, yPortee + 3 * S);    // centré entre la médiane et la ligne du bas
+        } else {
+            // TAB seule (retour utilisateur : « on voit encore la signature rythmique [...] à
+            // placer sur la ligne de TAB ») : la portée a disparu, la signature reste pourtant
+            // ancrée à SA hauteur — flottante dans l'espace qu'elle occupait encore. Recentrée ici
+            // sur la TAB elle-même, même convention que poserCleTab (proportionnelle à sa hauteur
+            // réelle, donc juste aussi pour 4 cordes que pour 6) : chiffre du haut au quart
+            // supérieur, chiffre du bas au quart inférieur — la même disposition « à cheval sur le
+            // milieu » que sur une portée, juste rapportée à la TAB.
+            poserSuite(haut, yTab + hauteurTab * 0.25);
+            poserSuite(bas, yTab + hauteurTab * 0.75);
+        }
         x += (largeur + 0.9) * S;
     }
     if (m.enTete > 0) x += 1.5 * S;   // la respiration comptée par largeurEnTete

@@ -25,13 +25,18 @@
 //     très courant) en un seul chiffre « 3 » — chacun garde le sien, tout en préservant le cas d'un
 //     triolet NON ligaturé (ex. trois noires) qui, lui, garde bien UN SEUL chiffre pour ses trois
 //     notes ; et le BEND se dessine en flèche montante gravée (courbe + pointe), pas en texte flottant.
+//   • LA SIGNATURE RYTHMIQUE, ELLE AUSSI RECENTRÉE (retour utilisateur, capture à l'appui : « on voit
+//     encore la signature rythmique [...] à placer sur la ligne de TAB ») : sans portée, elle ne doit
+//     plus flotter à l'ancienne hauteur de la portée disparue, mais se recentrer sur la TAB — sans se
+//     superposer à la clé de TAB, dont la largeur doit alors être réservée en tête de mesure comme
+//     l'était celle de la clé de notation.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('TAB seule');
 
 (async () => {
-    plan(30);
+    plan(34);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : un cas complet (rythme varié, silence, n-olet, liaison,
@@ -75,6 +80,7 @@ const { check, exiger, plan, bilan } = creerHarnais('TAB seule');
             // poserCleTab) se dessine, elle, dans LES DEUX modes — seule la clé de NOTATION disparaît.
             const compteGlyphesClef = (pg) => pg.primitives.filter(pr => pr.t === 'glyphe' && /^cle(Sol|Fa)/.test(pr.nom || '')).length;
             const lignesVerticales = (pg) => pg.primitives.filter(pr => pr.t === 'ligne' && pr.x1 === pr.x2);
+            const glyphesSignature = (pg) => pg.primitives.filter(pr => pr.t === 'glyphe' && /^chiffre\d/.test(pr.nom || ''));
 
             return {
                 hauteurAvec: pageAvec.hauteur, hauteurSans: pageSans.hauteur,
@@ -90,6 +96,16 @@ const { check, exiger, plan, bilan } = creerHarnais('TAB seule');
                 // toutes EN DESSOUS — jamais mélangées, jamais l'une chevauchant la TAB.
                 yTabSys0: pageSans.ancrages.systemes[0].yTab,
                 vertSans: lignesVerticales(pageSans).map(l => ({ y1: l.y1, y2: l.y2 })),
+                // La signature rythmique (retour utilisateur : « on voit encore la signature [...]
+                // à placer sur la ligne de TAB ») : SANS portée, recentrée sur la TAB elle-même —
+                // ni flottante à l'ancienne hauteur de la portée disparue, ni superposée à la clé de
+                // TAB (dont la largeur doit être réservée en tête de mesure, voir besoinsDe#cleTab).
+                sigSans: glyphesSignature(pageSans).map(g => ({ x: g.x, y: g.y })),
+                sigAvec: glyphesSignature(pageAvec).map(g => ({ x: g.x, y: g.y })),
+                yPorteeSys0Avec: pageAvec.ancrages.systemes[0].yPortee,
+                yTabSys0Avec: pageAvec.ancrages.systemes[0].yTab,
+                xDebutSys0Sans: pageSans.ancrages.systemes[0].xDebut,
+                hauteurTabSys0: pageSans.ancrages.systemes[0].hauteurTab,
             };
         });
 
@@ -193,6 +209,17 @@ const { check, exiger, plan, bilan } = creerHarnais('TAB seule');
         check(r.hammerLabelSans === true && r.hammerLabelAvec === true,
             'le hammer-on (arc + « H », déjà 100% relatif à la TAB) se dessine dans LES DEUX modes, sans changement');
         check(r.signatureSans, 'la signature rythmique reste affichée sans portée — le rythme se lit toujours par rapport à un chiffrage');
+
+        // Retour utilisateur (capture à l'appui) : « on voit encore la signature rythmique [...] à
+        // placer sur la ligne de TAB lorsque tab uniquement est visible » — recentrée sur la TAB.
+        const S = 12;
+        exiger(r.sigSans.length > 0, 'préalable : la signature se dessine bien sans portée (voir le test précédent)');
+        check(r.sigSans.every(g => g.y >= r.yTabSys0 - 1 && g.y <= r.yTabSys0 + r.hauteurTabSys0 + 1),
+            'sans portée, CHAQUE chiffre de la signature retombe DANS la hauteur de la TAB — plus flottant à l\'ancienne hauteur de la portée disparue');
+        check(r.sigSans.every(g => g.x > r.xDebutSys0Sans + 2 * S),
+            'et à droite de la clé de TAB — jamais superposé à elle (sa largeur est réservée en tête de mesure, voir besoinsDe#cleTab)');
+        check(r.sigAvec.every(g => g.y >= r.yPorteeSys0Avec - 1 && g.y <= r.yPorteeSys0Avec + 4 * S + 1) && r.sigAvec.every(g => g.y < r.yTabSys0Avec),
+            'avec portée, en revanche, RIEN ne change : la signature reste sur la portée, bien au-dessus de la TAB');
 
         const yTab = r.yTabSys0;
         const auDessus = r.vertSans.filter(v => Math.max(v.y1, v.y2) <= yTab + 1);
