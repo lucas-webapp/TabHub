@@ -323,6 +323,9 @@ body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-r
 /* Palm mute : présenté comme il apparaîtra sur la partition — italique, à son poids naturel — plutôt
    qu'en gras générique. Le bouton devient un aperçu fidèle plutôt qu'une étiquette quelconque. */
 .apercu-texte-leger { font-style: italic; font-weight: 500; letter-spacing: .01em; }
+/* Nom d'accord : même principe, à l'inverse — GRAS, comme il apparaîtra au-dessus de la portée
+   (voir engine/layout.js#poserAccords), pas une icône qui a échoué à rester lisible en si petit. */
+.apercu-texte-gras { font-weight: 800; font-size: .82rem; }
 
 select.champ, input.champ {
     height: 30px; padding: 0 8px;

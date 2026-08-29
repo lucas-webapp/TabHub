@@ -1016,6 +1016,20 @@ export class Editeur {
         this.prevenir('edition');
     }
 
+    /**
+     * Nom d'accord (« A7 », « E7 »…) au-dessus de l'ÉVÈNEMENT courant — vide (ou rien que des
+     * espaces) le retire. Sur l'évènement, pas la mesure (voir Évènement#accord) : un accord change
+     * souvent plusieurs fois dans la même mesure, contrairement à l'annotation de section. Même
+     * franchise que definirAnnotation : jamais de refus faute de place, l'espace réservé par la mise
+     * en page (voir engine/layout.js, HAUTEUR_ACCORDS) ne dépend d'aucun contenu.
+     */
+    definirAccord(texte) {
+        this.memoriser();
+        const e = this.evenementCourant();
+        e.accord = String(texte ?? '').trim().slice(0, 12) || null;
+        this.prevenir('edition');
+    }
+
     // -- Effets --------------------------------------------------------------------------------------
 
     /** Effets portés par l'évènement entier (palm mute, accent, staccato). */

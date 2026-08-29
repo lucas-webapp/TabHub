@@ -218,6 +218,16 @@ const LARGEUR_PAR_NOIRE = 5;
 const HAUTEUR_ANNOTATION = 2.4;
 
 /**
+ * Bande RÉSERVÉE au-dessus d'un système pour les noms d'accords (« A7 », « E7 »…, voir
+ * Editeur.definirAccord et Évènement#accord), en S. Même principe que HAUTEUR_ANNOTATION — ajoutée
+ * SOUS elle si les deux coexistent (l'annotation de section reste le repère le plus large qu'on
+ * cherche d'abord), et seulement pour les systèmes qui en ont réellement besoin. Plus PETITE que
+ * HAUTEUR_ANNOTATION : un nom d'accord (« A7 ») est plus court et plus léger qu'un titre de section,
+ * il n'a pas besoin d'autant de champ.
+ */
+const HAUTEUR_ACCORDS = 1.8;
+
+/**
  * Découpe une mesure en COLONNES : les instants de temps où AU MOINS UNE voix attaque une note ou un
  * silence, triés, avec la largeur que chacun réclame (voir largeurColonne). Une seule voix produit
  * exactement la même suite de colonnes que ses propres évènements ; deux voix produisent l'UNION de
@@ -580,8 +590,15 @@ export function mettreEnPage(partition, options = {}) {
         // rien ne doit voir aucune de ses lignes s'écarter.
         const aUneAnnotation = sys.mesures.some(m => (m.ref.annotation || '').trim());
         const extraAnnotation = aUneAnnotation ? HAUTEUR_ANNOTATION * S : 0;
+        // Bande des noms d'accords (« A7 », « E7 »… voir Évènement#accord) : même principe, réservée
+        // seulement si l'un des évènements de CE système en porte un — SOUS l'annotation de section
+        // si les deux coexistent, celle-ci restant le repère le plus large qu'on cherche d'abord en
+        // parcourant la page (voir edit/raccourcis.js#accord).
+        const aUnAccord = sys.mesures.some(m => m.ref.voix.some(v => v.evenements.some(e => (e.accord || '').trim())));
+        const extraAccords = aUnAccord ? HAUTEUR_ACCORDS * S : 0;
+        const yAccords = y + extraAnnotation + 1.5 * S;
         const yAnnotation = y + 1.6 * S;
-        const yPortee = y + geo.margeHaut * S + extraAnnotation;
+        const yPortee = y + geo.margeHaut * S + extraAnnotation + extraAccords;
         const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
         const xDebut = geo.margeGauche;
         // Largeur RÉELLE de ce système : la somme des largeurs FIXES de ses propres mesures (voir
@@ -609,13 +626,13 @@ export function mettreEnPage(partition, options = {}) {
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
                 x, largeurMesure, facteur: facteurEffectif, finMesure,
-                yPortee, yTab, yAnnotation, S, ST, cordes, clef, geo, iSys, avecPortee,
+                yPortee, yTab, yAnnotation, yAccords, S, ST, cordes, clef, geo, iSys, avecPortee,
                 premiereDuSysteme: iDansSys === 0,
             });
         });
 
         ancrages.systemes.push({
-            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation, yPortee, yTab, xDebut, xFin, hauteurTab,
+            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation + extraAccords, yPortee, yTab, xDebut, xFin, hauteurTab,
             // `yBas` : bas de la grille de notation, générique entre les deux mises en page (voir son
             // pendant côté piano dans mettreEnPagePiano) — pour que la bande de boucle et le reste du
             // code d'interaction n'aient jamais à savoir s'il existe une TAB sous la portée.
@@ -623,7 +640,7 @@ export function mettreEnPage(partition, options = {}) {
             debutPrimitives, finPrimitives: primitives.length,
             premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
         });
-        y += hauteurSysteme + extraAnnotation + geo.ecartSystemes * S;
+        y += hauteurSysteme + extraAnnotation + extraAccords + geo.ecartSystemes * S;
     });
 
     // LA PAGE NE RÉTRÉCIT JAMAIS SON CONTENU POUR TENIR DANS largeurPage — un système qui ne peut
@@ -1043,7 +1060,7 @@ function poserCleTab(out, x, yTab, ST, cordes) {
 // ---------------------------------------------------------------------------------------------
 
 function poserMesure(out, ancrages, partition, m, ctx) {
-    const { yPortee, yTab, yAnnotation, S, ST, cordes, clef, geo, facteur, avecPortee = true } = ctx;
+    const { yPortee, yTab, yAnnotation, yAccords, S, ST, cordes, clef, geo, facteur, avecPortee = true } = ctx;
     const hauteurTab = (cordes - 1) * ST;
     let x = ctx.x;
     const xDebutMesure = x;
@@ -1210,7 +1227,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
             const xFinEvt = iColFin < xColonnes.length ? xColonnes[iColFin] : xFinMesureNotes;
 
             const pose = poserEvenement(out, partition, ref, {
-                x: xNote, xDebut: xDebutEvt, largeur: largeurPremiereColonne, yPortee, yTab, S, ST, cordes, clef, memoire, geo,
+                x: xNote, xDebut: xDebutEvt, largeur: largeurPremiereColonne, yPortee, yTab, yAccords, S, ST, cordes, clef, memoire, geo,
                 sensImpose, decalageSilence, notesParPasEtColonne, cleColonne: iCol, avecPortee,
             });
             poses.push(pose);
@@ -1281,7 +1298,7 @@ export function pasDeLaPosition(y, yPortee, S, clef) {
 // ---------------------------------------------------------------------------------------------
 
 function poserEvenement(out, partition, evenement, ctx) {
-    const { x, yPortee, yTab, S, ST, cordes, clef, memoire, geo, sensImpose = null, decalageSilence = 0, avecPortee = true } = ctx;
+    const { x, yPortee, yTab, yAccords, S, ST, cordes, clef, memoire, geo, sensImpose = null, decalageSilence = 0, avecPortee = true } = ctx;
     const crochets = crochetsDe(evenement.duree.valeur);
     const estSilence = evenement.silence || evenement.notes.length === 0;
 
@@ -1289,6 +1306,19 @@ function poserEvenement(out, partition, evenement, ctx) {
         ref: evenement, x, crochets, estSilence,
         notes: [], yHampe: null, sensHampe: 1, yTeteExtreme: null,
     };
+
+    // Nom d'accord (« A7 », « E7 »…, voir Évènement#accord) : posé à l'aplomb de CET évènement
+    // précis, qu'il soit silencieux ou non (un accord peut très bien continuer de sonner sous un
+    // silence de la voix qu'on écrit) — donc AVANT tout retour anticipé plus bas, silence ou TAB
+    // seule. `yAccords` n'existe (voir mettreEnPage) que pour un système dont au moins un évènement
+    // en porte un ; `ctx.yAccords` reste sinon `undefined` (voir poserMesurePiano, qui ne le passe
+    // pas — les noms d'accords, comme l'annotation de section, n'existent pour l'instant que côté
+    // guitare/basse) et ce bloc ne s'exécute alors jamais.
+    if (evenement.accord && yAccords != null) {
+        out.push(texte(x, yAccords, evenement.accord, {
+            taille: S * 1.2, police: 'sans-serif', poids: '700', ancre: 'debut', couleur: 'encre',
+        }));
+    }
 
     // ANCRE DES HAMPES EN MODE « TAB SEULE » (voir HAUTEUR_ZONE_HAMPE_TAB/ECART_ZONE_HAMPE_TAB) :
     // sans portée, aucune tête de note n'a de hauteur réelle à rejoindre — chaque hampe part donc

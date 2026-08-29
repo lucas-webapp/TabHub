@@ -95,6 +95,11 @@ function rendreApercu(action) {
         // Palm mute s'affiche comme il apparaîtra sur la partition — italique, à son poids naturel —
         // plutôt qu'en texte gras générique : c'est un aperçu fidèle, pas un simple libellé de bouton.
         case 'texteLeger': return `<span class="apercu-texte-leger">${a.texte}</span>`;
+        // Nom d'accord : même principe, à l'inverse — un ESSAI d'icône dessinée (têtes de note
+        // empilées) restait illisible à la taille d'un bouton (voir le correctif qui l'a remplacé),
+        // alors qu'un exemple de nom, posé GRAS comme il le sera sur la partition, se lit d'un coup
+        // d'œil et montre exactement ce que fait le bouton.
+        case 'texteGras': return `<span class="apercu-texte-gras">${a.texte}</span>`;
         case 'voix': return '<span data-role="voix">Voix</span>';   // rempli dynamiquement, voir aRafraichir
         default: return `<span>${action.texte || action.libelle}</span>`;
     }
