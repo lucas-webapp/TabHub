@@ -98,6 +98,7 @@ const CLE_METRONOME = 'tabhub.metronome';
 const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
 const CLE_VOLUME_METRONOME = 'tabhub.volumeMetronome';
+const CLE_VITESSE_LECTURE = 'tabhub.vitesseLecture';
 
 /**
  * Vrai si l'appareil désigne AU DOIGT plutôt qu'à la souris — la seule question qui compte pour
@@ -155,6 +156,11 @@ class TabHubApp {
         const volMetronome = parseInt(localStorage.getItem(CLE_VOLUME_METRONOME), 10);
         this.lecteur.definirVolumeGeneral(Number.isFinite(volGeneral) ? volGeneral : this.lecteur.volumeGeneral);
         this.lecteur.definirVolumeMetronome(Number.isFinite(volMetronome) ? volMetronome : this.lecteur.volumeMetronome);
+        // Vitesse de lecture (retour utilisateur : ralentir pour mieux entendre une grille
+        // d'accords, sans toucher au tempo écrit) — même traitement que les volumes ci-dessus :
+        // appliquée dès la construction, avant même que Réglages n'ait été ouvert une seule fois.
+        const vitesseLecture = parseInt(localStorage.getItem(CLE_VITESSE_LECTURE), 10);
+        this.lecteur.definirVitesseLecture(Number.isFinite(vitesseLecture) ? vitesseLecture : this.lecteur.vitesseLecture);
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
         this._tapTempoInstants = [];   // voir tapTempo() — horodatages des derniers clics sur TAP
@@ -2017,6 +2023,20 @@ class TabHubApp {
             this.lecteur.definirVolumeMetronome(p);
             valeurVolMetronome.textContent = p;
             localStorage.setItem(CLE_VOLUME_METRONOME, String(p));
+        };
+
+        // Vitesse de lecture (25-100 %) : ralentit la lecture SANS toucher au tempo écrit sur la
+        // partition (voir Lecteur#definirVitesseLecture) — utile pour mieux entendre une grille
+        // d'accords complexe. Même geste que les volumes ci-dessus.
+        const curseurVitesse = document.getElementById('champ-vitesse-lecture');
+        const valeurVitesse = document.getElementById('valeur-vitesse-lecture');
+        curseurVitesse.value = this.lecteur.vitesseLecture;
+        valeurVitesse.textContent = this.lecteur.vitesseLecture;
+        curseurVitesse.oninput = () => {
+            const p = parseInt(curseurVitesse.value, 10);
+            this.lecteur.definirVitesseLecture(p);
+            valeurVitesse.textContent = p;
+            localStorage.setItem(CLE_VITESSE_LECTURE, String(p));
         };
 
         // Fichiers : TabHub n'a qu'un seul brouillon (voir CLE_BROUILLON, planifierBrouillon) —

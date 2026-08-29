@@ -5,13 +5,19 @@
 // avance-t-il vraiment ? le trait suit-il la position réelle du transport, ou une minuterie parallèle
 // qui dérivera ? les liaisons de prolongation sont-elles fusionnées, ou la note est-elle réattaquée
 // là où la notation dit qu'elle ne doit pas l'être ? un changement de tempo réétire-t-il l'ensemble ?
+//
+// VITESSE DE LECTURE (retour utilisateur : ralentir la lecture pour mieux entendre une grille
+// d'accords, SANS toucher au tempo écrit) : possible ici sans distorsion de hauteur puisque les
+// notes sont SYNTHÉTISÉES par Tone.js à la demande, pas un enregistrement à étirer — ralentir
+// revient à réduire Tone.Transport.bpm.value, jamais partition.meta.tempo (voir player.js
+// #definirVitesseLecture/_appliquerTempoEffectif).
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(27);
+    plan(41);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
@@ -43,6 +49,66 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
         exiger(programme.length === 4, 'les quatre notes saisies sont programmées');
         check(programme.map(e => e.d).join(',') === '0,1,2,3', 'elles se succèdent d\'une noire, en noires depuis le début');
         check(programme[0].n === 'E4' && programme[3].n === 'A4', 'aux hauteurs que donne l\'accordage (mi4 … la4)');
+
+        // --- Vitesse de lecture : ralentit l'HORLOGE, jamais le tempo ÉCRIT ----------------------------
+        await page.evaluate(() => window.app.editeur.definirTempo(140));
+        const vitesse = await page.evaluate(() => {
+            const lect = window.app.lecteur;
+            lect.programmer(window.app.editeur.partition);
+            const bpm100 = window.Tone.Transport.bpm.value;
+            lect.definirVitesseLecture(50);
+            const bpm50 = window.Tone.Transport.bpm.value;
+            lect.definirVitesseLecture(100);
+            const bpmRetour100 = window.Tone.Transport.bpm.value;
+            // Bornée 25-100 : jamais plus lent qu'un quart de la vitesse écrite, jamais accéléré
+            // au-delà de ce qui est écrit (ce réglage RALENTIT, il n'accélère pas).
+            lect.definirVitesseLecture(10);
+            const vitesseBorneeBas = lect.vitesseLecture;
+            lect.definirVitesseLecture(150);
+            const vitesseBorneeHaut = lect.vitesseLecture;
+            // Changer le tempo ÉCRIT pendant qu'un ralenti est actif doit repartir de CE nouveau
+            // tempo, pas revenir à 100% de vitesse (les deux réglages restent indépendants).
+            lect.definirVitesseLecture(50);
+            window.app.editeur.definirTempo(200);
+            const bpmTempoEtVitesse = window.Tone.Transport.bpm.value;
+            return {
+                bpm100, bpm50, bpmRetour100, vitesseBorneeBas, vitesseBorneeHaut, bpmTempoEtVitesse,
+                tempoEcrit: window.app.editeur.partition.meta.tempo,
+            };
+        });
+        check(vitesse.bpm100 === 140, 'à 100%, l\'horloge tourne exactement au tempo écrit (140)');
+        check(vitesse.bpm50 === 70, 'à 50%, l\'horloge tourne deux fois plus lentement (70) — la moitié, pas une valeur approchée');
+        check(vitesse.bpmRetour100 === 140, 'et remonter à 100% retrouve EXACTEMENT le tempo écrit, sans dérive cumulée');
+        check(vitesse.tempoEcrit === 200, 'le tempo ÉCRIT sur la partition suit les changements voulus (definirTempo)');
+        check(vitesse.vitesseBorneeBas === 25, 'la vitesse de lecture ne descend jamais sous 25% (un ralenti reste JOUABLE)');
+        check(vitesse.vitesseBorneeHaut === 100, 'et ne dépasse jamais 100% : ce réglage ralentit, il n\'accélère pas au-delà de l\'écrit');
+        check(vitesse.bpmTempoEtVitesse === 100, 'changer le tempo ÉCRIT pendant un ralenti à 50% repart bien de ce nouveau tempo (200 × 50% = 100), sans réinitialiser la vitesse à 100%');
+
+        // --- Persistance : un réglage de LECTURE (comme le volume), jamais dans le .json --------------
+        await page.evaluate(() => window.app.lecteur.definirVitesseLecture(100));
+        await page.click('#btn-reglages');
+        await page.waitForTimeout(150);
+        exiger(await page.evaluate(() => !!document.getElementById('champ-vitesse-lecture')),
+            'le curseur de vitesse de lecture existe dans Réglages (rubrique Son, avec les volumes)');
+        await page.evaluate(() => {
+            const c = document.getElementById('champ-vitesse-lecture');
+            c.value = 60;
+            c.dispatchEvent(new Event('input'));
+        });
+        await page.waitForTimeout(100);
+        const persistance = await page.evaluate(() => ({
+            vitesseLecteur: window.app.lecteur.vitesseLecture,
+            affichee: document.getElementById('valeur-vitesse-lecture').textContent,
+            localStorage: localStorage.getItem('tabhub.vitesseLecture'),
+            dansLeJson: JSON.stringify(window.app.editeur.partition).includes('vitesseLecture'),
+        }));
+        check(persistance.vitesseLecteur === 60, 'glisser le curseur à 60 bascule réellement la vitesse de lecture');
+        check(persistance.affichee === '60', 'et l\'affiche à côté du curseur, comme les volumes');
+        check(persistance.localStorage === '60', 'persisté en local (comme les volumes, mesuresParLigne…)');
+        check(!persistance.dansLeJson, 'et ne se glisse pas dans le modèle de la partition (le .json reste indépendant de la lecture)');
+        await page.click('[data-fermer]');
+        await page.waitForTimeout(100);
+        await page.evaluate(() => window.app.lecteur.definirVitesseLecture(100));   // remis à 100% pour la suite du banc
 
         // --- Liaison de prolongation : UNE attaque, pas deux -------------------------------------------
         await page.evaluate(() => { window.app.editeur.placerCurseur(0, 0, 0); window.app.editeur.basculerLien('tie'); });

@@ -82,6 +82,18 @@ export class Lecteur {
         // trop tôt. Persistance (localStorage) du ressort de main.js, comme le reste de ce bloc.
         this.volumeGeneral = 100;
         this.volumeMetronome = 80;
+        // Vitesse de lecture (25-100 %) : retour utilisateur — ralentir la lecture pour mieux
+        // ENTENDRE une grille (un enchaînement d'accords) sans changer le tempo ÉCRIT sur la
+        // partition. Possible ici sans la moindre distorsion de hauteur : les notes sont
+        // SYNTHÉTISÉES par Tone.js à la demande, pas un enregistrement à étirer — ralentir revient
+        // simplement à espacer les attaques dans le temps (voir _appliquerTempoEffectif). Jamais
+        // au-delà de 100 : ce réglage ralentit, il n'accélère pas au-delà de ce qui est écrit.
+        this.vitesseLecture = 100;
+        // Dernier tempo VOULU (celui de la partition, ou saisi via definirTempo) — AVANT le ralenti
+        // ci-dessus. Séparé de ce que Tone.Transport.bpm.value reçoit réellement (voir
+        // _appliquerTempoEffectif) : sans cette mémoire, changer la vitesse de lecture après avoir
+        // déjà ralenti aurait fallu partir du tempo déjà ralenti plutôt que du tempo écrit.
+        this._tempoEcrit = 120;
     }
 
     surPosition(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
@@ -102,6 +114,21 @@ export class Lecteur {
     definirVolumeMetronome(pourcent) {
         this.volumeMetronome = pourcent;
         if (this.metronome) this.metronome.volume.value = pourcentVersDb(pourcent);
+    }
+
+    /** Le SEUL endroit qui écrit sur Tone.Transport.bpm.value : toujours `_tempoEcrit` (le tempo
+     *  RÉEL, celui de la partition ou saisi) réduit par `vitesseLecture` — jamais l'un sans
+     *  l'autre, pour qu'ils restent réglables indépendamment sans jamais s'écraser l'un l'autre. */
+    _appliquerTempoEffectif() {
+        const Tone = globalThis.Tone;
+        if (Tone?.Transport) Tone.Transport.bpm.value = Math.max(20, Math.min(400, this._tempoEcrit * this.vitesseLecture / 100));
+    }
+
+    /** Vitesse de lecture (25-100 %) — voir le constructeur. S'applique EN COURS de lecture comme
+     *  definirTempo : Tone.js réétire l'horloge, rien à reprogrammer. */
+    definirVitesseLecture(pourcent) {
+        this.vitesseLecture = Math.max(25, Math.min(100, Math.round(pourcent)));
+        this._appliquerTempoEffectif();
     }
 
     /**
@@ -246,7 +273,8 @@ export class Lecteur {
     programmer(partition) {
         const Tone = globalThis.Tone;
         Tone.Transport.cancel();
-        Tone.Transport.bpm.value = partition.meta.tempo || 120;
+        this._tempoEcrit = partition.meta.tempo || 120;
+        this._appliquerTempoEffectif();
 
         const plat = aplatir(partition);
         this.duree = dureeTotale(partition);
@@ -531,8 +559,8 @@ export class Lecteur {
 
     /** Ajustement du tempo EN COURS de lecture : Tone.js réétire l'horloge, rien à reprogrammer. */
     definirTempo(bpm) {
-        const Tone = globalThis.Tone;
-        if (Tone) Tone.Transport.bpm.value = Math.max(20, Math.min(400, bpm));
+        this._tempoEcrit = Math.max(20, Math.min(400, bpm));
+        this._appliquerTempoEffectif();
     }
 
     /**
