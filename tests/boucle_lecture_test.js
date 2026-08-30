@@ -35,13 +35,19 @@
 // `pointer: coarse` (voir appareilTactile) — SANS jamais épaissir le trait VISUEL, qui reste centré
 // dans cette zone agrandie à la même épaisseur qu'à la souris : ce que l'œil voit ne change pas, ce
 // que le doigt peut manquer, si.
+//
+// AJOUTÉ (retour utilisateur : « la lecture devrait se lancer toujours depuis le début, sauf si j'ai
+// mis en place une barre orange ») : Editeur.positionDeDepartLecture repartait auparavant du CURSEUR
+// dès l'arrêt, la boucle ne servant de filet que si le curseur restait EN DEHORS d'elle. Le curseur
+// n'intervient plus DU TOUT dans cette décision : sans boucle, la lecture repart TOUJOURS du tout
+// début du morceau — avec une boucle, TOUJOURS du début de la boucle, où que soit le curseur.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(30);
+    plan(32);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -217,25 +223,39 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         await page.click('#btn-stop');
         check((await page.evaluate(() => window.app.lecteur.boucleLecture)) !== null, 'la boucle reste posée après un Stop (rien à voir avec l\'état de lecture)');
 
-        // --- 7. Lecture DEPUIS L'ARRÊT : curseur DANS la boucle -> part du curseur ------------------
+        // --- 7. Lecture DEPUIS L'ARRÊT, boucle active : TOUJOURS le début de la BOUCLE, curseur DEDANS
         const dansLaBoucle = await page.evaluate(() => {
             const ed = window.app.editeur;
-            ed.placerCurseur(1, 2, 0);   // mesure 1, dans la boucle [0,1]
+            ed.placerCurseur(1, 2, 0);   // mesure 1, DANS la boucle [0,1] — mais ne doit plus compter
             const depart = window.app.positionDeDepartLecture();
-            const attendu = window.app.positionDuCurseurEnNoires();
-            return Math.abs(depart - attendu) < 1e-9;
+            const debutBoucle = window.app.editeur.partition.mesures.slice(0, 0).length; // mesure 0 -> 0 noire
+            return depart === debutBoucle;
         });
-        check(dansLaBoucle, 'curseur DANS la boucle -> la lecture repart bien du curseur, pas du début de la boucle');
+        check(dansLaBoucle, 'curseur DANS la boucle -> la lecture repart bien du DÉBUT DE LA BOUCLE, plus du curseur (retour utilisateur)');
 
-        // --- 8. Curseur HORS la boucle -> part du DÉBUT de la boucle, pas du curseur ----------------
+        // --- 8. ... et TOUJOURS pareil, curseur DEHORS -----------------------------------------------
         const horsLaBoucle = await page.evaluate(() => {
             const ed = window.app.editeur;
             ed.placerCurseur(5, 0, 0);   // mesure 5, hors de la boucle [0,1]
             const depart = window.app.positionDeDepartLecture();
-            const attendu = window.app.editeur.partition.mesures.slice(0, 0).length; // 0
             return depart === 0;
         });
-        check(horsLaBoucle, 'curseur HORS la boucle -> la lecture repart du DÉBUT de la boucle, pas d\'un endroit qu\'elle ne traverse peut-être jamais');
+        check(horsLaBoucle, 'curseur HORS la boucle -> la lecture repart du DÉBUT DE LA BOUCLE tout pareil, jamais d\'un endroit qu\'elle ne traverse peut-être jamais');
+
+        // --- 8bis. SANS AUCUNE boucle : TOUJOURS le tout début du morceau, jamais le curseur ---------
+        // C'est le cœur du retour utilisateur : avant ce correctif, la lecture repartait du curseur
+        // par défaut — retoucher la mesure 6 puis lancer la lecture rejouait depuis la mesure 6, pas
+        // depuis le début, sans qu'aucune boucle ne l'ait demandé.
+        const sansBoucleDuTout = await page.evaluate(() => {
+            window.app.lecteur.retirerBoucle();
+            const ed = window.app.editeur;
+            ed.placerCurseur(2, 1, 0);   // mesure 2 — loin du début, aucune boucle en jeu
+            const depart = window.app.positionDeDepartLecture();
+            const curseur = window.app.positionDuCurseurEnNoires();
+            return { depart, curseurNonNul: curseur > 0 };
+        });
+        exiger(sansBoucleDuTout.curseurNonNul, 'préalable : le curseur est bien loin du début (sans quoi ce cas ne prouverait rien)');
+        check(sansBoucleDuTout.depart === 0, 'et SANS aucune boucle, la lecture repart du tout DÉBUT DU MORCEAU — jamais du curseur, quelle que soit sa position');
 
         // --- 9. Un geste qui commence AILLEURS que dans la bande garde son comportement normal ------
         // (non-régression : la bande de boucle est testée EN PREMIER dans demarrerGeste — elle ne

@@ -623,21 +623,22 @@ class TabHubApp {
     }
 
     /**
-     * D'où repartir quand on relance depuis l'arrêt : le curseur, comme toujours — SAUF si une
-     * boucle de lecture est active et que le curseur est resté EN DEHORS d'elle, auquel cas la
-     * lecture partirait d'un endroit que la boucle ne traverse peut-être jamais une fois lancée
-     * (elle ne revient au début de la boucle qu'à la PROCHAINE fois qu'elle atteint sa fin — voir
-     * Lecteur._appliquerBoucle). Repartir directement du début de la boucle est le seul choix qui ne
-     * surprenne pas : on entend tout de suite ce qu'on a défini, jamais un passage qui n'a rien à
-     * voir avec elle en attendant que le transport y arrive par hasard.
+     * D'où repartir quand on relance depuis l'arrêt : TOUJOURS le tout début du morceau — SAUF si
+     * une boucle de lecture est active, auquel cas on repart directement du début de LA BOUCLE, où
+     * que soit le curseur (retour utilisateur : « la lecture devrait se lancer toujours depuis le
+     * début, sauf si j'ai mis en place une barre orange »).
+     *
+     * Une version antérieure repartait du CURSEUR par défaut (pour réentendre la mesure qu'on venait
+     * de retoucher sans tout réécouter depuis le début à chaque essai), le début de la boucle ne
+     * servant que de filet quand le curseur restait en dehors d'elle. L'usage réel s'est révélé
+     * l'inverse : la lecture COMPLÈTE est ce qu'on attend par défaut, la boucle étant déjà l'outil
+     * dédié à « rejouer UN passage précis » — le curseur n'a donc plus à jouer ce rôle en double,
+     * de façon moins prévisible (sa position dépendait de la dernière case éditée ou cliquée).
      */
     positionDeDepartLecture() {
         const boucle = this.lecteur.boucleLecture;
-        const c = this.editeur.curseur;
-        if (boucle && (c.mesure < boucle.debut || c.mesure > boucle.fin)) {
-            return positionDebutMesure(this.editeur.partition, boucle.debut);
-        }
-        return this.positionDuCurseurEnNoires();
+        if (boucle) return positionDebutMesure(this.editeur.partition, boucle.debut);
+        return 0;
     }
 
     rafraichirTransport() {
