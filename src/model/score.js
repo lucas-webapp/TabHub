@@ -99,6 +99,12 @@ export function creerEvenement(duree = { valeur: 4, points: 0, nolet: null }, no
         accent: false,
         staccato: false,
         nuance: null,
+        // Nom d'accord (« A7 », « E7 »…) affiché au-dessus de la portée à l'aplomb de CET évènement
+        // précis — à la différence de l'annotation de section (voir Mesure#annotation), un accord
+        // change souvent PLUSIEURS fois dans la même mesure, il ne peut donc pas s'accrocher à elle.
+        // `null` : rien à afficher (voir engine/layout.js, qui ne réserve de bande au-dessus d'un
+        // système que si l'un de ses évènements en porte un).
+        accord: null,
         ...extra,
     };
 }
@@ -425,6 +431,10 @@ function normaliserEvenement(eb, cordes, fiche) {
         accent: !!eb?.accent,
         staccato: !!eb?.staccato,
         nuance: NUANCES.includes(eb?.nuance) ? eb.nuance : null,
+        // Liste blanche, comme le reste de cette fonction : sans cette ligne, un nom d'accord
+        // survivrait à la session en cours mais disparaîtrait silencieusement à la réouverture du
+        // fichier — exactement le piège que le commentaire au-dessus (horsManche/hauteurVoulue) décrit.
+        accord: typeof eb?.accord === 'string' ? eb.accord.trim().slice(0, 12) || null : null,
     });
 }
 

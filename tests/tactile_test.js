@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(20);
+    plan(22);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -170,6 +170,25 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         const apresGlisser = await curseur();
         check(apresGlisser.evenement === curseurAvantGlisser.evenement && apresGlisser.corde === curseurAvantGlisser.corde,
             'et un glisser ne déplace pas non plus le curseur (ce n\'était pas un tap)');
+
+        // --- Filet de sécurité : sur un écran anormalement court, tout doit rester ATTEIGNABLE --------
+        // `100dvh` (voir style.css) suffit sur tout téléphone raisonnable — mais aucune taille de
+        // fenêtre FIXE, ici, ne peut rejouer les conditions d'un vrai navigateur mobile (barre
+        // d'adresse pas encore rétractée, webview embarquée…) où ce calcul pourrait ne pas suffire.
+        // Ce banc éprouve donc le FILET (overflow-y: auto sur body, propagé au scroll de la fenêtre
+        // par la règle CSS habituelle body→html), pas le calcul lui-même : sur un viewport délibérément
+        // plus court que tout téléphone réel, la barre transport doit rester cliquable par un simple
+        // défilement plutôt que rognée sans recours (retour utilisateur : « les boutons dépassent de
+        // l'écran en bas », toujours signalé après le premier passage à 100dvh — d'où ce filet).
+        await page.setViewportSize({ width: 390, height: 300 });
+        await page.waitForTimeout(150);
+        exiger(await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight),
+            'sur ce viewport délibérément trop court, le contenu déborde bien pour de vrai (sans quoi ce banc ne prouverait rien)');
+        let atteint = false;
+        try { await page.click('#btn-tap-tempo', { timeout: 2000 }); atteint = true; } catch { /* atteint reste false */ }
+        check(atteint, 'malgré le débordement, un bouton de la barre transport reste atteignable (le défilement le révèle)');
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(150);
 
         // --- La préférence : éteindre l'interrupteur replie le pavé, et ça survit au rechargement -----
         await page.evaluate(() => window.app.appliquerPave(false));

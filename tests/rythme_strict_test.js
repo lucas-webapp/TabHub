@@ -23,15 +23,21 @@
 //     laisser la mesure sous sa capacité (l'autre sens du même principe — jamais au-dessus, jamais
 //     en-dessous).
 //   • Un SILENCE qui déborde `corrigerDebordement` est RACCOURCI pour ne garder que ce qui tient
-//     encore dans la mesure (cas L) ; une voix SOUS-remplie est comblée sur place, sans mesure neuve
-//     inutile (cas M) — deux défauts réels trouvés en vérifiant l'étirement de durée à la souris.
+//     encore dans la mesure (cas K) ; une voix SOUS-remplie est comblée sur place, sans mesure neuve
+//     inutile (cas L) — deux défauts réels trouvés en vérifiant l'étirement de durée à la souris.
+//   • `saisirChiffre`/`saisirHauteur` (poser une case ou une hauteur) REDIMENSIONNENT en sûreté le
+//     silence vierge qu'elles remplissent, plutôt que d'écraser sa durée telle quelle (cas M) — sans
+//     quoi la mesure retombait sous sa capacité dès la toute première frappe sur une partition neuve,
+//     silencieusement : le défaut qui rendait ensuite un silence de fin trop court pour être allongé
+//     (retour utilisateur : « l'application m'empêche de modifier la durée d'un silence »), et qui,
+//     répété mesure après mesure, ne laissait plus d'autre recours que tout supprimer et refaire.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(36);
+    plan(42);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -177,6 +183,43 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const dureeApresL = dureeEn(ed.partition.mesures[0]);
             const okRappelL = ed.corrigerDebordement();   // déjà valide : ne doit RIEN refaire
 
+            // --- M. saisirChiffre/saisirHauteur gardent la mesure À SA CAPACITÉ dès la TOUTE PREMIÈRE
+            //     case tapée — jamais besoin de corrigerDebordement pour une saisie parfaitement
+            //     normale. Un silence VIERGE (une mesure neuve, par exemple) n'a AUCUNE raison de déjà
+            //     faire la taille de la durée courante (une mesure neuve n'est qu'UN silence couvrant
+            //     TOUTE la mesure, bien plus grand qu'une croche) : sans redimensionnement sûr, taper
+            //     une case écrasait `duree` telle quelle et la mesure retombait sous sa capacité dès la
+            //     première frappe, sans qu'aucun `memoriser`/redistribution n'ait eu la main — trouvé en
+            //     essayant d'allonger ensuite un silence de fin qui n'avait alors plus la bonne taille
+            //     pour absorber quoi que ce soit (retour utilisateur : « l'application m'empêche de
+            //     modifier la durée d'un silence » — et, en amont, « je dois supprimer la mesure et la
+            //     refaire en entier » dès qu'une frappe s'arrêtait avant d'avoir rempli toute la mesure).
+            ed.nouveau('guitare');
+            ed.dureeCourante = { valeur: 8, points: 0, nolet: null };   // croche : plus petit que la ronde de départ
+            ed.saisirChiffre(5);
+            const ecartApresUneFrappeM = ed.ecartMesure();
+
+            // Le cas le plus courant de tous : quelques notes, puis on S'ARRÊTE — sans aller jusqu'au
+            // bout de la mesure (« quatre croches, puis du silence pour le reste »).
+            ed.nouveau('guitare');
+            ed.dureeCourante = { valeur: 8, points: 0, nolet: null };
+            for (const f of [5, 7, 5, 3]) { ed.saisirChiffre(f); ed.deplacerEvenement(1); }
+            const ecartApresQuatreM = ed.ecartMesure();
+            const contenuApresQuatreM = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
+
+            // Le silence de fin, désormais correctement dimensionné (et non plus un fragment isolé,
+            // sans rien après lui à absorber), doit pouvoir être RACCOURCI sans le moindre détour par
+            // Corriger — la porte de sortie qui manquait pour se rattraper d'une mesure imparfaite.
+            ed.placerCurseur(0, ed.partition.mesures[0].voix[0].evenements.length - 1, 0);
+            const okRaccourcirSilenceM = ed.appliquerDuree(16);   // double-croche : plus court que ce qui est déjà là
+            const ecartApresRaccourciM = ed.ecartMesure();
+
+            // Même garantie côté PIANO (saisirHauteur, l'équivalent de saisirChiffre sans corde/case).
+            ed.nouveau('piano');
+            ed.dureeCourante = { valeur: 8, points: 0, nolet: null };
+            ed.saisirHauteur(60);   // do central
+            const ecartApresHauteurM = ed.ecartMesure();
+
             return {
                 refusA, inchangeA, erreurA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
@@ -191,6 +234,8 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 mesuresAvantK, okK, contenuMesure0ApresK, dureeMesure0ApresK, dureeDernierSilenceApresK,
                 mesuresApresK, dureeMesure1ApresK, contenuMesure1ApresK,
                 ecartAvantL, boutonVisibleAvantL, mesuresAvantL, okL, mesuresApresL, contenuApresL, dureeApresL, okRappelL,
+                ecartApresUneFrappeM, ecartApresQuatreM, contenuApresQuatreM,
+                okRaccourcirSilenceM, ecartApresRaccourciM, ecartApresHauteurM,
             };
         });
 
@@ -241,6 +286,16 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         check(r.contenuApresL.join(',') === '5,7,5,_,_', 'les trois croches restent, complétées d\'un silence — rien perdu, rien déplacé');
         check(Math.abs(r.dureeApresL - 4) < 1e-6, 'la mesure retombe exactement sur sa capacité');
         check(r.okRappelL === false, 'un second appel ne fait plus rien : la mesure est déjà valide');
+
+        exiger(Math.abs(r.ecartApresUneFrappeM) < 1e-6,
+            'M. saisirChiffre : la mesure reste À SA CAPACITÉ dès la TOUTE PREMIÈRE case tapée sur une mesure neuve');
+        check(Math.abs(r.ecartApresQuatreM) < 1e-6,
+            'et reste à sa capacité même en s\'arrêtant avant la fin (quatre croches, puis plus rien)');
+        check(r.contenuApresQuatreM.join(',') === '5,7,5,3,_', 'le contenu écrit est bien celui tapé, suivi d\'un silence de fin');
+        exiger(r.okRaccourcirSilenceM === true,
+            'et ce silence de fin, désormais correctement dimensionné, se raccourcit sans le moindre détour par ⇥ Corriger');
+        check(Math.abs(r.ecartApresRaccourciM) < 1e-6, 'la mesure retombe exactement sur sa capacité après ce raccourci');
+        check(Math.abs(r.ecartApresHauteurM) < 1e-6, 'et la même garantie tient au piano (saisirHauteur), dès la première note cliquée');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

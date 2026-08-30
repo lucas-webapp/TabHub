@@ -22,7 +22,7 @@
 import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
-import { construireBarreOutils } from './ui/toolbar.js';
+import { construireBarreOutils, flecheOutilsSvg } from './ui/toolbar.js';
 import { construirePave } from './ui/pave.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
@@ -47,11 +47,53 @@ const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 't
 // dans la liste d'affichage partagée avec le PDF).
 const HAUT_BANDE_BOUCLE = 0.5;
 const BAS_BANDE_BOUCLE = 1.9;
+// AU DOIGT (pointer: coarse), LA ZONE DE SAISIE DEVIENT BIEN PLUS HAUTE (retour utilisateur : « je
+// ne peux pas placer la bande orange ou l'étirer comme je veux avec le doigt »). Une souris vise au
+// pixel près ; la bande d'origine (1.4 S de haut, guère plus de 12 px à l'interligne par défaut)
+// restait bien EN DESSOUS du minimum tactile déjà appliqué PARTOUT AILLEURS dans cette appli
+// (.btn-outil/.btn-transport, 40-44 px, voir style.css @media pointer:coarse) — jamais relevé ici
+// jusque-là. Seul le BAS grandit (le haut reste juste sous la TAB) : jusqu'à PRESQUE toute la marge
+// déjà réservée pour cette bande (geo.margeBas, 3.4 S), jamais au-delà, sans quoi il faudrait
+// réserver PLUS d'espace de page rien que pour le tactile — un changement bien plus large que ce
+// simple correctif, qui ferait varier la PAGINATION selon l'appareil. Voir marquesBoucle : le TRAIT
+// VISUEL, lui, garde la MÊME épaisseur qu'à la souris, centré dans cette zone de prise agrandie
+// plutôt qu'étiré avec elle — ni plus large ni plus haut à l'œil, seulement bien plus facile à
+// toucher tout autour.
+const BAS_BANDE_BOUCLE_TACTILE = 3.3;
+/** Bas de la zone de SAISIE de la boucle (mouse: BAS_BANDE_BOUCLE, doigt: BAS_BANDE_BOUCLE_TACTILE) —
+ *  seule cette borne varie ; le HAUT et le trait VISUEL restent identiques sur les deux appareils. */
+function basBandeBoucle() { return appareilTactile() ? BAS_BANDE_BOUCLE_TACTILE : BAS_BANDE_BOUCLE; }
+
+// MARGE D'AFFICHAGE — le trait plein de la boucle collait pile aux bords de mesure et de piste,
+// sans le moindre ajour ni sur les côtés ni en haut/bas (retour utilisateur : « trop proche du
+// bord »), voir marquesBoucle. Retranchée du TRAIT VISUEL (halo + poignées) seulement — jamais de
+// la zone INVISIBLE de saisie (y/h/x1/x2 « bruts »), qui reste, elle, pile sur les bords de mesure :
+// plus généreuse que ce qu'elle montre, jamais plus chiche (même principe que PRISE_POIGNEE_BOUCLE
+// juste plus bas).
+const MARGE_BOUCLE_LATERALE = 0.35;   // × S
+const MARGE_BOUCLE_VERTICALE = 0.2;   // × S — À LA SOURIS ; voir basBandeBoucle pour le doigt, où le
+                                       // trait visuel reste centré sur la même épaisseur qu'ici.
+// POIGNÉES de la boucle (retour utilisateur, HarmoHub cité en modèle : « il faut ajouter des
+// poignées ») — un repère à chaque VRAI bord de la zone, pour étirer un seul côté sans retracer
+// toute la zone. Hauteur alignée sur la marge d'affichage ci-dessus (voir marquesBoucle) — donc
+// TOUJOURS strictement DANS ce que `.bande-boucle` couvre déjà (touch-action: none, voir style.css),
+// jamais au-delà : un doigt posé pile sur une poignée ne doit jamais retomber sur un élément voisin
+// qui, lui, laisse le navigateur faire défiler la page — exactement le geste qu'on cherche à saisir
+// ici. La zone de PRISE (voir poigneeBoucleAuPoint), elle, déborde largement le trait visuel, comme
+// HarmoHub élargit pareillement la sienne (« souvent trop étroite au doigt ») — mais seulement en
+// LARGEUR, jamais en hauteur, pour la même raison de touch-action. AU DOIGT, cette prise s'élargit
+// encore (même raison que basBandeBoucle ci-dessus) : rien ne la contraint comme le fait geo.margeBas
+// pour la hauteur, elle peut donc grandir bien plus largement.
+const LARGEUR_POIGNEE_BOUCLE = 0.6;   // × S — largeur du repère visuel
+const PRISE_POIGNEE_BOUCLE = 1.1;     // × S — demi-largeur de la zone de saisie, à la souris
+const PRISE_POIGNEE_BOUCLE_TACTILE = 2.4;   // × S — au doigt
+function prisePoigneeBoucle() { return (appareilTactile() ? PRISE_POIGNEE_BOUCLE_TACTILE : PRISE_POIGNEE_BOUCLE); }
 
 const CLE_BROUILLON = 'tabhub.brouillon';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
+const CLE_TAB_SEULE = 'tabhub.tabSeule';
 const CLE_METRONOME = 'tabhub.metronome';
 const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
@@ -100,6 +142,13 @@ class TabHubApp {
         // valeur, y compris absente, comme « allumé » — ce qu'était déjà « auto » dans l'immense
         // majorité des cas.
         this.paveActif = localStorage.getItem(CLE_PAVE) !== 'jamais' && localStorage.getItem(CLE_PAVE) !== '0';
+        // TAB SEULE (retour utilisateur : « visualiser uniquement la portée de tablature, sans la
+        // partition ») : une préférence d'AFFICHAGE comme les autres ci-dessus — locale au
+        // navigateur, jamais dans le .json (voir engine/layout.js#mettreEnPage, option `avecPortee`).
+        // Sans effet au piano (mettreEnPagePiano ne lit jamais cette option), et le réglage lui-même
+        // reste masqué là (voir remplirReglages) plutôt que d'exposer un interrupteur qui ne ferait
+        // jamais rien — même principe que le pavé tactile juste au-dessus.
+        this.tabSeule = localStorage.getItem(CLE_TAB_SEULE) === '1';
         // Volumes : appliqués au lecteur dès la construction (voir Lecteur, qui les rejoue lui-même
         // au premier `demarrer()`, avant même que Réglages n'ait été ouvert une seule fois).
         const volGeneral = parseInt(localStorage.getItem(CLE_VOLUME_GENERAL), 10);
@@ -124,6 +173,7 @@ class TabHubApp {
             titre: document.getElementById('champ-titre'),
             tempo: document.getElementById('champ-tempo'),
             groupeMesuresLigne: document.getElementById('groupe-mesures-ligne'),
+            btnMesuresLigneBascule: document.getElementById('btn-mesures-ligne-bascule'),
             metronome: document.getElementById('btn-metronome'),
             metronomeSubdivision: document.getElementById('btn-metronome-subdivision'),
             position: document.getElementById('info-position'),
@@ -193,6 +243,9 @@ class TabHubApp {
                 largeurPage: largeur,
                 yDepart: 6,
                 mesuresParLigne: this.mesuresParLigne || null,
+                // Sans effet au piano (mettreEnPagePiano ne lit jamais cette option, voir son propre
+                // aiguillage en tête de mettreEnPage) : rien à conditionner ici sur l'instrument.
+                avecPortee: !this.tabSeule,
             });
         } catch (err) {
             // Un écran noir SANS EXPLICATION est le pire des échecs — c'est exactement ce que
@@ -472,6 +525,10 @@ class TabHubApp {
                 this.mesuresParLigne = valeur;
                 localStorage.setItem(CLE_MESURES_LIGNE, String(this.mesuresParLigne));
                 this.rafraichirBoutonsMesuresLigne();
+                // Un choix fait referme le popover derrière lui (téléphone) — sans effet sur grand
+                // écran, où le groupe n'est jamais ouvert (voir basculerGroupeMesuresLigne). Même
+                // geste que le popover Effets après avoir choisi un effet.
+                this.fermerGroupeMesuresLigne();
                 this.dessiner();
                 this.el.zone.focus();
             });
@@ -483,6 +540,16 @@ class TabHubApp {
 
     rafraichirBoutonsMesuresLigne() {
         for (const { valeur, el } of this.boutonsMesuresLigne) el.classList.toggle('actif', valeur === this.mesuresParLigne);
+        // Le bouton replié (téléphone, voir basculerGroupeMesuresLigne) montre lui-même la valeur
+        // active — jamais un simple libellé figé « Mesures » — pour que l'état reste lisible sans
+        // ouvrir le popover, exactement ce que .actif fait déjà pour le bouton « Effets ».
+        const bascule = this.el.btnMesuresLigneBascule;
+        if (!bascule) return;
+        bascule.textContent = this.mesuresParLigne === 0 ? 'Auto' : String(this.mesuresParLigne);
+        bascule.title = this.mesuresParLigne === 0
+            ? 'Mesures par ligne : automatique — touchez pour changer'
+            : `Mesures par ligne : ${this.mesuresParLigne} — touchez pour changer`;
+        bascule.setAttribute('aria-label', bascule.title);
     }
 
     rafraichirInfos() {
@@ -579,6 +646,43 @@ class TabHubApp {
         btn.innerHTML = icone(enLecture ? 'pause' : 'lecture');
         btn.title = enLecture ? 'Pause (Espace)' : 'Lecture (Espace)';
         btn.setAttribute('aria-label', btn.title);
+        this.rafraichirFlechesTransport?.();
+    }
+
+    /**
+     * Flèches de défilement de la barre de transport — même remède que la barre d'outils (voir
+     * ui/toolbar.js#flecheOutilsSvg, exporté pour ça) : `overflow-x: auto` (voir .transport dans
+     * style.css) rendait déjà Métronome ATTEIGNABLE sur un téléphone étroit, mais rien ne le
+     * montrait — mesuré : 180px de débordement à 390px, les DEUX boutons Métronome entièrement
+     * hors champ, sans la moindre flèche pour le suggérer (contrairement à la barre d'outils, qui
+     * avait déjà reçu ce traitement). Posées UNE FOIS ici plutôt que reconstruites à chaque
+     * rafraîchissement — .transport ne gagne ni ne perd de boutons en cours de route, à la
+     * différence de la barre d'outils (groupe Effets qui s'ouvre/referme).
+     */
+    brancherFlechesTransport() {
+        const hote = document.querySelector('.transport');
+        const PAS_DEFILEMENT = 160;
+        const fleche = (sens) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = `fleche-outils fleche-outils-${sens}`;
+            b.innerHTML = flecheOutilsSvg(sens);
+            b.title = sens === 'gauche' ? 'Défiler la barre de transport vers la gauche' : 'Défiler la barre de transport vers la droite';
+            b.setAttribute('aria-label', b.title);
+            b.addEventListener('click', () => hote.scrollBy({ left: sens === 'gauche' ? -PAS_DEFILEMENT : PAS_DEFILEMENT, behavior: 'smooth' }));
+            return b;
+        };
+        const flecheGauche = fleche('gauche');
+        const flecheDroite = fleche('droite');
+        hote.insertBefore(flecheGauche, hote.firstChild);
+        hote.appendChild(flecheDroite);
+        const rafraichirFleches = () => {
+            flecheGauche.classList.toggle('invisible', hote.scrollLeft <= 1);
+            flecheDroite.classList.toggle('invisible', hote.scrollLeft + hote.clientWidth >= hote.scrollWidth - 1);
+        };
+        rafraichirFleches();
+        hote.addEventListener('scroll', rafraichirFleches, { passive: true });
+        return rafraichirFleches;
     }
 
     // ==========================================================================================
@@ -629,7 +733,9 @@ class TabHubApp {
     exporterPdf() {
         try {
             this.message('Génération du PDF…', 20000);
-            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition);
+            // TAB seule (voir appliquerTabSeule) : le PDF suit le même réglage que l'écran — sans
+            // effet au piano, comme sur l'écran (mettreEnPagePiano ne lit jamais cette option).
+            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition, { avecPortee: !this.tabSeule });
             this.message(`PDF téléchargé → ${nomFichier} (${nbPages} page${nbPages > 1 ? 's' : ''})`);
         } catch (err) {
             console.error(err);
@@ -905,7 +1011,9 @@ class TabHubApp {
         this.el.tempo.addEventListener('input', () => this.lecteur.definirTempo(parseInt(this.el.tempo.value, 10) || 120));
         surClic('btn-tap-tempo', () => this.tapTempo());
 
+        surClic('btn-mesures-ligne-bascule', () => this.basculerGroupeMesuresLigne());
         this.construireBoutonsMesuresLigne();
+        this.rafraichirFlechesTransport = this.brancherFlechesTransport();
 
         // Métronome : ne touche à rien de la lecture EN COURS (voir Lecteur.jouer, qui ne
         // reprogramme le transport qu'au prochain départ depuis l'arrêt) — comme tout autre
@@ -1094,9 +1202,24 @@ class TabHubApp {
      */
     _positionnerPanneau(panneau, ancre) {
         const r = panneau.getBoundingClientRect();
-        const point = ancre instanceof Element
-            ? (() => { const ra = ancre.getBoundingClientRect(); return { x: ra.left, y: ra.bottom + 4 }; })()
-            : ancre;
+        let point;
+        if (ancre instanceof Element) {
+            const ra = ancre.getBoundingClientRect();
+            // Par défaut, le panneau se pose SOUS l'ancre — mais un bouton collé au bas de l'écran
+            // (le bouton replié « Mesures par ligne », tout en bas de la barre de transport) ne
+            // laisse parfois pas assez de place en dessous : le bornage plus bas repousserait alors
+            // le panneau VERS LE HAUT tout en le laissant CHEVAUCHER l'ancre elle-même — illisible,
+            // et impossible à retoucher pour refermer d'un second tap (trouvé en testant ce nouveau
+            // bouton, jamais heurté par Fichiers, qui vit en haut de l'écran avec toute la place
+            // voulue en dessous). Se poser AU-DESSUS dans ce cas — le repli standard de tout menu
+            // proche d'un bord — règle les deux à la fois, sans rien changer pour une ancre qui a
+            // sa place en dessous.
+            const manqueEnDessous = ra.bottom + 4 + r.height > window.innerHeight - 8;
+            const yAuDessus = ra.top - r.height - 4;
+            point = { x: ra.left, y: (manqueEnDessous && yAuDessus >= 4) ? yAuDessus : ra.bottom + 4 };
+        } else {
+            point = ancre;
+        }
         panneau.style.left = Math.max(4, Math.min(point.x, window.innerWidth - r.width - 8)) + 'px';
         panneau.style.top = Math.max(4, Math.min(point.y, window.innerHeight - r.height - 8)) + 'px';
     }
@@ -1210,6 +1333,43 @@ class TabHubApp {
         this._detacherPopoverFichiers = null;
     }
 
+    /**
+     * « Mesures par ligne » (barre de transport) : sur téléphone, six boutons toujours visibles
+     * pesaient trop dans une rangée déjà chargée — Lecture/Stop, Tempo, TAP, Métronome (retour
+     * utilisateur : « la barre de transport est trop tassée »). Troisième popover à réutiliser
+     * _positionnerPanneau/_fermerAuClicAilleurs (après le menu contextuel et Fichiers, juste plus
+     * haut) : même mécanique déjà éprouvée deux fois, rien à réinventer.
+     *
+     * Visibilité par CLASSE CSS (`.ouvert`) plutôt que l'attribut `hidden` qu'utilise le popover
+     * Fichiers : `hidden` s'appliquerait à TOUTES les tailles d'écran, alors que ce groupe doit
+     * rester EN LIGNE, sans le moindre popover, dès qu'il y a la place (voir .groupe-mesures-ligne
+     * dans style.css) — exactement le choix déjà fait pour le popover « Effets » de la barre
+     * d'outils (voir ui/toolbar.js#basculerGroupeEffets), pour la même raison, mais gardé ICI
+     * puisque c'est ce module-ci qui construit déjà ce groupe (construireBoutonsMesuresLigne),
+     * comme Effets reste dans toolbar.js qui construit le sien.
+     *
+     * Le contenu du popover ouvert reste EXACTEMENT les six mêmes boutons qu'en ligne sur grand
+     * écran : jamais un menu déroulant caché derrière ce bouton (voir le commentaire de conception
+     * dans index.html) — seul leur CONTENEUR change de place et de présentation.
+     */
+    basculerGroupeMesuresLigne() {
+        const g = this.el.groupeMesuresLigne;
+        if (g.classList.contains('ouvert')) { this.fermerGroupeMesuresLigne(); return; }
+        g.classList.add('ouvert');
+        this.el.btnMesuresLigneBascule.setAttribute('aria-expanded', 'true');
+        // Mesuré APRÈS l'ouverture (`.ouvert` pose `position: fixed` en CSS) : un élément encore
+        // `display: none` n'a ni largeur ni hauteur à lire — même remarque que basculerGroupeEffets.
+        this._positionnerPanneau(g, this.el.btnMesuresLigneBascule);
+        this._detacherGroupeMesuresLigne = this._fermerAuClicAilleurs(g, () => this.fermerGroupeMesuresLigne(), this.el.btnMesuresLigneBascule);
+    }
+
+    fermerGroupeMesuresLigne() {
+        this.el.groupeMesuresLigne.classList.remove('ouvert');
+        this.el.btnMesuresLigneBascule?.setAttribute('aria-expanded', 'false');
+        this._detacherGroupeMesuresLigne?.();
+        this._detacherGroupeMesuresLigne = null;
+    }
+
     // ==========================================================================================
     // Sélection multiple — glisser un rectangle sur la partition
     // ==========================================================================================
@@ -1225,7 +1385,12 @@ class TabHubApp {
 
         // LA BANDE DE BOUCLE, SOUS LA TAB, AVANT TOUTE AUTRE LECTURE DU GESTE — souris ET doigt à la
         // fois (voir demarrerGesteBoucle) : un geste qui commence là ne doit jamais être confondu
-        // avec un lasso, un étirement de durée, ou un défilement tactile de la partition.
+        // avec un lasso, un étirement de durée, ou un défilement tactile de la partition. UNE
+        // POIGNÉE (voir poigneeBoucleAuPoint) est testée EN PREMIER, avant la bande générique : sa
+        // zone de prise déborde volontairement la sienne (voir sa docblock), et saisir précisément
+        // un bord doit toujours l'emporter sur « redéfinir toute la zone depuis ce point ».
+        const bordPoignee = this.poigneeBoucleAuPoint(e.clientX, e.clientY);
+        if (bordPoignee) { this.demarrerGesteBoucleBord(e, bordPoignee); return; }
         const mesureAncre = this.mesureDansBandeBoucle(e.clientX, e.clientY);
         if (mesureAncre != null) { this.demarrerGesteBoucle(e, mesureAncre); return; }
 
@@ -1482,7 +1647,7 @@ class TabHubApp {
         const marques = [];
         for (const sys of systemes) {
             const y = sys.yBas + HAUT_BANDE_BOUCLE * S;
-            const h = (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE) * S;
+            const h = (basBandeBoucle() - HAUT_BANDE_BOUCLE) * S;   // zone de SAISIE — grandit au doigt
             marques.push({ t: 'rect', x: sys.xDebut, y, w: sys.xFin - sys.xDebut, h,
                 couleur: 'rgba(255, 152, 0, 0)', classe: 'bande-boucle' });
 
@@ -1492,7 +1657,34 @@ class TabHubApp {
             if (!touche.length) continue;
             const x1 = Math.min(...touche.map(a => a.x));
             const x2 = Math.max(...touche.map(a => a.xFin));
-            marques.push({ t: 'rect', x: x1, y, w: x2 - x1, h, couleur: 'var(--lecture-halo)' });
+            // Marge d'affichage (voir MARGE_BOUCLE_LATERALE/VERTICALE) : x1/x2/y/h restent les
+            // valeurs BRUTES (zone de saisie, celle ci-dessus) ; xAff*/yAff/hAff sont celles, en
+            // retrait, qu'on montre réellement — halo ET poignées ci-dessous. L'ÉPAISSEUR visuelle
+            // (hVisuel) reste TOUJOURS celle qu'aurait la bande à la SOURIS, CENTRÉE dans la zone de
+            // saisie ci-dessus — laquelle, elle, grandit au doigt (voir basBandeBoucle) : l'œil ne
+            // voit donc jamais cette différence, seule la PRISE tout autour s'élargit.
+            const margeCote = MARGE_BOUCLE_LATERALE * S;
+            const xAff1 = x1 + margeCote, xAff2 = x2 - margeCote;
+            const hAff = Math.max(0, (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE - 2 * MARGE_BOUCLE_VERTICALE) * S);
+            const yAff = y + (h - hAff) / 2;
+            marques.push({ t: 'rect', x: xAff1, y: yAff, w: Math.max(0, xAff2 - xAff1), h: hAff, couleur: 'var(--lecture-halo)' });
+
+            // POIGNÉES (voir LARGEUR_POIGNEE_BOUCLE) — seulement sur le VRAI bord GLOBAL de la
+            // boucle (`touche` inclut l'ancrage de boucle.debut/fin lui-même), jamais sur un simple
+            // retour à la ligne d'une boucle qui court sur plusieurs systèmes : ce bord-LÀ n'a rien à
+            // étirer, il n'existe que parce que la portée a tourné (même distinction que HarmoHub,
+            // voir buildLoopRangeBars). Centrées sur le VRAI bord de mesure (x1/x2, pas xAff1/xAff2)
+            // — le même x que poigneeBoucleAuPoint : la poignée se voit EXACTEMENT là où elle se
+            // saisit, quitte à déborder un peu du halo désormais en retrait. Couleur PLEINE
+            // (`--lecture`, celle du curseur de lecture) plutôt que le halo translucide du reste de
+            // la bande : un repère franc, pas une nuance de plus dans le dégradé.
+            const largeurPx = LARGEUR_POIGNEE_BOUCLE * S;
+            if (touche.some(a => a.index === boucle.debut)) {
+                marques.push({ t: 'rect', x: x1 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)' });
+            }
+            if (touche.some(a => a.index === boucle.fin)) {
+                marques.push({ t: 'rect', x: x2 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)' });
+            }
         }
         return marques;
     }
@@ -1511,9 +1703,46 @@ class TabHubApp {
         const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
-            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + BAS_BANDE_BOUCLE * S);
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + basBandeBoucle() * S);
         if (!systeme) return null;
         return this._mesureDuSysteme(systeme, x);
+    }
+
+    /**
+     * Poignée de boucle (voir marquesBoucle) sous le point d'écran donné — 'debut', 'fin', ou `null`
+     * hors de toute poignée. Zone de PRISE bien plus large que le trait visuel (PRISE_POIGNEE_BOUCLE,
+     * environ le double de LARGEUR_POIGNEE_BOUCLE) : un doigt vise rarement le pixel exact, et
+     * HarmoHub élargit pareillement sa propre zone de préhension au-delà de ce qu'elle montre.
+     * MÊME PLAGE VERTICALE que mesureDansBandeBoucle, volontairement : jamais un pixel au-delà de ce
+     * que `.bande-boucle` (touch-action: none) couvre déjà, voir la remarque de LARGEUR_POIGNEE_BOUCLE.
+     * Testée AVANT mesureDansBandeBoucle par l'appelant (demarrerGeste) : une poignée gagne toujours
+     * sur le geste générique « redéfinir depuis ce point » quand les deux zones se recouvrent.
+     */
+    poigneeBoucleAuPoint(clientX, clientY) {
+        const boucle = this.lecteur.boucleLecture;
+        if (!boucle || !this.page) return null;
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return null;
+        const boite = svg.getBoundingClientRect();
+        const x = (clientX - boite.left) * (this.page.largeur / boite.width);
+        const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
+        const S = this.page.geo.S;
+        const systeme = this.page.ancrages.systemes.find(s =>
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + basBandeBoucle() * S);
+        if (!systeme) return null;
+        const touche = this.page.ancrages.mesures.filter(a =>
+            a.systeme === systeme.index && a.index >= boucle.debut && a.index <= boucle.fin);
+        if (!touche.length) return null;
+        const prise = prisePoigneeBoucle() * S;
+        if (touche.some(a => a.index === boucle.debut)) {
+            const x1 = Math.min(...touche.map(a => a.x));
+            if (Math.abs(x - x1) <= prise) return 'debut';
+        }
+        if (touche.some(a => a.index === boucle.fin)) {
+            const x2 = Math.max(...touche.map(a => a.xFin));
+            if (Math.abs(x - x2) <= prise) return 'fin';
+        }
+        return null;
     }
 
     /**
@@ -1589,6 +1818,45 @@ class TabHubApp {
         window.addEventListener('pointercancel', surRelache);
     }
 
+    /**
+     * GLISSER UNE POIGNÉE (voir marquesBoucle/poigneeBoucleAuPoint) : étire ou rétrécit la boucle par
+     * UN SEUL bord, l'autre restant FIXE — sans avoir à retracer toute la zone pour corriger une
+     * seule extrémité (retour utilisateur, HarmoHub cité en modèle : « il faut ajouter des
+     * poignées »). Bloquée au bord FIXE, jamais au-delà : glisser la poignée gauche plus loin que le
+     * bord droit inverserait silencieusement leurs rôles plutôt que de simplement buter — même choix
+     * que HarmoHub (voir onLoopRangeMove, mode edge-left/edge-right). Un tap immobile sur une
+     * poignée ne supprime PAS la boucle (à la différence d'un tap sur le corps de la bande, voir
+     * demarrerGesteBoucle) : saisir précisément un bord n'est jamais le geste de « je veux
+     * l'annuler ». Même stratégie « appliquée au relâchement seulement » que demarrerGesteBoucle,
+     * pour la même raison précise (voir sa docblock) : dessiner() en plein glisser tactile couperait
+     * la capture du doigt en plein geste.
+     */
+    demarrerGesteBoucleBord(e, bord) {
+        e.preventDefault();
+        const boucle = this.lecteur.boucleLecture;
+        const fixe = bord === 'debut' ? boucle.fin : boucle.debut;
+        let lo = boucle.debut, hi = boucle.fin;
+
+        const surMouvement = (ev) => {
+            const courante = this.mesureLaPlusProche(ev.clientX, ev.clientY);
+            if (courante == null) return;
+            if (bord === 'debut') { lo = Math.min(courante, fixe); hi = fixe; }
+            else { hi = Math.max(courante, fixe); lo = fixe; }
+            this.message(lo === hi ? `Boucle : mesure ${lo + 1}` : `Boucle : mesures ${lo + 1} à ${hi + 1}`, 4000);
+        };
+        const surRelache = () => {
+            window.removeEventListener('pointermove', surMouvement);
+            window.removeEventListener('pointerup', surRelache);
+            window.removeEventListener('pointercancel', surRelache);
+            this.lecteur.definirBoucle(this.editeur.partition, lo, hi);
+            this.dessiner();
+            this.el.zone.focus();
+        };
+        window.addEventListener('pointermove', surMouvement);
+        window.addEventListener('pointerup', surRelache);
+        window.addEventListener('pointercancel', surRelache);
+    }
+
     /** Efface toutes les notes sélectionnées en UNE seule action d'annulation (voir Editeur.effacerNotes). */
     effacerSelection() {
         if (!this.selectionNotes.size) return;
@@ -1638,6 +1906,13 @@ class TabHubApp {
         this.el.pave.hidden = !visible;
         document.body.classList.toggle('avec-pave', visible);
         requestAnimationFrame(() => this.dessiner());
+    }
+
+    /** TAB seule (voir dessiner, engine/layout.js#mettreEnPage option `avecPortee`). */
+    appliquerTabSeule(actif) {
+        this.tabSeule = !!actif;
+        localStorage.setItem(CLE_TAB_SEULE, this.tabSeule ? '1' : '0');
+        this.dessiner();
     }
 
     /** Peuple la fenêtre « Instrument et accordage » depuis l'état courant. */
@@ -1706,6 +1981,19 @@ class TabHubApp {
             btnPave.onclick = () => {
                 this.appliquerPave(!this.paveActif);
                 btnPave.setAttribute('aria-checked', String(this.paveActif));
+            };
+        }
+
+        // TAB SEULE : n'a de sens que pour un instrument qui A une tablature (voir appliquerTabSeule) —
+        // masqué au piano, même logique que le pavé tactile juste au-dessus.
+        const ligneTabSeule = document.getElementById('ligne-tab-seule');
+        const btnTabSeule = document.getElementById('champ-tab-seule');
+        ligneTabSeule.hidden = piste.instrument === 'piano';
+        if (!ligneTabSeule.hidden) {
+            btnTabSeule.setAttribute('aria-checked', String(this.tabSeule));
+            btnTabSeule.onclick = () => {
+                this.appliquerTabSeule(!this.tabSeule);
+                btnTabSeule.setAttribute('aria-checked', String(this.tabSeule));
             };
         }
 

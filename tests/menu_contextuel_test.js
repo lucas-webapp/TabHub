@@ -17,7 +17,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
 
 (async () => {
-    plan(12);
+    plan(13);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.evaluate(async () => {
@@ -106,6 +106,18 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
 
         exiger(await page.evaluate(() => document.getElementById('menu-contextuel').getAttribute('role')) === 'menu',
             'le menu porte bien un rôle ARIA de menu');
+
+        // --- Le trait de séparation entre groupes se VOIT vraiment ----------------------------------
+        // `--border` (#333 sur #161616, --card-bg) se distingue bien contre du texte ou une carte,
+        // mais un trait qui flotte SEUL, sans rien d'autre à proximité, y devenait quasi invisible sur
+        // un vrai téléphone (retour utilisateur, capture à l'appui) : deux « lignes vides » à la place
+        // des séparateurs. `--btn-neutral-border-hover`, nettement plus clair, doit être en place.
+        p = await pointDeLaCase(0);
+        await page.mouse.click(p.x, p.y, { button: 'right' });
+        await page.waitForTimeout(80);
+        const couleurSeparateur = await page.evaluate(() =>
+            getComputedStyle(document.querySelector('#menu-contextuel .separateur')).borderTopColor);
+        check(couleurSeparateur === 'rgb(74, 74, 74)', 'le séparateur du menu contextuel utilise une couleur assez contrastée pour se voir (pas --border, trop proche du fond)');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

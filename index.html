@@ -12,7 +12,19 @@
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
-    <link rel="stylesheet" href="style.css?v=202608300100">
+    <!-- ÉCRAN D'ACCUEIL IPHONE (retour utilisateur : « mettre en forme le logo [...] sur mon bureau
+         iPhone ») : Safari iOS ignore le manifest.json (et un favicon SVG) pour l'icône d'écran
+         d'accueil — sans ce lien précis, il photographie la page elle-même et pose CE screenshot en
+         icône. `apple-touch-icon.png` : même dessin que favicon.svg (six cordes), mais en PNG carré
+         PLEIN CADRE plutôt qu'à coins déjà arrondis — c'est iOS qui découpe la forme finale, un fond
+         déjà arrondi laisserait un liseré visible entre les deux découpes (voir icons/favicon.svg,
+         régénérées par le même dessin — tests/pwa_test.js). `web-app-capable` + le titre : lancée en
+         PLEIN ÉCRAN depuis l'icône, sans barre d'adresse Safari, sous le nom « TabHub » et non l'URL. -->
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="TabHub">
+    <link rel="stylesheet" href="style.css?v=202608301100">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -35,9 +47,17 @@
          fois, voir main.js#basculerPopoverFichiers/#popover-fichiers plus bas. -->
     <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers</button>
     <button type="button" id="btn-enregistrer" class="btn-icone btn-icone-accent" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"></button>
-    <span class="separateur"></span>
-    <button type="button" id="btn-reglages" class="btn-icone" title="Réglages" aria-label="Réglages"></button>
-    <button type="button" id="btn-aide" class="btn-icone" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
+    <!-- RÉGLAGES/AIDE : dans le DOM ici (avec Annuler/Fichiers), mais VISUELLEMENT déplacés contre le
+         logo dès qu'il y a la place (voir style.css, .groupe-reglages — `order` en flex, à partir de
+         721px). Même logique que HarmoHub (son bouton Paramètres, commenté « juste avant le titre,
+         plutôt qu'au tout début de la barre du haut ») : deux actions d'APPLI ne devraient pas se
+         mêler à Annuler/Fichiers, deux actions de DOCUMENT touchées à chaque édition. Mais les DEUX
+         boutons + logo, une fois VRAIMENT accolés au bout d'un écran de téléphone étroit, ne
+         tiennent plus (mesuré : 97px de débordement à 390px, le titre déjà à son plancher de
+         120px) — d'où le repli sur cette position, plus large mais toujours à l'abri, en dessous. -->
+    <span class="separateur groupe-reglages"></span>
+    <button type="button" id="btn-reglages" class="btn-icone groupe-reglages" title="Réglages" aria-label="Réglages"></button>
+    <button type="button" id="btn-aide" class="btn-icone groupe-reglages" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
 
     <span class="pousse"></span>
     <input type="text" id="champ-titre" class="titre-morceau" value="Sans titre" aria-label="Titre du morceau" spellcheck="false">
@@ -97,7 +117,16 @@
          utilisateur : « je peux voir uniquement une mesure en horizontal » sur téléphone — c'est
          justement ce champ, en « Auto », qui décidait de n'en montrer qu'une). Un rang de boutons,
          pas un menu déroulant cliqué à l'aveugle : chaque valeur se voit et se choisit d'un seul
-         geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne. -->
+         geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne.
+         Sur téléphone (retour utilisateur : « la barre de transport est trop tassée »), ces six
+         boutons se replient derrière #btn-mesures-ligne-bascule — même popover que « Effets » dans
+         la barre d'outils, voir style.css @media(max-width:720px) et
+         main.js#basculerGroupeMesuresLigne : TOUJOURS un rang de boutons une fois ouvert, jamais un
+         menu déroulant, la contrainte ci-dessus reste entière. Invisible tant qu'il y a la place
+         (voir .btn-mesures-ligne-bascule), donc vide dans le HTML — son texte suit la valeur active,
+         posé par rafraichirBoutonsMesuresLigne. -->
+    <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
+        aria-haspopup="true" aria-expanded="false"></button>
     <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
     <span class="separateur"></span>
     <!-- Métronome — repris de HarmoHub : deux boutons, l'icône du second reflétant son propre état
@@ -205,9 +234,29 @@
                         <span class="interrupteur-curseur"></span>
                     </button>
                 </div>
+                <!-- TAB SEULE : masqué au piano (`hidden`), qui n'a pas de tablature — remplirReglages()
+                     ne le démasque QUE pour guitare/basse, même logique que le pavé tactile juste
+                     au-dessus. Retour utilisateur : « visualiser uniquement la portée de tablature, sans
+                     la partition [...] le rythme doit être visible sur la portée de la tablature
+                     directement » — voir engine/layout.js#mettreEnPage, option `avecPortee`, qui déplace
+                     alors hampes/crochets/silences/n-olets directement sur la TAB (même convention que
+                     Guitar Pro en vue TAB seule), plutôt que de simplement masquer une portée qui
+                     resterait la SEULE à porter le rythme. -->
+                <div class="ligne-champ" id="ligne-tab-seule" hidden>
+                    <label for="champ-tab-seule">TAB seule (sans portée)</label>
+                    <button type="button" id="champ-tab-seule" class="interrupteur" role="switch" aria-checked="false">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
+                </div>
             </div>
+            <!-- « Brouillon local », pas « Fichiers » : ce nom-là appartient déjà au bouton de la barre
+                 du haut (Nouveau/Ouvrir/Exporter/PDF/MIDI, voir #btn-fichiers) — deux rubriques
+                 « Fichiers » à deux endroits différents, l'une pour ouvrir/exporter et l'autre pour un
+                 unique bouton « vider le brouillon », aurait fait chercher l'une dans l'autre. Ici, il
+                 ne s'agit QUE de la persistance locale automatique (voir Editeur.enregistrer), un sujet
+                 assez différent pour mériter son propre nom. -->
             <div class="rubrique">
-                <h3>Fichiers</h3>
+                <h3>Brouillon local</h3>
                 <p class="texte-discret" id="etat-brouillon"></p>
                 <button type="button" class="btn-neutre" id="btn-vider-brouillon">Vider le brouillon local</button>
             </div>
@@ -312,6 +361,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202608300100"></script>
+<script type="module" src="src/main.js?v=202608301100"></script>
 </body>
 </html>

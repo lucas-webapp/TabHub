@@ -108,7 +108,18 @@ body {
     grid-template-areas: "haut" "outils" "zone" "pave" "bas";
     grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
     grid-template-columns: 1fr;
-    overflow: hidden;
+    /* `overflow-y: auto` plutôt que `hidden` : `100dvh` (voir plus haut) fait déjà correspondre cette
+       grille à ce qui est VRAIMENT visible dans le cas normal, mais rien ne garantit qu'il en aille
+       ainsi sur CHAQUE navigateur/webview réel (Samsung Internet, une appli qui embarque son propre
+       navigateur, une version de Safari qui calcule mal la barre du bas…) — autant de conditions
+       injouables ici, en Playwright, avec une taille de fenêtre fixe. Un débordement qui subsiste
+       malgré tout doit rester ATTEIGNABLE par un simple geste de défilement plutôt que d'être
+       silencieusement rogné et perdu (c'est là, avec `hidden`, qu'était le vrai défaut du retour
+       utilisateur « les boutons dépassent de l'écran en bas » — pas seulement le mauvais calcul de
+       hauteur que corrige `100dvh`). Ce filet ne change rien tant que tout tient déjà dans le
+       viewport (aucune barre de défilement n'apparaît) : voir tests/tactile_test.js. */
+    overflow-x: hidden;
+    overflow-y: auto;
     -webkit-font-smoothing: antialiased;
 }
 body.outils-gauche {
@@ -252,6 +263,11 @@ body > * { min-width: 0; }
    toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté. */
 .fleche-outils.invisible { opacity: 0; pointer-events: none; }
 body.outils-gauche .fleche-outils { display: none; }   /* colonne verticale : rien à faire défiler ainsi */
+/* .fleche-outils sert aussi la barre de TRANSPORT (voir main.js#brancherFlechesTransport) — mêmes
+   règles, aucune ne mentionne #barre-outils : rien à dupliquer pour un second conteneur qui défile
+   pour la même raison (mesuré : 180px de débordement à 390px, les boutons Métronome entièrement
+   hors champ — `overflow-x: auto` sur .transport les rendait déjà ATTEIGNABLES, mais rien ne le
+   montrait, exactement le défaut que ces flèches réparaient déjà ici). */
 
 /* BARRE À GAUCHE (préférence, voir Réglages > Interface). La barre elle-même devient une COLONNE
    pleine hauteur ; chaque groupe s'y empile, et SES boutons à lui se remettent à la ligne (au lieu
@@ -307,6 +323,9 @@ body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-r
 /* Palm mute : présenté comme il apparaîtra sur la partition — italique, à son poids naturel — plutôt
    qu'en gras générique. Le bouton devient un aperçu fidèle plutôt qu'une étiquette quelconque. */
 .apercu-texte-leger { font-style: italic; font-weight: 500; letter-spacing: .01em; }
+/* Nom d'accord : même principe, à l'inverse — GRAS, comme il apparaîtra au-dessus de la portée
+   (voir engine/layout.js#poserAccords), pas une icône qui a échoué à rester lisible en si petit. */
+.apercu-texte-gras { font-weight: 800; font-size: .82rem; }
 
 select.champ, input.champ {
     height: 30px; padding: 0 8px;
@@ -320,7 +339,15 @@ select.champ:focus, input.champ:focus { outline: none; border-color: var(--accen
 input.champ[type="number"] { width: 68px; text-align: center; }
 
 /* MESURES PAR LIGNE — un rang de boutons plutôt qu'un menu déroulant, voir
-   main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste. */
+   main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste.
+   Le bouton replié (voir @media max-width: 720px) reste invisible et inerte tant que la barre de
+   transport a la place de tout montrer en ligne — même logique que .btn-outil.btn-effets-bascule
+   plus haut, jamais affichés tous les deux à la fois. Sélecteur COMPOSÉ (deux classes), pas
+   `.btn-mesures-ligne-bascule` seul : sa spécificité doit battre celle de `.btn-transport-texte`
+   (display: inline-flex, plus bas dans la feuille) — même technique que .btn-outil.btn-effets-
+   bascule juste au-dessus, pour exactement la même raison. Trouvé au test : sans ce doublement, le
+   bouton restait visible sur grand écran malgré cette règle. */
+.btn-transport-texte.btn-mesures-ligne-bascule { display: none; }
 .groupe-mesures-ligne { display: inline-flex; gap: 2px; flex: none; }
 .btn-mesures-ligne {
     min-width: 26px; height: 30px; padding: 0 6px;
@@ -498,7 +525,17 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 .menu-contextuel button:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); }
 .menu-contextuel button:disabled { color: var(--text-muted); cursor: default; }
-.menu-contextuel .separateur { border: none; border-top: 1px solid var(--border); margin: 4px 2px; }
+/* `--border` (#333) sur `--card-bg` (#161616) — un contraste minime déjà éprouvé ailleurs, mais qui
+   compte sur du texte ou un bord de carte tout PROCHE pour se voir. Un trait flottant seul, sans
+   rien d'autre à proximité pour l'œil, avec un tel écart de teinte, devient quasi invisible sur un
+   vrai écran de téléphone — ce que ce menu montrait (retour utilisateur, capture à l'appui) : deux
+   « lignes vides » là où il y avait en fait un trait de séparation, jamais vu. `--btn-neutral-
+   border-hover`, déjà utilisé ailleurs pour un bord qui doit vraiment se remarquer, remplace
+   `--border` ICI SEULEMENT (pas le jeton général, qui sert très bien son usage habituel contre du
+   contenu). `height: 0` reste en défense : la hauteur par défaut d'un `<hr>` (pensé pour un
+   document, pas une fine ligne de menu) varie selon le navigateur, autant ne rien lui laisser au
+   hasard. */
+.menu-contextuel .separateur { height: 0; border: none; border-top: 1px solid var(--btn-neutral-border-hover); margin: 4px 2px; }
 
 .rubrique > h3 {
     margin: 0 0 8px; font-size: var(--fs-2xs); font-weight: 800;
@@ -545,7 +582,12 @@ input.champ[type="number"] { width: 68px; text-align: center; }
    « l'accordage corde par corde ne sert que dans des cas très spécifiques »). Un liseré au-dessus
    plutôt qu'un fond de carte : c'est une porte vers d'autres réglages, pas un réglage de plus.
    Repris de HarmoHub, dans les tons de TabHub. */
-.repli-avance { margin-top: 4px; border-top: 1px solid var(--border); padding-top: 10px; }
+/* Même correctif que .menu-contextuel .separateur juste plus haut, même raison : `--border` (#333)
+   sur `--card-bg` (#161616) se voit contre du texte ou une carte, mais un trait qui flotte SEUL —
+   ici entre Accordage et « Options avancées », rien d'autre autour pour l'œil — devenait quasi
+   invisible sur un vrai téléphone (retour utilisateur, capture à l'appui) : un espace qui semblait
+   vide plutôt qu'une séparation voulue. */
+.repli-avance { margin-top: 4px; border-top: 1px solid var(--btn-neutral-border-hover); padding-top: 10px; }
 .repli-avance > summary {
     display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
     min-height: 34px; padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
@@ -692,6 +734,16 @@ kbd {
 
 @media (max-width: 720px) {
     .logo-texte, .groupe-outils > .etiquette-groupe { display: none; }
+    /* DÉBORDEMENT PRÉEXISTANT (mesuré, indépendant des repositionnements ci-dessus) : même le logo,
+       icône seule, ne tenait déjà plus sur un téléphone étroit à côté d'Annuler/Fichiers/Réglages/
+       Aide et d'un titre à son plancher de 120px (débordement mesuré : 97px à 390px) — invisible
+       jusqu'ici parce qu'`overflow-x: auto` (voir .barre-haut plus haut) le rend techniquement
+       ATTEIGNABLE par un défilement que rien ne signale, sans flèches comme .barre-outils : la marque
+       elle-même restait donc hors champ par défaut. Un titre plus étroit + une barre plus resserrée
+       referment l'essentiel de cet écart sans rien retirer : le titre reste un CHAMP DE SAISIE (on
+       peut toujours cliquer dedans et voir le reste en tapant), pas un simple libellé tronqué. */
+    .titre-morceau { min-width: 44px; }
+    .barre-haut { gap: 4px; padding: 0 8px; }
     .zone-partition { padding: 10px 8px 40px; }
     /* La barre d'outils reste sur UNE ligne et défile horizontalement plutôt que de se replier sur
        trois rangées : sur un téléphone, la hauteur est la ressource rare — c'est la partition qui
@@ -731,6 +783,40 @@ kbd {
         width: max-content; max-width: min(230px, calc(100vw - 16px));
         box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
     }
+
+    /* MESURES PAR LIGNE -> MÊME POPOVER, même raison (retour utilisateur : « la barre de transport
+       est trop tassée » — six boutons toujours visibles, dans une rangée qui porte déjà Lecture/
+       Stop, Tempo, TAP et Métronome). Voir main.js#basculerGroupeMesuresLigne : positionné et fermé
+       par les mêmes _positionnerPanneau/_fermerAuClicAilleurs que le popover Fichiers, gardés ici
+       plutôt que dupliqués puisque c'est main.js qui construit déjà ce groupe (comme Effets reste
+       dans toolbar.js, qui construit LE SIEN). `.groupe-mesures-ligne` n'a pas le fond/bordure de
+       `.groupe-outils` (elle vit nue dans la barre de transport à l'accoutumée) : le popover les
+       pose lui-même, plutôt que d'en hériter comme le fait le groupe Effets. */
+    .btn-transport-texte.btn-mesures-ligne-bascule { display: inline-flex; }
+    .groupe-mesures-ligne { display: none; }
+    .groupe-mesures-ligne.ouvert {
+        display: inline-flex; flex-wrap: wrap; gap: 4px;
+        position: fixed; z-index: 70;
+        background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+        width: max-content; max-width: min(230px, calc(100vw - 16px));
+        box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+    }
+}
+
+/* RÉGLAGES/AIDE contre le logo, mais SEULEMENT dès que ça tient (complément du media query ci-dessus,
+   pas un doublon : au-delà de 720px, c'est ici que la barre du haut prend sa forme définitive).
+   Séparés d'Annuler/Fichiers, ces deux boutons d'APPLI se lisent mieux collés à la marque qu'au
+   même endroit que les actions de DOCUMENT (même logique que HarmoHub, qui place son bouton
+   Paramètres « juste avant le titre, plutôt qu'au tout début de la barre du haut »). En dessous de
+   721px, `.groupe-reglages` (index.html) reste dans l'ORDRE NATUREL du DOM, avec Annuler/Fichiers :
+   les deux boutons + le logo, VRAIMENT accolés au bout d'un téléphone étroit, ne tiennent plus
+   (mesuré : 97px de débordement à 390px, le titre déjà ramené à son plancher de 120px) — la marque
+   déborderait hors champ exactement comme Réglages avant #60/#61. `order` (flex) fait ce déplacement
+   SANS toucher au DOM : les deux boutons restent à leur place naturelle tant qu'il n'y a pas la place
+   ailleurs, seul leur RENDU visuel change. */
+@media (min-width: 721px) {
+    .groupe-reglages { order: 1; }
+    .logo { order: 2; }
 }
 
 /* Très étroit (téléphone tenu debout) : le pavé prime sur tout le reste. Les chiffres se resserrent

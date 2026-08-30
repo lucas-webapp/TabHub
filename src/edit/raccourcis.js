@@ -138,6 +138,18 @@ export const ACTIONS = [
           const saisie = window.prompt('Annotation au-dessus de cette mesure (vide pour la retirer) :', actuelle);
           if (saisie !== null) ed.definirAnnotation(saisie);
       } },
+    // Nom d'accord au-dessus de l'évènement courant (« A7 », « E7 »…) — retour utilisateur (capture
+    // d'une tablature trouvée en ligne à l'appui) : le modèle qu'on cherche à suivre en porte à
+    // chaque changement d'accord, souvent plusieurs fois par mesure. Même geste que l'annotation
+    // (un window.prompt() sur la valeur déjà en place), mais sur l'ÉVÈNEMENT plutôt que la mesure —
+    // voir Editeur.definirAccord.
+    { id: 'accord', touches: [], libelle: 'Nom d\'accord au-dessus de cette note (A7, E7…)', groupe: 'mesure', apercu: { type: 'texteGras', texte: 'Am' },
+      actif: ed => !!ed.evenementCourant().accord,
+      faire: ed => {
+          const actuelle = ed.evenementCourant().accord || '';
+          const saisie = window.prompt('Nom d\'accord au-dessus de cette note (vide pour le retirer) :', actuelle);
+          if (saisie !== null) ed.definirAccord(saisie);
+      } },
 
     // --- Voix — voir edit/commands.js ------------------------------------------------------------
     // « + Voix »/« − Voix » ont disparu de la palette pour la guitare et la basse (retour direct :

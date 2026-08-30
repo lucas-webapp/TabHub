@@ -218,6 +218,16 @@ const LARGEUR_PAR_NOIRE = 5;
 const HAUTEUR_ANNOTATION = 2.4;
 
 /**
+ * Bande RÉSERVÉE au-dessus d'un système pour les noms d'accords (« A7 », « E7 »…, voir
+ * Editeur.definirAccord et Évènement#accord), en S. Même principe que HAUTEUR_ANNOTATION — ajoutée
+ * SOUS elle si les deux coexistent (l'annotation de section reste le repère le plus large qu'on
+ * cherche d'abord), et seulement pour les systèmes qui en ont réellement besoin. Plus PETITE que
+ * HAUTEUR_ANNOTATION : un nom d'accord (« A7 ») est plus court et plus léger qu'un titre de section,
+ * il n'a pas besoin d'autant de champ.
+ */
+const HAUTEUR_ACCORDS = 1.8;
+
+/**
  * Découpe une mesure en COLONNES : les instants de temps où AU MOINS UNE voix attaque une note ou un
  * silence, triés, avec la largeur que chacun réclame (voir largeurColonne). Une seule voix produit
  * exactement la même suite de colonnes que ses propres évènements ; deux voix produisent l'UNION de
@@ -255,9 +265,10 @@ function calculerColonnes(mesure, capaciteNoires, S) {
  * antérieure portait une table de largeurs écrite à la main ; elle a cessé d'être juste dès que les
  * dessins ont changé, et les altérations d'armure se chevauchaient.
  */
-function largeurEnTete(besoins, armure, signature, clef, S) {
+function largeurEnTete(besoins, armure, signature, clef, S, ST, cordes) {
     let w = 0;
     if (besoins.clef) w += (G.largeurDe(clef.glyphe) + 0.9) * S;
+    if (besoins.cleTab) w += largeurCleTab(ST, cordes) + 0.9 * S;
     if (besoins.armure && armure !== 0) {
         w += Math.abs(armure) * (G.largeurDe(armure > 0 ? G.DIESE : G.BEMOL) + 0.08) * S + 0.5 * S;
     }
@@ -316,6 +327,21 @@ function ecartPorteeTabRequis(partition, clef, S, ecartDefaut) {
     return Math.max(ecartDefaut, debordement + LONGUEUR_HAMPE + 1.4);
 }
 
+/**
+ * Pendant de ecartPorteeTabRequis pour le mode « TAB seule » (voir HAUTEUR_ZONE_HAMPE_TAB) : la
+ * marge SOUS la TAB ne grandit que si une seconde voix existe réellement (une voix seule ne pousse
+ * jamais de hampe en dessous). Pas besoin d'y mesurer un registre comme le fait la fonction
+ * ci-dessus : sans portée, toutes les hampes d'une même voix ont la MÊME longueur nominale, quelle
+ * que soit la hauteur jouée — la marge nécessaire est donc un simple FORFAIT, jamais un calcul sur
+ * le contenu.
+ */
+function margeBasRequise(partition, margeBasDefaut) {
+    const aSeconde = partition.mesures.some(m => m.voix.length > 1
+        && m.voix[1].evenements.some(e => !e.silence && e.notes.length));
+    if (!aSeconde) return margeBasDefaut;
+    return Math.max(margeBasDefaut, ECART_ZONE_HAMPE_TAB + LONGUEUR_HAMPE + 1.4);
+}
+
 // ---------------------------------------------------------------------------------------------
 // Altérations accidentelles : mémoire à l'échelle de la mesure
 // ---------------------------------------------------------------------------------------------
@@ -357,19 +383,30 @@ function memoireAlterations(armure) {
  * (`m.changeSignature`) — la convention de gravure usuelle, qui ne répète pas un chiffrage resté
  * inchangé à chaque nouvelle ligne.
  */
-function besoinsDe(m, premiereDuSysteme) {
+/**
+ * `avecPortee` (mode « TAB seule », voir mettreEnPage) supprime CLÉ et ARMURE — l'une comme l'autre
+ * n'existent que pour dire comment LIRE des positions sur une portée qui, ici, ne se dessine pas.
+ * La SIGNATURE rythmique reste montrée dans les deux modes : combien de temps compte une mesure ne
+ * dépend pas de la présence d'une portée, une tablature seule en a tout autant besoin.
+ */
+function besoinsDe(m, premiereDuSysteme, avecPortee = true) {
     return {
-        clef: premiereDuSysteme,
-        armure: premiereDuSysteme || m.changeArmure,
+        clef: avecPortee && premiereDuSysteme,
+        // Sans portée, la clé de TAB (déjà dessinée par système, voir poserCleTab) partage
+        // désormais la même ligne que la signature (voir plus bas, poserMesure) : sa largeur doit
+        // être réservée en tête de mesure exactement comme l'était celle de la clé de notation —
+        // sans quoi la signature viendrait s'y superposer (retour utilisateur, capture à l'appui).
+        cleTab: !avecPortee && premiereDuSysteme,
+        armure: avecPortee && (premiereDuSysteme || m.changeArmure),
         signature: m.index === 0 || m.changeSignature,
         repriseDebut: m.ref.repriseDebut,
     };
 }
 
 /** Calcule et mémorise l'en-tête et la largeur totale d'une mesure pour les besoins donnés. */
-function mesurerMesure(m, besoins, clef, S) {
+function mesurerMesure(m, besoins, clef, S, ST, cordes) {
     m.besoins = besoins;
-    m.enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S);
+    m.enTete = largeurEnTete(besoins, m.armure, m.signature, clef, S, ST, cordes);
     m.largeurTotale = m.enTete + m.largeurNotes + 1.4 * S;   // marge avant la barre de mesure
     return m.largeurTotale;
 }
@@ -462,13 +499,20 @@ export function mettreEnPage(partition, options = {}) {
     const ST = S * geo.ratioTab;                        // interligne de la tablature
     const cordes = nbCordes(partition);
     const clef = CLEFS[INSTRUMENTS[partition.piste.instrument]?.clef || 'sol8vb'];
+    // MODE « TAB SEULE » (retour utilisateur, voir HAUTEUR_ZONE_HAMPE_TAB) : `false` seulement sur
+    // demande explicite — absent (undefined), l'option retombe sur le comportement historique.
+    const avecPortee = geo.avecPortee !== false;
     // Voir ecartPorteeTabRequis : agrandi seulement si une seconde voix descend assez bas pour que
-    // sa hampe (systématiquement vers le bas) risquerait de traverser la tablature.
-    const ecartPorteeTab = ecartPorteeTabRequis(partition, clef, S, geo.ecartPorteeTab);
+    // sa hampe (systématiquement vers le bas) risquerait de traverser la tablature. Sans portée,
+    // c'est un simple forfait (voir ECART_ZONE_HAMPE_TAB) : aucun registre à mesurer, toutes les
+    // hampes y ont la même longueur nominale quelle que soit la hauteur jouée.
+    const ecartPorteeTab = avecPortee ? ecartPorteeTabRequis(partition, clef, S, geo.ecartPorteeTab) : ECART_ZONE_HAMPE_TAB;
+    // Idem sous la TAB (voir margeBasRequise) : n'agrandit que si une seconde voix existe VRAIMENT.
+    const margeBas = avecPortee ? geo.margeBas : margeBasRequise(partition, geo.margeBas);
 
-    const hauteurPortee = 4 * S;
+    const hauteurPortee = avecPortee ? 4 * S : HAUTEUR_ZONE_HAMPE_TAB * S;
     const hauteurTab = (cordes - 1) * ST;
-    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPorteeTab * S + hauteurTab + geo.margeBas * S;
+    const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPorteeTab * S + hauteurTab + margeBas * S;
     const largeurUtile = geo.largeurPage - geo.margeGauche - geo.margeDroite;
 
     // --- 1. Mesurer chaque mesure isolément -----------------------------------------------------
@@ -512,7 +556,7 @@ export function mettreEnPage(partition, options = {}) {
     //   • un nombre N : COMPTE FIXE — exactement N mesures par ligne, sauf à devenir illisible, une
     //     mesure à la fois, pour rester lisible quel que soit le chiffrage rythmique en cours.
     const nMesuresParLigne = geo.mesuresParLigne ? Math.max(1, Math.round(geo.mesuresParLigne)) : null;
-    const mesurer = (m, premiere) => mesurerMesure(m, besoinsDe(m, premiere), clef, S);
+    const mesurer = (m, premiere) => mesurerMesure(m, besoinsDe(m, premiere, avecPortee), clef, S, ST, cordes);
     const systemes = nMesuresParLigne
         ? decouperEnSystemesParCompte(mesures, nMesuresParLigne, mesurer)
         : decouperEnSystemesGloutons(mesures, largeurUtile, mesurer);
@@ -546,8 +590,15 @@ export function mettreEnPage(partition, options = {}) {
         // rien ne doit voir aucune de ses lignes s'écarter.
         const aUneAnnotation = sys.mesures.some(m => (m.ref.annotation || '').trim());
         const extraAnnotation = aUneAnnotation ? HAUTEUR_ANNOTATION * S : 0;
+        // Bande des noms d'accords (« A7 », « E7 »… voir Évènement#accord) : même principe, réservée
+        // seulement si l'un des évènements de CE système en porte un — SOUS l'annotation de section
+        // si les deux coexistent, celle-ci restant le repère le plus large qu'on cherche d'abord en
+        // parcourant la page (voir edit/raccourcis.js#accord).
+        const aUnAccord = sys.mesures.some(m => m.ref.voix.some(v => v.evenements.some(e => (e.accord || '').trim())));
+        const extraAccords = aUnAccord ? HAUTEUR_ACCORDS * S : 0;
+        const yAccords = y + extraAnnotation + 1.5 * S;
         const yAnnotation = y + 1.6 * S;
-        const yPortee = y + geo.margeHaut * S + extraAnnotation;
+        const yPortee = y + geo.margeHaut * S + extraAnnotation + extraAccords;
         const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
         const xDebut = geo.margeGauche;
         // Largeur RÉELLE de ce système : la somme des largeurs FIXES de ses propres mesures (voir
@@ -559,8 +610,10 @@ export function mettreEnPage(partition, options = {}) {
         // ressemble à s'y méprendre à une mesure vide en trop.
         const xFin = xDebut + sys.mesures.reduce((t, m) => t + m.enTete + m.largeurNotes + 1.4 * S, 0);
 
-        poserLignesSysteme(primitives, xDebut, xFin, yPortee, yTab, S, ST, cordes);
-        poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
+        poserLignesSysteme(primitives, xDebut, xFin, yPortee, yTab, S, ST, cordes, avecPortee);
+        // L'accolade dit « lisez ces deux portées ensemble » — sans portée de notation, il n'y a
+        // plus qu'UNE portée (la TAB), rien à relier.
+        if (avecPortee) poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
         poserCleTab(primitives, xDebut, yTab, ST, cordes);
 
         let x = xDebut;
@@ -573,13 +626,13 @@ export function mettreEnPage(partition, options = {}) {
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
                 x, largeurMesure, facteur: facteurEffectif, finMesure,
-                yPortee, yTab, yAnnotation, S, ST, cordes, clef, geo, iSys,
+                yPortee, yTab, yAnnotation, yAccords, S, ST, cordes, clef, geo, iSys, avecPortee,
                 premiereDuSysteme: iDansSys === 0,
             });
         });
 
         ancrages.systemes.push({
-            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation, yPortee, yTab, xDebut, xFin, hauteurTab,
+            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation + extraAccords, yPortee, yTab, xDebut, xFin, hauteurTab,
             // `yBas` : bas de la grille de notation, générique entre les deux mises en page (voir son
             // pendant côté piano dans mettreEnPagePiano) — pour que la bande de boucle et le reste du
             // code d'interaction n'aient jamais à savoir s'il existe une TAB sous la portée.
@@ -587,7 +640,7 @@ export function mettreEnPage(partition, options = {}) {
             debutPrimitives, finPrimitives: primitives.length,
             premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
         });
-        y += hauteurSysteme + extraAnnotation + geo.ecartSystemes * S;
+        y += hauteurSysteme + extraAnnotation + extraAccords + geo.ecartSystemes * S;
     });
 
     // LA PAGE NE RÉTRÉCIT JAMAIS SON CONTENU POUR TENIR DANS largeurPage — un système qui ne peut
@@ -871,7 +924,7 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, S, staff.yPortee);
+        poserNolets(out, poses, groupes, S, staff.yPortee);
         poserLiaisons(out, poses, S, undefined);
     });
 
@@ -960,8 +1013,8 @@ function poserEnTete(out, partition, geo, y) {
 // Éléments de système
 // ---------------------------------------------------------------------------------------------
 
-function poserLignesSysteme(out, x1, x2, yPortee, yTab, S, ST, cordes) {
-    for (let i = 0; i < 5; i++) out.push(ligne(x1, yPortee + i * S, x2, yPortee + i * S, G.EPAISSEURS.ligneePortee * S));
+function poserLignesSysteme(out, x1, x2, yPortee, yTab, S, ST, cordes, avecPortee = true) {
+    if (avecPortee) for (let i = 0; i < 5; i++) out.push(ligne(x1, yPortee + i * S, x2, yPortee + i * S, G.EPAISSEURS.ligneePortee * S));
     for (let i = 0; i < cordes; i++) out.push(ligne(x1, yTab + i * ST, x2, yTab + i * ST, G.EPAISSEURS.ligneePortee * S));
 }
 
@@ -982,15 +1035,24 @@ function poserAccolade(out, x, yHaut, yBas, S) {
  * l'un sur l'autre, comme dans une version antérieure, se lisaient comme un mot écrit à la verticale,
  * pas comme une clé.
  */
+/** Échelle et largeur RÉELLES (glyphe étiré à la hauteur de la TAB) — voir poserCleTab et
+ * largeurEnTete, qui doivent s'accorder sur le MÊME calcul plutôt que le deviner chacune à part. */
+function echelleCleTab(ST, cordes) {
+    const hauteur = (cordes - 1) * ST;
+    const g = G.cleTabPour(cordes);
+    return hauteur / (G.boiteDe(g).bas - G.boiteDe(g).haut);
+}
+function largeurCleTab(ST, cordes) {
+    return G.largeurDe(G.cleTabPour(cordes)) * echelleCleTab(ST, cordes);
+}
+
 function poserCleTab(out, x, yTab, ST, cordes) {
     const hauteur = (cordes - 1) * ST;
     const g = G.cleTabPour(cordes);
-    const b = G.boiteDe(g);
     // Le glyphe est dessiné pour une portée standard : on l'étire à la hauteur RÉELLE de la
     // tablature, qui dépend du nombre de cordes et de l'espacement choisi. Exactement à cette
     // hauteur, sans marge : la clé de tablature ENJAMBE la portée, elle n'en déborde pas.
-    const echelle = hauteur / (b.bas - b.haut);
-    out.push(glyphe(g, x + 0.5 * ST, yTab + hauteur / 2, echelle));
+    out.push(glyphe(g, x + 0.5 * ST, yTab + hauteur / 2, echelleCleTab(ST, cordes)));
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -998,7 +1060,7 @@ function poserCleTab(out, x, yTab, ST, cordes) {
 // ---------------------------------------------------------------------------------------------
 
 function poserMesure(out, ancrages, partition, m, ctx) {
-    const { yPortee, yTab, yAnnotation, S, ST, cordes, clef, geo, facteur } = ctx;
+    const { yPortee, yTab, yAnnotation, yAccords, S, ST, cordes, clef, geo, facteur, avecPortee = true } = ctx;
     const hauteurTab = (cordes - 1) * ST;
     let x = ctx.x;
     const xDebutMesure = x;
@@ -1006,20 +1068,25 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     // Une voix qui ne totalise pas la capacité de la mesure (trop ou pas assez, voir l'étape 1) est
     // signalée par un fond teinté couvrant portée ET tablature — visible au premier coup d'œil,
     // SOUS la notation (posé en premier) pour ne rien masquer. Absent du PDF (voir GEO_DEFAUT).
+    // `yPortee`/`yTab` couvrent déjà toute la zone réservée quel que soit le mode (voir mettreEnPage) :
+    // rien à adapter ici pour le mode TAB seule.
     if (m.invalide && geo.avertirErreurs !== false) {
         out.push(rect(xDebutMesure, yPortee, ctx.finMesure - xDebutMesure, (yTab + hauteurTab) - yPortee, 'avertissement'));
     }
 
-    // Barre de reprise ouvrante — épaisse puis fine, puis les deux points.
+    // Barre de reprise ouvrante — épaisse puis fine, puis les deux points. Le TRACÉ SUR LA PORTÉE
+    // n'a de sens que si elle existe (avecPortee) ; celui sur la TAB reste, lui, toujours dessiné.
     if (m.ref.repriseDebut) {
-        out.push(rect(x, yPortee, G.EPAISSEURS.barreEpaisse * S, 4 * S));
+        if (avecPortee) out.push(rect(x, yPortee, G.EPAISSEURS.barreEpaisse * S, 4 * S));
         out.push(rect(x, yTab, G.EPAISSEURS.barreEpaisse * S, hauteurTab));
         const xf = x + G.EPAISSEURS.barreEpaisse * S + 0.32 * S;
-        out.push(ligne(xf, yPortee, xf, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+        if (avecPortee) {
+            out.push(ligne(xf, yPortee, xf, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+            out.push(glyphe(G.POINT, xf + 0.55 * S, yPortee + 1.5 * S, S));
+            out.push(glyphe(G.POINT, xf + 0.55 * S, yPortee + 2.5 * S, S));
+        }
         out.push(ligne(xf, yTab, xf, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
         const xp = xf + 0.55 * S;
-        out.push(glyphe(G.POINT, xp, yPortee + 1.5 * S, S));
-        out.push(glyphe(G.POINT, xp, yPortee + 2.5 * S, S));
         x = xp + 0.9 * S;
     }
 
@@ -1031,6 +1098,10 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         out.push(glyphe(clef.glyphe, x + 0.45 * S, yPortee + clef.ligne * S, S));
         x += (G.largeurDe(clef.glyphe) + 0.9) * S;
     }
+    // Sans portée : RIEN à dessiner ici (la clé de TAB se dessine une fois par système, voir
+    // poserCleTab plus haut) — seulement laisser filer `x` de la même largeur que largeurEnTete en
+    // a réservée, pour que la signature ci-dessous ne vienne pas s'y superposer.
+    if (m.besoins.cleTab) x += largeurCleTab(ST, cordes) + 0.9 * S;
 
     // Armure
     if (m.besoins.armure && m.armure !== 0) {
@@ -1059,8 +1130,20 @@ function poserMesure(out, ancrages, partition, m, ctx) {
                 cx += (G.largeurDe(g) / 2) * S;
             }
         };
-        poserSuite(haut, yPortee + 1 * S);   // centré entre la ligne du haut et la médiane
-        poserSuite(bas, yPortee + 3 * S);    // centré entre la médiane et la ligne du bas
+        if (avecPortee) {
+            poserSuite(haut, yPortee + 1 * S);   // centré entre la ligne du haut et la médiane
+            poserSuite(bas, yPortee + 3 * S);    // centré entre la médiane et la ligne du bas
+        } else {
+            // TAB seule (retour utilisateur : « on voit encore la signature rythmique [...] à
+            // placer sur la ligne de TAB ») : la portée a disparu, la signature reste pourtant
+            // ancrée à SA hauteur — flottante dans l'espace qu'elle occupait encore. Recentrée ici
+            // sur la TAB elle-même, même convention que poserCleTab (proportionnelle à sa hauteur
+            // réelle, donc juste aussi pour 4 cordes que pour 6) : chiffre du haut au quart
+            // supérieur, chiffre du bas au quart inférieur — la même disposition « à cheval sur le
+            // milieu » que sur une portée, juste rapportée à la TAB.
+            poserSuite(haut, yTab + hauteurTab * 0.25);
+            poserSuite(bas, yTab + hauteurTab * 0.75);
+        }
         x += (largeur + 0.9) * S;
     }
     if (m.enTete > 0) x += 1.5 * S;   // la respiration comptée par largeurEnTete
@@ -1144,8 +1227,8 @@ function poserMesure(out, ancrages, partition, m, ctx) {
             const xFinEvt = iColFin < xColonnes.length ? xColonnes[iColFin] : xFinMesureNotes;
 
             const pose = poserEvenement(out, partition, ref, {
-                x: xNote, xDebut: xDebutEvt, largeur: largeurPremiereColonne, yPortee, yTab, S, ST, cordes, clef, memoire, geo,
-                sensImpose, decalageSilence, notesParPasEtColonne, cleColonne: iCol,
+                x: xNote, xDebut: xDebutEvt, largeur: largeurPremiereColonne, yPortee, yTab, yAccords, S, ST, cordes, clef, memoire, geo,
+                sensImpose, decalageSilence, notesParPasEtColonne, cleColonne: iCol, avecPortee,
             });
             poses.push(pose);
             ancrages.evenements.push({
@@ -1162,23 +1245,26 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, S, yPortee);
+        poserNolets(out, poses, groupes, S, yPortee);
         poserLiaisons(out, poses, S, ST);
     });
 
-    // Barre de fin de mesure
+    // Barre de fin de mesure — SUR LA PORTÉE seulement si elle existe (avecPortee) ; sur la TAB,
+    // toujours.
     const xBarre = ctx.finMesure;
     if (m.ref.repriseFin) {
-        const xp = xBarre - 1.5 * S;
-        out.push(glyphe(G.POINT, xp, yPortee + 1.5 * S, S));
-        out.push(glyphe(G.POINT, xp, yPortee + 2.5 * S, S));
+        if (avecPortee) {
+            const xp = xBarre - 1.5 * S;
+            out.push(glyphe(G.POINT, xp, yPortee + 1.5 * S, S));
+            out.push(glyphe(G.POINT, xp, yPortee + 2.5 * S, S));
+        }
         const xf = xBarre - 0.75 * S;
-        out.push(ligne(xf, yPortee, xf, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+        if (avecPortee) out.push(ligne(xf, yPortee, xf, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
         out.push(ligne(xf, yTab, xf, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
-        out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yPortee, G.EPAISSEURS.barreEpaisse * S, 4 * S));
+        if (avecPortee) out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yPortee, G.EPAISSEURS.barreEpaisse * S, 4 * S));
         out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yTab, G.EPAISSEURS.barreEpaisse * S, hauteurTab));
     } else {
-        out.push(ligne(xBarre, yPortee, xBarre, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+        if (avecPortee) out.push(ligne(xBarre, yPortee, xBarre, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
         out.push(ligne(xBarre, yTab, xBarre, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
     }
 
@@ -1212,7 +1298,7 @@ export function pasDeLaPosition(y, yPortee, S, clef) {
 // ---------------------------------------------------------------------------------------------
 
 function poserEvenement(out, partition, evenement, ctx) {
-    const { x, yPortee, yTab, S, ST, cordes, clef, memoire, geo, sensImpose = null, decalageSilence = 0 } = ctx;
+    const { x, yPortee, yTab, yAccords, S, ST, cordes, clef, memoire, geo, sensImpose = null, decalageSilence = 0, avecPortee = true } = ctx;
     const crochets = crochetsDe(evenement.duree.valeur);
     const estSilence = evenement.silence || evenement.notes.length === 0;
 
@@ -1221,19 +1307,57 @@ function poserEvenement(out, partition, evenement, ctx) {
         notes: [], yHampe: null, sensHampe: 1, yTeteExtreme: null,
     };
 
+    // Nom d'accord (« A7 », « E7 »…, voir Évènement#accord) : posé à l'aplomb de CET évènement
+    // précis, qu'il soit silencieux ou non (un accord peut très bien continuer de sonner sous un
+    // silence de la voix qu'on écrit) — donc AVANT tout retour anticipé plus bas, silence ou TAB
+    // seule. `yAccords` n'existe (voir mettreEnPage) que pour un système dont au moins un évènement
+    // en porte un ; `ctx.yAccords` reste sinon `undefined` (voir poserMesurePiano, qui ne le passe
+    // pas — les noms d'accords, comme l'annotation de section, n'existent pour l'instant que côté
+    // guitare/basse) et ce bloc ne s'exécute alors jamais.
+    if (evenement.accord && yAccords != null) {
+        out.push(texte(x, yAccords, evenement.accord, {
+            taille: S * 1.2, police: 'sans-serif', poids: '700', ancre: 'debut', couleur: 'encre',
+        }));
+    }
+
+    // ANCRE DES HAMPES EN MODE « TAB SEULE » (voir HAUTEUR_ZONE_HAMPE_TAB/ECART_ZONE_HAMPE_TAB) :
+    // sans portée, aucune tête de note n'a de hauteur réelle à rejoindre — chaque hampe part donc
+    // d'un point fixe, juste au-dessus OU en dessous de la TAB. LEQUEL exactement suit la MÊME règle
+    // que sur la portée (retour utilisateur : « les hampes doivent pouvoir descendre [...] comme pour
+    // une vraie partition », pas un sens unique et fixe pour toute la voix) : c'est la CORDE la plus
+    // éloignée du milieu du manche qui décide — une corde AIGUË (index bas, près du haut du manche)
+    // pousse la hampe vers le BAS, une corde GRAVE vers le HAUT, exactement le même principe que
+    // ecartHaut/ecartBas plus bas pour la hauteur réelle, appliqué à la seule chose qui varie ici : la
+    // position de corde. `sensImpose` garde priorité (deux voix : mélodie toujours en haut, basse
+    // toujours en bas, quelle que soit la corde — même raison qu'en notation). Les SILENCES, qui ne
+    // jouent aucune corde, gardent le sens par défaut de la voix : rien à faire varier pour eux, comme
+    // sur la portée (ecartHaut/ecartBas, plus bas, ne portent déjà que sur des notes SONNANTES).
+    let sensTab = sensImpose ?? -1;
+    if (!estSilence && evenement.notes.length && cordes > 0) {
+        const pasMedianTab = -(cordes - 1) / 2;
+        const positionsTab = evenement.notes.map(n => -n.corde);
+        const ecartHautTab = Math.max(...positionsTab) - pasMedianTab;
+        const ecartBasTab = pasMedianTab - Math.min(...positionsTab);
+        sensTab = sensImpose ?? (ecartHautTab >= ecartBasTab ? 1 : -1);
+    }
+    const yAncreTab = sensTab < 0 ? yTab - ECART_ZONE_HAMPE_TAB * S : yTab + (cordes - 1) * ST + ECART_ZONE_HAMPE_TAB * S;
+
     if (estSilence) {
         // La pause et la demi-pause sont le MÊME rectangle : seule leur position les distingue — la
         // première suspendue sous la 4e ligne, la seconde posée sur la médiane. Les confondre décale
-        // la lecture d'un temps entier, l'erreur la plus coûteuse qu'un silence puisse porter.
-        // `decalageSilence` écarte les silences de deux voix simultanées l'un de l'autre — sans lui,
-        // une mesure où mélodie ET basse se taisent au même instant superposerait deux fois le même
-        // dessin, indiscernable d'un silence unique.
+        // la lecture d'un temps entier, l'erreur la plus coûteuse qu'un silence puisse porter. Cette
+        // distinction n'a de sens que sur une portée à 5 lignes : sans elle (TAB seule), toutes les
+        // durées de silence se posent au MÊME repère — l'ancre des hampes, celle de la voix — comme
+        // n'importe quelle autre pause dans ce mode.
         const g = G.SILENCES[evenement.duree.valeur] || G.SILENCES[4];
-        const yLigne = yPortee + (G.LIGNE_SILENCE[evenement.duree.valeur] ?? 2) * S + decalageSilence * S;
+        const yLigne = avecPortee
+            ? yPortee + (G.LIGNE_SILENCE[evenement.duree.valeur] ?? 2) * S + decalageSilence * S
+            : yAncreTab + decalageSilence * S;
         const demi = (G.largeurDe(g) / 2) * S;
         out.push(glyphe(g, x - demi, yLigne, S));
         for (let i = 0; i < (evenement.duree.points || 0); i++) {
-            out.push(glyphe(G.POINT, x + demi + (0.5 + i * 0.42) * S, yPortee + 1.5 * S + decalageSilence * S, S));
+            const yPoint = avecPortee ? yPortee + 1.5 * S + decalageSilence * S : yLigne;
+            out.push(glyphe(G.POINT, x + demi + (0.5 + i * 0.42) * S, yPoint, S));
         }
         return pose;
     }
@@ -1263,15 +1387,42 @@ function poserEvenement(out, partition, evenement, ctx) {
                 // 1½ (voir Editeur.bendSuivant, qui les fait circuler). Une version antérieure n'en
                 // distinguait que deux (« full » dès deux demi-tons), donc un bend d'un ton et demi
                 // s'affichait comme un ton entier — deux gestes différents sous une même étiquette.
+                //
+                // La flèche montante (et non le seul texte) : c'est la convention de gravure réelle
+                // d'un bend — cf. la capture de référence fournie par l'utilisateur, où l'amplitude
+                // surmonte une pointe de flèche plutôt que de flotter seule. Un seul segment « C »,
+                // comme arcLiaison ci-dessus : jsPDF#analyserChemin ne sait lire que M/L/C/Z — un
+                // « Q » y ressortirait silencieusement vide, et le PDF ne serait plus ce qu'on voit.
                 const LIBELLES_BEND = { 1: '½', 2: 'full', 3: '1½' };
-                out.push(texte(x + 0.9 * S, yLigne - tailleChiffre * 0.75, LIBELLES_BEND[note.bend.demiTons] || 'full', {
-                    taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
+                const xA = x + demiLargeur + 0.2 * S, yA = yLigne - tailleChiffre * 0.1;
+                const xB = xA + 0.5 * S, yB = yLigne - tailleChiffre * 1.9;
+                out.push(courbe(
+                    `M ${xA.toFixed(2)} ${yA.toFixed(2)} C ${(xA + 0.1 * S).toFixed(2)} ${(yA + (yB - yA) * 0.4).toFixed(2)} ${(xB - 0.05 * S).toFixed(2)} ${(yA + (yB - yA) * 0.85).toFixed(2)} ${xB.toFixed(2)} ${yB.toFixed(2)}`,
+                    G.EPAISSEURS.liaison * S, 'discret',
+                ));
+                const demiPointe = 0.22 * S, hautPointe = 0.4 * S;
+                out.push(poly([[xB, yB], [xB - demiPointe, yB + hautPointe], [xB + demiPointe, yB + hautPointe]], 'discret'));
+                out.push(texte(xB, yB - 0.3 * S, LIBELLES_BEND[note.bend.demiTons] || 'full', {
+                    taille: S * 0.95, police: 'sans-serif', poids: '600', ancre: 'milieu', couleur: 'discret',
                 }));
             }
             pose.notes.push({ note, yTab: ligneTab(note, yTab, ST), demiLargeurTab: demiLargeur });
         } else {
             pose.notes.push({ note });
         }
+    }
+
+    // --- MODE « TAB SEULE » : la hampe rejoint l'ancre commune (voir plus haut), jamais une tête de
+    // note qui n'existe pas ici — sortie avant la section Portée, qui n'a plus rien à faire. `yHaut`
+    // ET `yBas` valent tous deux `yAncreTab` : poserHampes (déjà générique) en déduit une hampe de la
+    // longueur nominale exacte, sans le moindre changement de son côté (voir boutDeHampe/xDeHampe).
+    // `demiTete` est OMIS à dessein : le repli de xDeHampe (`p.demiTete ?? 0.59`) donne déjà le petit
+    // décalage voulu, celui qu'aurait une tête de note ordinaire.
+    if (!avecPortee) {
+        pose.sensHampe = sensTab;
+        pose.yHaut = yAncreTab;
+        pose.yBas = yAncreTab;
+        return pose;
     }
 
     // --- Portée : les mêmes notes, converties en hauteurs puis en positions ----------------------
@@ -1373,6 +1524,17 @@ function poserLignesSupplementaires(out, x, y, yPortee, S, demiTete = 0.59) {
 // ---------------------------------------------------------------------------------------------
 
 const LONGUEUR_HAMPE = 3.4;   // en interlignes, longueur nominale d'une hampe
+
+// MODE « TAB SEULE » (retour utilisateur : « visualiser uniquement la portée de tablature, sans la
+// partition [...] le rythme doit être visible sur la portée de la tablature directement ») — voir
+// mettreEnPage#avecPortee, poserEvenement. Sans portée, une hampe n'a plus de hauteur RÉELLE à
+// rejoindre (aucune tête de note n'existe) : toutes celles d'une même voix partent du MÊME point fixe,
+// juste au-dessus (voix 0/seule) ou en dessous (voix 1, deux voix) de la TAB, comme le fait Guitar Pro
+// en vue TAB seule. `HAUTEUR_ZONE_HAMPE_TAB` doit loger une hampe pleine longueur PLUS son crochet,
+// un point, un chiffre de n-olet — moins que les 4 S d'une portée à 5 lignes, sans quoi le gain de
+// hauteur qui motive ce mode n'existerait pas, mais pas la longueur de la hampe SEULE non plus.
+const HAUTEUR_ZONE_HAMPE_TAB = 5.6;   // × S, au-dessus (ou en dessous) de la TAB
+const ECART_ZONE_HAMPE_TAB = 0.4;     // × S, entre cette zone et la TAB elle-même — juste un peu d'air
 
 /**
  * Répartit les évènements en groupes de ligature.
@@ -1540,8 +1702,19 @@ function poserArticulations(out, poses, S) {
  * Sans ce chiffre, trois croches en triolet sont IMPOSSIBLES à distinguer de trois croches
  * ordinaires : le dessin des notes est identique, seule la durée change. C'est le seul cas de la
  * notation où l'information rythmique ne tient pas dans la forme des notes.
+ *
+ * `groupes` (les MÊMES groupes de ligature que poserHampes, jamais recalculés ici) sert à ne JAMAIS
+ * laisser une course de n-olets enjamber deux TEMPS différents. Sans ça (trouvé en reproduisant un
+ * rythme en triolets répété tout du long, retour utilisateur) : plusieurs temps consécutifs de
+ * triolets, qui partagent tous le MÊME descripteur `{dans, valent}`, se voyaient fusionnés en une
+ * seule course par la seule comparaison de descripteur — un unique « 3 » pour toute la suite, centré
+ * n'importe où, au lieu d'un par temps. L'appartenance à un groupe de ligature (ou son absence)
+ * referme la course aussi sûrement qu'un descripteur différent.
  */
-function poserNolets(out, poses, S, yPortee) {
+function poserNolets(out, poses, groupes, S, yPortee) {
+    const groupeDe = new Map();
+    groupes.forEach((g, ig) => { for (const p of g) groupeDe.set(p, ig); });
+
     let i = 0;
     while (i < poses.length) {
         const nolet = poses[i].ref.duree.nolet;
@@ -1550,6 +1723,7 @@ function poserNolets(out, poses, S, yPortee) {
         while (j + 1 < poses.length) {
             const suivant = poses[j + 1].ref.duree.nolet;
             if (!suivant || suivant.dans !== nolet.dans || suivant.valent !== nolet.valent) break;
+            if (groupeDe.get(poses[j]) !== groupeDe.get(poses[j + 1])) break;
             j++;
         }
         const groupe = poses.slice(i, j + 1);
