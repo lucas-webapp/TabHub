@@ -75,6 +75,18 @@
     --selection: #4a9eff;
     --selection-halo: rgba(74, 158, 255, 0.2);
 
+    /* HAUTEUR DE BOUTON UNIQUE (retour utilisateur : « limiter le nombre de hauteurs différentes ») —
+       AVANT cette variable, six valeurs coexistaient selon le composant et le pointeur (22/30/32/34/
+       40/44px) : la barre de transport et la barre d'outils, côte à côte sur le même écran, ne
+       s'alignaient jamais. Une SEULE variable, relue par .btn-outil/.btn-icone/.btn-transport/
+       .btn-transport-texte/.btn-plein/.btn-neutre/.btn-mesures-ligne/select.champ/input.champ/
+       .menu-contextuel button : 34px à la souris, 44px au doigt (voir @media pointer:coarse plus
+       bas — la cible tactile minimale recommandée, déjà le choix historique de .btn-transport/
+       .btn-pave, étendu ici à TOUT le reste plutôt que gardé pour deux boutons seulement).
+       EXCEPTIONS VOLONTAIRES, gardées à part : .interrupteur (un interrupteur, pas un bouton — autre
+       logique visuelle) et .fleche-outils (flèches de défilement, délibérément plus discrètes que ce
+       qu'elles enjambent). */
+    --h-bouton: 34px;
     --h-barre-haut: 46px;
     --h-outils: 54px;
     /* + l'encoche du bas (accueil plein écran iOS, coins arrondis / barre d'accueil du téléphone —
@@ -171,7 +183,7 @@ body > * { min-width: 0; }
 }
 
 .btn-icone {
-    width: 34px; height: 34px;
+    width: var(--h-bouton); height: var(--h-bouton);
     display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid transparent;
     border-radius: 9px;
@@ -296,7 +308,7 @@ body.outils-gauche .groupe-outils { flex-wrap: wrap; justify-content: flex-start
 body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-right: 0; margin-bottom: 1px; }
 
 .btn-outil {
-    min-width: 32px; height: 32px;
+    min-width: var(--h-bouton); height: var(--h-bouton);
     padding: 0 8px;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     border-radius: 8px;
@@ -335,7 +347,7 @@ body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-r
 .apercu-texte-gras { font-weight: 800; font-size: .82rem; }
 
 select.champ, input.champ {
-    height: 30px; padding: 0 8px;
+    height: var(--h-bouton); padding: 0 8px;
     background: var(--fond-bouton-sombre);
     border: 1px solid var(--btn-neutral-border); border-radius: 8px;
     color: var(--text-main); font-family: var(--font); font-size: var(--fs-select, .75rem); font-weight: 600;
@@ -357,7 +369,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .btn-transport-texte.btn-mesures-ligne-bascule { display: none; }
 .groupe-mesures-ligne { display: inline-flex; gap: 2px; flex: none; }
 .btn-mesures-ligne {
-    min-width: 26px; height: 30px; padding: 0 6px;
+    min-width: 26px; height: var(--h-bouton); padding: 0 6px;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 7px;
     border: 1px solid var(--btn-neutral-border);
@@ -463,7 +475,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 
 .btn-transport {
-    width: 38px; height: 34px;
+    width: 38px; height: var(--h-bouton);
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 9px; cursor: pointer;
     border: 1px solid var(--btn-neutral-border);
@@ -486,7 +498,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 /* Bouton texte de la barre de transport (Fichiers, Mesures par ligne…) — même hauteur que les
    boutons de transport, mais largeur libre pour son texte. */
 .btn-transport-texte {
-    height: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
+    height: var(--h-bouton); padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
     border-radius: 9px; cursor: pointer;
     border: 1px solid var(--btn-neutral-border);
     background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
@@ -531,7 +543,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
    colonne de boutons pleine largeur, texte aligné à gauche — plus lisible qu'un bouton centré
    pour une ligne « Case 5 → case 10 (4/12 notes) ». */
 #liste-zones-manche { display: flex; flex-direction: column; gap: 8px; }
-#liste-zones-manche .btn-neutre { width: 100%; height: auto; min-height: 34px; padding: 8px 14px; text-align: left; }
+#liste-zones-manche .btn-neutre { width: 100%; height: auto; min-height: var(--h-bouton); padding: 8px 14px; text-align: left; }
 .avertissement { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: var(--fs-sm); line-height: 1.4; color: #f3a99a; background: var(--btn-red-2); border: 1px solid var(--btn-red-border); }
 
 /* ============================================================
@@ -547,6 +559,10 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .menu-contextuel button {
     display: block; width: 100%; text-align: left; background: none; border: none;
     color: var(--text-main); font-family: var(--font); font-size: var(--fs-sm);
+    /* `min-height`, jamais `height` : certains libellés (« Supprimer et décaler la suite ») peuvent
+       courir sur deux lignes selon la largeur du menu — un plancher commun aux boutons plus courts,
+       pas un plafond qui les rognerait. */
+    min-height: var(--h-bouton);
     padding: 8px 10px; border-radius: 7px; cursor: pointer;
 }
 .menu-contextuel button:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); }
@@ -616,7 +632,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .repli-avance { margin-top: 4px; border-top: 1px solid var(--btn-neutral-border-hover); padding-top: 10px; }
 .repli-avance > summary {
     display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
-    min-height: 34px; padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
+    min-height: var(--h-bouton); padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
     color: var(--text-muted); user-select: none;
 }
 .repli-avance > summary::-webkit-details-marker { display: none; }
@@ -631,14 +647,14 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .repli-avance-corps > .grille-cordes { margin-top: 8px; }
 
 .btn-plein {
-    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    height: var(--h-bouton); padding: 0 14px; border-radius: 9px; cursor: pointer;
     font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
     border: 1px solid var(--btn-green-border); color: var(--btn-text);
     background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
 }
 .btn-plein:hover { border-color: var(--btn-green-border-hover); }
 .btn-neutre {
-    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    height: var(--h-bouton); padding: 0 14px; border-radius: 9px; cursor: pointer;
     font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
     border: 1px solid var(--btn-neutral-border); color: var(--text-main);
     background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
@@ -775,9 +791,12 @@ body.avec-pave .dpad-flottant { display: grid; }
    elle est tactile). Les cibles grandissent partout où l'on vise, et les gestes propres au téléphone
    (défilement du doigt sur la partition) reprennent leurs droits. */
 @media (pointer: coarse) {
-    .btn-outil { min-width: 40px; height: 40px; }
-    .btn-icone { width: 40px; height: 40px; }
-    .btn-transport { min-width: 44px; min-height: 44px; }
+    /* SEUL point de réglage pour « au doigt, tout grandit » : .btn-outil/.btn-icone/.btn-transport/
+       .btn-transport-texte/.btn-plein/.btn-neutre/.btn-mesures-ligne/select.champ/input.champ/
+       .menu-contextuel button relisent tous cette même variable (voir :root) — aucun besoin de
+       redéfinir leur hauteur un par un ici, exactement le défaut que --h-bouton corrige. */
+    :root { --h-bouton: 44px; }
+    .btn-transport { min-width: 44px; }   /* la LARGEUR, elle, reste propre à .btn-transport (38px de base) */
     .menu-contextuel button { padding: 12px 12px; }
     /* LE DOIGT DÉFILE, IL NE LASSOTE PAS. Le lasso de sélection multiple (voir main.js,
        demarrerGeste) est un geste de SOURIS ; au doigt, glisser sur une partition veut dire la faire
