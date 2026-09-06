@@ -23,7 +23,7 @@ import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils, flecheOutilsSvg } from './ui/toolbar.js';
-import { construirePave } from './ui/pave.js';
+import { construirePave, construireDpadFlottant } from './ui/pave.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
@@ -183,6 +183,7 @@ class TabHubApp {
             btnFichiers: document.getElementById('btn-fichiers'),
             popoverFichiers: document.getElementById('popover-fichiers'),
             pave: document.getElementById('pave-tactile'),
+            dpadFlottant: document.getElementById('dpad-flottant'),
         };
 
         this.restaurerBrouillon();
@@ -196,6 +197,10 @@ class TabHubApp {
         // exécutent les mêmes actions et doivent donc signaler les mêmes refus et rendre le focus au
         // même endroit — jamais deux comportements à tenir juste en parallèle.
         this.rafraichirPave = construirePave(this.el.pave, this.editeur, crochetsUi);
+        // La croix de déplacement flotte À PART (retour utilisateur), voir ui/pave.js — mais reste
+        // pilotée par LE MÊME interrupteur qu'appliquerPave ci-dessous (body.avec-pave, voir
+        // style.css) : les deux se montrent et se cachent TOUJOURS ensemble.
+        construireDpadFlottant(this.el.dpadFlottant, this.editeur, crochetsUi);
         this.appliquerPave(this.paveActif);
         this.brancherInterface();
         brancherClavier(this.editeur, {
@@ -1861,15 +1866,20 @@ class TabHubApp {
     }
 
     /**
-     * Affiche ou replie le pavé de saisie tactile (voir ui/pave.js). TOUJOURS absent sur un appareil
+     * Affiche ou replie le pavé de saisie tactile (voir ui/pave.js) — CHIFFRES + Effacer/Insérer ET
+     * la croix de déplacement flottante, ENSEMBLE : `body.avec-pave` (voir style.css .dpad-flottant)
+     * est le seul interrupteur des deux, jamais l'un sans l'autre. TOUJOURS absent sur un appareil
      * non tactile (aucun réglage ne peut l'y faire apparaître : la souris fait déjà tout) ; sur un
      * appareil tactile, visible sauf si `actif` est éteint dans les Réglages (voir remplirReglages,
      * le seul endroit où ce réglage est même montré).
      *
-     * Le pavé prend de la hauteur à la partition (il occupe sa propre rangée de la grille, il ne la
-     * recouvre pas) : il faut donc remettre en page APRÈS que le navigateur a appliqué la nouvelle
-     * grille, sinon le découpage en systèmes se calcule sur la hauteur d'avant — d'où le passage par
-     * requestAnimationFrame, exactement comme pour la barre d'outils juste au-dessus.
+     * Le pavé (chiffres) prend de la hauteur à la partition (il occupe sa propre rangée de la grille,
+     * il ne la recouvre pas) : il faut donc remettre en page APRÈS que le navigateur a appliqué la
+     * nouvelle grille, sinon le découpage en systèmes se calcule sur la hauteur d'avant — d'où le
+     * passage par requestAnimationFrame, exactement comme pour la barre d'outils juste au-dessus. La
+     * croix, elle, flotte PAR-DESSUS (retour utilisateur) : sa propre apparition/disparition ne
+     * change rien à la hauteur disponible, mais elle suit ce même passage puisqu'il ne coûte rien de
+     * plus à partager.
      */
     appliquerPave(actif) {
         this.paveActif = !!actif;

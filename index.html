@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609061500">
+    <link rel="stylesheet" href="style.css?v=202609061800">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -91,14 +91,27 @@
      raccourcis clavier (durées, effets), pour que les deux ne puissent pas se contredire. -->
 <div class="barre-outils" id="barre-outils" role="toolbar" aria-label="Outils d'édition"></div>
 
-<div class="zone-partition" id="zone-partition" tabindex="0" role="application"
-     aria-label="Partition — flèches pour se déplacer, chiffres pour saisir une case">
-    <div class="feuille" id="feuille"></div>
+<!-- `.zone-conteneur` : simple boîte de positionnement (jamais de défilement à elle, voir style.css),
+     posée pour que #dpad-flottant puisse flotter par-dessus la partition SANS défiler avec elle
+     (le vrai défilement reste sur #zone-partition, juste en dessous). -->
+<div class="zone-conteneur">
+    <div class="zone-partition" id="zone-partition" tabindex="0" role="application"
+         aria-label="Partition — flèches pour se déplacer, chiffres pour saisir une case">
+        <div class="feuille" id="feuille"></div>
+    </div>
+    <!-- Croix de déplacement — construite par src/ui/pave.js#construireDpadFlottant, flottante et
+         semi-translucide par-dessus la partition (retour utilisateur : « il faut sortir les
+         flèches du pavé numérique [...] décaler les flèches au-dessus, avec un fond
+         semi-translucide »). Repliée avec le reste du pavé tactile (voir body.avec-pave). -->
+    <div class="dpad-flottant" id="dpad-flottant" role="group" aria-label="Déplacer le curseur"></div>
 </div>
 
-<!-- Pavé de saisie tactile — construit par src/ui/pave.js, replié tant qu'on n'en a pas besoin.
-     Il occupe SA PROPRE rangée de la grille (voir style.css) plutôt que de flotter par-dessus la
-     partition : un clavier qui recouvre ce qu'on écrit est précisément le défaut qu'il corrige. -->
+<!-- Pavé de saisie tactile (chiffres + Effacer/Insérer) — construit par src/ui/pave.js, replié tant
+     qu'on n'en a pas besoin. Il occupe SA PROPRE rangée de la grille (voir style.css) plutôt que de
+     flotter par-dessus la partition : un clavier qui recouvre ce qu'on écrit est précisément le
+     défaut qu'il corrige. Seule la croix de déplacement flotte (voir #dpad-flottant ci-dessus) :
+     elle n'écrit rien elle-même, la voir à moitié translucide par-dessus la portée ne gêne pas la
+     lecture comme le ferait un chiffre à moitié caché. -->
 <div class="pave-tactile" id="pave-tactile" role="group" aria-label="Pavé de saisie tactile" hidden></div>
 
 <div class="transport">
@@ -361,6 +374,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202609061500"></script>
+<script type="module" src="src/main.js?v=202609061800"></script>
 </body>
 </html>

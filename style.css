@@ -377,9 +377,21 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 /* ============================================================
    ZONE PARTITION — le papier
    ============================================================ */
-.zone-partition {
+/* Boîte de positionnement AUTOUR de .zone-partition — jamais elle-même défilante (voir
+   .dpad-flottant juste après : une croix qui flotterait par-dessus DOIT rester au même endroit de
+   l'écran, pas glisser avec la partition qu'on fait défiler dessous). `overflow: hidden` a aussi
+   pour effet, en grille CSS, de ramener sa « taille minimale automatique » à zéro — sans ça, la
+   rangée `1fr` (voir body, grid-template-rows) pourrait refuser de rétrécir sous la hauteur de son
+   contenu, exactement le défaut déjà réparé pour la largeur (voir `body > * { min-width: 0 }`). */
+.zone-conteneur {
     grid-area: zone;
-    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+}
+
+.zone-partition {
+    width: 100%;
+    height: 100%;
     overflow: auto;
     background: #07070a;
     padding: 22px 22px 60px;
@@ -665,9 +677,11 @@ kbd {
 /* ============================================================
    PAVÉ DE SAISIE TACTILE (voir src/ui/pave.js)
    ============================================================
-   Deux rangées au bas de l'écran : les dix cases, puis les déplacements et corrections. Il vit dans
-   SA PROPRE rangée de la grille (« pave ») plutôt que flottant par-dessus la partition — un clavier
-   qui recouvre ce qu'on écrit est exactement le défaut du clavier système qu'il remplace. */
+   Deux rangées au bas de l'écran : les dix cases, puis Effacer/Insérer. Il vit dans SA PROPRE
+   rangée de la grille (« pave ») plutôt que flottant par-dessus la partition — un clavier qui
+   recouvre ce qu'on écrit est exactement le défaut du clavier système qu'il remplace. SEULE la
+   croix de déplacement y échappe désormais (retour utilisateur, voir .dpad-flottant plus bas) :
+   flotter ne la gêne pas, elle n'écrit rien elle-même. */
 .pave-tactile {
     grid-area: pave;
     display: flex; flex-direction: column; gap: 6px;
@@ -683,20 +697,46 @@ kbd {
    le pouce vise moins bien à mesure qu'il descend le manche. */
 .rangee-cases .btn-case { flex: 1 1 0; min-width: 0; }
 
-/* Croix de déplacement façon manette de jeu (retour utilisateur : « une navigation sur console »,
-   voir ui/pave.js) — une grille 3×3, seules les 4 cases cardinales (haut/gauche/droite/bas) portent
-   un bouton, placé par grid-column/grid-row ; coins et centre restent des cellules vides de la
-   grille, sans le moindre élément à y poser.
-   RANGÉES INÉGALES, JAMAIS 3 CARRÉS DE 42px : une croix pleinement carrée grandissait la rangée de
-   132px (3×42 + 2 ajours), contre 44px pour l'ancien rang à plat — 88px de portée en moins sur un
-   écran de téléphone déjà compté à la ligne près (voir #60). GAUCHE/DROITE (la rangée du milieu)
-   gardent la hauteur standard des autres boutons du pavé (44px, comme Effacer/Insérer juste à côté) ;
-   HAUT/BAS, eux, n'ont besoin que d'assez de hauteur pour rester au doigt confortables (28px, la
-   largeur de la colonne compensant largement) — jamais du plein 44px, qu'aucune des deux flèches
-   verticales n'exploiterait mieux qu'une autre. Coût net : +62px, pas +88 — la croix reste lisible
-   sans coûter deux fois plus qu'il ne faut à la partition affichée au-dessus. */
-.dpad-pave { display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: 28px 44px 28px; gap: 3px; flex: 0 0 auto; }
-.dpad-pave .btn-pave { min-height: 0; padding: 0; }
+/* Croix de déplacement FLOTTANTE, par-dessus la partition (retour utilisateur : « il faut sortir les
+   flèches du pavé numérique avec les chiffres [...] décaler les flèches au-dessus, avec un fond
+   semi-translucide ») — voir index.html #dpad-flottant, SŒUR de #zone-partition dans
+   .zone-conteneur, jamais posée DEDANS : ainsi placée, elle ne défile pas avec la partition, elle
+   reste au même endroit de l'écran quel que soit ce qu'on a fait défiler dessous. Coûte ZÉRO à la
+   mise en page (aucune rangée de grille réservée, contrairement à l'ancienne .dpad-pave couchée
+   dans le pavé numérique) : toute la hauteur qu'elle prenait avant revient à la partition.
+   Même croix qu'avant (grille 3×3, seules les 4 cases cardinales portent un bouton, coins et centre
+   vides) — seul l'endroit où elle vit change, pas sa forme ni ce qu'elle fait. Carrée cette fois
+   (40×40, plus besoin des rangées inégales de l'ancienne version : elle ne partage plus sa hauteur
+   avec personne). */
+.dpad-flottant {
+    display: none;   /* body.avec-pave la montre (voir main.js#appliquerPave) — jamais seule, jamais sans le reste du pavé */
+    position: absolute;
+    left: 14px; bottom: 14px;
+    z-index: 10;
+    grid-template-columns: repeat(3, 40px);
+    grid-template-rows: repeat(3, 40px);
+    gap: 3px;
+    padding: 7px;
+    border-radius: 16px;
+    /* SEMI-TRANSLUCIDE, jamais opaque comme le reste du châssis : les notes dessous doivent rester
+       devinables — un clavier qui cache tout à fait ce qu'on écrit est précisément le défaut que ce
+       pavé corrige (voir l'en-tête de ui/pave.js), la translucidité est ce qui l'évite ici. */
+    background: rgba(22, 22, 22, .6);
+    -webkit-backdrop-filter: blur(6px);
+    backdrop-filter: blur(6px);
+    border: 1px solid rgba(255, 255, 255, .14);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
+}
+body.avec-pave .dpad-flottant { display: grid; }
+/* Les boutons eux-mêmes restent translucides plutôt que de reprendre le dégradé opaque de .btn-pave
+   (qui, lui, convient à un fond deja sombre — ici c'est le PAPIER clair de la partition qui peut se
+   deviner dessous) : un verre dépoli plutôt qu'un bouton plein posé sur une vitre. */
+.dpad-flottant .btn-pave {
+    min-height: 0; padding: 0;
+    background: rgba(255, 255, 255, .07);
+    border-color: rgba(255, 255, 255, .18);
+}
+.dpad-flottant .btn-pave:active { background: rgba(255, 255, 255, .2); transform: translateY(1px); }
 .dpad-haut   { grid-column: 2; grid-row: 1; }
 .dpad-gauche { grid-column: 1; grid-row: 2; }
 .dpad-droite { grid-column: 3; grid-row: 2; }
