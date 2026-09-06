@@ -157,7 +157,6 @@ class TabHubApp {
         this.lecteur.definirVolumeMetronome(Number.isFinite(volMetronome) ? volMetronome : this.lecteur.volumeMetronome);
         this._minuterieMessage = null;
         this._minuterieBrouillon = null;
-        this._tapTempoInstants = [];   // voir tapTempo() — horodatages des derniers clics sur TAP
         // Sélection multiple (glisser un rectangle sur la partition) : un ensemble de clés
         // "mesure:voix:evenement:corde" — le MÊME format que celui déjà utilisé par le lecteur audio
         // pour identifier une note sans ambiguïté (voir audio/player.js). État d'INTERFACE, jamais
@@ -468,33 +467,6 @@ class TabHubApp {
         this.el.metronomeSubdivision.querySelector('svg').innerHTML = sub
             ? '<ellipse cx="6" cy="18" rx="3" ry="2.3" fill="currentColor"/><ellipse cx="17" cy="19" rx="3" ry="2.3" fill="currentColor"/><path d="M9 18V6l8 2v11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
             : '<ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/><path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>';
-    }
-
-    /**
-     * TAP TEMPO — comme HarmoHub : cliquer plusieurs fois au rythme voulu règle le tempo sans avoir
-     * à connaître ni taper une valeur précise (retour utilisateur : le simple champ numérique
-     * « n'est pas très clair »).
-     *
-     * Repart de zéro si plus de 2 s s'écoulent entre deux clics (une nouvelle estimation, pas la
-     * continuation d'un tempo très lent) ; ne garde que les 8 derniers pour rester réactif à un
-     * changement de rythme en cours de route plutôt que de figer une moyenne sur toute la séance. Un
-     * seul clic ne donne encore aucun écart à mesurer : il ne fait qu'amorcer la séquence.
-     */
-    tapTempo() {
-        const maintenant = performance.now();
-        const instants = this._tapTempoInstants;
-        if (instants.length > 0 && maintenant - instants[instants.length - 1] > 2000) instants.length = 0;
-        instants.push(maintenant);
-        if (instants.length > 8) instants.shift();
-        if (instants.length < 2) return;
-
-        const ecarts = [];
-        for (let i = 1; i < instants.length; i++) ecarts.push(instants[i] - instants[i - 1]);
-        const moyenneMs = ecarts.reduce((a, b) => a + b, 0) / ecarts.length;
-        // Bornes du champ numérique lui-même (voir index.html#champ-tempo) : un tap frénétique ou
-        // hésitant ne doit jamais produire une valeur que ce même champ refuserait.
-        const bpm = Math.min(400, Math.max(20, Math.round(60000 / moyenneMs)));
-        this.editeur.definirTempo(bpm);
     }
 
     /**
@@ -1010,7 +982,6 @@ class TabHubApp {
         this.el.titre.addEventListener('input', () => this.editeur.definirMeta('titre', this.el.titre.value));
         this.el.tempo.addEventListener('change', () => this.editeur.definirTempo(parseInt(this.el.tempo.value, 10)));
         this.el.tempo.addEventListener('input', () => this.lecteur.definirTempo(parseInt(this.el.tempo.value, 10) || 120));
-        surClic('btn-tap-tempo', () => this.tapTempo());
 
         surClic('btn-mesures-ligne-bascule', () => this.basculerGroupeMesuresLigne());
         this.construireBoutonsMesuresLigne();
@@ -1336,7 +1307,7 @@ class TabHubApp {
 
     /**
      * « Mesures par ligne » (barre de transport) : sur téléphone, six boutons toujours visibles
-     * pesaient trop dans une rangée déjà chargée — Lecture/Stop, Tempo, TAP, Métronome (retour
+     * pesaient trop dans une rangée déjà chargée — Lecture/Stop, Tempo, Métronome (retour
      * utilisateur : « la barre de transport est trop tassée »). Troisième popover à réutiliser
      * _positionnerPanneau/_fermerAuClicAilleurs (après le menu contextuel et Fichiers, juste plus
      * haut) : même mécanique déjà éprouvée deux fois, rien à réinventer.

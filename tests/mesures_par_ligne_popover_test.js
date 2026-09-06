@@ -2,7 +2,7 @@
 // (voir effets_popover_test.js) appliqué à un second groupe de boutons, pour la même raison.
 //
 // CE QU'IL PROTÈGE. Retour utilisateur (capture à l'appui) : « la barre de transport est trop
-// tassée ». Cette rangée porte déjà Lecture/Stop, Tempo, TAP et Métronome — les six boutons toujours
+// tassée ». Cette rangée porte déjà Lecture/Stop, Tempo et Métronome — les six boutons toujours
 // visibles de « Mesures par ligne » (voir mesures_par_ligne_test.js pour le CONTRÔLE lui-même,
 // éprouvé là séparément) pesaient plus qu'aucun autre groupe de la barre. Ce banc éprouve :
 //   • RIEN NE CHANGE sur grand écran : le bouton popover reste invisible, les six boutons s'affichent

@@ -1,4 +1,4 @@
-// Banc du LOT D'OPTIMISATION DES RÉGLAGES (retour utilisateur, cinq points à la fois) :
+// Banc du LOT D'OPTIMISATION DES RÉGLAGES (retour utilisateur, plusieurs points à la fois) :
 //   1. Accordage : capodastre et réglage corde par corde repliés sous « Options avancées »,
 //      atteignables mais plus jamais devant les yeux par défaut — « ne sert que dans des cas très
 //      spécifiques ».
@@ -11,8 +11,6 @@
 //   4. Volumes (général + métronome), et une petite rubrique Fichiers — inspirés du panneau Son de
 //      HarmoHub, mais à l'échelle de TabHub : un seul brouillon, jamais un gestionnaire multi-
 //      fichiers.
-//   5. Tap tempo : une seconde façon, plus physique, de régler le tempo — le simple champ
-//      numérique ayant été jugé « pas très clair ».
 //
 // Ce banc tourne SANS tactile (voir _page.js#ouvrirApp) : le point 3 n'y est donc éprouvé que côté
 // « masqué sur ordinateur » — son pendant tactile vit dans tactile_test.js, aux côtés du reste de la
@@ -23,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(23);
+    plan(21);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -162,20 +160,8 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         check((await page.evaluate(() => document.getElementById('btn-vider-brouillon').disabled)),
             'et redevient lui-même désactivé, sans qu\'il faille refermer/rouvrir pour le voir');
 
-        // --- 7. TAP TEMPO : cliquer à un rythme régulier règle le tempo, sans rien taper -------------
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
-        const tempoAvant = await page.evaluate(() => window.app.editeur.partition.meta.tempo);
-        for (let i = 0; i < 5; i++) { await page.click('#btn-tap-tempo'); await page.waitForTimeout(400); }
-        const apresTap = await page.evaluate(() => ({
-            champ: parseInt(document.getElementById('champ-tempo').value, 10),
-            meta: window.app.editeur.partition.meta.tempo,
-        }));
-        // 400 ms d'écart = 150 BPM visé ; une marge large (117-180) absorbe la latence de Playwright
-        // (clic + minuterie, jamais un vrai métronome mécanique) sans rendre le banc fragile.
-        check(apresTap.meta !== tempoAvant && apresTap.meta >= 117 && apresTap.meta <= 180,
-            `5 taps à ~400 ms règlent bien le tempo autour de 150 BPM (obtenu : ${apresTap.meta})`);
-        check(apresTap.champ === apresTap.meta, 'le champ numérique du tempo affiche la même valeur que le modèle');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

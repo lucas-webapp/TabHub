@@ -77,7 +77,14 @@
 
     --h-barre-haut: 46px;
     --h-outils: 54px;
-    --h-transport: 52px;
+    /* + l'encoche du bas (accueil plein écran iOS, coins arrondis / barre d'accueil du téléphone —
+       retour utilisateur, capture à l'appui : « les boutons du bas [...] se trouvent dans les angles
+       [...] de l'arrondi ») : zéro sur ordinateur/Android/Safari avec barre d'adresse, un vrai nombre
+       de pixels une fois lancée en plein écran depuis l'icône (voir index.html, viewport-fit=cover —
+       condition pour que ceci ne vaille pas toujours zéro). Un SEUL point de réglage : la ligne de
+       grille (grid-template-rows, plus bas) ET .transport (padding-bottom) lisent tous deux cette
+       même variable, jamais une valeur à part qui pourrait diverger de l'autre. */
+    --h-transport: calc(52px + env(safe-area-inset-bottom));
     --w-outils-gauche: 216px;
 }
 
@@ -427,7 +434,13 @@ input.champ[type="number"] { width: 68px; text-align: center; }
     height: var(--h-transport);
     flex: none;
     display: flex; align-items: center; gap: 8px;
-    padding: 0 12px;
+    /* `padding-bottom` reprend l'encoche déjà ajoutée à la hauteur de la rangée (voir --h-transport) :
+       le fond sombre de la barre va bien jusqu'au vrai bord de l'écran (pas de bande vide en dessous),
+       mais les BOUTONS, eux, restent centrés dans les 52px d'origine — donc levés d'autant au-dessus
+       du bord, hors des coins arrondis et de la barre d'accueil iOS. `max(12px, env(...))` à gauche/
+       droite : sans effet ici en portrait (l'encoche latérale est nulle), mais lève pareillement les
+       boutons d'extrémité hors de l'arrondi latéral si l'appli tourne un jour en paysage. */
+    padding: 0 max(12px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px, env(safe-area-inset-left));
     background: var(--card-bg);
     border-top: 1px solid var(--border);
     /* Défensif, comme .barre-outils : cette rangée ne s'est pas encore vue déborder, mais rien ne
@@ -458,7 +471,8 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 .btn-transport:disabled { opacity: .34; cursor: default; }
 
-/* TAP TEMPO — même hauteur que les boutons de transport, mais largeur libre pour son texte. */
+/* Bouton texte de la barre de transport (Fichiers, Mesures par ligne…) — même hauteur que les
+   boutons de transport, mais largeur libre pour son texte. */
 .btn-transport-texte {
     height: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
     border-radius: 9px; cursor: pointer;
@@ -669,6 +683,25 @@ kbd {
    le pouce vise moins bien à mesure qu'il descend le manche. */
 .rangee-cases .btn-case { flex: 1 1 0; min-width: 0; }
 
+/* Croix de déplacement façon manette de jeu (retour utilisateur : « une navigation sur console »,
+   voir ui/pave.js) — une grille 3×3, seules les 4 cases cardinales (haut/gauche/droite/bas) portent
+   un bouton, placé par grid-column/grid-row ; coins et centre restent des cellules vides de la
+   grille, sans le moindre élément à y poser.
+   RANGÉES INÉGALES, JAMAIS 3 CARRÉS DE 42px : une croix pleinement carrée grandissait la rangée de
+   132px (3×42 + 2 ajours), contre 44px pour l'ancien rang à plat — 88px de portée en moins sur un
+   écran de téléphone déjà compté à la ligne près (voir #60). GAUCHE/DROITE (la rangée du milieu)
+   gardent la hauteur standard des autres boutons du pavé (44px, comme Effacer/Insérer juste à côté) ;
+   HAUT/BAS, eux, n'ont besoin que d'assez de hauteur pour rester au doigt confortables (28px, la
+   largeur de la colonne compensant largement) — jamais du plein 44px, qu'aucune des deux flèches
+   verticales n'exploiterait mieux qu'une autre. Coût net : +62px, pas +88 — la croix reste lisible
+   sans coûter deux fois plus qu'il ne faut à la partition affichée au-dessus. */
+.dpad-pave { display: grid; grid-template-columns: repeat(3, 42px); grid-template-rows: 28px 44px 28px; gap: 3px; flex: 0 0 auto; }
+.dpad-pave .btn-pave { min-height: 0; padding: 0; }
+.dpad-haut   { grid-column: 2; grid-row: 1; }
+.dpad-gauche { grid-column: 1; grid-row: 2; }
+.dpad-droite { grid-column: 3; grid-row: 2; }
+.dpad-bas    { grid-column: 2; grid-row: 3; }
+
 .btn-pave {
     min-height: 44px;   /* la cible tactile minimale recommandée — voir aussi @media (pointer:coarse) */
     padding: 0 10px;
@@ -786,7 +819,7 @@ kbd {
 
     /* MESURES PAR LIGNE -> MÊME POPOVER, même raison (retour utilisateur : « la barre de transport
        est trop tassée » — six boutons toujours visibles, dans une rangée qui porte déjà Lecture/
-       Stop, Tempo, TAP et Métronome). Voir main.js#basculerGroupeMesuresLigne : positionné et fermé
+       Stop, Tempo et Métronome). Voir main.js#basculerGroupeMesuresLigne : positionné et fermé
        par les mêmes _positionnerPanneau/_fermerAuClicAilleurs que le popover Fichiers, gardés ici
        plutôt que dupliqués puisque c'est main.js qui construit déjà ce groupe (comme Effets reste
        dans toolbar.js, qui construit LE SIEN). `.groupe-mesures-ligne` n'a pas le fond/bordure de

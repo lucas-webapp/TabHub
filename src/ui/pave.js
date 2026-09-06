@@ -89,10 +89,20 @@ export function construirePave(hote, editeur, actions = {}) {
 
     // --- Rangée 2 : SE DÉPLACER ET CORRIGER --------------------------------------------------------
     const gestes = rangee('rangee-gestes');
-    boutonAction(gestes, 'gauche', flecheSvg('gauche'));
-    boutonAction(gestes, 'haut', flecheSvg('haut'));
-    boutonAction(gestes, 'bas', flecheSvg('bas'));
-    boutonAction(gestes, 'droite', flecheSvg('droite'));
+
+    // Croix façon manette de jeu (retour utilisateur : « que ça ressemble à une navigation sur
+    // console [...] les flèches dans un sens logique ») — HAUT au-dessus, BAS en dessous, GAUCHE et
+    // DROITE de part et d'autre, plutôt que les quatre alignées côte à côte dans un ordre qu'aucune
+    // manette ne connaît. Une grille CSS 3×3 (voir .dpad-pave) : seules les quatre cases cardinales
+    // portent un bouton, placé par grid-column/grid-row — les coins et le centre restent vides sans
+    // qu'il faille le moindre élément de remplissage pour ça.
+    const dpad = document.createElement('div');
+    dpad.className = 'dpad-pave';
+    gestes.appendChild(dpad);
+    boutonAction(dpad, 'haut', flecheSvg('haut'), 'btn-pave dpad-haut');
+    boutonAction(dpad, 'gauche', flecheSvg('gauche'), 'btn-pave dpad-gauche');
+    boutonAction(dpad, 'droite', flecheSvg('droite'), 'btn-pave dpad-droite');
+    boutonAction(dpad, 'bas', flecheSvg('bas'), 'btn-pave dpad-bas');
 
     // Un séparateur : à gauche on se déplace, à droite on modifie. Deux familles de gestes que le
     // pouce ne doit pas confondre en visant vite.

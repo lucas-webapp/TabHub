@@ -185,7 +185,7 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         exiger(await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight),
             'sur ce viewport délibérément trop court, le contenu déborde bien pour de vrai (sans quoi ce banc ne prouverait rien)');
         let atteint = false;
-        try { await page.click('#btn-tap-tempo', { timeout: 2000 }); atteint = true; } catch { /* atteint reste false */ }
+        try { await page.click('#btn-mesures-ligne-bascule', { timeout: 2000 }); atteint = true; } catch { /* atteint reste false */ }
         check(atteint, 'malgré le débordement, un bouton de la barre transport reste atteignable (le défilement le révèle)');
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(150);

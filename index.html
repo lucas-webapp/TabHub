@@ -6,8 +6,13 @@
          (voir le champ Zoom, barre de transport), qui remet réellement la partition en page au lieu
          d'en agrandir les pixels. Sans cette mention, viser des cases au doigt déclenchait sans cesse
          le zoom par double-tap du téléphone — deux notes tapées vite l'une après l'autre au même
-         endroit sont exactement un double-tap. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+         endroit sont exactement un double-tap.
+         `viewport-fit=cover` : condition pour que `env(safe-area-inset-*)` (voir style.css, .transport)
+         renvoie autre chose que zéro — sans lui, lancée en plein écran (voir apple-mobile-web-app-
+         capable plus bas), la page ignore superbement l'arrondi des coins et la barre d'accueil du bas,
+         qui recouvrent alors une partie des boutons de la barre de transport (retour utilisateur :
+         « les boutons du bas [...] se trouvent dans les angles [...] de l'arrondi »). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>TabHub — éditeur de tablatures</title>
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
@@ -24,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202608301200">
+    <link rel="stylesheet" href="style.css?v=202609061500">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -103,11 +108,25 @@
     <label class="info-transport" for="champ-tempo">Tempo</label>
     <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
     <span class="info-transport">BPM</span>
-    <!-- TAP TEMPO — comme HarmoHub : cliquer plusieurs fois au rythme voulu règle le tempo sans
-         connaître ni taper une valeur précise. Retour utilisateur : le simple champ numérique
-         « n'est pas très clair » — ce bouton donne une SECONDE façon, plus physique, de le régler,
-         et par la même occasion signale que ce coin de la barre est bien interactif. -->
-    <button type="button" id="btn-tap-tempo" class="btn-transport-texte" title="Tap tempo : cliquer plusieurs fois au rythme voulu pour régler le tempo">TAP</button>
+    <!-- Métronome — juste à droite du tempo (retour utilisateur), les deux réglages allant
+         naturellement ensemble. Repris de HarmoHub : deux boutons, l'icône du second reflétant son
+         propre état (noire seule = clic sur le temps seulement, deux croches reliées = clic de
+         subdivision en plus), voir main.js#rafraichirMetronome. Binaire/ternaire suit la signature
+         en vigueur (voir uniteDeGroupement) : aucun réglage à faire, une mesure à 6/8 clique par 3,
+         une à 4/4 par 2 — comme un vrai métronome qui suivrait la partition. -->
+    <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
+        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
+            <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
+            <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+        </svg>
+    </button>
+    <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
+        <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <path d="M7 20h10L14 5h-4L7 20Z"/>
+            <path d="M12 15V8"/>
+            <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
+        </svg>
+    </button>
     <span class="separateur"></span>
     <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
     <span class="pousse"></span>
@@ -128,25 +147,6 @@
     <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
         aria-haspopup="true" aria-expanded="false"></button>
     <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
-    <span class="separateur"></span>
-    <!-- Métronome — repris de HarmoHub : deux boutons, l'icône du second reflétant son propre état
-         (noire seule = clic sur le temps seulement, deux croches reliées = clic de subdivision en
-         plus), voir main.js#rafraichirMetronome. Binaire/ternaire suit la signature en vigueur
-         (voir uniteDeGroupement) : aucun réglage à faire, une mesure à 6/8 clique par 3, une à 4/4
-         par 2 — comme un vrai métronome qui suivrait la partition. -->
-    <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-            <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
-            <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
-        </svg>
-    </button>
-    <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
-        <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M7 20h10L14 5h-4L7 20Z"/>
-            <path d="M12 15V8"/>
-            <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
-        </svg>
-    </button>
 </div>
 
 <div class="voile" id="fenetre-reglages" hidden>
@@ -361,6 +361,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202608301200"></script>
+<script type="module" src="src/main.js?v=202609061500"></script>
 </body>
 </html>
