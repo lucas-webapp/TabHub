@@ -765,24 +765,41 @@ body.avec-pave .dpad-flottant { display: grid; }
 /* Chaque flèche porte SON PROPRE fond translucide, carré (rayon hérité de .btn-pave, 9px — un carré
    aux coins simplement adoucis, pas un panneau arrondi ni un cercle) plutôt qu'un unique panneau
    commun aux quatre : la case vide entre les boutons (coins et centre du 3×3) reste ainsi
-   entièrement nue, seule la surface qu'une flèche occupe réellement se voit habillée. Fond SOMBRE
-   plutôt que blanc translucide (l'inverse de la toute première version) : la flèche elle-même reste
-   claire (currentColor, voir flecheSvg), un fond clair aurait donc mangé son propre contraste.
+   entièrement nue, seule la surface qu'une flèche occupe réellement se voit habillée.
+   GRIS, pas noir presque opaque (retour utilisateur : « ils restent en fond très sombre non
+   translucide [...] il faut les laisser en gris translucide ») : un gris (20,20,20) à .55 d'alpha,
+   mélangé au fond quasi noir du châssis (#0a0a0a) dessous, donnait un résultat à peine plus clair que
+   ce fond — LISIBLE comme gris en théorie (alpha strictement entre 0 et 1), mais LU comme un pavé
+   opaque à l'œil. Un gris moyen (128,128,128, soit 50 % gris pur) reste, lui, nettement plus clair que
+   n'importe quel fond qu'il recouvre — papier ou châssis — tout en gardant son alpha modéré (.45) :
+   traduit VISIBLEMENT comme gris translucide, pas seulement au sens strict de la valeur alpha.
    PLUS PETIT que le bouton lui-même (retour utilisateur : « qui ne prend pas toute la largeur des 4
-   flèches ») : `background-clip: content-box` cantonne la peinture du fond à l'intérieur du padding,
-   sans jamais toucher la zone CLIQUABLE elle-même — le bouton garde sa pleine case de 30×30px pour le
-   doigt, seul le carré VISIBLE derrière la flèche (30 - 2×5 = 20px, à peine plus grand que l'icône
-   elle-même, 18px — juste assez de marge pour ne pas la toucher) rétrécit. `background-color`, jamais
-   le raccourci `background`, sur CETTE règle et sur :active plus bas : le raccourci réinitialise
-   `background-clip` à sa valeur par défaut (border-box) à chaque fois qu'il est réécrit, ce qui aurait
-   fait sauter le fond à la pleine largeur du bouton pile au moment de l'appui. */
+   flèches »), puis agrandi de nouveau à la marge (retour utilisateur suivant : « agrandir légèrement
+   les carrés en fond ») : `background-clip: content-box` cantonne la peinture du fond à l'intérieur du
+   padding, sans jamais toucher la zone CLIQUABLE elle-même — le bouton garde sa pleine case de 30×30px
+   pour le doigt, seul le carré VISIBLE derrière la flèche (30 - 2×3 = 24px) change de taille avec le
+   padding. `background-color`, jamais le raccourci `background`, sur CETTE règle et sur :active plus
+   bas : le raccourci réinitialise `background-clip` à sa valeur par défaut (border-box) à chaque fois
+   qu'il est réécrit, ce qui aurait fait sauter le fond à la pleine largeur du bouton pile au moment de
+   l'appui. */
 .dpad-flottant .btn-pave {
-    min-height: 0; padding: 5px;
-    background-color: rgba(20, 20, 20, .55);
+    min-height: 0; padding: 3px;
+    /* `background-image: none` est INDISPENSABLE ici, pas cosmétique : .btn-pave (règle de base) pose
+       un dégradé opaque via le raccourci `background` (--fond-bouton-sombre -> #12151a, voir :root) —
+       un raccourci ne fixe que `background-color`, jamais `background-image`, qui restait donc ce
+       dégradé SOMBRE ET OPAQUE peint PAR-DESSUS notre `background-color` translucide, l'annulant de
+       fait à l'écran (constaté : le carré restait sombre malgré un rgba() correctement translucide en
+       valeur). */
+    background-image: none;
+    background-color: rgba(128, 128, 128, .45);
     background-clip: content-box;
     border: none;
 }
-.dpad-flottant .btn-pave:active { background-color: rgba(60, 60, 60, .7); transform: translateY(1px); }
+.dpad-flottant .btn-pave:active { background-color: rgba(170, 170, 170, .6); transform: translateY(1px); }
+/* La FLÈCHE elle-même grandit un peu, avec le carré qui l'accueille (retour utilisateur : « + les
+   flèches ») — 21px au lieu des 18px par défaut de .icone (voir plus haut) : un dépassement LOCAL à
+   la croix, qui ne touche aucune autre icône de l'appli. */
+.dpad-flottant .icone { width: 21px; height: 21px; }
 .dpad-haut   { grid-column: 2; grid-row: 1; }
 .dpad-gauche { grid-column: 1; grid-row: 2; }
 .dpad-droite { grid-column: 3; grid-row: 2; }
