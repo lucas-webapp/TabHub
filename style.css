@@ -736,11 +736,13 @@ kbd {
    Même croix qu'avant (grille 3×3, seules les 4 cases cardinales portent un bouton, coins et centre
    vides) — seul l'endroit où elle vit change, pas sa forme ni ce qu'elle fait. Carrée (plus besoin
    des rangées inégales de l'ancienne version : elle ne partage plus sa hauteur avec personne).
-   RESSERRÉE (retour utilisateur : « les flèches prennent trop de place, il faut les resserrer ») —
-   cases et espacement réduits ensemble (34px/2px, contre 40/3 à l'origine) plutôt qu'un seul des
-   deux : réduire la case seule sans resserrer l'espacement aurait gardé une croix presque aussi
-   large, l'essentiel de l'économie de place venant des vides entre boutons, pas des boutons
-   eux-mêmes.
+   RESSERRÉE (retour utilisateur : « les flèches prennent trop de place, il faut les resserrer »,
+   puis encore « rapproche les flèches ») — cases et espacement réduits ENSEMBLE (30px/1px, contre
+   40/3 à l'origine) à chaque fois, plutôt qu'un seul des deux. Pas d'autre levier possible ici : dans
+   cette croix, CHAQUE rangée/colonne du 3×3 porte déjà exactement un bouton (haut et bas partagent la
+   colonne du milieu, gauche et droite la rangée du milieu) — aucune n'est purement vide à rétrécir
+   sans toucher aux boutons eux-mêmes. Rapprocher les flèches, c'est donc RÉDUIRE LEUR PROPRE TAILLE
+   (et l'espacement entre elles), pas retrancher un vide qui n'existe pas.
    SANS FOND COMMUN, désormais — le grand panneau arrondi d'origine (14px de rayon, couvrant tout le
    3×3 y compris ses coins et son centre VIDES) s'est révélé lui-même trop visible (retour
    utilisateur : « enlève le fond, laisse juste les flèches, il se voit trop »). Une version SANS
@@ -755,9 +757,9 @@ kbd {
     position: absolute;
     left: 14px; bottom: 14px;
     z-index: 10;
-    grid-template-columns: repeat(3, 34px);
-    grid-template-rows: repeat(3, 34px);
-    gap: 2px;
+    grid-template-columns: repeat(3, 30px);
+    grid-template-rows: repeat(3, 30px);
+    gap: 1px;
 }
 body.avec-pave .dpad-flottant { display: grid; }
 /* Chaque flèche porte SON PROPRE fond translucide, carré (rayon hérité de .btn-pave, 9px — un carré
@@ -768,13 +770,14 @@ body.avec-pave .dpad-flottant { display: grid; }
    claire (currentColor, voir flecheSvg), un fond clair aurait donc mangé son propre contraste.
    PLUS PETIT que le bouton lui-même (retour utilisateur : « qui ne prend pas toute la largeur des 4
    flèches ») : `background-clip: content-box` cantonne la peinture du fond à l'intérieur du padding,
-   sans jamais toucher la zone CLIQUABLE elle-même — le bouton garde sa pleine case de 34×34px pour le
-   doigt, seul le carré VISIBLE derrière la flèche (34 - 2×6 = 22px) rétrécit. `background-color`,
-   jamais le raccourci `background`, sur CETTE règle et sur :active plus bas : le raccourci réinitialise
+   sans jamais toucher la zone CLIQUABLE elle-même — le bouton garde sa pleine case de 30×30px pour le
+   doigt, seul le carré VISIBLE derrière la flèche (30 - 2×5 = 20px, à peine plus grand que l'icône
+   elle-même, 18px — juste assez de marge pour ne pas la toucher) rétrécit. `background-color`, jamais
+   le raccourci `background`, sur CETTE règle et sur :active plus bas : le raccourci réinitialise
    `background-clip` à sa valeur par défaut (border-box) à chaque fois qu'il est réécrit, ce qui aurait
    fait sauter le fond à la pleine largeur du bouton pile au moment de l'appui. */
 .dpad-flottant .btn-pave {
-    min-height: 0; padding: 6px;
+    min-height: 0; padding: 5px;
     background-color: rgba(20, 20, 20, .55);
     background-clip: content-box;
     border: none;

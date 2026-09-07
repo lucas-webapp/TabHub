@@ -241,8 +241,8 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         check(styleDpad.alphaBouton > 0 && styleDpad.alphaBouton < 1,
             'mais CHAQUE flèche porte bien son propre fond, semi-translucide — retour utilisateur explicite');
         // ...et RÉDUIT (padding + background-clip:content-box), pas étalé sur toute la case cliquable
-        // de 34×34px (elle, inchangée — voir style.css) : « qui ne prend pas toute la largeur des 4
-        // flèches » (retour utilisateur).
+        // (elle, inchangée quelle que soit sa taille du moment — voir style.css) : « qui ne prend pas
+        // toute la largeur des 4 flèches » (retour utilisateur).
         check(styleDpad.fondCantonne, 'et ce fond ne prend PAS toute la largeur du bouton, cantonné par un padding — retour utilisateur explicite');
 
         // La partition, elle, garde SA PROPRE zone de défilement (#zone-partition, à l'intérieur de
