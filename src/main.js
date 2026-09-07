@@ -1776,6 +1776,31 @@ class TabHubApp {
     }
 
     /**
+     * EMPÊCHE LE NAVIGATEUR DE S'EMPARER DU GESTE POUR FAIRE DÉFILER, le temps d'un glisser de boucle
+     * — et rend la fonction qui débranche tout, à appeler au relâchement.
+     *
+     * POURQUOI `touch-action: none` NE SUFFIT PAS (retour utilisateur, capture à l'appui : « lorsque
+     * je place la boucle orange de gauche à droite, l'écran se décale encore au lieu de comprendre
+     * qu'il faut uniquement placer la barre orange »). Deux raisons se cumulent, et AUCUNE des deux ne
+     * se voit sur un banc Chromium :
+     *   • `touch-action` posé sur un <rect> SVG (voir .bande-boucle dans style.css) n'est pas honoré
+     *     par WebKit — c'est le moteur de l'iPhone d'où vient ce retour. La déclaration reste juste et
+     *     utile ailleurs, elle ne peut simplement pas porter seule ;
+     *   • `preventDefault()` sur un `pointerdown` (ce que faisaient les deux gestes ci-dessous) ne
+     *     prévient PAS le défilement : la spécification Pointer Events le dit noir sur blanc, seuls
+     *     `touch-action` ou un `touchmove` NON PASSIF peuvent l'annuler.
+     * D'où ce filet, indépendant du moteur : un `touchmove` non passif qui refuse le geste par
+     * défaut. Il doit être branché AVANT le tout premier `touchmove` — sur iOS, un défilement déjà
+     * commencé ne se rattrape plus — d'où l'appel dès le `pointerdown` (le doigt est posé, il n'a pas
+     * encore bougé). Le TAP, lui, n'émet aucun `touchmove` : ce filet ne le voit jamais passer.
+     */
+    _bloquerDefilementPendantGeste() {
+        const bloquer = (ev) => ev.preventDefault();
+        window.addEventListener('touchmove', bloquer, { passive: false });
+        return () => window.removeEventListener('touchmove', bloquer);
+    }
+
+    /**
      * GLISSER LA BANDE DE BOUCLE : définit une zone [mesureAncre, mesure courante] à rejouer en
      * boucle. Un tap/clic SANS glisser retire la boucle en place, s'il y en avait une — sans ça,
      * aucun moyen tactile d'en annuler une (à la souris, Échap ne fait pas ce lien).
@@ -1790,7 +1815,8 @@ class TabHubApp {
      * bougent qu'une fois, à la fin.
      */
     demarrerGesteBoucle(e, mesureAncre) {
-        e.preventDefault();
+        e.preventDefault();   // sélection de texte et souris de synthèse — PAS le défilement, voir ci-dessous
+        const debloquer = this._bloquerDefilementPendantGeste();
         const depart = { x: e.clientX, y: e.clientY };
         const SEUIL = 6;
         let bouge = false;
@@ -1805,6 +1831,7 @@ class TabHubApp {
             this.message(lo === hi ? `Boucle : mesure ${lo + 1}` : `Boucle : mesures ${lo + 1} à ${hi + 1}`, 4000);
         };
         const surRelache = () => {
+            debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
@@ -1831,7 +1858,8 @@ class TabHubApp {
      * la capture du doigt en plein geste.
      */
     demarrerGesteBoucleBord(e, bord) {
-        e.preventDefault();
+        e.preventDefault();   // même remarque qu'à demarrerGesteBoucle : ne couvre PAS le défilement
+        const debloquer = this._bloquerDefilementPendantGeste();
         const boucle = this.lecteur.boucleLecture;
         const fixe = bord === 'debut' ? boucle.fin : boucle.debut;
         let lo = boucle.debut, hi = boucle.fin;
@@ -1844,6 +1872,7 @@ class TabHubApp {
             this.message(lo === hi ? `Boucle : mesure ${lo + 1}` : `Boucle : mesures ${lo + 1} à ${hi + 1}`, 4000);
         };
         const surRelache = () => {
+            debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);

@@ -50,13 +50,23 @@
 // des rectangles ORDINAIRES pour le navigateur. Exactement ce que le doigt touche en premier pour
 // « placer » (retoucher une boucle déjà là) ou « étirer » (saisir une poignée) — la piste invisible
 // dessous, elle, n'était plus jamais atteinte une fois une boucle posée. Voir le cas 18 plus bas.
+//
+// AJOUTÉ, ce correctif-là ne suffisant TOUJOURS PAS (même retour, capture à l'appui : « lorsque je
+// place la boucle orange de gauche à droite, l'écran se décale ENCORE au lieu de comprendre qu'il faut
+// uniquement placer la barre orange » — la boucle restait figée sur sa mesure de départ, signe d'un
+// geste volé en cours de route) : `touch-action` ne pouvait pas porter seul, pour deux raisons qui se
+// cumulent et dont AUCUNE ne se voit sur un banc Chromium — WebKit (le moteur de l'iPhone d'où vient
+// ce retour) n'honore pas `touch-action` posé sur un <rect> SVG, et `preventDefault()` sur un
+// `pointerdown` ne couvre PAS le défilement (spécification Pointer Events). D'où un filet indépendant
+// du moteur : un `touchmove` NON PASSIF refusé le temps du glisser, et LUI SEUL (voir
+// main.js#_bloquerDefilementPendantGeste) — cas 19 plus bas, qui mesure les deux bornes.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(34);
+    plan(36);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -436,6 +446,42 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             'le HALO visible de la boucle calcule bien touch-action: none, pas seulement la piste invisible dessous');
         check(await toucheActionDe('var(--lecture)') === 'none',
             'et la POIGNÉE elle-même — ce que le doigt vise PRÉCISÉMENT pour étirer — calcule aussi touch-action: none');
+
+        // --- 19. LE DÉFILEMENT NATIF EST REFUSÉ PENDANT LE GLISSER — ET SEULEMENT PENDANT LUI -------
+        // (retour utilisateur, capture à l'appui, APRÈS le correctif du cas 18 : « lorsque je place la
+        // boucle orange de gauche à droite, l'écran se décale ENCORE au lieu de comprendre qu'il faut
+        // uniquement placer la barre orange ».) Le cas 18 ne prouve que la moitié DÉCLARATIVE du
+        // mécanisme (touch-action), et cette moitié-là ne tient pas partout : WebKit — le moteur de
+        // l'iPhone d'où vient ce retour — n'honore pas `touch-action` posé sur un <rect> SVG, et
+        // `preventDefault()` sur un `pointerdown` ne couvre PAS le défilement (spécification Pointer
+        // Events). D'où le filet vérifié ici : voir main.js#_bloquerDefilementPendantGeste.
+        //
+        // « ET SEULEMENT PENDANT LUI » compte autant que le reste : un `touchmove` refusé en
+        // permanence rendrait la partition impossible à parcourir au doigt — exactement ce que
+        // demarrerGesteTactile préserve ailleurs. Les deux bornes sont donc mesurées, pas seulement
+        // celle du milieu.
+        const defilement = await page.evaluate(({ p1, p2 }) => {
+            const feuille = document.getElementById('feuille');
+            const envoyer = (type, x, y) => feuille.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, cancelable: true, pointerId: 91, pointerType: 'touch', isPrimary: true, button: 0, clientX: x, clientY: y,
+            }));
+            const defilementRefuse = () => {
+                const ev = new TouchEvent('touchmove', { bubbles: true, cancelable: true });
+                window.dispatchEvent(ev);
+                return ev.defaultPrevented;
+            };
+            const avant = defilementRefuse();
+            envoyer('pointerdown', p1.x, p1.y);
+            const pendant = defilementRefuse();
+            envoyer('pointermove', p2.x, p2.y);
+            envoyer('pointerup', p2.x, p2.y);
+            const apres = defilementRefuse();
+            return { avant, pendant, apres };
+        }, { p1: await pointMesure(0), p2: await pointMesure(2) });
+        check(defilement.pendant === true,
+            'pendant un glisser de boucle, un touchmove est REFUSÉ (preventDefault) — le navigateur ne peut plus s\'emparer du geste pour défiler, quel que soit son support de touch-action sur du SVG');
+        check(defilement.avant === false && defilement.apres === false,
+            'et hors de ce geste — avant comme après — le touchmove repasse librement : le défilement au doigt de la partition reste entier');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
