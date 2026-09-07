@@ -278,6 +278,14 @@ body > * { min-width: 0; }
     z-index: 2;
     flex: none;
     width: 26px; height: 32px;
+    /* `padding: 0` — sans quoi <button> hérite du padding par défaut du navigateur (~6px de chaque
+       côté). Invisible tant que `width` reste 26px (le contenu se réduit d'autant, `box-sizing:
+       border-box` gérant ça sans drame) — mais DÉCOUVERT en tentant de réduire une flèche de rangée
+       à 0 (voir plus bas, @media max-width: 720px) : sous `border-box`, le contenu ne peut pas
+       descendre sous zéro, donc les 12px de padding devenaient un PLANCHER que `width: 0` ne pouvait
+       plus franchir — mesuré : la flèche s'obstinait à 12px quoi que `width` déclare, jusqu'à ce
+       correctif. */
+    padding: 0;
     display: flex; align-items: center; justify-content: center;
     border: none;
     background: var(--bg);
@@ -368,7 +376,11 @@ select.champ, input.champ {
 }
 input.champ { cursor: text; }
 select.champ:focus, input.champ:focus { outline: none; border-color: var(--accent); }
-input.champ[type="number"] { width: 68px; text-align: center; }
+/* 54px, pas 68px (retour utilisateur : « la case indiquant les BPM est légèrement trop large ») —
+   seul input.champ[type="number"] de l'appli à ce jour (le champ Tempo, voir ui/toolbar.js), donc
+   rien d'autre à vérifier avant de resserrer : 400 (la valeur max, trois chiffres) tient largement
+   dans le padding restant (8px de chaque côté, hérité de .champ) sans tronquer. */
+input.champ[type="number"] { width: 54px; text-align: center; }
 
 /* MESURES PAR LIGNE — un rang de boutons plutôt qu'un menu déroulant, voir
    main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste.
@@ -902,13 +914,15 @@ body.avec-pave .dpad-flottant { display: grid; }
        grandir pour une seconde ligne — un point de réglage unique, relu par le `grid-template-rows`
        du corps ET par .barre-outils elle-même, jamais deux valeurs à tenir en phase. */
     :root { --h-outils: auto; }
-    /* `padding: 0 8px` (au lieu des 10px hérités de la règle de base, pensée pour un grand écran) :
-       même léger resserrement que .barre-haut et .zone-partition juste au-dessus, pour la même
-       raison — un téléphone étroit peut se passer des 2px de trop. Repris ici plutôt que dans la
-       règle de base : sur grand écran, où les deux rangées s'effacent en une seule ligne (voir
-       .rangee-outils ci-dessous), les 10px d'origine restent les mieux assortis au reste de la barre
-       du haut, qui n'a pas cette variante phone. */
-    .barre-outils { flex-direction: column; align-items: stretch; overflow: visible; height: auto; gap: 6px; padding: 0 8px; }
+    /* PAS DE PADDING DU TOUT (retour utilisateur, capture à l'appui : « il faut encore supprimer
+       l'espace à gauche des bandeaux [...] quelques pixels ne servent à rien ») — un premier
+       resserrement (10px -> 8px, voir plus bas) avait réduit le vide sans l'éliminer ; sur téléphone,
+       où chaque rangée EST déjà son propre bandeau visuellement fermé (voir .rangee-outils-contenu),
+       un padding de conteneur n'ajoute plus rien d'utile, juste une marge morte avant le premier
+       bouton. Repris ici plutôt que dans la règle de base : sur grand écran, où les deux rangées
+       s'effacent en une seule ligne (voir .rangee-outils ci-dessous), le padding d'origine (10px)
+       reste le mieux assorti au reste de la barre du haut, qui n'a pas cette variante phone. */
+    .barre-outils { flex-direction: column; align-items: stretch; overflow: visible; height: auto; gap: 6px; padding: 0; }
     /* Les deux rangées reprennent alors une vraie boîte (au lieu de s'effacer, voir plus bas) : leur
        propre ligne, pleine largeur, avec SON défilement horizontal à elle (jamais celui d'une autre
        rangée) — .rangee-outils-contenu porte le `overflow-x`, .rangee-outils elle-même n'est là que
@@ -928,8 +942,25 @@ body.avec-pave .dpad-flottant { display: grid; }
        ici, contrairement à la paire maîtresse, elle n'est plus posée `sticky` dans le conteneur qui
        défile (voir ui/toolbar.js#creerRangee — sa propre rangée n'est que le cadre, jamais la zone de
        défilement) : la réduire à 0 ne fait donc courir aucun risque de la voir chevaucher du contenu
-       en cours de défilement, comme .fleche-outils.invisible sur grand écran. */
-    .rangee-outils > .fleche-outils.invisible { width: 0; }
+       en cours de défilement, comme .fleche-outils.invisible sur grand écran.
+       Ce correctif ramenait le vide de 36px à ~10px (padding 8px + ce gap 2px) — encore trop pour
+       l'œil (retour utilisateur suivant, capture à l'appui : « quelques pixels ne servent à rien ») :
+       voir `.barre-outils { padding: 0; }` plus haut, qui retranche les 8px restants.
+       `width: 0` seul ne suffisait POURTANT PAS à effacer les derniers pixels — mesuré : la flèche
+       s'obstinait à occuper 12px malgré la règle. Fausse piste d'abord suivie : la « taille minimale
+       automatique » d'un enfant flex (déjà contournée ailleurs dans ce fichier, voir .zone-conteneur,
+       à l'horizontale cette fois plutôt qu'à la verticale) — `overflow: hidden` ci-dessous ne changeait
+       RIEN au nombre, la vraie cause étant ailleurs : `.fleche-outils` (voir la règle de base, plus
+       haut dans ce fichier) n'annulait jamais le PADDING PAR DÉFAUT du navigateur sur un <button>
+       (~6px de chaque côté) — invisible tant que `width` valait 26px (le contenu se réduisait d'autant
+       sous `border-box`, sans jamais atteindre zéro), mais devenu un PLANCHER de 12px (2 × 6px de
+       padding, incompressible sous `border-box`) le jour où `width: 0` a tenté de descendre en
+       dessous. Corrigé À LA SOURCE (`padding: 0` sur `.fleche-outils`, la règle de base) plutôt
+       qu'ici : la même flèche sert aussi la barre de transport (voir plus haut, « .fleche-outils sert
+       aussi... ») et aurait porté le même bogue latent le jour où ELLE aurait tenté de descendre sous
+       12px. `overflow: hidden` reste posé ci-dessous : sans effet sur CE bogue-là, mais reste une
+       précaution saine pour un élément qui va à width: 0. */
+    .rangee-outils > .fleche-outils.invisible { width: 0; overflow: hidden; }
     .rangee-outils-contenu { display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
     .rangee-outils-contenu::-webkit-scrollbar { display: none; }
     .rangee-outils-ecriture { order: -1; }
