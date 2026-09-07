@@ -237,6 +237,19 @@ body > * { min-width: 0; }
     overflow-y: hidden;
 }
 
+/* Les deux rangées (voir ui/toolbar.js#creerRangee) s'effacent par défaut — `display: contents`
+   retire la BOÎTE elle-même de la mise en page sans toucher à ses enfants, qui rejoignent alors
+   `.barre-outils` à plat : une seule ligne, exactement la structure d'avant leur introduction. Elles
+   ne reprennent une vraie boîte (leur propre ligne, leur propre défilement) que sur téléphone, voir
+   @media (max-width: 720px) plus bas — c'est LÀ, et seulement là, que « deux rangées » veut dire
+   quelque chose.
+   `display: contents` efface la BOÎTE, pas ses enfants : les deux flèches de CHAQUE rangée (voir
+   ui/toolbar.js#creerRangee) resteraient donc quatre boutons bien réels, éparpillés au milieu de la
+   ligne aplatie, si rien ne les masquait explicitement — seule la paire MAÎTRESSE (directement
+   enfant de .barre-outils, jamais d'une rangée) a sa place ici. */
+.rangee-outils, .rangee-outils-contenu { display: contents; }
+.rangee-outils > .fleche-outils { display: none; }
+
 .groupe-outils {
     display: flex; align-items: center; gap: 3px;
     padding: 4px 7px;
@@ -837,10 +850,40 @@ body.avec-pave .dpad-flottant { display: grid; }
     .titre-morceau { min-width: 44px; }
     .barre-haut { gap: 4px; padding: 0 8px; }
     .zone-partition { padding: 10px 8px 40px; }
-    /* La barre d'outils reste sur UNE ligne et défile horizontalement plutôt que de se replier sur
-       trois rangées : sur un téléphone, la hauteur est la ressource rare — c'est la partition qui
-       doit la garder, pas la palette. */
-    .barre-outils { overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; }
+    /* DEUX RANGÉES INDÉPENDANTES (retour utilisateur : « la barre d'outils du haut est beaucoup trop
+       large sur téléphone [...] il va falloir faire 2 lignes [...] tu peux conserver un menu qui se
+       déroule horizontalement, c'est juste qu'avant il y avait trop de scroll car trop de boutons »).
+       Choix INVERSE de celui qui tenait ici auparavant (une seule ligne, la hauteur jugée la
+       ressource rare) : la largeur, sur un téléphone étroit, s'est révélée la gêne la plus citée —
+       mais CHAQUE rangée garde son propre défilement horizontal (voir ui/toolbar.js#creerRangee),
+       moins sollicité qu'avant puisqu'il y a désormais deux fois moins de boutons à faire tenir dans
+       chacune.
+       Rangée 1 — Tonalité, Signature, ♭/♯, Tempo, Métronome (.rangee-outils-ecriture) ; Rangée 2 —
+       Durée, Effets (repliés en popover, voir plus bas), Mesure (.rangee-outils-reste) : `order`
+       fait passer la première en tête bien qu'elle soit construite en SECOND dans le DOM (rien à
+       réordonner côté JS). `#barre-outils` empile les deux (`flex-direction: column`) — sur grand
+       écran, où elle reste une simple ligne, cette propriété ne sert à rien puisque les rangées s'y
+       effacent (voir .rangee-outils ci-dessous).
+       `--h-outils: auto` (voir :root) : la rangée de GRILLE qui accueille .barre-outils doit pouvoir
+       grandir pour une seconde ligne — un point de réglage unique, relu par le `grid-template-rows`
+       du corps ET par .barre-outils elle-même, jamais deux valeurs à tenir en phase. */
+    :root { --h-outils: auto; }
+    .barre-outils { flex-direction: column; align-items: stretch; overflow: visible; height: auto; gap: 6px; }
+    /* Les deux rangées reprennent alors une vraie boîte (au lieu de s'effacer, voir plus bas) : leur
+       propre ligne, pleine largeur, avec SON défilement horizontal à elle (jamais celui d'une autre
+       rangée) — .rangee-outils-contenu porte le `overflow-x`, .rangee-outils elle-même n'est là que
+       pour poser ses deux flèches de part et d'autre. */
+    .rangee-outils { display: flex; align-items: center; gap: 2px; }
+    /* Masquées par défaut (voir la règle de base, hors media query) pour ne pas s'éparpiller dans la
+       ligne aplatie du grand écran : ICI, chaque rangée étant une VRAIE boîte, ce sont au contraire
+       ses deux propres flèches qui doivent se voir. */
+    .rangee-outils > .fleche-outils { display: flex; }
+    .rangee-outils-contenu { display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+    .rangee-outils-contenu::-webkit-scrollbar { display: none; }
+    .rangee-outils-ecriture { order: -1; }
+    /* Les flèches MAÎTRESSES (voir ui/toolbar.js) ne défileraient plus rien de cohérent une fois
+       .barre-outils coupée en deux rangées indépendantes — chaque rangée a désormais les siennes. */
+    .fleche-outils-maitresse { display: none; }
     /* « À gauche » n'a aucun sens sur un écran étroit : la barre reprend sa place en haut, quelle que
        soit la préférence enregistrée (qui reste intacte pour le retour sur grand écran). */
     body.outils-gauche {
@@ -848,11 +891,13 @@ body.avec-pave .dpad-flottant { display: grid; }
         grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
         grid-template-columns: 1fr;
     }
-    body.outils-gauche .barre-outils {
-        height: var(--h-outils); flex-direction: row; align-items: center;
-        padding: 0 10px; border-right: none; border-bottom: 1px solid var(--border);
-        overflow-x: auto; overflow-y: hidden;
-    }
+    /* Seule la BORDURE mérite encore une redéfinition ici : sur grand écran, .outils-gauche pose une
+       barre à droite (colonne verticale) plutôt qu'en dessous (voir la règle desktop) — sur téléphone,
+       la barre redevenant horizontale (même disposition que sans la préférence, voir juste au-dessus),
+       c'est la bordure du BAS qu'il faut, pas celle de droite. Tout le reste (empilement des deux
+       rangées, défilement propre à chacune…) est déjà le comportement de .barre-outils elle-même :
+       rien à répéter ici. */
+    body.outils-gauche .barre-outils { border-right: none; border-bottom: 1px solid var(--border); }
     body.outils-gauche .groupe-outils { flex-wrap: nowrap; }
     /* Le transport se resserre : Tempo et Zoom gardent leur champ, leurs ÉTIQUETTES s'effacent —
        un champ numérique à côté d'un métronome se comprend sans qu'on l'écrive. */

@@ -170,11 +170,13 @@ class TabHubApp {
             barreOutils: document.getElementById('barre-outils'),
             message: document.getElementById('message'),
             titre: document.getElementById('champ-titre'),
-            tempo: document.getElementById('champ-tempo'),
+            // tempo/metronome/metronomeSubdivision : PAS ICI. Depuis que Tempo et Métronome vivent
+            // dans la barre d'outils (retour utilisateur, voir ui/toolbar.js#construireBarreOutils),
+            // construits par le même appel que Signature/Tonalité, ces éléments n'existent pas
+            // ENCORE à ce point du constructeur — ils sont assignés juste plus bas, une fois
+            // construireBarreOutils() effectivement appelé.
             groupeMesuresLigne: document.getElementById('groupe-mesures-ligne'),
             btnMesuresLigneBascule: document.getElementById('btn-mesures-ligne-bascule'),
-            metronome: document.getElementById('btn-metronome'),
-            metronomeSubdivision: document.getElementById('btn-metronome-subdivision'),
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
@@ -193,6 +195,13 @@ class TabHubApp {
             signalerErreur: (texte) => this.message(texte),
         };
         this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, crochetsUi);
+        // Tempo et Métronome viennent d'être posés par l'appel ci-dessus (voir le commentaire sur
+        // `this.el` plus haut) : c'est SEULEMENT maintenant qu'ils existent dans le DOM.
+        Object.assign(this.el, {
+            tempo: document.getElementById('champ-tempo'),
+            metronome: document.getElementById('btn-metronome'),
+            metronomeSubdivision: document.getElementById('btn-metronome-subdivision'),
+        });
         // Le pavé tactile partage EXACTEMENT les mêmes crochets que la barre d'outils : les deux
         // exécutent les mêmes actions et doivent donc signaler les mêmes refus et rendre le focus au
         // même endroit — jamais deux comportements à tenir juste en parallèle.

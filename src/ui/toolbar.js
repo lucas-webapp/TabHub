@@ -127,26 +127,84 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // ambiguïté, et fonctionnent aussi bien à la souris qu'au doigt — contrairement au glisser, qui
     // reste un geste de souris sur cette barre (voir main.js#demarrerGeste pour la même distinction
     // sur la partition). Cachées d'elles-mêmes quand il n'y a rien à atteindre de ce côté.
+    //
+    // DEUX RANGÉES INDÉPENDANTES SUR TÉLÉPHONE (retour utilisateur : « la barre d'outils du haut est
+    // beaucoup trop large [...] il va falloir faire 2 lignes [...] tu peux conserver un menu qui se
+    // déroule horizontalement, c'est juste qu'avant il y avait trop de scroll car trop de boutons »).
+    // `creerRangee` fabrique un conteneur qui défile pour SON PROPRE compte — chacun avec sa PAIRE de
+    // flèches, jamais une seule paire partagée entre deux lignes (`position: sticky` ne sait coller
+    // qu'au bord d'UNE ligne à la fois ; une paire par ligne évite l'ambiguïté plutôt que de la
+    // contourner). `flecheDefilement` prend désormais le CONTENEUR en paramètre — plus seulement
+    // `hote` en dur — pour être réutilisable ainsi.
+    //
+    // Sur grand écran, `.rangee-outils`/`.rangee-outils-contenu` s'effacent (`display: contents`, voir
+    // style.css) : leurs enfants (groupes + flèches) rejoignent alors `hote` à plat, EXACTEMENT la
+    // structure d'avant ce correctif — une seule ligne, défilée par la paire « maîtresse » ci-dessous
+    // (les flèches propres à chaque rangée s'effacent alors à leur tour, voir style.css). Rien de
+    // deviné au chargement : les deux dispositions existent TOUJOURS dans le DOM, seule la mise en
+    // page choisit laquelle compte.
     const PAS_DEFILEMENT = 220;
-    const flecheDefilement = (sens) => {
+    const flecheDefilement = (conteneur, sens) => {
         const b = document.createElement('button');
         b.type = 'button';
         b.className = `fleche-outils fleche-outils-${sens}`;
         b.innerHTML = flecheOutilsSvg(sens);
         b.title = sens === 'gauche' ? 'Défiler la barre d\'outils vers la gauche' : 'Défiler la barre d\'outils vers la droite';
         b.setAttribute('aria-label', b.title);
-        b.addEventListener('click', () => hote.scrollBy({ left: sens === 'gauche' ? -PAS_DEFILEMENT : PAS_DEFILEMENT, behavior: 'smooth' }));
+        b.addEventListener('click', () => conteneur.scrollBy({ left: sens === 'gauche' ? -PAS_DEFILEMENT : PAS_DEFILEMENT, behavior: 'smooth' }));
         return b;
     };
-    const flecheGauche = flecheDefilement('gauche');
-    hote.appendChild(flecheGauche);
+    const brancherFleches = (conteneur, flecheGauche, flecheDroite) => {
+        const rafraichirFleches = () => {
+            flecheGauche.classList.toggle('invisible', conteneur.scrollLeft <= 1);
+            flecheDroite.classList.toggle('invisible', conteneur.scrollLeft + conteneur.clientWidth >= conteneur.scrollWidth - 1);
+        };
+        aRafraichir.push(rafraichirFleches);
+        conteneur.addEventListener('scroll', rafraichirFleches, { passive: true });
+        // MOLETTE VERTICALE -> DÉFILEMENT HORIZONTAL, ici aussi (voir plus bas pour la raison) : une
+        // molette ordinaire ne connaît que le vertical, et rien d'autre que ces flèches ne suggère
+        // qu'on peut glisser cette rangée précise à la souris.
+        conteneur.addEventListener('wheel', (e) => {
+            if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+            conteneur.scrollLeft += e.deltaY;
+            e.preventDefault();
+        }, { passive: false });
+    };
 
-    const groupe = (titre, cle) => {
+    // La paire « maîtresse » : défile `hote` lui-même — c'est elle qui compte sur grand écran, une
+    // fois les deux rangées effacées par `display: contents` (voir plus haut).
+    const flecheGaucheMaitresse = flecheDefilement(hote, 'gauche');
+    flecheGaucheMaitresse.classList.add('fleche-outils-maitresse');
+    hote.appendChild(flecheGaucheMaitresse);
+
+    const creerRangee = (classe) => {
+        const rangee = document.createElement('div');
+        rangee.className = 'rangee-outils ' + classe;
+        hote.appendChild(rangee);
+        const contenu = document.createElement('div');
+        contenu.className = 'rangee-outils-contenu';
+        const flecheGauche = flecheDefilement(contenu, 'gauche');
+        const flecheDroite = flecheDefilement(contenu, 'droite');
+        rangee.appendChild(flecheGauche);
+        rangee.appendChild(contenu);
+        rangee.appendChild(flecheDroite);
+        brancherFleches(contenu, flecheGauche, flecheDroite);
+        return contenu;
+    };
+    // Construite EN PREMIER dans le DOM bien qu'elle porte la rangée « 2 » sur téléphone (Durée,
+    // Effets, Mesure) : c'est la mise en page qui la fait passer en second sur téléphone (voir
+    // .rangee-outils-reste dans style.css), pas l'ordre de construction — rien à réordonner ici.
+    const rangeeReste = creerRangee('rangee-outils-reste');
+    // La rangée « Écriture » (Tonalité, Signature, ♭/♯, Tempo, Métronome) — construite plus bas,
+    // une fois son contenu défini (voir gMesure).
+    let rangeeEcriture;
+
+    const groupe = (titre, cle, hoteGroupe) => {
         const el = document.createElement('div');
         el.className = 'groupe-outils';
         if (cle) el.dataset.groupe = cle;   // sélecteur CSS/JS stable — voir le popover « Effets » plus bas
         if (titre) el.innerHTML = `<span class="etiquette-groupe">${titre}</span>`;
-        hote.appendChild(el);
+        hoteGroupe.appendChild(el);
         return el;
     };
 
@@ -235,7 +293,7 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // dans la barre : on ne le construit donc plus du tout. `basculerVoix` reste utilisable au
     // clavier (Tab) pour un fichier déjà à deux voix, simplement sans bouton dans la palette.
     for (const cle of ['duree', 'effet', 'mesure']) {
-        const g = groupe(TITRES_GROUPES[cle], cle);
+        const g = groupe(TITRES_GROUPES[cle], cle, rangeeReste);
         if (cle === 'effet') {
             const bascule = document.createElement('button');
             bascule.type = 'button';
@@ -246,7 +304,7 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
             bascule.setAttribute('aria-haspopup', 'true');
             bascule.setAttribute('aria-expanded', 'false');
             bascule.addEventListener('click', () => basculerGroupeEffets(bascule, g));
-            hote.insertBefore(bascule, g);
+            rangeeReste.insertBefore(bascule, g);
             // Un effet choisi referme le popover derrière lui — sur un téléphone, revenir le fermer à
             // la main après CHAQUE note serait vite lassant. Écouteur unique sur le groupe (délégation) :
             // il se déclenche après celui, propre à chaque bouton, posé par boutonAction (capture plus
@@ -267,7 +325,11 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // --- Signature rythmique et armure : des listes plutôt que des boutons ------------------------
     // Ce ne sont pas des bascules mais des CHOIX parmi beaucoup de valeurs ; quinze boutons d'armure
     // rempliraient la barre pour un réglage qu'on touche deux fois par morceau.
-    const gMesure = groupe('Écriture');
+    // Sa PROPRE rangée (voir creerRangee plus haut) : Tonalité/Signature/Tempo/Métronome d'un côté,
+    // Durée/Effets/Mesure de l'autre (retour utilisateur : « la barre d'outils du haut est beaucoup
+    // trop large sur téléphone [...] il va falloir faire 2 lignes »).
+    rangeeEcriture = creerRangee('rangee-outils-ecriture');
+    const gMesure = groupe('Écriture', 'ecriture', rangeeEcriture);
 
     const selSignature = document.createElement('select');
     selSignature.className = 'champ';
@@ -336,6 +398,39 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     transposer(-1, '♭', 'Transposer tout le morceau d\'un demi-ton vers le BAS');
     transposer(1, '♯', 'Transposer tout le morceau d\'un demi-ton vers le HAUT');
 
+    // --- Tempo et Métronome : remontés depuis la barre de transport (retour utilisateur) -----------
+    // Même groupe qu'armure/tonalité : les quatre décrivent ensemble « comment ce morceau se joue »,
+    // et se retrouvent de fait dans la même rangée sur téléphone (voir data-groupe="ecriture" plus
+    // haut). Construits ici en HTML plutôt qu'à la main champ par champ : c'est EXACTEMENT le
+    // balisage qui vivait dans index.html#.transport (mêmes id, mêmes attributs) — main.js les
+    // retrouve par leurs id, où qu'ils vivent désormais dans le DOM (voir main.js, this.el.tempo/
+    // metronome/metronomeSubdivision, assignés APRÈS cet appel plutôt que dans le premier `this.el`).
+    const separateurReglages = document.createElement('span');
+    separateurReglages.className = 'separateur';
+    gMesure.appendChild(separateurReglages);
+    // <template> plutôt qu'un <div> : son .content est un DocumentFragment — l'insérer dans gMesure
+    // (juste plus bas) déplace directement ses enfants, sans laisser derrière un conteneur superflu
+    // qui casserait `gMesure > *` ou l'espacement flex entre boutons voisins.
+    const gabaritReglages = document.createElement('template');
+    gabaritReglages.innerHTML = `
+        <label class="info-transport" for="champ-tempo">Tempo</label>
+        <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
+        <span class="info-transport">BPM</span>
+        <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
+            <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
+                <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
+                <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
+            </svg>
+        </button>
+        <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
+            <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 20h10L14 5h-4L7 20Z"/>
+                <path d="M12 15V8"/>
+                <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>`;
+    gMesure.appendChild(gabaritReglages.content);
+
     aRafraichir.push(() => {
         const sig = editeur.mesureCourante().signature
             || (() => { let i = editeur.curseur.mesure; while (i >= 0 && !editeur.partition.mesures[i].signature) i--; return editeur.partition.mesures[Math.max(0, i)].signature; })();
@@ -346,29 +441,16 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         selTonalite.value = `${armureEffective(editeur.partition, editeur.curseur.mesure)}|${modeEffectif(editeur.partition, editeur.curseur.mesure)}`;
     });
 
-    const flecheDroite = flecheDefilement('droite');
-    hote.appendChild(flecheDroite);
-    // Chaque flèche ne se montre que s'il reste RÉELLEMENT quelque chose à atteindre de son côté —
-    // une flèche « gauche » visible alors qu'on est déjà tout à gauche mentirait sur ce qu'elle fait.
-    // Une marge d'un pixel : les navigateurs arrondissent scrollLeft/scrollWidth différemment, une
+    // La flèche droite maîtresse ferme la marche, tout à la fin de `hote` — exactement où vivait
+    // l'unique paire de flèches avant ce correctif. Chaque flèche ne se montre que s'il reste
+    // RÉELLEMENT quelque chose à atteindre de son côté — une flèche « gauche » visible alors qu'on
+    // est déjà tout à gauche mentirait sur ce qu'elle fait. Une marge d'un pixel (voir
+    // brancherFleches) : les navigateurs arrondissent scrollLeft/scrollWidth différemment, une
     // égalité stricte clignoterait sur certains.
-    const rafraichirFleches = () => {
-        flecheGauche.classList.toggle('invisible', hote.scrollLeft <= 1);
-        flecheDroite.classList.toggle('invisible', hote.scrollLeft + hote.clientWidth >= hote.scrollWidth - 1);
-    };
-    aRafraichir.push(rafraichirFleches);
-    hote.addEventListener('scroll', rafraichirFleches, { passive: true });
-
-    // MOLETTE VERTICALE -> DÉFILEMENT HORIZONTAL. Une souris ordinaire ne molette que verticalement ;
-    // sans ce relais, la SEULE façon d'atteindre le bout de la barre à la souris serait de repérer les
-    // flèches ci-dessus ou de connaître Maj+molette — un geste obscur que personne ne devine. Ne
-    // s'applique que si le geste est FRANCHEMENT vertical (deltaX déjà dominant = un pavé tactile qui
-    // fait déjà tout ce qu'il faut, ne pas le contrarier).
-    hote.addEventListener('wheel', (e) => {
-        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-        hote.scrollLeft += e.deltaY;
-        e.preventDefault();
-    }, { passive: false });
+    const flecheDroiteMaitresse = flecheDefilement(hote, 'droite');
+    flecheDroiteMaitresse.classList.add('fleche-outils-maitresse');
+    hote.appendChild(flecheDroiteMaitresse);
+    brancherFleches(hote, flecheGaucheMaitresse, flecheDroiteMaitresse);
 
     const rafraichir = () => { for (const fn of aRafraichir) fn(); };
     rafraichir();

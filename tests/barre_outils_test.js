@@ -25,8 +25,8 @@ const { check, exiger, plan, bilan } = creerHarnais('barre d\'outils : défileme
             return {
                 deborde: hote.scrollWidth > hote.clientWidth + 1,
                 scrollLeft: hote.scrollLeft,
-                gaucheInvisible: hote.querySelector('.fleche-outils-gauche').classList.contains('invisible'),
-                droiteInvisible: hote.querySelector('.fleche-outils-droite').classList.contains('invisible'),
+                gaucheInvisible: hote.querySelector('.fleche-outils-maitresse.fleche-outils-gauche').classList.contains('invisible'),
+                droiteInvisible: hote.querySelector('.fleche-outils-maitresse.fleche-outils-droite').classList.contains('invisible'),
             };
         });
 
@@ -36,7 +36,11 @@ const { check, exiger, plan, bilan } = creerHarnais('barre d\'outils : défileme
         check(avant.droiteInvisible === false, 'et la flèche DROITE, elle, se montre (il reste du contenu à droite)');
 
         // --- Un clic sur la flèche droite fait défiler la barre ------------------------------------
-        await page.click('.fleche-outils-droite');
+        // `.fleche-outils-maitresse`, jamais `.fleche-outils-droite` seul : depuis que .barre-outils
+        // se scinde en deux rangées sur téléphone (voir ui/toolbar.js#creerRangee), CE sélecteur
+        // seul désigne trois boutons (la paire maîtresse + une paire par rangée) — sur grand écran
+        // (ce banc), seule la maîtresse compte, les deux autres restant `display:none`.
+        await page.click('.fleche-outils-maitresse.fleche-outils-droite');
         await page.waitForTimeout(400); // scrollBy({ behavior: 'smooth' })
         const apresClic = await etat();
         check(apresClic.scrollLeft > avant.scrollLeft, 'un clic sur la flèche droite avance bien le défilement');
@@ -49,7 +53,9 @@ const { check, exiger, plan, bilan } = creerHarnais('barre d\'outils : défileme
         check(auBout.gaucheInvisible === false, 'et la flèche GAUCHE apparaît (il y a de nouveau quelque chose à atteindre en arrière)');
 
         // --- La flèche gauche ramène vers le début -------------------------------------------------
-        await page.click('.fleche-outils-gauche');
+        // Même raison qu'au clic précédent : `.fleche-outils-gauche` seul est ambigu depuis la
+        // scission en rangées (ui/toolbar.js#creerRangee).
+        await page.click('.fleche-outils-maitresse.fleche-outils-gauche');
         await page.waitForTimeout(400);
         const apresGauche = await etat();
         check(apresGauche.scrollLeft < auBout.scrollLeft, 'un clic sur la flèche gauche recule bien le défilement');

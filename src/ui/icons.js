@@ -23,6 +23,11 @@ const D = {
     nouveau: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M12 11v6"/><path d="M9 14h6"/>',
     plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
     moins: '<path d="M5 12h14"/>',
+    // « ⇥ Corriger » (redistribuer une mesure invalide, voir edit/commands.js#corrigerDebordement) :
+    // deux traits verticaux — les mêmes bords de mesure que repriseDebut/repriseFin juste plus haut,
+    // la mesure elle-même comme motif plutôt qu'un symbole abstrait — et une coche, la mesure remise
+    // juste.
+    corriger: '<path d="M5 4v16"/><path d="M19 4v16"/><path d="m9 12 2.5 2.5L16 9"/>',
     poubelle: '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
     metronome: '<path d="M12 3 8 21h8L12 3Z"/><path d="m7 15 10-6"/>',
     guitare: '<path d="M11.5 3.5 15 7"/><path d="M8.5 10.5a4.5 4.5 0 1 0 5 5c.5-2 3-2.5 3-5.5s-3-3-4-3-4 1.5-4 3.5Z"/><circle cx="10.5" cy="13.5" r="1.6"/>',

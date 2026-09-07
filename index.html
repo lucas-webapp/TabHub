@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609062000">
+    <link rel="stylesheet" href="style.css?v=202609071200">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -118,29 +118,9 @@
     <button type="button" id="btn-jouer" class="btn-transport jouer" title="Lecture / Pause (Espace)" aria-label="Lecture"></button>
     <button type="button" id="btn-stop" class="btn-transport arret" title="Arrêter (Échap)" aria-label="Arrêter"></button>
     <span class="separateur"></span>
-    <label class="info-transport" for="champ-tempo">Tempo</label>
-    <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
-    <span class="info-transport">BPM</span>
-    <!-- Métronome — juste à droite du tempo (retour utilisateur), les deux réglages allant
-         naturellement ensemble. Repris de HarmoHub : deux boutons, l'icône du second reflétant son
-         propre état (noire seule = clic sur le temps seulement, deux croches reliées = clic de
-         subdivision en plus), voir main.js#rafraichirMetronome. Binaire/ternaire suit la signature
-         en vigueur (voir uniteDeGroupement) : aucun réglage à faire, une mesure à 6/8 clique par 3,
-         une à 4/4 par 2 — comme un vrai métronome qui suivrait la partition. -->
-    <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-            <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
-            <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
-        </svg>
-    </button>
-    <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
-        <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M7 20h10L14 5h-4L7 20Z"/>
-            <path d="M12 15V8"/>
-            <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
-        </svg>
-    </button>
-    <span class="separateur"></span>
+    <!-- Tempo et Métronome ne vivent plus ici : remontés dans la barre d'outils (retour utilisateur),
+         voir ui/toolbar.js#construireBarreOutils, groupe « Écriture » — aux côtés de Signature
+         rythmique et Tonalité, avec qui ils décrivent ensemble « comment ce morceau se joue ». -->
     <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
     <span class="pousse"></span>
     <span class="info-transport" id="info-selection"></span>
@@ -374,6 +354,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202609062000"></script>
+<script type="module" src="src/main.js?v=202609071200"></script>
 </body>
 </html>

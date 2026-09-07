@@ -21,11 +21,14 @@ const { check, exiger, plan, bilan } = creerHarnais('métronome');
     try {
         // --- La réglette a bien disparu : plus de case à cocher, plus de trace dans le DOM ---------
         check(await page.evaluate(() => !document.getElementById('champ-reglette')),
-            'la case à cocher « Réglette » a disparu du transport');
+            'la case à cocher « Réglette » a bien disparu');
 
         // --- Les deux boutons existent, désactivés par défaut --------------------------------------
+        // Posés dans la barre d'outils (groupe « Écriture », aux côtés de Signature/Tonalité — retour
+        // utilisateur, voir ui/toolbar.js), plus dans la barre de transport : peu importe où, ce banc
+        // ne teste que leur existence et leur comportement, jamais un emplacement précis.
         exiger(await page.evaluate(() => !!document.getElementById('btn-metronome') && !!document.getElementById('btn-metronome-subdivision')),
-            'les deux boutons du métronome sont posés dans le transport');
+            'les deux boutons du métronome existent');
         check((await page.evaluate(() => window.app.lecteur.metronomeActif)) === false, 'désactivé par défaut (préférence explicite, pas un bruit imposé)');
 
         // --- Le clic bascule l'état ET l'habillage visuel -------------------------------------------
