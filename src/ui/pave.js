@@ -16,10 +16,11 @@
 // DEUX PIÈCES DISTINCTES, DEPUIS le retour utilisateur « il faut sortir les flèches du pavé
 // numérique » : `construirePave` pose les chiffres + Effacer/Insérer dans leur rangée fixe au bas de
 // l'écran (comme avant), tandis que `construireDpadFlottant` pose la croix de déplacement à PART,
-// flottant par-dessus la partition (voir style.css .dpad-flottant) — semi-translucide plutôt
-// qu'opaque, pour ne jamais cacher tout à fait ce qu'il y a dessous. Les deux se cachent ensemble,
-// pilotés par la MÊME classe `body.avec-pave` (voir main.js#appliquerPave) : aucun des deux ne doit
-// apparaître sans l'autre.
+// flottant par-dessus la partition (voir style.css .dpad-flottant) — chaque flèche portant SON PROPRE
+// fond translucide carré, jamais un panneau unique derrière les quatre (deux retours successifs l'ont
+// précisé : un grand panneau « se voi[t] trop », mais sans aucun fond « on ne les voit plus assez »).
+// Les deux se cachent ensemble, pilotés par la MÊME classe `body.avec-pave` (voir
+// main.js#appliquerPave) : aucun des deux ne doit apparaître sans l'autre.
 //
 // RIEN N'EST RÉINVENTÉ ICI. Les chiffres passent par `saisirChiffre` (donc les cases à deux chiffres
 // marchent au doigt exactement comme au clavier, voir DELAI_DEUXIEME_CHIFFRE), et tout le reste est
@@ -142,14 +143,15 @@ export function construirePave(hote, editeur, actions = {}) {
 /**
  * La croix de déplacement (haut/gauche/droite/bas), flottant par-dessus la partition plutôt que
  * couchée dans le pavé numérique (retour utilisateur : « il faut sortir les flèches du pavé
- * numérique avec les chiffres [...] décaler les flèches au-dessus, avec un fond semi-translucide »).
- * Rendait `.pave-tactile` bien plus haut qu'une simple rangée de chiffres — direz autant de partition
- * visible perdue en permanence, même quand on ne fait que lire. Ici, la croix ne coûte plus RIEN à la
- * mise en page (elle ne réserve aucune rangée de la grille, voir style.css .dpad-flottant : position
- * absolute par-dessus .zone-partition) et ne cache la portée dessous qu'à demi, jamais tout à fait.
+ * numérique avec les chiffres [...] décaler les flèches au-dessus »). Rendait `.pave-tactile` bien
+ * plus haut qu'une simple rangée de chiffres — direz autant de partition visible perdue en
+ * permanence, même quand on ne fait que lire. Ici, la croix ne coûte plus RIEN à la mise en page
+ * (elle ne réserve aucune rangée de la grille, voir style.css .dpad-flottant : position absolute
+ * par-dessus .zone-partition) et ne cache la portée dessous qu'à l'endroit précis de chaque flèche
+ * (voir plus bas), jamais sur toute une croix — les coins et le centre du 3×3, eux, restent nus.
  *
  * Même croix, mêmes actions — SEUL l'endroit où elle vit change, pas ce qu'elle fait (voir
- * .dpad-flottant dans style.css pour sa taille et son fond, resserrés depuis, et flecheSvg ci-dessus
+ * .dpad-flottant dans style.css pour sa taille et son fond, retouchées depuis, et flecheSvg ci-dessus
  * pour la forme de ses flèches, elle aussi retouchée depuis).
  *
  * @param {HTMLElement} hote      le conteneur (vidé puis rempli), voir #dpad-flottant dans index.html

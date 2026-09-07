@@ -15,11 +15,13 @@
 //     parcourir sur un téléphone (chaque tentative dessinait un rectangle de sélection).
 //
 // FLOTTANTE (retour utilisateur, capture à l'appui : « il faut sortir les flèches du pavé
-// numérique [...] décaler les flèches au-dessus, avec un fond semi-translucide ») : la croix
-// haut/gauche/droite/bas (#dpad-flottant) ne vit plus DANS #pave-tactile mais À CÔTÉ, par-dessus
-// la partition (voir index.html .zone-conteneur, style.css .dpad-flottant) — semi-translucide pour
-// ne jamais cacher tout à fait ce qu'il y a dessous, et insensible au défilement de la partition
-// (elle reste au même endroit de l'écran, quoi qu'on ait fait défiler dessous).
+// numérique [...] décaler les flèches au-dessus ») : la croix haut/gauche/droite/bas
+// (#dpad-flottant) ne vit plus DANS #pave-tactile mais À CÔTÉ, par-dessus la partition (voir
+// index.html .zone-conteneur, style.css .dpad-flottant). Deux retours ont ensuite cadré son fond :
+// un grand panneau commun « se voit trop », mais sans AUCUN fond « on ne les voit plus assez » — le
+// CONTENEUR (toute la croix, coins et centre du 3×3 compris) reste donc sans fond, seule CHAQUE
+// FLÈCHE porte le sien, translucide et carré, cantonné à sa propre case. Insensible au défilement de
+// la partition (elle reste au même endroit de l'écran, quoi qu'on ait fait défiler dessous).
 //
 // Playwright émule un vrai téléphone (`hasTouch`, viewport étroit, pointeur grossier) : les gestes
 // ci-dessous partent donc réellement en `pointerType: 'touch'`, comme sur l'appareil.
@@ -29,7 +31,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(30);
+    plan(32);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -203,24 +205,45 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(150);
 
-        // --- La croix flottante elle-même : présente, semi-translucide, insensible au défilement ----
-        // (voir le paragraphe « FLOTTANTE » de l'en-tête du banc). Placé ici, APRÈS tout ce qui
-        // dépend encore du contenu de la partition (la case 12, les cases 5/6/7…) et AVANT que le
-        // pavé ne soit replié (voir juste plus bas) : le remplacer par 30 mesures fraîches, pour
-        // avoir de quoi faire défiler, ne doit gêner personne d'autre dans ce banc.
+        // --- La croix flottante elle-même : présente, un fond PAR FLÈCHE (jamais commun), insensible
+        // au défilement --- (voir le paragraphe « FLOTTANTE » de l'en-tête du banc). Placé ici, APRÈS
+        // tout ce qui dépend encore du contenu de la partition (la case 12, les cases 5/6/7…) et AVANT
+        // que le pavé ne soit replié (voir juste plus bas) : le remplacer par 30 mesures fraîches,
+        // pour avoir de quoi faire défiler, ne doit gêner personne d'autre dans ce banc.
         const dpad = page.locator('#dpad-flottant');
         exiger(await dpad.isVisible(), '#dpad-flottant existe et se montre sur un appareil tactile');
         check(await dpad.locator('button').count() === 4, 'et porte EXACTEMENT ses quatre flèches (haut/gauche/droite/bas)');
 
         const styleDpad = await page.evaluate(() => {
+            const alphaDe = (couleur) => {
+                const m = couleur.match(/rgba?\(([^)]+)\)/);
+                const parts = m ? m[1].split(',').map(s => parseFloat(s)) : [];
+                return parts.length === 4 ? parts[3] : 1;
+            };
             const cs = getComputedStyle(document.getElementById('dpad-flottant'));
-            const m = cs.backgroundColor.match(/rgba?\(([^)]+)\)/);
-            const parts = m[1].split(',').map(s => parseFloat(s));
-            return { alpha: parts.length === 4 ? parts[3] : 1, position: cs.position };
+            const csBouton = getComputedStyle(document.querySelector('#dpad-flottant .btn-pave'));
+            return {
+                alphaConteneur: alphaDe(cs.backgroundColor),
+                position: cs.position,
+                alphaBouton: alphaDe(csBouton.backgroundColor),
+                fondCantonne: csBouton.backgroundClip === 'content-box' && parseFloat(csBouton.paddingLeft) > 0,
+            };
         });
-        check(styleDpad.alpha > 0 && styleDpad.alpha < 1,
-            'son fond est bien SEMI-translucide (ni opaque, ni invisible) — retour utilisateur explicite');
+        // Trois retours successifs ont cadré ce point : un grand panneau commun « se voit trop », mais
+        // sans AUCUN fond « on ne les voit plus assez », et le fond PAR bouton, une fois réintroduit,
+        // « ne prend pas toute la largeur des 4 flèches » — le CONTENEUR (la croix entière, coins et
+        // centre du 3×3 compris) reste donc bien sans fond (alpha 0)...
+        check(styleDpad.alphaConteneur === 0, 'le conteneur de la croix n\'a lui-même toujours aucun fond — jamais un panneau commun aux quatre flèches');
         check(styleDpad.position === 'absolute', 'et elle flotte (position absolute), jamais couchée dans une rangée de la grille');
+        // ...tandis que CHAQUE bouton flèche, lui, porte son propre fond, translucide (ni opaque ni
+        // invisible) : « un fond translucide juste derrière les flèches » (retour utilisateur), en
+        // carré (voir style.css .dpad-flottant .btn-pave), cantonné à sa propre case du 3×3.
+        check(styleDpad.alphaBouton > 0 && styleDpad.alphaBouton < 1,
+            'mais CHAQUE flèche porte bien son propre fond, semi-translucide — retour utilisateur explicite');
+        // ...et RÉDUIT (padding + background-clip:content-box), pas étalé sur toute la case cliquable
+        // de 34×34px (elle, inchangée — voir style.css) : « qui ne prend pas toute la largeur des 4
+        // flèches » (retour utilisateur).
+        check(styleDpad.fondCantonne, 'et ce fond ne prend PAS toute la largeur du bouton, cantonné par un padding — retour utilisateur explicite');
 
         // La partition, elle, garde SA PROPRE zone de défilement (#zone-partition, à l'intérieur de
         // .zone-conteneur) : la croix ne doit ni la faire défiler à sa place, ni défiler AVEC elle.

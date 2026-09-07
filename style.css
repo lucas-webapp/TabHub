@@ -727,20 +727,29 @@ kbd {
 .rangee-cases .btn-case { flex: 1 1 0; min-width: 0; }
 
 /* Croix de déplacement FLOTTANTE, par-dessus la partition (retour utilisateur : « il faut sortir les
-   flèches du pavé numérique avec les chiffres [...] décaler les flèches au-dessus, avec un fond
-   semi-translucide ») — voir index.html #dpad-flottant, SŒUR de #zone-partition dans
-   .zone-conteneur, jamais posée DEDANS : ainsi placée, elle ne défile pas avec la partition, elle
-   reste au même endroit de l'écran quel que soit ce qu'on a fait défiler dessous. Coûte ZÉRO à la
-   mise en page (aucune rangée de grille réservée, contrairement à l'ancienne .dpad-pave couchée
-   dans le pavé numérique) : toute la hauteur qu'elle prenait avant revient à la partition.
+   flèches du pavé numérique avec les chiffres [...] décaler les flèches au-dessus ») — voir
+   index.html #dpad-flottant, SŒUR de #zone-partition dans .zone-conteneur, jamais posée DEDANS :
+   ainsi placée, elle ne défile pas avec la partition, elle reste au même endroit de l'écran quel que
+   soit ce qu'on a fait défiler dessous. Coûte ZÉRO à la mise en page (aucune rangée de grille
+   réservée, contrairement à l'ancienne .dpad-pave couchée dans le pavé numérique) : toute la hauteur
+   qu'elle prenait avant revient à la partition.
    Même croix qu'avant (grille 3×3, seules les 4 cases cardinales portent un bouton, coins et centre
    vides) — seul l'endroit où elle vit change, pas sa forme ni ce qu'elle fait. Carrée (plus besoin
    des rangées inégales de l'ancienne version : elle ne partage plus sa hauteur avec personne).
-   RESSERRÉE depuis (retour utilisateur : « les flèches prennent trop de place, il faut les
-   resserrer ») — cases, espacement et marge intérieure tous réduits ensemble (34px/2px/5px, contre
-   40/3/7 à l'origine) plutôt qu'un seul des trois : réduire la case seule sans resserrer l'espacement
-   aurait gardé une croix presque aussi large, l'essentiel de l'économie de place venant des vides
-   entre boutons, pas des boutons eux-mêmes. */
+   RESSERRÉE (retour utilisateur : « les flèches prennent trop de place, il faut les resserrer ») —
+   cases et espacement réduits ensemble (34px/2px, contre 40/3 à l'origine) plutôt qu'un seul des
+   deux : réduire la case seule sans resserrer l'espacement aurait gardé une croix presque aussi
+   large, l'essentiel de l'économie de place venant des vides entre boutons, pas des boutons
+   eux-mêmes.
+   SANS FOND COMMUN, désormais — le grand panneau arrondi d'origine (14px de rayon, couvrant tout le
+   3×3 y compris ses coins et son centre VIDES) s'est révélé lui-même trop visible (retour
+   utilisateur : « enlève le fond, laisse juste les flèches, il se voit trop »). Une version SANS
+   fond du tout a suivi, mais s'est révélée l'excès inverse (retour utilisateur : « on ne les voit
+   plus assez, je veux quand même un fond translucide juste derrière les flèches (en carré) ») : le
+   bon compromis n'était donc ni « un seul grand panneau » ni « aucun fond », mais UN fond translucide
+   PAR FLÈCHE, cantonné à sa propre case carrée — voir .dpad-flottant .btn-pave plus bas, LUI seul
+   porte un fond désormais, jamais le conteneur. Plus de panneau commun à padder ou arrondir :
+   `padding`/`border-radius` disparaissent d'ici, ne restant que sur chaque bouton. */
 .dpad-flottant {
     display: none;   /* body.avec-pave la montre (voir main.js#appliquerPave) — jamais seule, jamais sans le reste du pavé */
     position: absolute;
@@ -749,30 +758,28 @@ kbd {
     grid-template-columns: repeat(3, 34px);
     grid-template-rows: repeat(3, 34px);
     gap: 2px;
-    padding: 5px;
-    border-radius: 14px;
-    /* SEMI-TRANSLUCIDE, jamais opaque comme le reste du châssis : les notes dessous doivent rester
-       devinables — un clavier qui cache tout à fait ce qu'on écrit est précisément le défaut que ce
-       pavé corrige (voir l'en-tête de ui/pave.js), la translucidité est ce qui l'évite ici. Encore
-       UN PEU PLUS translucide depuis (retour utilisateur), .6 -> .48 : la portée dessous doit se
-       deviner plus facilement, sans pour autant friser l'invisible (voir le filet de
-       tactile_test.js, qui exige un alpha strictement entre 0 et 1). */
-    background: rgba(22, 22, 22, .48);
-    -webkit-backdrop-filter: blur(6px);
-    backdrop-filter: blur(6px);
-    border: 1px solid rgba(255, 255, 255, .14);
-    box-shadow: 0 8px 24px rgba(0, 0, 0, .4);
 }
 body.avec-pave .dpad-flottant { display: grid; }
-/* Les boutons eux-mêmes restent translucides plutôt que de reprendre le dégradé opaque de .btn-pave
-   (qui, lui, convient à un fond deja sombre — ici c'est le PAPIER clair de la partition qui peut se
-   deviner dessous) : un verre dépoli plutôt qu'un bouton plein posé sur une vitre. */
+/* Chaque flèche porte SON PROPRE fond translucide, carré (rayon hérité de .btn-pave, 9px — un carré
+   aux coins simplement adoucis, pas un panneau arrondi ni un cercle) plutôt qu'un unique panneau
+   commun aux quatre : la case vide entre les boutons (coins et centre du 3×3) reste ainsi
+   entièrement nue, seule la surface qu'une flèche occupe réellement se voit habillée. Fond SOMBRE
+   plutôt que blanc translucide (l'inverse de la toute première version) : la flèche elle-même reste
+   claire (currentColor, voir flecheSvg), un fond clair aurait donc mangé son propre contraste.
+   PLUS PETIT que le bouton lui-même (retour utilisateur : « qui ne prend pas toute la largeur des 4
+   flèches ») : `background-clip: content-box` cantonne la peinture du fond à l'intérieur du padding,
+   sans jamais toucher la zone CLIQUABLE elle-même — le bouton garde sa pleine case de 34×34px pour le
+   doigt, seul le carré VISIBLE derrière la flèche (34 - 2×6 = 22px) rétrécit. `background-color`,
+   jamais le raccourci `background`, sur CETTE règle et sur :active plus bas : le raccourci réinitialise
+   `background-clip` à sa valeur par défaut (border-box) à chaque fois qu'il est réécrit, ce qui aurait
+   fait sauter le fond à la pleine largeur du bouton pile au moment de l'appui. */
 .dpad-flottant .btn-pave {
-    min-height: 0; padding: 0;
-    background: rgba(255, 255, 255, .07);
-    border-color: rgba(255, 255, 255, .18);
+    min-height: 0; padding: 6px;
+    background-color: rgba(20, 20, 20, .55);
+    background-clip: content-box;
+    border: none;
 }
-.dpad-flottant .btn-pave:active { background: rgba(255, 255, 255, .2); transform: translateY(1px); }
+.dpad-flottant .btn-pave:active { background-color: rgba(60, 60, 60, .7); transform: translateY(1px); }
 .dpad-haut   { grid-column: 2; grid-row: 1; }
 .dpad-gauche { grid-column: 1; grid-row: 2; }
 .dpad-droite { grid-column: 3; grid-row: 2; }
