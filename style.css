@@ -734,23 +734,30 @@ kbd {
    mise en page (aucune rangée de grille réservée, contrairement à l'ancienne .dpad-pave couchée
    dans le pavé numérique) : toute la hauteur qu'elle prenait avant revient à la partition.
    Même croix qu'avant (grille 3×3, seules les 4 cases cardinales portent un bouton, coins et centre
-   vides) — seul l'endroit où elle vit change, pas sa forme ni ce qu'elle fait. Carrée cette fois
-   (40×40, plus besoin des rangées inégales de l'ancienne version : elle ne partage plus sa hauteur
-   avec personne). */
+   vides) — seul l'endroit où elle vit change, pas sa forme ni ce qu'elle fait. Carrée (plus besoin
+   des rangées inégales de l'ancienne version : elle ne partage plus sa hauteur avec personne).
+   RESSERRÉE depuis (retour utilisateur : « les flèches prennent trop de place, il faut les
+   resserrer ») — cases, espacement et marge intérieure tous réduits ensemble (34px/2px/5px, contre
+   40/3/7 à l'origine) plutôt qu'un seul des trois : réduire la case seule sans resserrer l'espacement
+   aurait gardé une croix presque aussi large, l'essentiel de l'économie de place venant des vides
+   entre boutons, pas des boutons eux-mêmes. */
 .dpad-flottant {
     display: none;   /* body.avec-pave la montre (voir main.js#appliquerPave) — jamais seule, jamais sans le reste du pavé */
     position: absolute;
     left: 14px; bottom: 14px;
     z-index: 10;
-    grid-template-columns: repeat(3, 40px);
-    grid-template-rows: repeat(3, 40px);
-    gap: 3px;
-    padding: 7px;
-    border-radius: 16px;
+    grid-template-columns: repeat(3, 34px);
+    grid-template-rows: repeat(3, 34px);
+    gap: 2px;
+    padding: 5px;
+    border-radius: 14px;
     /* SEMI-TRANSLUCIDE, jamais opaque comme le reste du châssis : les notes dessous doivent rester
        devinables — un clavier qui cache tout à fait ce qu'on écrit est précisément le défaut que ce
-       pavé corrige (voir l'en-tête de ui/pave.js), la translucidité est ce qui l'évite ici. */
-    background: rgba(22, 22, 22, .6);
+       pavé corrige (voir l'en-tête de ui/pave.js), la translucidité est ce qui l'évite ici. Encore
+       UN PEU PLUS translucide depuis (retour utilisateur), .6 -> .48 : la portée dessous doit se
+       deviner plus facilement, sans pour autant friser l'invisible (voir le filet de
+       tactile_test.js, qui exige un alpha strictement entre 0 et 1). */
+    background: rgba(22, 22, 22, .48);
     -webkit-backdrop-filter: blur(6px);
     backdrop-filter: blur(6px);
     border: 1px solid rgba(255, 255, 255, .14);
@@ -868,7 +875,13 @@ body.avec-pave .dpad-flottant { display: grid; }
        grandir pour une seconde ligne — un point de réglage unique, relu par le `grid-template-rows`
        du corps ET par .barre-outils elle-même, jamais deux valeurs à tenir en phase. */
     :root { --h-outils: auto; }
-    .barre-outils { flex-direction: column; align-items: stretch; overflow: visible; height: auto; gap: 6px; }
+    /* `padding: 0 8px` (au lieu des 10px hérités de la règle de base, pensée pour un grand écran) :
+       même léger resserrement que .barre-haut et .zone-partition juste au-dessus, pour la même
+       raison — un téléphone étroit peut se passer des 2px de trop. Repris ici plutôt que dans la
+       règle de base : sur grand écran, où les deux rangées s'effacent en une seule ligne (voir
+       .rangee-outils ci-dessous), les 10px d'origine restent les mieux assortis au reste de la barre
+       du haut, qui n'a pas cette variante phone. */
+    .barre-outils { flex-direction: column; align-items: stretch; overflow: visible; height: auto; gap: 6px; padding: 0 8px; }
     /* Les deux rangées reprennent alors une vraie boîte (au lieu de s'effacer, voir plus bas) : leur
        propre ligne, pleine largeur, avec SON défilement horizontal à elle (jamais celui d'une autre
        rangée) — .rangee-outils-contenu porte le `overflow-x`, .rangee-outils elle-même n'est là que
@@ -877,7 +890,19 @@ body.avec-pave .dpad-flottant { display: grid; }
     /* Masquées par défaut (voir la règle de base, hors media query) pour ne pas s'éparpiller dans la
        ligne aplatie du grand écran : ICI, chaque rangée étant une VRAIE boîte, ce sont au contraire
        ses deux propres flèches qui doivent se voir. */
-    .rangee-outils > .fleche-outils { display: flex; }
+    .rangee-outils > .fleche-outils { display: flex; transition: opacity .15s, width .15s; }
+    /* RETOUR UTILISATEUR : « les 2 barres [...] ne commencent pas tout à fait à gauche, il y a un
+       vide sur la gauche des barres ». Cause : `.invisible` (voir plus haut, règle de base) éteint la
+       flèche par OPACITÉ plutôt que par `display: none` — volontairement, pour ne pas fausser sa
+       propre mesure au moment où elle redevient utile — mais sa boîte de 26px de large restait donc
+       posée là même invisible, en plus du padding de `.barre-outils` (10px) : 36px de vide avant le
+       premier bouton, tout à gauche, alors qu'il n'y a RIEN à défiler de ce côté au repos. Une flèche
+       invisible n'a par contre plus besoin de RÉSERVER sa place UNE FOIS SORTIE DE #barre-outils :
+       ici, contrairement à la paire maîtresse, elle n'est plus posée `sticky` dans le conteneur qui
+       défile (voir ui/toolbar.js#creerRangee — sa propre rangée n'est que le cadre, jamais la zone de
+       défilement) : la réduire à 0 ne fait donc courir aucun risque de la voir chevaucher du contenu
+       en cours de défilement, comme .fleche-outils.invisible sur grand écran. */
+    .rangee-outils > .fleche-outils.invisible { width: 0; }
     .rangee-outils-contenu { display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
     .rangee-outils-contenu::-webkit-scrollbar { display: none; }
     .rangee-outils-ecriture { order: -1; }

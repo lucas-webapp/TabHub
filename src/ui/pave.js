@@ -28,16 +28,20 @@
 
 import { ACTIONS } from '../edit/raccourcis.js';
 
-/** Chevron/flèche d'une direction donnée — dessiné plutôt qu'écrit, pour garder le trait des autres
- *  icônes de l'application (une flèche de police varie d'un appareil à l'autre). */
+/** Triangle plein d'une direction donnée — dessiné plutôt qu'écrit, pour garder le trait des autres
+ *  icônes de l'application (une flèche de police varie d'un appareil à l'autre).
+ *  RETOUR UTILISATEUR : « modifier les flèches par des triangles stylés » — l'ancien chevron
+ *  (hampe + coude, voir git blame) portait un long trait horizontal qui pesait inutilement dans le
+ *  bouton ; un triangle PLEIN va directement à l'essentiel d'une flèche de direction. Les coins
+ *  restent ARRONDIS (stroke posé par-dessus le remplissage, `stroke-linejoin: round`) plutôt que
+ *  vifs — plus « stylé » qu'un triangle aux angles francs, et cohérent avec les coins arrondis du
+ *  reste de l'interface (boutons, cartes). Trait de 2px, comme toutes les icônes de l'appli (voir
+ *  ui/icons.js) : seule la forme change, pas l'épaisseur de contour habituelle. */
 function flecheSvg(direction) {
     const rotations = { gauche: 180, droite: 0, haut: -90, bas: 90 };
     return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-        <g transform="rotate(${rotations[direction]} 12 12)">
-            <path d="M4 12 h13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M12 6 l6 6 l-6 6" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-        </g>
+        <path transform="rotate(${rotations[direction]} 12 12)" d="M7 5 L18 12 L7 19 Z"
+              fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
     </svg>`;
 }
 
@@ -144,8 +148,9 @@ export function construirePave(hote, editeur, actions = {}) {
  * mise en page (elle ne réserve aucune rangée de la grille, voir style.css .dpad-flottant : position
  * absolute par-dessus .zone-partition) et ne cache la portée dessous qu'à demi, jamais tout à fait.
  *
- * Même croix, mêmes actions, même icône que l'ancienne (voir .dpad-pave dans style.css, réutilisée
- * ici telle quelle) — SEUL l'endroit où elle vit change, pas ce qu'elle fait.
+ * Même croix, mêmes actions — SEUL l'endroit où elle vit change, pas ce qu'elle fait (voir
+ * .dpad-flottant dans style.css pour sa taille et son fond, resserrés depuis, et flecheSvg ci-dessus
+ * pour la forme de ses flèches, elle aussi retouchée depuis).
  *
  * @param {HTMLElement} hote      le conteneur (vidé puis rempli), voir #dpad-flottant dans index.html
  * @param {Editeur} editeur
