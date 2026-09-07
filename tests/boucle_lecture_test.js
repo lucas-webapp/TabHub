@@ -41,13 +41,22 @@
 // dès l'arrêt, la boucle ne servant de filet que si le curseur restait EN DEHORS d'elle. Le curseur
 // n'intervient plus DU TOUT dans cette décision : sans boucle, la lecture repart TOUJOURS du tout
 // début du morceau — avec une boucle, TOUJOURS du début de la boucle, où que soit le curseur.
+//
+// AJOUTÉ (retour utilisateur : « je n'arrive pas à définir la barre de lecture orange (boucle) sous
+// la grille, car mon téléphone croit veut faire bouger l'écran lorsque j'essaye de la placer ou de
+// l'étirer ») : `touch-action: none` (voir style.css, .bande-boucle) n'était posé QUE sur la piste
+// invisible de fond — le HALO visible et les DEUX POIGNÉES, qui se dessinent PAR-DESSUS elle dès
+// qu'une boucle existe (voir marquesBoucle), n'avaient jamais leur propre classe et restaient donc
+// des rectangles ORDINAIRES pour le navigateur. Exactement ce que le doigt touche en premier pour
+// « placer » (retoucher une boucle déjà là) ou « étirer » (saisir une poignée) — la piste invisible
+// dessous, elle, n'était plus jamais atteinte une fois une boucle posée. Voir le cas 18 plus bas.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(32);
+    plan(34);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -394,6 +403,39 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         const apres17 = await page.evaluate(() => window.app.lecteur.boucleLecture);
         check(apres17 !== null && apres17.debut === 0 && apres17.fin === 5,
             'saisir la poignée gauche 1,8 S à côté de son vrai bord (hors de portée d\'une souris) l\'attrape bien au doigt — étire le début SEULEMENT, la fin (5) reste inchangée');
+
+        // --- 18. TOUCH-ACTION SUR LE HALO ET LES POIGNÉES, UNE FOIS LA BOUCLE POSÉE (retour
+        // utilisateur : « je n'arrive pas à définir la barre de lecture orange [...] mon téléphone
+        // croit veut faire bouger l'écran lorsque j'essaye de la placer ou de l'étirer ») — le cas 10
+        // plus haut ne vérifiait touch-action QUE sur la piste INVISIBLE, SANS boucle active :
+        // exactement le point aveugle qui laissait passer ce bogue. Halo et poignées se dessinent
+        // PAR-DESSUS cette piste UNE FOIS une boucle posée (voir marquesBoucle) — c'est donc EUX, pas
+        // elle, que le doigt touche en premier dès qu'il y a quelque chose à ajuster. La boucle [0, 5]
+        // posée par le cas 17 est encore en place ici.
+        //
+        // Le CENTRE RÉEL de chaque rectangle RENDU, jamais une approximation géométrique indépendante
+        // (celle de pointMesure/pointBordMesure, pensée pour un DÉMARRAGE de glisser — l'app tolère
+        // volontairement une large prise autour d'une poignée, voir poigneeBoucleAuPoint) :
+        // elementFromPoint, lui, est un test pile au pixel sur un rectangle fin — sans cette marge
+        // d'erreur, repéré en pratique : pointMesure(3), pourtant « au milieu » de la mesure,
+        // retombait sur la piste invisible SOUS le halo (sa propre zone de saisie tactile est plus
+        // HAUTE que le mince halo qu'elle centre), un premier essai qui ne prouvait donc rien de plus
+        // que le cas 10.
+        const toucheActionDe = (fill) => page.evaluate((fill) => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const r = [...svg.querySelectorAll('rect')].find(r => r.getAttribute('fill') === fill);
+            const cx = +r.getAttribute('x') + (+r.getAttribute('width')) / 2;
+            const cy = +r.getAttribute('y') + (+r.getAttribute('height')) / 2;
+            const x = b.left + (cx / window.app.page.largeur) * b.width;
+            const y = b.top + (cy / window.app.page.hauteur) * b.height;
+            return getComputedStyle(document.elementFromPoint(x, y)).touchAction;
+        }, fill);
+
+        check(await toucheActionDe('var(--lecture-halo)') === 'none',
+            'le HALO visible de la boucle calcule bien touch-action: none, pas seulement la piste invisible dessous');
+        check(await toucheActionDe('var(--lecture)') === 'none',
+            'et la POIGNÉE elle-même — ce que le doigt vise PRÉCISÉMENT pour étirer — calcule aussi touch-action: none');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

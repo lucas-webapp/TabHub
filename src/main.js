@@ -1653,7 +1653,16 @@ class TabHubApp {
             const xAff1 = x1 + margeCote, xAff2 = x2 - margeCote;
             const hAff = Math.max(0, (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE - 2 * MARGE_BOUCLE_VERTICALE) * S);
             const yAff = y + (h - hAff) / 2;
-            marques.push({ t: 'rect', x: xAff1, y: yAff, w: Math.max(0, xAff2 - xAff1), h: hAff, couleur: 'var(--lecture-halo)' });
+            // `classe: 'bande-boucle'` ICI AUSSI (retour utilisateur : « je n'arrive pas à définir
+            // la barre [...] mon téléphone veut faire bouger l'écran lorsque j'essaye de la placer
+            // ou de l'étirer ») : ce halo et les deux poignées ci-dessous se dessinent PAR-DESSUS la
+            // piste invisible (voir le docblock de la fonction) — au DOIGT, une fois une boucle déjà
+            // posée, c'est donc EUX que le doigt touche en premier, jamais la piste dessous. Sans
+            // leur propre `touch-action: none` (porté par cette classe, voir style.css), ce
+            // sont des rectangles ORDINAIRES aux yeux du navigateur, qui reprend alors la main pour
+            // faire défiler la page — exactement le défaut que la piste invisible seule ne suffisait
+            // plus à éviter dès qu'une boucle existait déjà.
+            marques.push({ t: 'rect', x: xAff1, y: yAff, w: Math.max(0, xAff2 - xAff1), h: hAff, couleur: 'var(--lecture-halo)', classe: 'bande-boucle' });
 
             // POIGNÉES (voir LARGEUR_POIGNEE_BOUCLE) — seulement sur le VRAI bord GLOBAL de la
             // boucle (`touche` inclut l'ancrage de boucle.debut/fin lui-même), jamais sur un simple
@@ -1664,12 +1673,16 @@ class TabHubApp {
             // saisit, quitte à déborder un peu du halo désormais en retrait. Couleur PLEINE
             // (`--lecture`, celle du curseur de lecture) plutôt que le halo translucide du reste de
             // la bande : un repère franc, pas une nuance de plus dans le dégradé.
+            // `classe: 'bande-boucle'` ICI AUSSI, même raison que le halo juste au-dessus : la
+            // poignée est ce que le doigt vise PRÉCISÉMENT pour étirer (retour utilisateur), donc le
+            // premier rectangle qu'il touche — sans son propre touch-action:none, c'est justement
+            // LÀ que le navigateur reprenait la main pour faire défiler.
             const largeurPx = LARGEUR_POIGNEE_BOUCLE * S;
             if (touche.some(a => a.index === boucle.debut)) {
-                marques.push({ t: 'rect', x: x1 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)' });
+                marques.push({ t: 'rect', x: x1 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle' });
             }
             if (touche.some(a => a.index === boucle.fin)) {
-                marques.push({ t: 'rect', x: x2 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)' });
+                marques.push({ t: 'rect', x: x2 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle' });
             }
         }
         return marques;
