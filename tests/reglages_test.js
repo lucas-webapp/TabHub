@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(21);
+    plan(19);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -121,44 +121,27 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         check((await page.evaluate(() => document.getElementById('champ-volume-general').value)) === '30',
             'et rouvrir les Réglages montre encore 30, pas un défaut oublié');
 
-        // --- 6. Fichiers : statut honnête (aucun gestionnaire multi-fichiers, un seul brouillon) -----
-        // `ed.nouveau('guitare')` plus haut a lui-même planifié un brouillon (débit 700 ms, voir
-        // planifierBrouillon) : sans cette marge, le vider ici pourrait courir plus vite que lui et
-        // le voir réapparaître juste après, comme si le vidage n'avait rien fait.
-        await page.waitForTimeout(800);
+        // --- 6. Le brouillon local ne se pilote pas : il se fait tout seul ---------------------------
+        // La rubrique « Brouillon local » (statut + « Vider le brouillon local ») a été RETIRÉE des
+        // Réglages — HarmoHub n'expose rien de tel, et un réglage dont le seul pouvoir est de défaire
+        // la sauvegarde automatique se paie en attention sans rien apporter. Ce qui compte désormais :
+        // que la sauvegarde marche toujours SANS la moindre commande, et que la rubrique ne laisse
+        // derrière elle ni balise orpheline ni code qui la cherche (un demi-retrait planterait
+        // remplirReglages sur un getElementById nul, panneau vide à la clé).
         await page.evaluate(() => localStorage.removeItem('tabhub.brouillon'));
-        await page.click('[data-fermer]');
-        await page.waitForTimeout(100);
-        await page.click('#btn-reglages');
-        await page.waitForTimeout(150);
-        const sansBrouillon = await page.evaluate(() => ({
-            texte: document.getElementById('etat-brouillon').textContent,
-            desactive: document.getElementById('btn-vider-brouillon').disabled,
-        }));
-        check(/aucun/i.test(sansBrouillon.texte) && sansBrouillon.desactive,
-            'sans brouillon local, le statut le dit et le bouton pour le vider est désactivé (rien à vider)');
-
-        // Un brouillon apparaît dès la première modification (voir planifierBrouillon, débit 700 ms).
         await page.evaluate(() => window.app.editeur.definirMeta('sousTitre', 'Sonde réglages'));
-        await page.waitForTimeout(900);
+        await page.waitForTimeout(900);   // débit de planifierBrouillon : 700 ms
+        check((await page.evaluate(() => localStorage.getItem('tabhub.brouillon'))) !== null,
+            'le brouillon local s\'écrit toujours tout seul après une modification, sans aucun réglage pour le demander');
+
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
         await page.click('#btn-reglages');
         await page.waitForTimeout(150);
-        const avecBrouillon = await page.evaluate(() => ({
-            texte: document.getElementById('etat-brouillon').textContent,
-            desactive: document.getElementById('btn-vider-brouillon').disabled,
-        }));
-        check(!/aucun/i.test(avecBrouillon.texte) && !avecBrouillon.desactive,
-            'et une fois enregistré, le statut change et le bouton « vider » redevient utilisable');
-
-        page.once('dialog', d => d.accept());
-        await page.click('#btn-vider-brouillon');
-        await page.waitForTimeout(100);
-        check((await page.evaluate(() => localStorage.getItem('tabhub.brouillon'))) === null,
-            'le bouton « vider le brouillon » l\'efface réellement du stockage local');
-        check((await page.evaluate(() => document.getElementById('btn-vider-brouillon').disabled)),
-            'et redevient lui-même désactivé, sans qu\'il faille refermer/rouvrir pour le voir');
+        check((await page.evaluate(() => !document.getElementById('etat-brouillon')
+            && !document.getElementById('btn-vider-brouillon')
+            && !/brouillon/i.test(document.getElementById('fenetre-reglages').textContent))),
+            'et les Réglages n\'en parlent plus du tout : ni statut, ni bouton « vider », ni mention résiduelle');
 
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);

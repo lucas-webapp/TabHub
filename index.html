@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609080500">
+    <link rel="stylesheet" href="style.css?v=202609080600">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -242,17 +242,11 @@
                     </button>
                 </div>
             </div>
-            <!-- « Brouillon local », pas « Fichiers » : ce nom-là appartient déjà au bouton de la barre
-                 du haut (Nouveau/Ouvrir/Exporter/PDF/MIDI, voir #btn-fichiers) — deux rubriques
-                 « Fichiers » à deux endroits différents, l'une pour ouvrir/exporter et l'autre pour un
-                 unique bouton « vider le brouillon », aurait fait chercher l'une dans l'autre. Ici, il
-                 ne s'agit QUE de la persistance locale automatique (voir Editeur.enregistrer), un sujet
-                 assez différent pour mériter son propre nom. -->
-            <div class="rubrique">
-                <h3>Brouillon local</h3>
-                <p class="texte-discret" id="etat-brouillon"></p>
-                <button type="button" class="btn-neutre" id="btn-vider-brouillon">Vider le brouillon local</button>
-            </div>
+            <!-- PAS de rubrique « Brouillon local » : la sauvegarde automatique dans le navigateur
+                 (voir main.js#planifierBrouillon) n'a pas à se piloter. HarmoHub n'expose rien de tel
+                 non plus, et un réglage qui ne sert qu'à défaire ce que l'appli fait toute seule pour
+                 vous coûte plus d'attention qu'il n'en fait gagner. Repartir de zéro se fait déjà par
+                 Fichiers → Nouveau, qui écrase le brouillon comme il se doit. -->
         </div>
         <div class="fenetre-pied">
             <button type="button" class="btn-plein" data-fermer>Terminé</button>
@@ -354,6 +348,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202609080500"></script>
+<script type="module" src="src/main.js?v=202609080600"></script>
 </body>
 </html>

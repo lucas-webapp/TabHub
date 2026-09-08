@@ -2052,24 +2052,12 @@ class TabHubApp {
             localStorage.setItem(CLE_VOLUME_METRONOME, String(p));
         };
 
-        // Fichiers : TabHub n'a qu'un seul brouillon (voir CLE_BROUILLON, planifierBrouillon) —
-        // jamais un gestionnaire multi-fichiers façon HarmoHub, hors de propos pour une appli sans
-        // bibliothèque de morceaux. Ce que ce petit bloc ajoute réellement : un moyen de vérifier
-        // qu'un brouillon existe, et de l'effacer sans avoir à créer un nouveau morceau pour ça.
-        const etatBrouillon = document.getElementById('etat-brouillon');
-        const btnViderBrouillon = document.getElementById('btn-vider-brouillon');
-        const aUnBrouillon = !!localStorage.getItem(CLE_BROUILLON);
-        etatBrouillon.textContent = aUnBrouillon
-            ? 'Un brouillon de ce morceau est enregistré automatiquement dans ce navigateur.'
-            : 'Aucun brouillon enregistré ici pour l\'instant.';
-        btnViderBrouillon.disabled = !aUnBrouillon;
-        btnViderBrouillon.onclick = () => {
-            if (!confirm('Effacer le brouillon enregistré dans ce navigateur ?')) return;
-            localStorage.removeItem(CLE_BROUILLON);
-            etatBrouillon.textContent = 'Aucun brouillon enregistré ici pour l\'instant.';
-            btnViderBrouillon.disabled = true;
-            this.message('Brouillon local effacé');
-        };
+        // Rien ici sur le brouillon local : il s'écrit et se relit tout seul (voir planifierBrouillon
+        // et restaurerBrouillon), et c'est très bien ainsi. Il a eu sa rubrique dans les Réglages —
+        // statut + « Vider le brouillon local » — retirée depuis : HarmoHub n'expose rien de tel, et
+        // un réglage dont le seul pouvoir est de défaire ce que l'appli fait pour vous se paie en
+        // attention à chaque ouverture du panneau, sans jamais rien apporter à qui écrit de la
+        // musique. Repartir de zéro reste à un clic : Fichiers → Nouveau écrase le brouillon.
     }
 
     /** L'aide-mémoire se GÉNÈRE depuis la table des actions : elle ne peut pas mentir sur les touches. */
