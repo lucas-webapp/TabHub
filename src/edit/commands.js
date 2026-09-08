@@ -312,7 +312,12 @@ export class Editeur {
         // REDÉFINIR une case efface la marque « hors du manche » posée par une transposition (voir
         // transposerMorceau) : c'est précisément le geste par lequel on répare une de ces notes, et
         // elle doit cesser d'être signalée dès qu'on lui a donné une case jouable.
-        if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; }
+        // ET LE CARACTÈRE FANTÔME AVEC, pour une raison plus directe encore : la tablature grave « x »
+        // À LA PLACE du chiffre (voir engine/layout.js), si bien qu'une case tapée sur une note
+        // fantôme s'écrivait dans le modèle sans RIEN changer à l'écran — le chiffre était là, et
+        // invisible. Donner une case, c'est donner une hauteur déterminée : l'exact contraire d'un
+        // fantôme (voir model/score.js, EFFETS.ghost, « hauteur indéterminée »).
+        if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; delete existante.ghost; }
         else evenement.notes.push(creerNote(c.corde, frette));
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
@@ -1162,6 +1167,44 @@ export class Editeur {
         if (!note) return false;
         this.memoriser();
         note.ghost = !note.ghost;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * POSE une note fantôme — ou retire celle qui est déjà là. Le geste du bouton « ✕ » du pavé
+     * tactile, de la touche X et du bouton de la palette.
+     *
+     * POURQUOI CE N'EST PAS `basculerGhost`. Retour utilisateur : « peux-tu insérer les ghost notes
+     * directement dans le pavé tactile d'ajout de notes ? Je vais souvent l'utiliser, ça n'est pas
+     * juste un effet ». Et c'est exact, jusque dans le rendu : une note fantôme s'écrit « x » À LA
+     * PLACE du chiffre de case (voir engine/layout.js, `note.ghost ? 'x' : String(note.frette)`) —
+     * ce n'est pas une décoration ajoutée à une case, c'est ce qu'on écrit AU LIEU d'une case. Le
+     * X est donc la onzième touche du pavé, pas un effet de plus.
+     *
+     * `basculerGhost` ne savait que BASCULER : sur une case vide — le cas de très loin le plus
+     * fréquent quand on écrit au fil de l'eau — elle ne faisait rien, sans même un message. D'où
+     * cette commande, qui ÉCRIT quand il n'y a rien, et bascule quand il y a déjà quelque chose.
+     *
+     * L'écriture passe par `saisirChiffre(0)` plutôt que de poser la note à la main : c'est lui qui
+     * sait refuser au piano (où il n'y a ni corde ni case), dimensionner l'évènement à la durée
+     * courante sans casser l'invariant de la mesure, et ouvrir le point d'annulation. La case 0 n'est
+     * qu'un support : elle disparaît sous le « x » au rendu, la hauteur d'une note fantôme étant
+     * indéterminée par définition (voir model/score.js, EFFETS.ghost).
+     */
+    poserGhost() {
+        const note = this.noteCourante();
+        if (note) return this.basculerGhost();
+        // Rien ici : on l'écrit. `saisirChiffre` renvoie null quand il a refusé (piano) — il a alors
+        // déjà posé `derniereErreur`, rien à ajouter.
+        if (this.saisirChiffre(0) === null) return false;
+        const posee = this.noteCourante();
+        if (!posee) return false;
+        posee.ghost = true;
+        // Le « 0 » qui vient de servir de support ne doit PAS pouvoir s'enchaîner avec le chiffre
+        // suivant (voir DELAI_DEUXIEME_CHIFFRE) : taper « ✕ » puis « 5 » veut dire une fantôme puis
+        // la case 5, jamais la case 5 obtenue par « 05 ».
+        this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
     }

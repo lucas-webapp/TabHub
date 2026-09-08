@@ -68,10 +68,16 @@ function fabriqueBouton(editeur, actions) {
         parent.appendChild(b);
         return b;
     };
-    const boutonAction = (parent, id, contenu, classe = 'btn-pave') => {
+    const boutonAction = (parent, id, contenu, classe = 'btn-pave', aRafraichir = null) => {
         const action = ACTIONS.find(a => a.id === id);
         if (!action) return null;   // filet : une action renommée ne doit pas casser le pavé entier
-        return bouton(parent, classe, contenu, action.libelle, () => action.faire(editeur));
+        const b = bouton(parent, classe, contenu, action.libelle, () => action.faire(editeur));
+        // L'ÉTAT de l'action, quand elle en a un (voir raccourcis.js, `actif`) — la même bascule
+        // visuelle que la palette (voir ui/toolbar.js#boutonAction). Sans elle, « ✕ » ne dirait pas si
+        // la note sous le curseur est DÉJÀ fantôme, et le seul moyen de le savoir serait de taper
+        // pour voir. Optionnel : les boutons sans état (Effacer, les flèches) n'ont rien à rafraîchir.
+        if (aRafraichir && action.actif) aRafraichir.push(() => b.classList.toggle('actif', !!action.actif(editeur)));
+        return b;
     };
     return { bouton, boutonAction };
 }
@@ -108,6 +114,17 @@ export function construirePave(hote, editeur, actions = {}) {
 
     boutonAction(gestes, 'supprimer', 'Effacer', 'btn-pave btn-pave-large');
     boutonAction(gestes, 'inserer', 'Insérer', 'btn-pave btn-pave-large');
+    // LA NOTE FANTÔME EST UNE ÉCRITURE, PAS UN EFFET (retour utilisateur : « peux-tu insérer les
+    // ghost notes directement dans le pavé tactile d'ajout de notes ? Je vais souvent l'utiliser, ça
+    // n'est pas juste un effet »). Le rendu lui donne raison : une note fantôme s'écrit « x » À LA
+    // PLACE du chiffre de case (voir engine/layout.js) — elle appartient donc au pavé de SAISIE, pas
+    // au popover « Effets » où neuf gestes occasionnels dorment derrière un second appui.
+    //
+    // ICI et non au bout de la rangée des chiffres, où elle serait pourtant la « onzième touche » :
+    // mesuré, une onzième case ferait passer les dix autres de 30 à 27px de large sur un écran de
+    // 360px — les boutons les plus touchés de l'application, rétrécis pour loger celui-ci. Elle
+    // rejoint donc Effacer/Insérer, les autres gestes d'écriture qui ne sont pas des chiffres.
+    boutonAction(gestes, 'ghost', '✕ Fantôme', 'btn-pave btn-pave-large', aRafraichir);
 
     // La position courante, en toutes lettres : sur téléphone, la barre d'état du bas (#info-position)
     // n'a plus la place de s'afficher, et savoir SUR QUELLE CORDE on écrit est indispensable — c'est

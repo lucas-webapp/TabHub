@@ -834,6 +834,14 @@ body.avec-pave .dpad-flottant { display: grid; }
     user-select: none;
 }
 .btn-pave:active { background: var(--fond-bouton-sombre-survol); transform: translateY(1px); }
+/* L'ÉTAT ACTIF d'un bouton du pavé — aujourd'hui « ✕ Fantôme », qui doit dire si la note sous le
+   curseur EST déjà fantôme. Mêmes couleurs que .btn-outil.actif dans la palette : un bouton allumé
+   se lit pareil d'un bout à l'autre de l'application. `background-image: none` d'abord, la règle de
+   base posant un dégradé (raccourci `background`) qui recouvrirait sinon la couleur ci-dessous. */
+.btn-pave.actif {
+    background-image: none; background-color: var(--btn-green-1);
+    border-color: var(--btn-green-border); color: var(--btn-text);
+}
 .btn-pave-large { flex: 0 0 auto; font-size: var(--fs-sm); font-weight: 600; }
 .separateur-pave { width: 1px; align-self: stretch; background: var(--border); margin: 4px 4px; }
 .etat-pave {
@@ -893,7 +901,15 @@ body.avec-pave .dpad-flottant { display: grid; }
        elle-même restait donc hors champ par défaut. Un titre plus étroit + une barre plus resserrée
        referment l'essentiel de cet écart sans rien retirer : le titre reste un CHAMP DE SAISIE (on
        peut toujours cliquer dedans et voir le reste en tapant), pas un simple libellé tronqué. */
-    .titre-morceau { min-width: 44px; }
+    /* LE TITRE QUITTE LA BARRE DU HAUT (retour utilisateur : « peux-tu enlever l'écriture SAR en haut
+       à droite de l'appli ? »). Ce « SAR » n'était pas un libellé : c'était le TITRE DU MORCEAU lui-
+       même, réduit ici à 49px de large et coupé au milieu d'un mot — « Sans titre » n'y montrait que
+       « San » et la moitié du « s » suivant, ce qui se lit comme un sigle sans le moindre sens. Un
+       champ de saisie qui ne peut afficher que trois lettres coupées n'informe pas : il inquiète.
+       Il reste dans la barre dès 721px, où il a la place de dire le titre en entier ; sur téléphone,
+       il se nomme désormais dans Réglages > Morceau (voir index.html, #champ-titre-morceau), avec le
+       sous-titre et l'artiste — l'endroit où l'on décrit son morceau, plutôt qu'un coin d'écran. */
+    .titre-morceau { display: none; }
     .barre-haut { gap: 4px; padding: 0 8px; }
     .zone-partition { padding: 10px 8px 40px; }
     /* DEUX RANGÉES INDÉPENDANTES (retour utilisateur : « la barre d'outils du haut est beaucoup trop

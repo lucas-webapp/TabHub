@@ -1990,10 +1990,18 @@ class TabHubApp {
             sel.onchange = () => this.editeur.definirCorde(parseInt(sel.dataset.corde, 10), parseInt(sel.value, 10));
         }
 
+        // Le TITRE, ici comme dans la barre du haut : DEUX champs pour une seule valeur (meta.titre).
+        // Ils ne peuvent pas diverger — chacun écrit dans le modèle, et `surChangementEditeur` remet
+        // l'autre à jour au prochain rendu (voir dessiner, raison 'meta'). Sur téléphone, celui de la
+        // barre du haut est masqué faute de place : ce champ-ci est alors le SEUL moyen de nommer son
+        // morceau, d'où sa présence en tête de la rubrique plutôt qu'en appoint.
+        const titre = document.getElementById('champ-titre-morceau');
         const sousTitre = document.getElementById('champ-sous-titre');
         const artiste = document.getElementById('champ-artiste');
+        titre.value = this.editeur.partition.meta.titre || '';
         sousTitre.value = this.editeur.partition.meta.sousTitre || '';
         artiste.value = this.editeur.partition.meta.artiste || '';
+        titre.oninput = () => this.editeur.definirMeta('titre', titre.value);
         sousTitre.oninput = () => this.editeur.definirMeta('sousTitre', sousTitre.value);
         artiste.oninput = () => this.editeur.definirMeta('artiste', artiste.value);
 

@@ -106,7 +106,7 @@ export const ACTIONS = [
     { id: 'palmMute', touches: ['m'], libelle: 'Palm mute', groupe: 'effet', apercu: { type: 'texteLeger', texte: 'P.M.' },
       actif: ed => ed.evenementCourant().palmMute, faire: ed => ed.basculerEffetEvenement('palmMute') },
     { id: 'ghost', touches: ['x'], libelle: 'Note fantôme', groupe: 'effet', apercu: { type: 'glyphe', nom: 'TETE_CROIX' },
-      actif: ed => !!ed.noteCourante()?.ghost, faire: ed => ed.basculerGhost() },
+      actif: ed => !!ed.noteCourante()?.ghost, faire: ed => ed.poserGhost() },
     { id: 'accent', touches: ['a'], libelle: 'Accent', groupe: 'effet', apercu: { type: 'glyphe', nom: 'ACCENT_DESSUS' },
       actif: ed => ed.evenementCourant().accent, faire: ed => ed.basculerEffetEvenement('accent') },
     { id: 'staccato', touches: ['alt+s'], libelle: 'Staccato', groupe: 'effet', apercu: { type: 'glyphe', nom: 'STACCATO' },

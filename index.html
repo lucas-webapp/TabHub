@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609080700">
+    <link rel="stylesheet" href="style.css?v=202609080800">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -181,13 +181,29 @@
             </div>
             <div class="rubrique">
                 <h3>Morceau</h3>
+                <!-- LE TITRE VIT ICI, et non plus dans la barre du haut (retour utilisateur : « peux-tu
+                     enlever l'écriture SAR en haut à droite de l'appli ? ») — sur un téléphone, ce
+                     champ y était réduit à 49px et n'affichait que les trois premières lettres du
+                     titre, coupées en plein milieu d'un mot : un bout de texte incompréhensible plutôt
+                     qu'une information. Il reste dans la barre sur grand écran, où il a la place de
+                     dire le titre en entier (voir style.css, .titre-morceau).
+                     AUCUN EXEMPLE en filigrane (retour : « peux-tu enlever les exemples pour le titre
+                     et l'artiste ») : « ex. Fernando Sor » se lisait comme une valeur déjà saisie le
+                     temps de comprendre que non, et n'apprenait rien que l'étiquette ne dise déjà. -->
+                <div class="ligne-champ">
+                    <label for="champ-titre-morceau">Titre</label>
+                    <input type="text" id="champ-titre-morceau" class="champ">
+                </div>
+                <!-- Sous-titre LIBRE (retour : « peux-tu ajouter un sous-titre libre pour alimenter en
+                     informations le morceau ») : arrangement, tonalité d'origine, source, capo, niveau…
+                     La partition l'affiche sous le titre (voir engine/layout.js), en plus petit. -->
                 <div class="ligne-champ">
                     <label for="champ-sous-titre">Sous-titre</label>
-                    <input type="text" id="champ-sous-titre" class="champ" placeholder="ex. www.exemple.com">
+                    <input type="text" id="champ-sous-titre" class="champ">
                 </div>
                 <div class="ligne-champ">
                     <label for="champ-artiste">Artiste</label>
-                    <input type="text" id="champ-artiste" class="champ" placeholder="ex. Fernando Sor">
+                    <input type="text" id="champ-artiste" class="champ">
                 </div>
             </div>
             <div class="rubrique">
@@ -348,6 +364,6 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202609080700"></script>
+<script type="module" src="src/main.js?v=202609080800"></script>
 </body>
 </html>

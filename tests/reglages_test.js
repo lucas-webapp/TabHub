@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(19);
+    plan(26);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -145,6 +145,66 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
+
+        // --- 7. Morceau : Titre, Sous-titre libre, Artiste — et aucun exemple en filigrane ----------
+        // Retours utilisateur : « enlever les exemples pour le titre et l'artiste », « remplacer
+        // sous-titre par titre », « ajouter un sous-titre libre pour alimenter en informations le
+        // morceau ». Un exemple grisé (« ex. Fernando Sor ») se lit comme une valeur DÉJÀ saisie le
+        // temps de comprendre que non, et n'apprend rien que l'étiquette ne dise déjà.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(150);
+        await page.click('#btn-reglages');
+        await page.waitForTimeout(200);
+        const morceau = await page.evaluate(() => {
+            const r = [...document.querySelectorAll('.rubrique')].find(x => x.querySelector('h3')?.textContent === 'Morceau');
+            return [...r.querySelectorAll('.ligne-champ')].map(l => ({
+                etiquette: l.querySelector('label').textContent,
+                id: l.querySelector('input').id,
+                exemple: l.querySelector('input').placeholder,
+            }));
+        });
+        exiger(morceau.map(c => c.etiquette).join(',') === 'Titre,Sous-titre,Artiste',
+            'Réglages > Morceau propose Titre, Sous-titre et Artiste, dans cet ordre');
+        check(morceau.every(c => !c.exemple), 'et AUCUN exemple en filigrane dans ces champs');
+
+        // Le titre saisi ici arrive vraiment sur la partition — c'est le SEUL endroit où le nommer
+        // sur téléphone (voir le point 8 juste en dessous).
+        await page.fill('#champ-titre-morceau', 'Astérie');
+        await page.fill('#champ-sous-titre', 'arrangement, capo II');
+        await page.waitForTimeout(400);
+        const grave = await page.evaluate(() => ({
+            meta: window.app.editeur.partition.meta,
+            textes: [...document.querySelectorAll('#feuille text')].map(t => t.textContent),
+        }));
+        check(grave.meta.titre === 'Astérie' && grave.meta.sousTitre === 'arrangement, capo II',
+            'ce qu\'on y saisit va bien dans le morceau (meta.titre et meta.sousTitre)');
+        check(grave.textes.includes('Astérie') && grave.textes.includes('arrangement, capo II'),
+            'et se grave sur la partition, le sous-titre libre sous le titre');
+        await page.click('[data-fermer]');
+        await page.waitForTimeout(100);
+
+        // --- 8. Le titre a QUITTÉ la barre du haut sur téléphone -------------------------------------
+        // Retour utilisateur : « peux-tu enlever l'écriture SAR en haut à droite de l'appli ? » — ce
+        // « SAR » n'était pas un libellé mais le TITRE lui-même, réduit à 49px et coupé au milieu d'un
+        // mot (« Sans titre » n'y montrait que « San » et la moitié du « s »), ce qui se lit comme un
+        // sigle sans le moindre sens. Il reste dans la barre sur grand écran, où il tient en entier.
+        const surTelephone = await page.evaluate(() => {
+            const t = document.getElementById('champ-titre');
+            return { largeur: Math.round(t.getBoundingClientRect().width),
+                     texteBarre: document.querySelector('.barre-haut').innerText.replace(/\s+/g, ' ').trim() };
+        });
+        exiger(surTelephone.largeur === 0, 'sur téléphone, le titre ne s\'affiche plus dans la barre du haut');
+        check(!/Ast/.test(surTelephone.texteBarre),
+            'plus le moindre fragment de titre tronqué en haut à droite — le « SAR » du retour utilisateur');
+
+        await page.setViewportSize({ width: 1320, height: 880 });
+        await page.waitForTimeout(200);
+        const surBureau = await page.evaluate(() => {
+            const t = document.getElementById('champ-titre');
+            return { largeur: Math.round(t.getBoundingClientRect().width), valeur: t.value };
+        });
+        check(surBureau.largeur >= 120 && surBureau.valeur === 'Astérie',
+            'mais sur grand écran il reste dans la barre, à sa largeur de lecture, et suit le morceau');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
