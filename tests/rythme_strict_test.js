@@ -37,7 +37,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(42);
+    plan(52);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -83,6 +83,35 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const avantC = JSON.stringify(ed.partition);
             const refusC = ed.insererEvenement();
             const inchangeC = JSON.stringify(ed.partition) === avantC;
+
+            // --- C2. insererEvenement AU MILIEU, mais du SILENCE suit : réussit SUR PLACE -------------
+            // Le pendant exact du cas C — même geste, même endroit, une seule différence : ici la
+            // suite de la mesure n'est pas pleine de NOTES, il y reste du silence. Retour utilisateur
+            // : « j'ai du mal à l'utiliser, j'ai très souvent le message espace insuffisant dans la
+            // mesure. Regarder comment font les applications professionnelles similaires et faire
+            // pareil. » Et pour cause : le test d'avant comparait `dureeEcrite` (qui additionne TOUS
+            // les évènements, silences compris) à la capacité — or une voix totalise TOUJOURS
+            // exactement sa mesure, donc la condition était vraie CENT FOIS SUR CENT et insérer au
+            // milieu ne pouvait jamais aboutir, quelle que soit la partition.
+            // Le modèle des logiciels pros (Guitar Pro, MuseScore) : la mesure est une grille de temps
+            // toujours pleine, et insérer PREND SA PLACE dans le silence qui suit, en repoussant ce
+            // qu'il y a entre les deux. Aucune mesure neuve, aucun débordement sur la voisine.
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 5)]),
+                m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 7)]),
+                ...m.decouperEnEvenements(2),   // la mesure fait EXACTEMENT ses 4 temps
+            ];
+            ed.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };   // au MILIEU, sur la 1re note
+            ed.dureeCourante = { valeur: 4, points: 0, nolet: null };
+            const mesuresAvantC2 = ed.partition.mesures.length;
+            const okC2 = ed.insererEvenement();
+            const noiresDe = (e) => (4 / e.duree.valeur) * (e.duree.points ? 1.5 : 1);
+            const contenuC2 = ed.partition.mesures[0].voix[0].evenements
+                .map(e => ((e.silence || !e.notes.length) ? '_' : e.notes[0].frette) + ':' + noiresDe(e)).join(' ');
+            const totalC2 = dureeEn(ed.partition.mesures[0]);
+            const mesuresApresC2 = ed.partition.mesures.length;
+            const curseurC2 = ed.curseur.evenement;
 
             // --- D. une durée qui, à elle seule, dépasse la capacité : refus immédiat -----------------
             ed.nouveau('guitare');
@@ -140,6 +169,25 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const avantJ = JSON.stringify(ed.partition);
             const refusJ = ed.insererAvant();
             const inchangeJ = JSON.stringify(ed.partition) === avantJ;
+
+            // --- J2. insererAvant VISE un silence, et la reprise le consomme EN ENTIER ---------------
+            // Cas limite ouvert par la reprise de silence (voir C2) : la case visée disparaît pour
+            // faire la place, et rien ne la suit. Le curseur ne doit surtout pas avancer au-delà du
+            // dernier évènement — la frappe SUIVANTE écrirait dans `undefined` et planterait.
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 5)]),
+                ...m.decouperEnEvenements(3),
+            ];
+            ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0 };   // sur le silence de fin
+            ed.dureeCourante = { valeur: 2, points: 1, nolet: null };      // blanche pointée = tout le silence
+            const okJ2 = ed.insererAvant();
+            const curseurDansJ2 = ed.curseur.evenement < ed.partition.mesures[0].voix[0].evenements.length;
+            let planteJ2 = false;
+            try { ed.saisirChiffre(7); } catch (err) { planteJ2 = true; }
+            const contenuJ2 = ed.partition.mesures[0].voix[0].evenements
+                .map(e => ((e.silence || !e.notes.length) ? '_' : e.notes[0].frette) + ':' + noiresDe(e)).join(' ');
+            const totalJ2 = dureeEn(ed.partition.mesures[0]);
 
             // --- K. un SILENCE en fin de voix qui déborde CORRIGERDEBORDEMENT est RACCOURCI -----------
             //     jamais déplacé TOUT ENTIER dans une mesure neuve, ce qui laissait la mesure d'origine
@@ -224,6 +272,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 refusA, inchangeA, erreurA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
                 refusC, inchangeC,
+                okC2, contenuC2, totalC2, mesuresAvantC2, mesuresApresC2, curseurC2,
                 refusD,
                 mesuresAvantE, okE, contenuApresE, dureesApresE,
                 okF, dureesApresF,
@@ -231,6 +280,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 contenuApresH, dureeApresH,
                 okI, contenuApresI, curseurApresI,
                 refusJ, inchangeJ,
+                okJ2, curseurDansJ2, planteJ2, contenuJ2, totalJ2,
                 mesuresAvantK, okK, contenuMesure0ApresK, dureeMesure0ApresK, dureeDernierSilenceApresK,
                 mesuresApresK, dureeMesure1ApresK, contenuMesure1ApresK,
                 ecartAvantL, boutonVisibleAvantL, mesuresAvantL, okL, mesuresApresL, contenuApresL, dureeApresL, okRappelL,
@@ -249,6 +299,12 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         check(r.notesMesure2ApresB === 9, 'et la mesure déjà écrite, décalée d\'un cran par la neuve, n\'a PAS été touchée (toujours sa propre note)');
 
         exiger(r.refusC === false && r.inchangeC, 'C. insererEvenement au milieu d\'une voix pleine : refuse, aucune mutation');
+
+        exiger(r.okC2 === true, 'C2. insererEvenement au milieu, quand du SILENCE suit : réussit SUR PLACE (le refus systématique du bouton « Insérer » est corrigé)');
+        check(r.contenuC2 === '5:1 _:1 7:1 _:1', 'la case neuve prend sa place dans le silence qui suit, en repoussant la note intermédiaire — comme dans les logiciels pros');
+        check(Math.abs(r.totalC2 - 4) < 1e-6, 'et la mesure somme TOUJOURS exactement sa capacité, ni trop ni trop peu');
+        check(r.mesuresApresC2 === r.mesuresAvantC2, 'sans créer la moindre mesure neuve : rien ne déborde sur la voisine');
+        check(r.curseurC2 === 1, 'le curseur se pose sur la case neuve, prêt à recevoir la frette');
 
         check(r.refusD === false, 'D. une durée plus grande que la capacité de la mesure : refus immédiat, aucune mesure ne peut l\'absorber');
 
@@ -270,6 +326,12 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         check(r.contenuApresI.join(',') === '10,_,11,12', 'et insère bien AVANT la case visée (celle-ci glisse d\'un cran vers la droite)');
         check(r.curseurApresI.evenement === 2, 'le curseur suit la case visée au départ (fret 11), pas la case neuve');
         check(r.refusJ === false && r.inchangeJ, 'et refuse proprement (aucune mutation) quand la mesure est déjà pleine');
+
+        exiger(r.okJ2 === true, 'J2. insererAvant sur un silence que la reprise consomme en entier : réussit');
+        check(r.curseurDansJ2, 'et laisse le curseur DANS la voix, jamais après le dernier évènement');
+        check(r.planteJ2 === false, 'si bien que la frappe suivante ne plante pas');
+        check(r.contenuJ2 === '5:1 7:3', 'la frette tapée atterrit dans la case neuve, à la place du silence visé');
+        check(Math.abs(r.totalJ2 - 4) < 1e-6, 'et la mesure somme toujours exactement sa capacité');
 
         exiger(r.okK === true, 'K. corrigerDebordement sur un silence final en trop : réussit (raccourci, pas déplacé en bloc)');
         check(r.contenuMesure0ApresK.join(',') === '5,7,5,3,_', 'les quatre croches restent, le silence final reste EN PLACE (raccourci), pas déplacé tout entier');
