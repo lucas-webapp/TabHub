@@ -964,6 +964,63 @@ body.avec-pave .dpad-flottant { display: grid; }
     .rangee-outils-contenu { display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
     .rangee-outils-contenu::-webkit-scrollbar { display: none; }
     .rangee-outils-ecriture { order: -1; }
+
+    /* ══ LA RANGÉE DU HAUT TIENT DANS LA LARGEUR, SANS DÉFILEMENT ═══════════════════════════════
+       Retour utilisateur : « pour la rangée du haut, joue sur la largeur des boutons, certains sont
+       optimisables ». Mesuré à 390px AVANT correction : 411px de contenu pour 360px de place — elle
+       débordait de 51px, soit deux boutons entiers hors champ derrière une flèche de défilement.
+
+       LA CAUSE TIENT EN UNE LIGNE : `--h-bouton` (44px au doigt) sert à la fois de HAUTEUR et de
+       LARGEUR MINIMALE — `.btn-icone { width: var(--h-bouton) }`, `.btn-outil { min-width:
+       var(--h-bouton) }`. Or cette variable ne parle que de la hauteur : c'est la dimension où un
+       doigt manque vraiment sa cible, parce que les rangées s'empilent. En largeur, un bouton qui ne
+       porte qu'un « ♭ » n'a aucun besoin de 44px, et les 44 qu'il prend, il les prend à ses voisins.
+       On garde donc les 44px de HAUT partout (la cible tactile est intacte : 44 × 36 se vise sans y
+       penser), et on rend à la largeur le droit de suivre le contenu.
+
+       Le détail des sept éléments, mesuré (voir tests/barre_haut_largeur_test.js, qui refait ce calcul
+       à chaque exécution plutôt que de faire confiance à ce commentaire) :
+         menu Signature   68 → 53   le « 4/4 » logeait dans une case dimensionnée pour « 12/8 » + la
+                                    flèche NATIVE du navigateur, à elle seule ~20px
+         menu Tonalité    67 → 52   idem
+         ♭ et ♯         44+44 → 36+36   un glyphe unique dans un carré de 44
+         champ Tempo      54 → 44   trois chiffres (400 au maximum)
+         2 métronomes   44+44 → 36+36   icône de 18px dans un carré de 44
+       Total des sept : 411 → 341px, puis 324 avec le resserrement des gouttières plus bas. La rangée
+       tient désormais SANS DÉFILEMENT de 360px (le plus étroit des téléphones courants) à l'écran de
+       bureau, flèches comprises — elles s'effacent d'elles-mêmes n'ayant plus rien à faire défiler. */
+
+    /* La flèche du menu déroulant, dessinée plutôt que native : celle du navigateur coûte ~20px par
+       menu, la nôtre 9. `background-image` en toutes lettres, JAMAIS le raccourci `background` — il
+       réécrirait au passage la couleur de fond posée par `select.champ` (le raccourci remet à leur
+       défaut toutes les sous-propriétés qu'on ne cite pas), et le menu perdrait son fond sombre. */
+    [data-groupe="ecriture"] select.champ {
+        appearance: none; -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 4px center;
+        background-size: 9px 6px;
+        padding: 0 15px 0 6px;   /* la place de la flèche à droite, le texte serré à gauche */
+    }
+    /* 36px : LA largeur des boutons étroits de cette rangée — ♭, ♯ et les deux métronomes. Un seul
+       nombre plutôt que quatre réglages au jugé, et de quoi loger sans serrer le plus large des
+       quatre contenus (une icône de 18px, soit 9px de marge de chaque côté). `min-width` et non
+       `width` pour ♭/♯ : le bouton doit pouvoir s'élargir si son glyphe grandissait un jour. */
+    .btn-transposer { min-width: 36px; }
+    #champ-tempo { width: 44px; padding: 0 4px; }
+    /* Les deux métronomes cessent d'être CARRÉS : 38 × 44 pour une icône de 18px, c'est encore 10px
+       de marge de chaque côté. Restreint à cette rangée — `.btn-icone` sert aussi la barre du haut
+       et le transport, qui ont leurs propres contraintes. */
+    [data-groupe="ecriture"] .btn-icone { width: 36px; }
+
+    /* LES DERNIERS PIXELS ne sont plus dans les boutons mais AUTOUR d'eux : à onze éléments, 1px de
+       gouttière en moins vaut 7px de rangée, et 2px de padding de chaque côté du bandeau en valent 4.
+       Posé sur `.groupe-outils` sans distinction : la rangée du BAS (Durée/Effets/Mesure), la plus
+       longue des deux, y gagne autant. C'est ce dernier resserrement qui fait passer la rangée sous
+       la barre des 360px — et comme la flèche de défilement coûtait à elle seule 26px de la largeur
+       qu'elle servait à compenser, la faire disparaître rend bien plus que ce qu'on lui a pris. */
+    .groupe-outils { gap: 2px; padding: 4px 5px; }
+    [data-groupe="ecriture"] .separateur { margin: 0 2px; }
     /* Les flèches MAÎTRESSES (voir ui/toolbar.js) ne défileraient plus rien de cohérent une fois
        .barre-outils coupée en deux rangées indépendantes — chaque rangée a désormais les siennes. */
     .fleche-outils-maitresse { display: none; }
