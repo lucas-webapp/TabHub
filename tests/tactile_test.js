@@ -43,8 +43,15 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         // --- Le pavé est là, tout seul, parce que l'appareil est tactile -------------------------
         const pave = page.locator('#pave-tactile');
         exiger(await pave.isVisible(), 'le pavé de saisie apparaît de lui-même sur un appareil tactile');
-        check(await page.locator('#pave-tactile .btn-case').count() === 10,
-            'il porte les dix chiffres de case (0 à 9)');
+        // ONZE touches, pas dix : « ✕ » (la note fantôme) est venue s'ajouter APRÈS le 9, de la même
+        // largeur que les chiffres — une note fantôme s'écrit « x » À LA PLACE du chiffre de case
+        // (voir engine/layout.js), c'est donc une touche de saisie et pas un effet posé à côté. On
+        // vérifie la SUITE exacte plutôt qu'un simple compte : l'ordre porte l'idée, et un compte
+        // seul laisserait passer un ✕ glissé entre le 4 et le 5.
+        check(await page.evaluate(() =>
+            [...document.querySelectorAll('#pave-tactile .rangee-cases .btn-pave')]
+                .map(b => b.textContent.trim()).join(' ') === '0 1 2 3 4 5 6 7 8 9 ✕'),
+            'il porte les dix chiffres de case (0 à 9), puis la touche « ✕ » de note fantôme');
 
         // --- Écrire une case au doigt --------------------------------------------------------------
         await page.evaluate(async () => {

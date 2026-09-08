@@ -1963,9 +1963,15 @@ class TabHubApp {
 
         const liste = ACCORDAGES[piste.instrument] || [];
         const connu = liste.some(a => a.id === piste.accordage.id);
+        // LES NOTES SEULES, sans le nom de l'accordage (retour utilisateur : « les indications
+        // d'accordage : standard, drop D etc… je le sais en lisant les notes »). Et c'est vrai : « Drop
+        // D — D A D G » disait deux fois la même chose à qui lit la seconde moitié, en occupant la
+        // largeur d'un menu déroulant sur un écran de téléphone. Le nom ne subsiste que là où il n'y a
+        // AUCUNE note à lire — le piano, dont l'accordage est une liste de cordes vide : sans lui,
+        // l'option n'aurait plus de libellé du tout.
         selAccordage.innerHTML = liste
-            .map(a => `<option value="${a.id}"${a.id === piste.accordage.id ? ' selected' : ''}>${a.nom}${a.cordes.length ? ' — ' + libelleAccordage(a.cordes) : ''}</option>`).join('')
-            + (connu ? '' : `<option value="personnalise" selected>Personnalisé — ${libelleAccordage(piste.accordage.cordes)}</option>`);
+            .map(a => `<option value="${a.id}"${a.id === piste.accordage.id ? ' selected' : ''}>${a.cordes.length ? libelleAccordage(a.cordes) : a.nom}</option>`).join('')
+            + (connu ? '' : `<option value="personnalise" selected>${libelleAccordage(piste.accordage.cordes)}</option>`);
         selAccordage.onchange = () => { if (selAccordage.value !== 'personnalise') this.editeur.definirAccordage(selAccordage.value); };
 
         selCapo.innerHTML = Array.from({ length: 13 }, (_, n) =>

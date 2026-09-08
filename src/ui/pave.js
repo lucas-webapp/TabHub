@@ -108,23 +108,20 @@ export function construirePave(hote, editeur, actions = {}) {
         bouton(cases, 'btn-pave btn-case', String(n), `Case ${n} (deux chiffres à la suite pour 10-24)`,
             () => editeur.saisirChiffre(n));
     }
+    // LA ONZIÈME TOUCHE : « ✕ », la note fantôme, APRÈS le 9 et de la même largeur que les chiffres
+    // (retour utilisateur : « le fantôme après le x, à traiter comme une note classique, à mettre
+    // après le 9 »). Elle a d'abord vécu dans la rangée d'en dessous, avec Effacer/Insérer, pour
+    // épargner aux dix chiffres les 3px de large que cette onzième touche leur coûte sur un écran de
+    // 360px — mais c'est bien ICI qu'elle a sa place, et le rendu le dit avant l'usage : une note
+    // fantôme s'écrit « x » À LA PLACE du chiffre de case (voir engine/layout.js), jamais par-dessus.
+    // Une touche du pavé de saisie, donc, exactement comme les dix autres.
+    boutonAction(cases, 'ghost', '✕', 'btn-pave btn-case', aRafraichir);
 
     // --- Rangée 2 : CORRIGER (se déplacer vit maintenant à part, voir construireDpadFlottant) ------
     const gestes = rangee('rangee-gestes');
 
     boutonAction(gestes, 'supprimer', 'Effacer', 'btn-pave btn-pave-large');
     boutonAction(gestes, 'inserer', 'Insérer', 'btn-pave btn-pave-large');
-    // LA NOTE FANTÔME EST UNE ÉCRITURE, PAS UN EFFET (retour utilisateur : « peux-tu insérer les
-    // ghost notes directement dans le pavé tactile d'ajout de notes ? Je vais souvent l'utiliser, ça
-    // n'est pas juste un effet »). Le rendu lui donne raison : une note fantôme s'écrit « x » À LA
-    // PLACE du chiffre de case (voir engine/layout.js) — elle appartient donc au pavé de SAISIE, pas
-    // au popover « Effets » où neuf gestes occasionnels dorment derrière un second appui.
-    //
-    // ICI et non au bout de la rangée des chiffres, où elle serait pourtant la « onzième touche » :
-    // mesuré, une onzième case ferait passer les dix autres de 30 à 27px de large sur un écran de
-    // 360px — les boutons les plus touchés de l'application, rétrécis pour loger celui-ci. Elle
-    // rejoint donc Effacer/Insérer, les autres gestes d'écriture qui ne sont pas des chiffres.
-    boutonAction(gestes, 'ghost', '✕ Fantôme', 'btn-pave btn-pave-large', aRafraichir);
 
     // La position courante, en toutes lettres : sur téléphone, la barre d'état du bas (#info-position)
     // n'a plus la place de s'afficher, et savoir SUR QUELLE CORDE on écrit est indispensable — c'est

@@ -12,6 +12,12 @@
 // note n'était pas déjà posée, ce qui condamnait la note fantôme à un geste en deux temps (poser une
 // case, puis la barrer) pour un signe qui, sur le papier, s'écrit d'un seul.
 //
+// SA PLACE : la ONZIÈME TOUCHE du pavé de saisie, juste après le 9 et de la même largeur que les
+// chiffres (retour utilisateur : « le fantôme après le x, à traiter comme une note classique, à
+// mettre après le 9 »). Ce banc vérifie ce placement, pas seulement l'existence d'un bouton quelque
+// part : c'est le placement qui porte l'idée — une note fantôme n'est pas un effet posé à côté des
+// chiffres, c'est ce qu'on écrit AU LIEU d'un chiffre.
+//
 // Éprouvé par le PAVÉ TACTILE (le geste demandé) plutôt que par l'éditeur seul : c'est le chemin
 // complet — bouton, action partagée avec la palette et le clavier, commande, rendu — qui doit tenir.
 
@@ -24,11 +30,11 @@ const { check, exiger, plan, bilan } = creerHarnais('note fantôme : une écritu
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     try {
         const boutonFantome = () => page.evaluateHandle(() =>
-            [...document.querySelectorAll('.rangee-gestes .btn-pave')].find(b => /Fantôme/.test(b.textContent)));
+            [...document.querySelectorAll('.rangee-cases .btn-pave')].find(b => b.textContent.trim() === '✕'));
         const etatNote = () => page.evaluate(() => {
             const ed = window.app.editeur;
             const n = ed.evenementCourant().notes.find(x => x.corde === ed.curseur.corde);
-            const b = [...document.querySelectorAll('.rangee-gestes .btn-pave')].find(x => /Fantôme/.test(x.textContent));
+            const b = [...document.querySelectorAll('.rangee-cases .btn-pave')].find(x => x.textContent.trim() === '✕');
             return {
                 note: n ? { frette: n.frette, ghost: !!n.ghost } : null,
                 actif: b ? b.classList.contains('actif') : null,
@@ -39,9 +45,20 @@ const { check, exiger, plan, bilan } = creerHarnais('note fantôme : une écritu
 
         // --- 1. Le bouton existe, dans le pavé de SAISIE et non derrière le popover « Effets » -------
         const b = await boutonFantome();
-        exiger(await b.evaluate(e => !!e), 'le pavé tactile porte un bouton de note fantôme, à côté d\'Effacer et Insérer');
-        check(await b.evaluate(e => e.getBoundingClientRect().width > 0 && e.getBoundingClientRect().height >= 44),
-            'à sa taille de cible tactile, comme ses voisins');
+        exiger(await b.evaluate(e => !!e), 'le pavé de saisie porte une touche « ✕ » — sans mot autour, comme les chiffres');
+        const rangee = await page.evaluate(() => {
+            const b = [...document.querySelectorAll('.rangee-cases .btn-pave')];
+            const l = b.map(x => Math.round(x.getBoundingClientRect().width));
+            return {
+                suite: b.map(x => x.textContent.trim()).join(' '),
+                memeLargeur: Math.max(...l) - Math.min(...l) <= 1,
+                hauteur: Math.round(b[b.length - 1].getBoundingClientRect().height),
+            };
+        });
+        exiger(rangee.suite === '0 1 2 3 4 5 6 7 8 9 ✕',
+            'elle vient APRÈS le 9, au bout de la rangée des chiffres — la onzième touche');
+        check(rangee.memeLargeur && rangee.hauteur >= 44,
+            'et se partage la largeur à parts égales avec les dix autres : une touche comme les autres');
 
         // --- 2. SUR UNE CASE VIDE, il ÉCRIT — le cœur du retour utilisateur -------------------------
         const avant = await etatNote();

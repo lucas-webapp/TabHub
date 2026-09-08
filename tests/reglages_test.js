@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(26);
+    plan(28);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -61,6 +61,17 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         check(texteAccordages.includes('E A D G B E'), 'et l\'accordage standard s\'y lit bien « E A D G B E »');
         const texteGrille = await page.locator('#grille-cordes').innerHTML();
         check(!lettresFrancaises.test(texteGrille) && /\bE2\b/.test(texteGrille), 'la grille corde par corde aussi : lettres anglo-saxonnes (E2, A2…), jamais Mi2/La2');
+
+        // --- 3 bis. LES NOTES SEULES, sans le nom de l'accordage -------------------------------------
+        // Retour utilisateur : « les indications d'accordage : standard, drop D etc… je le sais en
+        // lisant les notes ». « Drop D — D A D G » disait effectivement deux fois la même chose à qui
+        // lit la seconde moitié, en occupant la largeur d'un menu déroulant sur un écran de téléphone.
+        const optionsAccordage = await page.evaluate(() =>
+            [...document.querySelectorAll('#champ-accordage option')].map(o => o.textContent));
+        check(optionsAccordage.every(o => !/Standard|Drop|Open|DADGAD|High C|Personnalisé|—/.test(o)),
+            'les accordages ne s\'annoncent plus que par leurs notes, sans nom ni tiret');
+        check(new Set(optionsAccordage).size === optionsAccordage.length,
+            'et restent tous distinguables les uns des autres sans ce nom (aucun doublon de notes)');
 
         // --- 4. Pavé tactile : sur CET appareil (souris, sans tactile — voir l'en-tête du banc), la
         // ligne entière est absente plutôt que d'exposer un réglage qui ne voudrait rien dire. --------
