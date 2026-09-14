@@ -57,7 +57,10 @@ function primitiveVersSvg(p, palette) {
             const familles = { serif: "'Times New Roman', Times, serif", 'sans-serif': "Helvetica, Arial, sans-serif" };
             const it = p.italique ? ' font-style="italic"' : '';
             const ancres = { debut: 'start', milieu: 'middle', fin: 'end' };
-            return `<text x="${ech(p.x)}" y="${ech(p.y)}" fill="${c}" font-family="${familles[p.police] || p.police}" font-size="${ech(p.taille)}" font-weight="${p.poids}"${it} text-anchor="${ancres[p.ancre]}">${echapper(p.s)}</text>`;
+            // `classe` : voir engine/layout.js#texte — l'interface s'en sert pour retrouver les
+            // trois lignes de l'en-tête et les rendre modifiables d'un clic.
+            const cl = p.classe ? ` class="${p.classe}"` : '';
+            return `<text x="${ech(p.x)}" y="${ech(p.y)}" fill="${c}" font-family="${familles[p.police] || p.police}" font-size="${ech(p.taille)}" font-weight="${p.poids}"${it} text-anchor="${ancres[p.ancre]}"${cl}>${echapper(p.s)}</text>`;
         }
         case 'glyphe': {
             const t = `translate(${ech(p.x)} ${ech(p.y)}) scale(${ech(p.echelle)})`;

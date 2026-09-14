@@ -35,13 +35,38 @@
 // `pointer: coarse` (voir appareilTactile) — SANS jamais épaissir le trait VISUEL, qui reste centré
 // dans cette zone agrandie à la même épaisseur qu'à la souris : ce que l'œil voit ne change pas, ce
 // que le doigt peut manquer, si.
+//
+// AJOUTÉ (retour utilisateur : « la lecture devrait se lancer toujours depuis le début, sauf si j'ai
+// mis en place une barre orange ») : Editeur.positionDeDepartLecture repartait auparavant du CURSEUR
+// dès l'arrêt, la boucle ne servant de filet que si le curseur restait EN DEHORS d'elle. Le curseur
+// n'intervient plus DU TOUT dans cette décision : sans boucle, la lecture repart TOUJOURS du tout
+// début du morceau — avec une boucle, TOUJOURS du début de la boucle, où que soit le curseur.
+//
+// AJOUTÉ (retour utilisateur : « je n'arrive pas à définir la barre de lecture orange (boucle) sous
+// la grille, car mon téléphone croit veut faire bouger l'écran lorsque j'essaye de la placer ou de
+// l'étirer ») : `touch-action: none` (voir style.css, .bande-boucle) n'était posé QUE sur la piste
+// invisible de fond — le HALO visible et les DEUX POIGNÉES, qui se dessinent PAR-DESSUS elle dès
+// qu'une boucle existe (voir marquesBoucle), n'avaient jamais leur propre classe et restaient donc
+// des rectangles ORDINAIRES pour le navigateur. Exactement ce que le doigt touche en premier pour
+// « placer » (retoucher une boucle déjà là) ou « étirer » (saisir une poignée) — la piste invisible
+// dessous, elle, n'était plus jamais atteinte une fois une boucle posée. Voir le cas 18 plus bas.
+//
+// AJOUTÉ, ce correctif-là ne suffisant TOUJOURS PAS (même retour, capture à l'appui : « lorsque je
+// place la boucle orange de gauche à droite, l'écran se décale ENCORE au lieu de comprendre qu'il faut
+// uniquement placer la barre orange » — la boucle restait figée sur sa mesure de départ, signe d'un
+// geste volé en cours de route) : `touch-action` ne pouvait pas porter seul, pour deux raisons qui se
+// cumulent et dont AUCUNE ne se voit sur un banc Chromium — WebKit (le moteur de l'iPhone d'où vient
+// ce retour) n'honore pas `touch-action` posé sur un <rect> SVG, et `preventDefault()` sur un
+// `pointerdown` ne couvre PAS le défilement (spécification Pointer Events). D'où un filet indépendant
+// du moteur : un `touchmove` NON PASSIF refusé le temps du glisser, et LUI SEUL (voir
+// main.js#_bloquerDefilementPendantGeste) — cas 19 plus bas, qui mesure les deux bornes.
 
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(30);
+    plan(41);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -217,25 +242,39 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         await page.click('#btn-stop');
         check((await page.evaluate(() => window.app.lecteur.boucleLecture)) !== null, 'la boucle reste posée après un Stop (rien à voir avec l\'état de lecture)');
 
-        // --- 7. Lecture DEPUIS L'ARRÊT : curseur DANS la boucle -> part du curseur ------------------
+        // --- 7. Lecture DEPUIS L'ARRÊT, boucle active : TOUJOURS le début de la BOUCLE, curseur DEDANS
         const dansLaBoucle = await page.evaluate(() => {
             const ed = window.app.editeur;
-            ed.placerCurseur(1, 2, 0);   // mesure 1, dans la boucle [0,1]
+            ed.placerCurseur(1, 2, 0);   // mesure 1, DANS la boucle [0,1] — mais ne doit plus compter
             const depart = window.app.positionDeDepartLecture();
-            const attendu = window.app.positionDuCurseurEnNoires();
-            return Math.abs(depart - attendu) < 1e-9;
+            const debutBoucle = window.app.editeur.partition.mesures.slice(0, 0).length; // mesure 0 -> 0 noire
+            return depart === debutBoucle;
         });
-        check(dansLaBoucle, 'curseur DANS la boucle -> la lecture repart bien du curseur, pas du début de la boucle');
+        check(dansLaBoucle, 'curseur DANS la boucle -> la lecture repart bien du DÉBUT DE LA BOUCLE, plus du curseur (retour utilisateur)');
 
-        // --- 8. Curseur HORS la boucle -> part du DÉBUT de la boucle, pas du curseur ----------------
+        // --- 8. ... et TOUJOURS pareil, curseur DEHORS -----------------------------------------------
         const horsLaBoucle = await page.evaluate(() => {
             const ed = window.app.editeur;
             ed.placerCurseur(5, 0, 0);   // mesure 5, hors de la boucle [0,1]
             const depart = window.app.positionDeDepartLecture();
-            const attendu = window.app.editeur.partition.mesures.slice(0, 0).length; // 0
             return depart === 0;
         });
-        check(horsLaBoucle, 'curseur HORS la boucle -> la lecture repart du DÉBUT de la boucle, pas d\'un endroit qu\'elle ne traverse peut-être jamais');
+        check(horsLaBoucle, 'curseur HORS la boucle -> la lecture repart du DÉBUT DE LA BOUCLE tout pareil, jamais d\'un endroit qu\'elle ne traverse peut-être jamais');
+
+        // --- 8bis. SANS AUCUNE boucle : TOUJOURS le tout début du morceau, jamais le curseur ---------
+        // C'est le cœur du retour utilisateur : avant ce correctif, la lecture repartait du curseur
+        // par défaut — retoucher la mesure 6 puis lancer la lecture rejouait depuis la mesure 6, pas
+        // depuis le début, sans qu'aucune boucle ne l'ait demandé.
+        const sansBoucleDuTout = await page.evaluate(() => {
+            window.app.lecteur.retirerBoucle();
+            const ed = window.app.editeur;
+            ed.placerCurseur(2, 1, 0);   // mesure 2 — loin du début, aucune boucle en jeu
+            const depart = window.app.positionDeDepartLecture();
+            const curseur = window.app.positionDuCurseurEnNoires();
+            return { depart, curseurNonNul: curseur > 0 };
+        });
+        exiger(sansBoucleDuTout.curseurNonNul, 'préalable : le curseur est bien loin du début (sans quoi ce cas ne prouverait rien)');
+        check(sansBoucleDuTout.depart === 0, 'et SANS aucune boucle, la lecture repart du tout DÉBUT DU MORCEAU — jamais du curseur, quelle que soit sa position');
 
         // --- 9. Un geste qui commence AILLEURS que dans la bande garde son comportement normal ------
         // (non-régression : la bande de boucle est testée EN PREMIER dans demarrerGeste — elle ne
@@ -374,6 +413,115 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         const apres17 = await page.evaluate(() => window.app.lecteur.boucleLecture);
         check(apres17 !== null && apres17.debut === 0 && apres17.fin === 5,
             'saisir la poignée gauche 1,8 S à côté de son vrai bord (hors de portée d\'une souris) l\'attrape bien au doigt — étire le début SEULEMENT, la fin (5) reste inchangée');
+
+        // --- 18. TOUCH-ACTION SUR LE HALO ET LES POIGNÉES, UNE FOIS LA BOUCLE POSÉE (retour
+        // utilisateur : « je n'arrive pas à définir la barre de lecture orange [...] mon téléphone
+        // croit veut faire bouger l'écran lorsque j'essaye de la placer ou de l'étirer ») — le cas 10
+        // plus haut ne vérifiait touch-action QUE sur la piste INVISIBLE, SANS boucle active :
+        // exactement le point aveugle qui laissait passer ce bogue. Halo et poignées se dessinent
+        // PAR-DESSUS cette piste UNE FOIS une boucle posée (voir marquesBoucle) — c'est donc EUX, pas
+        // elle, que le doigt touche en premier dès qu'il y a quelque chose à ajuster. La boucle [0, 5]
+        // posée par le cas 17 est encore en place ici.
+        //
+        // Le CENTRE RÉEL de chaque rectangle RENDU, jamais une approximation géométrique indépendante
+        // (celle de pointMesure/pointBordMesure, pensée pour un DÉMARRAGE de glisser — l'app tolère
+        // volontairement une large prise autour d'une poignée, voir poigneeBoucleAuPoint) :
+        // elementFromPoint, lui, est un test pile au pixel sur un rectangle fin — sans cette marge
+        // d'erreur, repéré en pratique : pointMesure(3), pourtant « au milieu » de la mesure,
+        // retombait sur la piste invisible SOUS le halo (sa propre zone de saisie tactile est plus
+        // HAUTE que le mince halo qu'elle centre), un premier essai qui ne prouvait donc rien de plus
+        // que le cas 10.
+        const toucheActionDe = (fill) => page.evaluate((fill) => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const r = [...svg.querySelectorAll('rect')].find(r => r.getAttribute('fill') === fill);
+            const cx = +r.getAttribute('x') + (+r.getAttribute('width')) / 2;
+            const cy = +r.getAttribute('y') + (+r.getAttribute('height')) / 2;
+            const x = b.left + (cx / window.app.page.largeur) * b.width;
+            const y = b.top + (cy / window.app.page.hauteur) * b.height;
+            return getComputedStyle(document.elementFromPoint(x, y)).touchAction;
+        }, fill);
+
+        check(await toucheActionDe('var(--lecture-halo)') === 'none',
+            'le HALO visible de la boucle calcule bien touch-action: none, pas seulement la piste invisible dessous');
+        check(await toucheActionDe('var(--lecture)') === 'none',
+            'et la POIGNÉE elle-même — ce que le doigt vise PRÉCISÉMENT pour étirer — calcule aussi touch-action: none');
+
+        // --- 19. LE DÉFILEMENT NATIF EST REFUSÉ PENDANT LE GLISSER — ET SEULEMENT PENDANT LUI -------
+        // (retour utilisateur, capture à l'appui, APRÈS le correctif du cas 18 : « lorsque je place la
+        // boucle orange de gauche à droite, l'écran se décale ENCORE au lieu de comprendre qu'il faut
+        // uniquement placer la barre orange ».) Le cas 18 ne prouve que la moitié DÉCLARATIVE du
+        // mécanisme (touch-action), et cette moitié-là ne tient pas partout : WebKit — le moteur de
+        // l'iPhone d'où vient ce retour — n'honore pas `touch-action` posé sur un <rect> SVG, et
+        // `preventDefault()` sur un `pointerdown` ne couvre PAS le défilement (spécification Pointer
+        // Events). D'où le filet vérifié ici : voir main.js#_bloquerDefilementPendantGeste.
+        //
+        // « ET SEULEMENT PENDANT LUI » compte autant que le reste : un `touchmove` refusé en
+        // permanence rendrait la partition impossible à parcourir au doigt — exactement ce que
+        // demarrerGesteTactile préserve ailleurs. Les deux bornes sont donc mesurées, pas seulement
+        // celle du milieu.
+        const defilement = await page.evaluate(({ p1, p2 }) => {
+            const feuille = document.getElementById('feuille');
+            const envoyer = (type, x, y) => feuille.dispatchEvent(new PointerEvent(type, {
+                bubbles: true, cancelable: true, pointerId: 91, pointerType: 'touch', isPrimary: true, button: 0, clientX: x, clientY: y,
+            }));
+            const defilementRefuse = () => {
+                const ev = new TouchEvent('touchmove', { bubbles: true, cancelable: true });
+                window.dispatchEvent(ev);
+                return ev.defaultPrevented;
+            };
+            const avant = defilementRefuse();
+            envoyer('pointerdown', p1.x, p1.y);
+            const pendant = defilementRefuse();
+            envoyer('pointermove', p2.x, p2.y);
+            envoyer('pointerup', p2.x, p2.y);
+            const apres = defilementRefuse();
+            return { avant, pendant, apres };
+        }, { p1: await pointMesure(0), p2: await pointMesure(2) });
+        check(defilement.pendant === true,
+            'pendant un glisser de boucle, un touchmove est REFUSÉ (preventDefault) — le navigateur ne peut plus s\'emparer du geste pour défiler, quel que soit son support de touch-action sur du SVG');
+        check(defilement.avant === false && defilement.apres === false,
+            'et hors de ce geste — avant comme après — le touchmove repasse librement : le défilement au doigt de la partition reste entier');
+
+        // --- LA BANDE SE DESSINE PENDANT QU'ON LA TRACE ---------------------------------------------
+        // Retour utilisateur : « la barre de lecture orange doit se dessiner pendant que je suis en
+        // train de la définir. Pour le moment, elle apparaît lorsque j'ai arrêté de cliquer. »
+        //
+        // CE QUI L'EN EMPÊCHAIT était réel, pas de la paresse : `dessiner()` remplace le contenu de la
+        // feuille, ce qui détruit l'élément SVG portant la capture IMPLICITE du pointeur — le
+        // navigateur cessait alors de livrer la suite du geste (plus aucun pointermove ni pointerup).
+        // La réponse n'est pas de redessiner moins mais de capturer le pointeur sur un élément que le
+        // rendu ne touche jamais : #zone-partition (voir main.js#_capturerPointeur).
+        //
+        // On mesure donc l'état AVANT le relâchement — le seul moment où l'ancienne version ne montrait
+        // rien — et on vérifie qu'un geste de plusieurs étapes livre bien TOUTES ses étapes.
+        await page.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.dessiner(); });
+        await page.waitForTimeout(150);
+        const d0 = await pointMesure(0);
+        const d2 = await pointMesure(2);
+        await page.mouse.move(d0.x, d0.y);
+        await page.mouse.down();
+        await page.mouse.move(d0.x + 24, d0.y, { steps: 3 });
+        const enCours1 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        await page.mouse.move(d2.x, d2.y, { steps: 8 });
+        const enCours2 = await page.evaluate(() => ({
+            boucle: window.app.lecteur.boucleLecture,
+            // La bande orange est-elle RÉELLEMENT dessinée à cet instant, pas seulement enregistrée ?
+            halos: document.querySelectorAll('#feuille rect.bande-boucle').length,
+        }));
+        await page.mouse.up();
+        await page.waitForTimeout(150);
+        exiger(enCours1 && enCours1.debut === 0 && enCours1.fin === 0,
+            'dès les premiers pixels parcourus, la boucle existe déjà — avant tout relâchement');
+        exiger(enCours2.boucle && enCours2.boucle.debut === 0 && enCours2.boucle.fin === 2,
+            'et elle SUIT le geste jusqu\'à la mesure 3 : la capture du pointeur survit aux redessins');
+        check(enCours2.halos > 0, 'la bande orange est bel et bien tracée à l\'écran pendant le glisser');
+        check((await page.evaluate(() => window.app.lecteur.boucleLecture.fin)) === 2,
+            'et le relâchement ne fait que confirmer ce qu\'on voyait déjà');
+
+        // PLUS DE LÉGENDE (« Boucle : mesures 1 à 3 ») : la barre orange le dit elle-même désormais.
+        check(!/Boucle/.test(await page.evaluate(() => document.body.innerText)),
+            'aucune légende « Boucle : mesures … » ne s\'affiche plus nulle part — la bande suffit');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

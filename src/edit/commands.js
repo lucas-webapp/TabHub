@@ -45,6 +45,11 @@ export class Editeur {
         // touche jamais au DOM, donc jamais de toast d'ici ; l'appelant (main.js) lit ce champ juste
         // après avoir invoqué une commande et l'affiche si besoin.
         this.derniereErreur = null;
+        // PRESSE-PAPIER D'UNE MESURE (voir copierMesure/collerMesure). Volontairement porté par
+        // l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à un
+        // `nouveau()` comme à un changement d'instrument — copier une mesure de guitare pour la
+        // reporter dans une basse est un geste légitime, que collerMesure sait rendre sûr.
+        this.presseMesure = null;
     }
 
     // -- Abonnement ------------------------------------------------------------------------------
@@ -312,7 +317,12 @@ export class Editeur {
         // REDÉFINIR une case efface la marque « hors du manche » posée par une transposition (voir
         // transposerMorceau) : c'est précisément le geste par lequel on répare une de ces notes, et
         // elle doit cesser d'être signalée dès qu'on lui a donné une case jouable.
-        if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; }
+        // ET LE CARACTÈRE FANTÔME AVEC, pour une raison plus directe encore : la tablature grave « x »
+        // À LA PLACE du chiffre (voir engine/layout.js), si bien qu'une case tapée sur une note
+        // fantôme s'écrivait dans le modèle sans RIEN changer à l'écran — le chiffre était là, et
+        // invisible. Donner une case, c'est donner une hauteur déterminée : l'exact contraire d'un
+        // fantôme (voir model/score.js, EFFETS.ghost, « hauteur indéterminée »).
+        if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; delete existante.ghost; }
         else evenement.notes.push(creerNote(c.corde, frette));
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
@@ -567,36 +577,123 @@ export class Editeur {
     // -- Structure ---------------------------------------------------------------------------------
 
     /**
+     * REPREND `montant` noires DE SILENCE dans `voix`, à partir de l'index `depuis` — en commençant
+     * par le silence le PLUS PROCHE. Renvoie `true` si tout a pu être repris (la voix est alors
+     * modifiée), `false` si le silence disponible n'y suffisait pas (RIEN n'est modifié : la
+     * vérification se fait entièrement AVANT la moindre écriture, comme dans _essaierNouvelleDuree,
+     * pour pouvoir refuser proprement plutôt que d'avoir à défaire un travail à moitié fait).
+     *
+     * POURQUOI CETTE OPÉRATION EXISTE. Une voix totalise TOUJOURS exactement sa mesure (voir
+     * l'invariant rappelé dans insererEvenement) : notes et silences remplissent la capacité, sans
+     * jamais un trou. « Faire de la place » n'a donc qu'un seul sens possible ici — reprendre du
+     * SILENCE quelque part après le point visé. C'est déjà, mot pour mot, ce que fait l'allongement
+     * d'une note (voir _essaierNouvelleDuree, qui mange les silences suivants) ; l'insertion s'était
+     * seulement retrouvée sans l'équivalent.
+     *
+     * LE PLUS PROCHE D'ABORD, et les notes rencontrées en chemin ne sont jamais consommées, seulement
+     * DÉCALÉES par l'insertion qui suivra : c'est ce qui dérange le moins la musique déjà écrite —
+     * tout ce qui se trouve APRÈS le silence repris ne bouge pas d'un pouce. Rien ne déborde jamais
+     * sur la mesure voisine : le décalage s'arrête à la barre de mesure, la capacité étant préservée
+     * exactement (on rend ce qu'on a pris en trop, découpé en figures propres).
+     */
+    _reprendreSilenceApres(voix, depuis, montant) {
+        const EPS = 1e-9;
+        const estSilence = (e) => e.silence || !e.notes.length;
+        if (montant <= EPS) return true;
+
+        // 1. Vérifier SANS RIEN MODIFIER que le compte y est.
+        let dispo = 0;
+        for (let i = depuis; i < voix.evenements.length && dispo < montant - EPS; i++) {
+            if (estSilence(voix.evenements[i])) dispo += dureeEnNoires(voix.evenements[i].duree);
+        }
+        if (dispo < montant - EPS) return false;
+
+        // 2. Reprendre, du plus proche au plus lointain. Un silence entamé à moitié est remplacé par
+        //    le reliquat, redécoupé en figures standard (jamais une durée « bâtarde » impossible à
+        //    graver — voir decouperEnEvenements).
+        let reste = montant;
+        for (let i = depuis; i < voix.evenements.length && reste > EPS; i++) {
+            const e = voix.evenements[i];
+            if (!estSilence(e)) continue;
+            const d = dureeEnNoires(e.duree);
+            if (d <= reste + EPS) {
+                voix.evenements.splice(i, 1);
+                reste -= d;
+                i--;
+            } else {
+                voix.evenements.splice(i, 1, ...decouperEnEvenements(d - reste));
+                reste = 0;
+            }
+        }
+        return true;
+    }
+
+    /**
      * Insère un évènement APRÈS le courant et s'y place — le geste normal pour écrire à la suite.
      *
      * NE DÉBORDE JAMAIS LA MESURE — REVENU à ce refus après un détour par la répartition automatique
      * (retour direct : « repasse au modèle plus simple, colle à ce qui est réalisé sur les logiciels
      * pros » — aucun d'eux n'insère une mesure neuve tout seul dans le dos de qui écrit).
      *
-     * DEUX CAS : en bout de voix (le geste normal pour continuer d'écrire), une mesure TOUTE NEUVE
-     * s'insère juste après la courante — jamais la mesure suivante existante, même si elle a de la
-     * place : elle pourrait déjà contenir autre chose, et la remplir par surprise déplacerait de la
-     * musique déjà écrite sans le dire. La nouvelle mesure reçoit la capacité EFFECTIVE de cet endroit
-     * du morceau (jamais le 4 temps par défaut de `creerMesure`, qui suppose du 4/4 et fausserait tout
-     * de suite une insertion en 3/4 ou 6/8), et prend le même nombre de voix que la mesure courante —
-     * les voix qu'on ne remplit pas restent un silence unique couvrant toute la mesure, l'état normal
-     * d'une voix qu'on n'a pas encore touchée. Au milieu d'une voix (on intercale une nouvelle case
-     * entre deux existantes), avancer d'une mesure n'aurait aucun sens — on refuse proprement, et
-     * `derniereErreur` porte le pourquoi (voir main.js, qui l'affiche). Une mesure déjà invalide par
-     * un AUTRE chemin reste réparable via `corrigerDebordement` (Alt+R / « ⇥ Corriger »).
+     * LA PLACE SE PREND DANS LE SILENCE QUI SUIT (retour utilisateur : « j'ai du mal à l'utiliser,
+     * j'ai très souvent le message espace insuffisant dans la mesure. Regarder comment font les
+     * applications professionnelles similaires et faire pareil »). Le test d'avant — « ce qui est
+     * déjà écrit plus la nouvelle figure dépasse-t-il la capacité ? » — ne pouvait JAMAIS être faux :
+     * `dureeEcrite` additionne TOUS les évènements, silences compris, et une voix totalise toujours
+     * EXACTEMENT sa mesure (l'invariant du modèle, voir plus bas). Autrement dit une mesure est
+     * toujours « pleine », et insérer au milieu était refusé cent fois sur cent — le bouton ne
+     * pouvait pas marcher, quelle que soit la partition.
+     *
+     * Le modèle des logiciels pros (Guitar Pro, MuseScore, TuxGuitar) est justement celui-ci : la
+     * mesure est une grille de temps toujours pleine, écrire REMPLACE un silence (c'est déjà ce que
+     * fait saisirChiffre ici), et insérer PREND SA PLACE dans le silence qui suit, en repoussant ce
+     * qu'il y a entre les deux. C'est aussi, mot pour mot, ce que TabHub fait déjà pour l'allongement
+     * d'une note (voir _essaierNouvelleDuree) : seule l'insertion n'avait pas son équivalent. Voir
+     * _reprendreSilenceApres, qui porte cette reprise pour les deux insertions.
+     *
+     * TROIS CAS, dans cet ordre. (1) Il reste du silence après le point d'insertion : on le reprend,
+     * la mesure garde sa capacité au temps près, rien ne déborde sur la voisine. (2) Plus aucun
+     * silence à reprendre, et on est en BOUT DE VOIX (le geste normal pour continuer d'écrire) : une
+     * mesure TOUTE NEUVE s'insère juste après la courante — jamais la mesure suivante existante, même
+     * si elle a de la place : elle pourrait déjà contenir autre chose, et la remplir par surprise
+     * déplacerait de la musique déjà écrite sans le dire. La nouvelle mesure reçoit la capacité
+     * EFFECTIVE de cet endroit du morceau (jamais le 4 temps par défaut de `creerMesure`, qui suppose
+     * du 4/4 et fausserait tout de suite une insertion en 3/4 ou 6/8), et prend le même nombre de
+     * voix que la mesure courante — les voix qu'on ne remplit pas restent un silence unique couvrant
+     * toute la mesure, l'état normal d'une voix qu'on n'a pas encore touchée. (3) Plus aucun silence
+     * et on est au MILIEU de la voix : la suite est pleine de notes, il n'y a rien à reprendre sans
+     * chasser de la musique hors de la mesure — on refuse proprement (le refus strict voulu, voir
+     * plus haut), et `derniereErreur` porte le pourquoi ainsi qu'Alt+R (⇥ Corriger), qui décale
+     * l'excédent quand ce décalage est VRAIMENT voulu.
      */
     insererEvenement() {
         this.derniereErreur = null;
         const voix = this.voixCourante();
         const capacite = capaciteMesure(this.partition, this.curseur.mesure);
-        const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
         const dureeNouvel = dureeEnNoires(this.dureeCourante);
         if (dureeNouvel > capacite + 1e-9) {
             this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
             return false;
         }
+        // DEUX SOURCES DE PLACE, dans cet ordre. (1) Le vide DÉJÀ disponible : une voix SOUS-remplie
+        // (elle ne somme pas encore sa mesure — un état transitoire que corrigerDebordement répare,
+        // voir _diagnostiquerDebordement) a du temps libre qui n'est matérialisé par aucun silence ;
+        // il ne coûte rien de s'en servir. (2) Le silence qui SUIT, repris seulement pour ce qui
+        // manque encore au-delà de ce vide.
+        const libre = Math.max(0, capacite - dureeEcrite(this.mesureCourante(), this.curseur.voix));
+        const aReprendre = dureeNouvel - libre;
+        // Essai À BLANC sur une copie : `_reprendreSilenceApres` ne modifie rien quand il échoue,
+        // mais il modifie bien la voix quand il réussit — or il faut avoir ouvert le point
+        // d'annulation (memoriser) AVANT toute écriture. On mesure donc d'abord sur une copie, puis
+        // on refait le vrai geste une fois memoriser() appelé.
+        const copie = { evenements: voix.evenements.map(e => e) };
+        const placeTrouvee = aReprendre <= 1e-9
+            || this._reprendreSilenceApres(copie, this.curseur.evenement + 1, aReprendre);
         let mesureFraiche = false;
-        if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
+        if (placeTrouvee) {
+            this.memoriser();
+            if (aReprendre > 1e-9) this._reprendreSilenceApres(voix, this.curseur.evenement + 1, aReprendre);
+        } else {
             const enBoutDeVoix = this.curseur.evenement === voix.evenements.length - 1;
             if (!enBoutDeVoix) {
                 this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
@@ -612,8 +709,6 @@ export class Editeur {
             this.curseur.mesure += 1;
             this.curseur.evenement = -1;   // la nouvelle case s'insère juste APRÈS — voir plus bas
             mesureFraiche = true;
-        } else {
-            this.memoriser();
         }
         const voixCible = this.voixCourante();
         voixCible.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
@@ -636,25 +731,44 @@ export class Editeur {
      * d'un cran vers la droite pour laisser la place), pas sur la case neuve : contrairement à Entrée,
      * ce geste n'est pas fait pour continuer à écrire à la suite.
      *
-     * Mêmes garanties de capacité qu'`insererEvenement` : refuse plutôt que de déborder. Sans le
-     * repli « avancer d'une mesure » de son miroir — insérer AVANT la première case d'une mesure déjà
-     * pleine demanderait de reculer d'une mesure entière, un geste bien plus surprenant qu'un simple
-     * refus.
+     * Mêmes garanties de capacité qu'`insererEvenement`, et MÊME reprise du silence qui suit (voir
+     * _reprendreSilenceApres et la docblock du miroir : le test d'avant, hérité du même calcul, ne
+     * pouvait jamais être faux non plus). La place se cherche à partir de l'évènement COURANT inclus
+     * — celui devant lequel on insère : c'est lui, et tout ce qui le suit, qui glisse vers la droite.
+     * Sans le repli « avancer d'une mesure » de son miroir — insérer AVANT la première case d'une
+     * mesure déjà pleine demanderait de reculer d'une mesure entière, un geste bien plus surprenant
+     * qu'un simple refus.
      */
     insererAvant() {
         this.derniereErreur = null;
         const capacite = capaciteMesure(this.partition, this.curseur.mesure);
-        const dejaEcrit = dureeEcrite(this.mesureCourante(), this.curseur.voix);
         const dureeNouvel = dureeEnNoires(this.dureeCourante);
-        if (dejaEcrit + dureeNouvel > capacite + 1e-9) {
+        if (dureeNouvel > capacite + 1e-9) {
+            this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
+            return false;
+        }
+        const voix = this.voixCourante();
+        // Mêmes deux sources de place qu'au miroir (vide déjà disponible, puis silence qui suit).
+        const libre = Math.max(0, capacite - dureeEcrite(this.mesureCourante(), this.curseur.voix));
+        const aReprendre = dureeNouvel - libre;
+        // Essai à blanc d'abord, pour la même raison qu'au miroir : memoriser() doit précéder toute
+        // écriture, et on ne sait qu'après coup si la place existe.
+        const copie = { evenements: voix.evenements.map(e => e) };
+        if (aReprendre > 1e-9 && !this._reprendreSilenceApres(copie, this.curseur.evenement, aReprendre)) {
             this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
                 + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
             return false;
         }
         this.memoriser();
-        const voix = this.voixCourante();
+        if (aReprendre > 1e-9) this._reprendreSilenceApres(voix, this.curseur.evenement, aReprendre);
         voix.evenements.splice(this.curseur.evenement, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
-        this.curseur.evenement += 1;
+        // Le curseur suit l'évènement VISÉ, qui vient de glisser d'un cran — SAUF quand cet évènement
+        // était lui-même le silence que la reprise a consommé EN ENTIER, et que rien ne le suivait :
+        // avancer laisserait alors le curseur APRÈS le dernier évènement de la voix, et la frappe
+        // suivante planterait sèchement (saisirChiffre écrit dans `evenements[curseur.evenement]`,
+        // donc dans `undefined`). On se borne au dernier index existant, qui est précisément la case
+        // neuve — celle qui occupe très exactement la place du silence visé.
+        this.curseur.evenement = Math.min(this.curseur.evenement + 1, voix.evenements.length - 1);
         this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
@@ -834,6 +948,81 @@ export class Editeur {
         this.curseur.evenement = 0;
         this.corrigerCurseur();
         this.prevenir('edition');
+    }
+
+    /**
+     * COPIE la mesure courante dans un presse-papier interne (retour utilisateur : « permets-moi de
+     * copier/coller une mesure complète avec clic droit, et de l'insérer là où je le souhaite »).
+     *
+     * Ne modifie RIEN — donc aucun point d'annulation : copier n'est pas une édition, et polluer
+     * l'historique d'un geste qui ne change pas le document ferait qu'un Ctrl+Z après une copie
+     * semblerait « ne rien faire ».
+     *
+     * ON MÉMORISE AUSSI LA SIGNATURE EN VIGUEUR, pas seulement les notes : c'est elle qui donne un
+     * sens à leur somme. Coller une mesure de 4 temps dans un passage en 3/4 sans cette précaution
+     * produirait une mesure qui déborde silencieusement — voir collerMesure, qui s'en sert.
+     */
+    copierMesure() {
+        this.presseMesure = {
+            mesure: cloner(this.mesureCourante()),
+            signature: { ...signatureEffective(this.partition, this.curseur.mesure) },
+            cordes: nbCordes(this.partition),
+        };
+        return true;
+    }
+
+    /** Y a-t-il quelque chose à coller ? Sert au menu contextuel, qui masque l'entrée si non. */
+    peutCollerMesure() { return !!this.presseMesure; }
+
+    /**
+     * COLLE la mesure copiée, avant ou après celle du curseur — jamais par-dessus : « insérer là où je
+     * le souhaite » veut dire ajouter, pas écraser ce qui s'y trouve.
+     *
+     * DEUX PIÈGES, traités plutôt que laissés au hasard.
+     *
+     * 1. LES CORDES. Une mesure de guitare collée dans une basse porterait des notes sur des cordes
+     *    qui n'existent pas — invisibles à l'écran (aucune ligne pour les recevoir) mais bien dans le
+     *    document, et audibles. Elles sont donc écartées, et leur nombre remonté à l'appelant pour
+     *    qu'il le DISE, comme le fait déjà l'import MIDI de ses notes hors du manche.
+     *
+     * 2. LA SIGNATURE. Une mesure de 4 temps collée dans un passage en 3/4 doit garder SA signature,
+     *    sinon sa somme ne correspond plus à sa capacité. Mais la poser telle quelle la propagerait à
+     *    TOUTE LA SUITE du morceau (voir signatureEffective, qui remonte à la dernière mesure qui en
+     *    fixe une) : on rend donc explicitement à la mesure SUIVANTE la signature qui régnait là
+     *    avant le collage. Le changement reste local, exactement là où on a collé.
+     */
+    collerMesure(apres = true) {
+        if (!this.presseMesure) { this.derniereErreur = 'Aucune mesure copiée.'; return null; }
+        const cordesCibles = nbCordes(this.partition);
+        const copie = cloner(this.presseMesure.mesure);
+        let abandonnees = 0;
+        for (const voix of copie.voix) {
+            for (const e of voix.evenements) {
+                const avant = e.notes.length;
+                e.notes = e.notes.filter(n => n.corde < cordesCibles);
+                abandonnees += avant - e.notes.length;
+                if (!e.notes.length) e.silence = true;
+            }
+        }
+
+        this.memoriser();
+        const at = apres ? this.curseur.mesure + 1 : this.curseur.mesure;
+        const signatureAvant = { ...signatureEffective(this.partition, Math.min(at, this.partition.mesures.length - 1)) };
+        const sigCopie = this.presseMesure.signature;
+        const memeSignature = sigCopie.battements === signatureAvant.battements && sigCopie.unite === signatureAvant.unite;
+        copie.signature = memeSignature ? null : { ...sigCopie };
+        this.partition.mesures.splice(at, 0, copie);
+        // Rendre à la suite la signature qu'elle avait : sans ça, le 4/4 de la mesure collée
+        // deviendrait celui de tout ce qui la suit.
+        if (!memeSignature) {
+            const suivante = this.partition.mesures[at + 1];
+            if (suivante && !suivante.signature) suivante.signature = signatureAvant;
+        }
+        this.curseur.mesure = at;
+        this.curseur.evenement = 0;
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return { abandonnees };
     }
 
     supprimerMesure() {
@@ -1058,6 +1247,44 @@ export class Editeur {
         if (!note) return false;
         this.memoriser();
         note.ghost = !note.ghost;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * POSE une note fantôme — ou retire celle qui est déjà là. Le geste du bouton « ✕ » du pavé
+     * tactile, de la touche X et du bouton de la palette.
+     *
+     * POURQUOI CE N'EST PAS `basculerGhost`. Retour utilisateur : « peux-tu insérer les ghost notes
+     * directement dans le pavé tactile d'ajout de notes ? Je vais souvent l'utiliser, ça n'est pas
+     * juste un effet ». Et c'est exact, jusque dans le rendu : une note fantôme s'écrit « x » À LA
+     * PLACE du chiffre de case (voir engine/layout.js, `note.ghost ? 'x' : String(note.frette)`) —
+     * ce n'est pas une décoration ajoutée à une case, c'est ce qu'on écrit AU LIEU d'une case. Le
+     * X est donc la onzième touche du pavé, pas un effet de plus.
+     *
+     * `basculerGhost` ne savait que BASCULER : sur une case vide — le cas de très loin le plus
+     * fréquent quand on écrit au fil de l'eau — elle ne faisait rien, sans même un message. D'où
+     * cette commande, qui ÉCRIT quand il n'y a rien, et bascule quand il y a déjà quelque chose.
+     *
+     * L'écriture passe par `saisirChiffre(0)` plutôt que de poser la note à la main : c'est lui qui
+     * sait refuser au piano (où il n'y a ni corde ni case), dimensionner l'évènement à la durée
+     * courante sans casser l'invariant de la mesure, et ouvrir le point d'annulation. La case 0 n'est
+     * qu'un support : elle disparaît sous le « x » au rendu, la hauteur d'une note fantôme étant
+     * indéterminée par définition (voir model/score.js, EFFETS.ghost).
+     */
+    poserGhost() {
+        const note = this.noteCourante();
+        if (note) return this.basculerGhost();
+        // Rien ici : on l'écrit. `saisirChiffre` renvoie null quand il a refusé (piano) — il a alors
+        // déjà posé `derniereErreur`, rien à ajouter.
+        if (this.saisirChiffre(0) === null) return false;
+        const posee = this.noteCourante();
+        if (!posee) return false;
+        posee.ghost = true;
+        // Le « 0 » qui vient de servir de support ne doit PAS pouvoir s'enchaîner avec le chiffre
+        // suivant (voir DELAI_DEUXIEME_CHIFFRE) : taper « ✕ » puis « 5 » veut dire une fantôme puis
+        // la case 5, jamais la case 5 obtenue par « 05 ».
+        this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
     }

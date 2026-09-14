@@ -298,6 +298,34 @@ export class Lecteur {
                     suivante = suivantMemeVoix.get(suivante);
                 }
 
+                // UN SLIDE EST UN SEUL SON DONT LA HAUTEUR GLISSE — pas deux notes plaquées côte à
+                // côte (retour utilisateur : « ajouter l'effet slide, pas uniquement le hammer-on.
+                // J'écoute un slide rapide d'un ton sur une double croche et c'est pas assez fluide »).
+                // Et pour cause : `slide` ne servait jusqu'ici qu'à BAISSER LA VÉLOCITÉ de la note
+                // d'arrivée (voir obtenueSansAttaque, juste en dessous) — exactement comme un
+                // hammer-on. On entendait donc bien deux hauteurs distinctes, attaque en moins.
+                //
+                // Le doigt, lui, ne quitte pas la corde : il la fait sonner une fois et se déplace.
+                // On absorbe donc la ou les notes d'arrivée comme le fait `tie` juste au-dessus —
+                // durées cumulées, notes marquées consommées, plus aucune attaque pour elles — en
+                // retenant au passage l'instant et la hauteur de chaque palier. Une CHAÎNE de slides
+                // (5 → 7 → 9) donne ainsi un glissando à plusieurs paliers, d'un seul tenant.
+                const etapes = [];
+                while (courante.lien === 'slide' && suivante) {
+                    const noteSuivante = suivante.ref.notes.find(n => n.corde === note.corde);
+                    if (!noteSuivante) break;
+                    const midiSuivant = hauteurDeNote(partition, noteSuivante);
+                    if (midiSuivant == null) break;
+                    consommees.add(`${suivante.mesure}:${suivante.voix}:${suivante.evenement}:${note.corde}`);
+                    // `arriveeA` : l'instant, compté depuis le début du son, où cette hauteur doit être
+                    // atteinte — c'est-à-dire l'attaque qu'aurait eue la note absorbée. Le glissando
+                    // arrive donc PILE sur le temps, comme joué.
+                    etapes.push({ midi: midiSuivant, arriveeA: duree });
+                    duree += suivante.duree;
+                    courante = noteSuivante;
+                    suivante = suivantMemeVoix.get(suivante);
+                }
+
                 // NUANCE D'UN HAMMER-ON : c'est la note d'ARRIVÉE qui sonne plus doucement, pas celle
                 // de départ. Le champ `lien` décrit ce qui va vers la SUIVANTE ; le lire sur la note
                 // courante — comme le faisait une première version — atténuait donc exactement la
@@ -323,6 +351,12 @@ export class Lecteur {
                     // d'une hauteur qui GLISSE qu'il s'agit, et une rampe se calcule en fréquence (voir
                     // la voix de bend, plus bas). `null` quand la note n'est pas bendée — le cas courant.
                     bend: note.bend ? { midi, demiTons: note.bend.demiTons } : null,
+                    // Les paliers d'un slide, dans le même esprit que `bend` : une hauteur qui BOUGE ne
+                    // se décrit pas par un nom de note. `null` quand la note ne glisse pas — le cas
+                    // courant. Un bend l'emporte sur un slide quand une note porte les deux (voir la
+                    // programmation plus bas) : c'est le geste le plus spécifique des deux, et les
+                    // combiner demanderait une rampe à deux dimensions que personne n'a demandée.
+                    glisse: etapes.length ? { midi, etapes } : null,
                 });
             }
         });
@@ -341,6 +375,7 @@ export class Lecteur {
                 // convertit ici, donc au tempo courant, et non à celui d'il y a une minute.
                 const secondes = Tone.Ticks(ticksDuree).toSeconds();
                 if (e.bend) this._jouerBend(e, secondes, temps);
+                else if (e.glisse) this._jouerSlide(e, ticksDuree, temps);
                 else this.synthe.triggerAttackRelease(e.note, secondes, temps, e.velocite);
             }, `${Math.round(e.debut * PPQ)}i`);
         }
@@ -481,6 +516,60 @@ export class Lecteur {
         // `triggerAttackRelease` d'un Tone.Synth REPOSE sa propre fréquence à la note demandée : on lui
         // passe donc la hauteur de DÉPART, et la rampe programmée juste au-dessus prend le relais.
         this.voixBend.triggerAttackRelease(depart, secondes, temps, e.velocite);
+    }
+
+    /**
+     * Joue un SLIDE : une seule attaque, puis la hauteur glisse de palier en palier.
+     *
+     * LA FORME DU GESTE. Sur l'instrument, on tient la note, puis le doigt part vers sa destination
+     * et y arrive SUR LE TEMPS de la note suivante. On garde donc chaque hauteur jusqu'aux derniers
+     * instants de sa propre durée, et on glisse sur cette fin — jamais une rampe qui commencerait dès
+     * l'attaque, laquelle s'entendrait comme un dérapage plutôt que comme un déplacement voulu.
+     *
+     * LA PART GLISSÉE : 45 % de la durée du palier qu'on quitte, PLAFONNÉE (PLAFOND_GLISSE). Les deux
+     * bornes comptent. Sans la proportion, un slide sur une double-croche (0,125 s à 120 bpm — très
+     * exactement le cas signalé) se verrait allouer la même durée de glissement qu'une ronde, soit
+     * plus que la note entière : la hauteur n'aurait pas fini de bouger que la note serait terminée,
+     * et on n'entendrait qu'un flou. Sans le plafond, à l'inverse, un slide sur une ronde étalerait
+     * son glissement sur près d'une seconde — un hurlement de sirène, pas un slide de guitare.
+     *
+     * `exponentialRampToValueAtTime`, pour la raison exacte donnée à _jouerBend : la hauteur perçue
+     * suit le logarithme de la fréquence, donc une rampe linéaire en hertz s'entend comme une montée
+     * qui ralentit sur la fin.
+     */
+    _jouerSlide(e, ticksDuree, temps) {
+        const Tone = globalThis.Tone;
+        if (!this.voixBend) {   // filet : jamais de note muette si la voix manque
+            this.synthe.triggerAttackRelease(e.note, Tone.Ticks(ticksDuree).toSeconds(), temps, e.velocite);
+            return;
+        }
+        const PART_GLISSEE = 0.45, PLAFOND_GLISSE = 0.16;   // fraction du palier quitté ; secondes
+        const freq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+        const secondes = Tone.Ticks(ticksDuree).toSeconds();
+        // Les paliers sont datés en NOIRES depuis le début du son (voir programmer) : on les convertit
+        // ici, donc au tempo courant — jamais à celui figé au moment du calcul.
+        const enSecondes = (noires) => Tone.Ticks(Math.round(noires * Tone.Transport.PPQ)).toSeconds();
+
+        this.voixBend.frequency.cancelScheduledValues(temps);
+        let freqPalier = freq(e.glisse.midi);   // la hauteur TENUE en ce moment du parcours
+        this.voixBend.frequency.setValueAtTime(freqPalier, temps);
+        let debutPalier = 0;
+        for (const etape of e.glisse.etapes) {
+            const arrivee = enSecondes(etape.arriveeA);
+            const glissement = Math.min((arrivee - enSecondes(debutPalier)) * PART_GLISSEE, PLAFOND_GLISSE);
+            // Tenir la hauteur jusqu'au départ du doigt, puis glisser pour arriver pile sur le temps.
+            // `freqPalier` et NON `frequency.value` : ce dernier rendrait la valeur au moment où l'on
+            // PROGRAMME (donc la hauteur du son précédent, ou le défaut du synthé), pas celle qui
+            // régnera à cet instant-là du futur. Une rampe partirait alors d'ailleurs que là où le
+            // son se trouve — un saut audible en plein milieu du glissando.
+            this.voixBend.frequency.setValueAtTime(freqPalier, temps + Math.max(0, arrivee - glissement));
+            this.voixBend.frequency.exponentialRampToValueAtTime(freq(etape.midi), temps + arrivee);
+            freqPalier = freq(etape.midi);
+            debutPalier = etape.arriveeA;
+        }
+        // Comme pour le bend : `triggerAttackRelease` repose la fréquence du synthé sur la note
+        // demandée, on lui passe donc la hauteur de DÉPART et la rampe programmée prend le relais.
+        this.voixBend.triggerAttackRelease(freq(e.glisse.midi), secondes, temps, e.velocite);
     }
 
     async jouer(partition, depuis = null) {

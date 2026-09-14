@@ -205,9 +205,10 @@ garde donc son propre bouton vert toujours visible plutôt que de se noyer dans 
   dans le message de fin d'import. Vient-il REMPLACER le morceau en cours, ou s'AJOUTER à sa suite
   comme une nouvelle section (annotée d'après le nom du fichier, sans toucher à ce qui existe déjà) ?
   TabHub le demande à chaque import plutôt que de deviner.
-- Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Son
-  état (présent ou non) et un bouton pour l'effacer vivent dans Réglages > Fichiers — jamais un
-  gestionnaire multi-fichiers, TabHub n'en a qu'un à la fois.
+- Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Il ne
+  se règle pas et ne se pilote pas — il n'y a rien à activer, rien à vider, comme dans HarmoHub. Un
+  seul brouillon à la fois, jamais un gestionnaire multi-fichiers : Fichiers > Nouveau l'écrase,
+  Fichiers > Exporter reste la sauvegarde durable.
 
 ---
 

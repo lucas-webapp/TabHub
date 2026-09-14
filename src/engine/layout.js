@@ -87,6 +87,10 @@ const texte = (x, y, s, o = {}) => ({
     t: 'texte', x, y, s,
     taille: o.taille ?? 10, police: o.police ?? 'serif', poids: o.poids ?? 'normal',
     italique: !!o.italique, ancre: o.ancre ?? 'milieu', couleur: o.couleur ?? 'encre',
+    // `classe`, optionnelle : le seul moyen pour l'interface de retrouver un texte PRÉCIS dans le
+    // SVG rendu (voir main.js, l'édition de l'en-tête au clic). Le PDF l'ignore : une classe CSS
+    // n'a aucun sens dans un document imprimé (voir render/pdf.js).
+    ...(o.classe ? { classe: o.classe } : {}),
 });
 /**
  * Pose un glyphe (liste de traits) à l'échelle voulue. L'échelle est TOUJOURS l'interligne courant.
@@ -577,7 +581,13 @@ export function mettreEnPage(partition, options = {}) {
     const primitives = [];
     const ancrages = { evenements: [], mesures: [], systemes: [] };
     let y = geo.yDepart ?? 0;
-    if (geo.avecEnTete !== false) y = poserEnTete(primitives, partition, geo, y);
+    // Le décalage s'applique AUSSI à l'en-tête : l'indication de tempo se pose depuis la marge
+    // gauche (voir poserEnTete) et doit rester alignée sur le début des portées, pas sur le bord de
+    // la page. Le titre, lui, est déjà centré sur la page — et le bloc l'étant désormais aussi, les
+    // deux centres coïncident.
+    const decalage = decalageDeCentrage(systemes, geo, S);
+    const geoDecalee = decalage ? { ...geo, margeGauche: geo.margeGauche + decalage } : geo;
+    if (geo.avecEnTete !== false) y = poserEnTete(primitives, partition, geoDecalee, y);
 
     // Chaque système note la PLAGE de primitives qu'il a produite. Comme ils se posent l'un après
     // l'autre, deux index suffisent — et la pagination du PDF découpe alors la liste au bon endroit
@@ -600,7 +610,7 @@ export function mettreEnPage(partition, options = {}) {
         const yAnnotation = y + 1.6 * S;
         const yPortee = y + geo.margeHaut * S + extraAnnotation + extraAccords;
         const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
-        const xDebut = geo.margeGauche;
+        const xDebut = geo.margeGauche + decalage;
         // Largeur RÉELLE de ce système : la somme des largeurs FIXES de ses propres mesures (voir
         // l'étape 1, LARGEUR_PAR_NOIRE) — jamais la largeur nominale de la page. La justification par
         // étirement a disparu (étape 3, facteur toujours 1) : une ligne qui n'épuise pas la largeur
@@ -745,14 +755,16 @@ function mettreEnPagePiano(partition, geo) {
     const primitives = [];
     const ancrages = { evenements: [], mesures: [], systemes: [] };
     let y = geo.yDepart ?? 0;
-    if (geo.avecEnTete !== false) y = poserEnTete(primitives, partition, geo, y);
+    const decalage = decalageDeCentrage(systemes, geo, S);   // voir decalageDeCentrage
+    const geoDecalee = decalage ? { ...geo, margeGauche: geo.margeGauche + decalage } : geo;
+    if (geo.avecEnTete !== false) y = poserEnTete(primitives, partition, geoDecalee, y);
     const debutCorps = primitives.length;
 
     systemes.forEach((sys, iSys) => {
         const debutPrimitives = primitives.length;
         const yPortee = y + geo.margeHaut * S;          // portée de SOL — même nom que guitare/basse,
         const yPorteeFa = yPortee + hauteurPortee + ecartPortees;   // pour que les ancrages restent lisibles pareil
-        const xDebut = geo.margeGauche;
+        const xDebut = geo.margeGauche + decalage;
         const xFin = xDebut + sys.mesures.reduce((t, m) => t + m.enTete + m.largeurNotes + 1.4 * S, 0);
 
         for (let i = 0; i < 5; i++) {
@@ -965,6 +977,38 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
 // ---------------------------------------------------------------------------------------------
 
 /**
+ * DÉCALAGE HORIZONTAL qui centre le bloc de musique dans la page.
+ *
+ * Retour utilisateur : « la portée doit être centrée horizontalement (attention, sur téléphone elle
+ * doit rester à gauche) ». La largeur des mesures est FIXÉE par leur signature (voir LARGEUR_PAR_NOIRE)
+ * et la justification par étirement n'existe plus (voir l'étape 3) : une page plus large que sa
+ * musique laissait donc tout le blanc à DROITE, la portée collée à la marge gauche — ce que montrait
+ * la capture, avec la moitié droite du papier vide.
+ *
+ * UN SEUL décalage pour tous les systèmes, calculé sur le PLUS LARGE d'entre eux, et jamais un
+ * centrage ligne par ligne : dans une partition gravée, toutes les portées d'une page partagent la
+ * même marge gauche. Les centrer chacune sur sa propre largeur ferait zigzaguer leurs débuts d'un
+ * système à l'autre, et le regard perdrait le repère vertical qui lui sert à descendre la page.
+ *
+ * Ne se déclenche que sur demande (`geo.centrer`) : sur téléphone la portée reste à gauche, et le
+ * PDF garde sa marge gauche de document imprimé.
+ */
+function decalageDeCentrage(systemes, geo, S) {
+    if (!geo.centrer) return 0;
+    const largeurBloc = Math.max(0, ...systemes.map(sys =>
+        sys.mesures.reduce((t, m) => t + m.enTete + m.largeurNotes + 1.4 * S, 0)));
+    // Centré sur la PAGE, et non dans la largeur utile (page moins les deux marges) : les marges
+    // gauche et droite sont inégales (34 contre 22 — l'accolade et le « TAB » vertical logent à
+    // gauche, voir GEO_DEFAUT), si bien qu'un centrage dans la largeur utile décalait l'encre de 6px
+    // du vrai centre. Six pixels invisibles en soi, mais le TITRE se pose exactement sur
+    // `largeurPage / 2` (voir poserEnTete) : il ne se serait plus trouvé à l'aplomb du milieu de sa
+    // propre portée, et c'est ce genre de désalignement qu'on voit sans savoir le nommer.
+    // `xDebut` valant `margeGauche + decalage`, on retire la marge pour viser le centre exact ; le
+    // plancher à zéro rend sa marge gauche normale à une musique plus large que sa page.
+    return Math.max(0, (geo.largeurPage - largeurBloc) / 2 - geo.margeGauche);
+}
+
+/**
  * Titre, sous-titre, artiste centrés, puis l'indication de tempo à gauche.
  *
  * Les trois lignes de titre sont facultatives et le bloc se resserre quand elles manquent : une
@@ -977,16 +1021,29 @@ function poserEnTete(out, partition, geo, y) {
     const meta = partition.meta || {};
     let yy = y + S * 2.6;
 
+    // LES TROIS LIGNES SE MODIFIENT D'UN CLIC, là où elles s'affichent (retour utilisateur : « on
+    // risque de se perdre pour savoir comment changer le titre [...] permets-moi de modifier titre /
+    // sous-titre / artiste au niveau du titre au-dessus de la portée directement »). La `classe` est
+    // tout ce que le moteur fournit : elle donne à l'interface une prise sur le texte rendu (voir
+    // main.js#ouvrirEditeurEnTete), et le moteur n'en sait pas plus — il ne connaît ni clic ni DOM.
     if (meta.titre) {
-        out.push(texte(centre, yy + S * 2.1, meta.titre, { taille: S * 3.1, police: 'serif', poids: '700' }));
+        out.push(texte(centre, yy + S * 2.1, meta.titre, { taille: S * 3.1, police: 'serif', poids: '700', classe: 'en-tete-champ en-tete-titre' }));
+        yy += S * 3.6;
+    } else if (geo.enTeteEditable) {
+        // TITRE VIDE : un fantôme cliquable, à l'écran SEULEMENT. Sans lui, effacer son titre
+        // supprimerait du même coup le seul endroit où le retaper — un cul-de-sac dont on ne sort
+        // plus que par les Réglages, ce qui est exactement le détour que ce clic vient supprimer.
+        // Absent du PDF (`enTeteEditable` n'y est pas posé) : un document imprimé n'a pas de champ
+        // à remplir, et le bloc de titre y retrouve sa hauteur exacte, resserrée sur ce qui existe.
+        out.push(texte(centre, yy + S * 2.1, 'Titre', { taille: S * 3.1, police: 'serif', poids: '700', couleur: 'discret', classe: 'en-tete-champ en-tete-titre en-tete-vide' }));
         yy += S * 3.6;
     }
     if (meta.sousTitre) {
-        out.push(texte(centre, yy + S * 1.1, meta.sousTitre, { taille: S * 1.6, police: 'serif', poids: '500' }));
+        out.push(texte(centre, yy + S * 1.1, meta.sousTitre, { taille: S * 1.6, police: 'serif', poids: '500', classe: 'en-tete-champ en-tete-sous-titre' }));
         yy += S * 2.1;
     }
     if (meta.artiste) {
-        out.push(texte(centre, yy + S * 1.15, meta.artiste, { taille: S * 1.75, police: 'serif', poids: '700' }));
+        out.push(texte(centre, yy + S * 1.15, meta.artiste, { taille: S * 1.75, police: 'serif', poids: '700', classe: 'en-tete-champ en-tete-artiste' }));
         yy += S * 2.3;
     }
 

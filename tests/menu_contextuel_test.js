@@ -52,13 +52,17 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         const menu = page.locator('#menu-contextuel');
         exiger(await menu.isVisible(), 'le clic droit ouvre le menu contextuel');
         const textes = await menu.locator('button').allTextContents();
-        // Depuis le retour utilisateur (« ajoute des options pour ajouter une mesure avant ou après »),
-        // trois actions de mesure se sont ajoutées à la suite des quatre d'origine — jamais à leur place :
-        // les quatre premières restent le clic droit « historique » sur une NOTE, les trois dernières
-        // portent sur la MESURE entière (voir main.js#ouvrirMenuContextuel).
+        // TROIS FAMILLES, dans cet ordre, chacune ajoutée par un retour utilisateur sans jamais
+        // déplacer les précédentes : les quatre premières portent sur la NOTE (le clic droit
+        // d'origine), les trois suivantes sur la MESURE (« ajoute des options pour ajouter une mesure
+        // avant ou après »), et « Copier cette mesure » ouvre la dernière (« permets-moi de
+        // copier/coller une mesure complète avec clic droit »). Voir main.js#ouvrirMenuContextuel.
+        //
+        // « Coller » n'y figure PAS ici : le presse-papier est vide à l'ouverture du banc, et une
+        // entrée qu'on ne peut pas utiliser n'apprend rien — elle apparaît plus bas, une fois copié.
         check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite'
-            + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure',
-            'les sept actions attendues, dans cet ordre');
+            + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure|Copier cette mesure',
+            'les huit actions attendues, dans cet ordre, et aucun « Coller » tant que rien n\'est copié');
         const boiteMenu = await menu.boundingBox();
         check(Math.abs(boiteMenu.x - p.x) < 20 && Math.abs(boiteMenu.y - p.y) < 20, 'le menu s\'ouvre AU POINT du clic, pas ailleurs');
 

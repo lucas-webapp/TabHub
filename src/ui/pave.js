@@ -8,11 +8,19 @@
 // viser des touches minuscules pensées pour du texte, pas pour de la musique.
 //
 // LA PARADE : L'APPLI FOURNIT SON PROPRE CLAVIER, réduit à ce qu'écrire une tablature demande — les
-// dix chiffres de case, quatre flèches, effacer, insérer. Il tient en deux rangées au bas de l'écran,
-// ne recouvre jamais la partition (il occupe sa propre rangée de la grille, voir style.css), et ne
-// disparaît ni ne réapparaît sous les doigts. C'est aussi ce qui garantit que le clavier du système
-// ne surgit JAMAIS pendant l'écriture : la zone de partition est un <div> focusable (tabindex), jamais
-// un <input> — un navigateur n'ouvre son clavier que pour un vrai champ de texte.
+// dix chiffres de case, quatre flèches, effacer, insérer. Il ne disparaît ni ne réapparaît sous les
+// doigts. C'est aussi ce qui garantit que le clavier du système ne surgit JAMAIS pendant l'écriture :
+// la zone de partition est un <div> focusable (tabindex), jamais un <input> — un navigateur n'ouvre
+// son clavier que pour un vrai champ de texte.
+//
+// DEUX PIÈCES DISTINCTES, DEPUIS le retour utilisateur « il faut sortir les flèches du pavé
+// numérique » : `construirePave` pose les chiffres + Effacer/Insérer dans leur rangée fixe au bas de
+// l'écran (comme avant), tandis que `construireDpadFlottant` pose la croix de déplacement à PART,
+// flottant par-dessus la partition (voir style.css .dpad-flottant) — chaque flèche portant SON PROPRE
+// fond translucide carré, jamais un panneau unique derrière les quatre (deux retours successifs l'ont
+// précisé : un grand panneau « se voi[t] trop », mais sans aucun fond « on ne les voit plus assez »).
+// Les deux se cachent ensemble, pilotés par la MÊME classe `body.avec-pave` (voir
+// main.js#appliquerPave) : aucun des deux ne doit apparaître sans l'autre.
 //
 // RIEN N'EST RÉINVENTÉ ICI. Les chiffres passent par `saisirChiffre` (donc les cases à deux chiffres
 // marchent au doigt exactement comme au clavier, voir DELAI_DEUXIEME_CHIFFRE), et tout le reste est
@@ -21,38 +29,28 @@
 
 import { ACTIONS } from '../edit/raccourcis.js';
 
-/** Chevron/flèche d'une direction donnée — dessiné plutôt qu'écrit, pour garder le trait des autres
- *  icônes de l'application (une flèche de police varie d'un appareil à l'autre). */
+/** Triangle plein d'une direction donnée — dessiné plutôt qu'écrit, pour garder le trait des autres
+ *  icônes de l'application (une flèche de police varie d'un appareil à l'autre).
+ *  RETOUR UTILISATEUR : « modifier les flèches par des triangles stylés » — l'ancien chevron
+ *  (hampe + coude, voir git blame) portait un long trait horizontal qui pesait inutilement dans le
+ *  bouton ; un triangle PLEIN va directement à l'essentiel d'une flèche de direction. Les coins
+ *  restent ARRONDIS (stroke posé par-dessus le remplissage, `stroke-linejoin: round`) plutôt que
+ *  vifs — plus « stylé » qu'un triangle aux angles francs, et cohérent avec les coins arrondis du
+ *  reste de l'interface (boutons, cartes). Trait de 2px, comme toutes les icônes de l'appli (voir
+ *  ui/icons.js) : seule la forme change, pas l'épaisseur de contour habituelle. */
 function flecheSvg(direction) {
     const rotations = { gauche: 180, droite: 0, haut: -90, bas: 90 };
     return `<svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-        <g transform="rotate(${rotations[direction]} 12 12)">
-            <path d="M4 12 h13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-            <path d="M12 6 l6 6 l-6 6" fill="none" stroke="currentColor" stroke-width="2"
-                  stroke-linecap="round" stroke-linejoin="round"/>
-        </g>
+        <path transform="rotate(${rotations[direction]} 12 12)" d="M7 5 L18 12 L7 19 Z"
+              fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round"/>
     </svg>`;
 }
 
-/**
- * @param {HTMLElement} hote      le conteneur du pavé (vidé puis rempli)
- * @param {Editeur} editeur
- * @param {object} actions        crochets partagés avec la barre d'outils : signalerErreur, rendreLeFocus
- * @returns {function} rafraîchisseur, à appeler quand l'état de l'éditeur change
- */
-export function construirePave(hote, editeur, actions = {}) {
-    hote.innerHTML = '';
-    const aRafraichir = [];
-
-    const rangee = (classe) => {
-        const el = document.createElement('div');
-        el.className = 'rangee-pave ' + classe;
-        hote.appendChild(el);
-        return el;
-    };
-
-    /** Tout bouton du pavé finit ici : exécute, relaie une éventuelle erreur, rend le focus. Le même
-     *  enchaînement que la barre d'outils (voir ui/toolbar.js) — un seul comportement à tenir juste. */
+/** Fabrique partagée par `construirePave` ET `construireDpadFlottant` : un bouton qui rejoue une
+ *  action de la table (jamais une commande recopiée à la main), relaie une éventuelle erreur et rend
+ *  le focus — le même enchaînement que la barre d'outils (voir ui/toolbar.js), pour un seul
+ *  comportement à tenir juste plutôt que deux copies qui pourraient diverger. */
+function fabriqueBouton(editeur, actions) {
     const bouton = (parent, classe, contenu, titre, faire) => {
         const b = document.createElement('button');
         b.type = 'button';
@@ -70,12 +68,36 @@ export function construirePave(hote, editeur, actions = {}) {
         parent.appendChild(b);
         return b;
     };
-
-    /** Un bouton qui rejoue une action de la table — jamais une commande recopiée à la main ici. */
-    const boutonAction = (parent, id, contenu, classe = 'btn-pave') => {
+    const boutonAction = (parent, id, contenu, classe = 'btn-pave', aRafraichir = null) => {
         const action = ACTIONS.find(a => a.id === id);
         if (!action) return null;   // filet : une action renommée ne doit pas casser le pavé entier
-        return bouton(parent, classe, contenu, action.libelle, () => action.faire(editeur));
+        const b = bouton(parent, classe, contenu, action.libelle, () => action.faire(editeur));
+        // L'ÉTAT de l'action, quand elle en a un (voir raccourcis.js, `actif`) — la même bascule
+        // visuelle que la palette (voir ui/toolbar.js#boutonAction). Sans elle, « ✕ » ne dirait pas si
+        // la note sous le curseur est DÉJÀ fantôme, et le seul moyen de le savoir serait de taper
+        // pour voir. Optionnel : les boutons sans état (Effacer, les flèches) n'ont rien à rafraîchir.
+        if (aRafraichir && action.actif) aRafraichir.push(() => b.classList.toggle('actif', !!action.actif(editeur)));
+        return b;
+    };
+    return { bouton, boutonAction };
+}
+
+/**
+ * @param {HTMLElement} hote      le conteneur du pavé (vidé puis rempli)
+ * @param {Editeur} editeur
+ * @param {object} actions        crochets partagés avec la barre d'outils : signalerErreur, rendreLeFocus
+ * @returns {function} rafraîchisseur, à appeler quand l'état de l'éditeur change
+ */
+export function construirePave(hote, editeur, actions = {}) {
+    hote.innerHTML = '';
+    const aRafraichir = [];
+    const { bouton, boutonAction } = fabriqueBouton(editeur, actions);
+
+    const rangee = (classe) => {
+        const el = document.createElement('div');
+        el.className = 'rangee-pave ' + classe;
+        hote.appendChild(el);
+        return el;
     };
 
     // --- Rangée 1 : LES CASES, le geste central ---------------------------------------------------
@@ -86,26 +108,25 @@ export function construirePave(hote, editeur, actions = {}) {
         bouton(cases, 'btn-pave btn-case', String(n), `Case ${n} (deux chiffres à la suite pour 10-24)`,
             () => editeur.saisirChiffre(n));
     }
+    // LA ONZIÈME TOUCHE : « ✕ », la note fantôme, APRÈS le 9 et de la même largeur que les chiffres
+    // (retour utilisateur : « le fantôme après le x, à traiter comme une note classique, à mettre
+    // après le 9 »). Elle a d'abord vécu dans la rangée d'en dessous, avec Effacer/Insérer, pour
+    // épargner aux dix chiffres les 3px de large que cette onzième touche leur coûte sur un écran de
+    // 360px — mais c'est bien ICI qu'elle a sa place, et le rendu le dit avant l'usage : une note
+    // fantôme s'écrit « x » À LA PLACE du chiffre de case (voir engine/layout.js), jamais par-dessus.
+    // Une touche du pavé de saisie, donc, exactement comme les dix autres.
+    boutonAction(cases, 'ghost', '✕', 'btn-pave btn-case', aRafraichir);
 
-    // --- Rangée 2 : SE DÉPLACER ET CORRIGER --------------------------------------------------------
+    // --- Rangée 2 : CORRIGER (se déplacer vit maintenant à part, voir construireDpadFlottant) ------
     const gestes = rangee('rangee-gestes');
-    boutonAction(gestes, 'gauche', flecheSvg('gauche'));
-    boutonAction(gestes, 'haut', flecheSvg('haut'));
-    boutonAction(gestes, 'bas', flecheSvg('bas'));
-    boutonAction(gestes, 'droite', flecheSvg('droite'));
-
-    // Un séparateur : à gauche on se déplace, à droite on modifie. Deux familles de gestes que le
-    // pouce ne doit pas confondre en visant vite.
-    const sep = document.createElement('span');
-    sep.className = 'separateur-pave';
-    gestes.appendChild(sep);
 
     boutonAction(gestes, 'supprimer', 'Effacer', 'btn-pave btn-pave-large');
     boutonAction(gestes, 'inserer', 'Insérer', 'btn-pave btn-pave-large');
 
     // La position courante, en toutes lettres : sur téléphone, la barre d'état du bas (#info-position)
     // n'a plus la place de s'afficher, et savoir SUR QUELLE CORDE on écrit est indispensable — c'est
-    // ce que les flèches haut/bas viennent de changer, sans quoi elles agiraient à l'aveugle.
+    // ce que les flèches haut/bas (désormais flottantes, voir plus bas) viennent de changer, sans
+    // quoi elles agiraient à l'aveugle.
     const etat = document.createElement('span');
     etat.className = 'etat-pave';
     gestes.appendChild(etat);
@@ -131,4 +152,38 @@ export function construirePave(hote, editeur, actions = {}) {
     const rafraichir = () => { for (const fn of aRafraichir) fn(); };
     rafraichir();
     return rafraichir;
+}
+
+/**
+ * La croix de déplacement (haut/gauche/droite/bas), flottant par-dessus la partition plutôt que
+ * couchée dans le pavé numérique (retour utilisateur : « il faut sortir les flèches du pavé
+ * numérique avec les chiffres [...] décaler les flèches au-dessus »). Rendait `.pave-tactile` bien
+ * plus haut qu'une simple rangée de chiffres — direz autant de partition visible perdue en
+ * permanence, même quand on ne fait que lire. Ici, la croix ne coûte plus RIEN à la mise en page
+ * (elle ne réserve aucune rangée de la grille, voir style.css .dpad-flottant : position absolute
+ * par-dessus .zone-partition) et ne cache la portée dessous qu'à l'endroit précis de chaque flèche
+ * (voir plus bas), jamais sur toute une croix — les coins et le centre du 3×3, eux, restent nus.
+ *
+ * Même croix, mêmes actions — SEUL l'endroit où elle vit change, pas ce qu'elle fait (voir
+ * .dpad-flottant dans style.css pour sa taille et son fond, retouchées depuis, et flecheSvg ci-dessus
+ * pour la forme de ses flèches, elle aussi retouchée depuis).
+ *
+ * @param {HTMLElement} hote      le conteneur (vidé puis rempli), voir #dpad-flottant dans index.html
+ * @param {Editeur} editeur
+ * @param {object} actions        mêmes crochets que construirePave (signalerErreur, rendreLeFocus)
+ */
+export function construireDpadFlottant(hote, editeur, actions = {}) {
+    hote.innerHTML = '';
+    const { boutonAction } = fabriqueBouton(editeur, actions);
+
+    // Croix façon manette de jeu (retour utilisateur : « que ça ressemble à une navigation sur
+    // console [...] les flèches dans un sens logique ») — HAUT au-dessus, BAS en dessous, GAUCHE et
+    // DROITE de part et d'autre, plutôt que les quatre alignées côte à côte dans un ordre qu'aucune
+    // manette ne connaît. Une grille CSS 3×3 (voir .dpad-pave) : seules les quatre cases cardinales
+    // portent un bouton, placé par grid-column/grid-row — les coins et le centre restent vides sans
+    // qu'il faille le moindre élément de remplissage pour ça.
+    boutonAction(hote, 'haut', flecheSvg('haut'), 'btn-pave dpad-haut');
+    boutonAction(hote, 'gauche', flecheSvg('gauche'), 'btn-pave dpad-gauche');
+    boutonAction(hote, 'droite', flecheSvg('droite'), 'btn-pave dpad-droite');
+    boutonAction(hote, 'bas', flecheSvg('bas'), 'btn-pave dpad-bas');
 }

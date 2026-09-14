@@ -1,4 +1,4 @@
-// Banc du LOT D'OPTIMISATION DES RÉGLAGES (retour utilisateur, cinq points à la fois) :
+// Banc du LOT D'OPTIMISATION DES RÉGLAGES (retour utilisateur, plusieurs points à la fois) :
 //   1. Accordage : capodastre et réglage corde par corde repliés sous « Options avancées »,
 //      atteignables mais plus jamais devant les yeux par défaut — « ne sert que dans des cas très
 //      spécifiques ».
@@ -11,8 +11,6 @@
 //   4. Volumes (général + métronome), et une petite rubrique Fichiers — inspirés du panneau Son de
 //      HarmoHub, mais à l'échelle de TabHub : un seul brouillon, jamais un gestionnaire multi-
 //      fichiers.
-//   5. Tap tempo : une seconde façon, plus physique, de régler le tempo — le simple champ
-//      numérique ayant été jugé « pas très clair ».
 //
 // Ce banc tourne SANS tactile (voir _page.js#ouvrirApp) : le point 3 n'y est donc éprouvé que côté
 // « masqué sur ordinateur » — son pendant tactile vit dans tactile_test.js, aux côtés du reste de la
@@ -23,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(23);
+    plan(28);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -63,6 +61,17 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         check(texteAccordages.includes('E A D G B E'), 'et l\'accordage standard s\'y lit bien « E A D G B E »');
         const texteGrille = await page.locator('#grille-cordes').innerHTML();
         check(!lettresFrancaises.test(texteGrille) && /\bE2\b/.test(texteGrille), 'la grille corde par corde aussi : lettres anglo-saxonnes (E2, A2…), jamais Mi2/La2');
+
+        // --- 3 bis. LES NOTES SEULES, sans le nom de l'accordage -------------------------------------
+        // Retour utilisateur : « les indications d'accordage : standard, drop D etc… je le sais en
+        // lisant les notes ». « Drop D — D A D G » disait effectivement deux fois la même chose à qui
+        // lit la seconde moitié, en occupant la largeur d'un menu déroulant sur un écran de téléphone.
+        const optionsAccordage = await page.evaluate(() =>
+            [...document.querySelectorAll('#champ-accordage option')].map(o => o.textContent));
+        check(optionsAccordage.every(o => !/Standard|Drop|Open|DADGAD|High C|Personnalisé|—/.test(o)),
+            'les accordages ne s\'annoncent plus que par leurs notes, sans nom ni tiret');
+        check(new Set(optionsAccordage).size === optionsAccordage.length,
+            'et restent tous distinguables les uns des autres sans ce nom (aucun doublon de notes)');
 
         // --- 4. Pavé tactile : sur CET appareil (souris, sans tactile — voir l'en-tête du banc), la
         // ligne entière est absente plutôt que d'exposer un réglage qui ne voudrait rien dire. --------
@@ -123,59 +132,88 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         check((await page.evaluate(() => document.getElementById('champ-volume-general').value)) === '30',
             'et rouvrir les Réglages montre encore 30, pas un défaut oublié');
 
-        // --- 6. Fichiers : statut honnête (aucun gestionnaire multi-fichiers, un seul brouillon) -----
-        // `ed.nouveau('guitare')` plus haut a lui-même planifié un brouillon (débit 700 ms, voir
-        // planifierBrouillon) : sans cette marge, le vider ici pourrait courir plus vite que lui et
-        // le voir réapparaître juste après, comme si le vidage n'avait rien fait.
-        await page.waitForTimeout(800);
+        // --- 6. Le brouillon local ne se pilote pas : il se fait tout seul ---------------------------
+        // La rubrique « Brouillon local » (statut + « Vider le brouillon local ») a été RETIRÉE des
+        // Réglages — HarmoHub n'expose rien de tel, et un réglage dont le seul pouvoir est de défaire
+        // la sauvegarde automatique se paie en attention sans rien apporter. Ce qui compte désormais :
+        // que la sauvegarde marche toujours SANS la moindre commande, et que la rubrique ne laisse
+        // derrière elle ni balise orpheline ni code qui la cherche (un demi-retrait planterait
+        // remplirReglages sur un getElementById nul, panneau vide à la clé).
         await page.evaluate(() => localStorage.removeItem('tabhub.brouillon'));
-        await page.click('[data-fermer]');
-        await page.waitForTimeout(100);
-        await page.click('#btn-reglages');
-        await page.waitForTimeout(150);
-        const sansBrouillon = await page.evaluate(() => ({
-            texte: document.getElementById('etat-brouillon').textContent,
-            desactive: document.getElementById('btn-vider-brouillon').disabled,
-        }));
-        check(/aucun/i.test(sansBrouillon.texte) && sansBrouillon.desactive,
-            'sans brouillon local, le statut le dit et le bouton pour le vider est désactivé (rien à vider)');
-
-        // Un brouillon apparaît dès la première modification (voir planifierBrouillon, débit 700 ms).
         await page.evaluate(() => window.app.editeur.definirMeta('sousTitre', 'Sonde réglages'));
-        await page.waitForTimeout(900);
+        await page.waitForTimeout(900);   // débit de planifierBrouillon : 700 ms
+        check((await page.evaluate(() => localStorage.getItem('tabhub.brouillon'))) !== null,
+            'le brouillon local s\'écrit toujours tout seul après une modification, sans aucun réglage pour le demander');
+
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
         await page.click('#btn-reglages');
         await page.waitForTimeout(150);
-        const avecBrouillon = await page.evaluate(() => ({
-            texte: document.getElementById('etat-brouillon').textContent,
-            desactive: document.getElementById('btn-vider-brouillon').disabled,
-        }));
-        check(!/aucun/i.test(avecBrouillon.texte) && !avecBrouillon.desactive,
-            'et une fois enregistré, le statut change et le bouton « vider » redevient utilisable');
+        check((await page.evaluate(() => !document.getElementById('etat-brouillon')
+            && !document.getElementById('btn-vider-brouillon')
+            && !/brouillon/i.test(document.getElementById('fenetre-reglages').textContent))),
+            'et les Réglages n\'en parlent plus du tout : ni statut, ni bouton « vider », ni mention résiduelle');
 
-        page.once('dialog', d => d.accept());
-        await page.click('#btn-vider-brouillon');
-        await page.waitForTimeout(100);
-        check((await page.evaluate(() => localStorage.getItem('tabhub.brouillon'))) === null,
-            'le bouton « vider le brouillon » l\'efface réellement du stockage local');
-        check((await page.evaluate(() => document.getElementById('btn-vider-brouillon').disabled)),
-            'et redevient lui-même désactivé, sans qu\'il faille refermer/rouvrir pour le voir');
-
-        // --- 7. TAP TEMPO : cliquer à un rythme régulier règle le tempo, sans rien taper -------------
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
-        const tempoAvant = await page.evaluate(() => window.app.editeur.partition.meta.tempo);
-        for (let i = 0; i < 5; i++) { await page.click('#btn-tap-tempo'); await page.waitForTimeout(400); }
-        const apresTap = await page.evaluate(() => ({
-            champ: parseInt(document.getElementById('champ-tempo').value, 10),
-            meta: window.app.editeur.partition.meta.tempo,
+
+        // --- 7. Morceau : Titre, Sous-titre libre, Artiste — et aucun exemple en filigrane ----------
+        // Retours utilisateur : « enlever les exemples pour le titre et l'artiste », « remplacer
+        // sous-titre par titre », « ajouter un sous-titre libre pour alimenter en informations le
+        // morceau ». Un exemple grisé (« ex. Fernando Sor ») se lit comme une valeur DÉJÀ saisie le
+        // temps de comprendre que non, et n'apprend rien que l'étiquette ne dise déjà.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.waitForTimeout(150);
+        await page.click('#btn-reglages');
+        await page.waitForTimeout(200);
+        const morceau = await page.evaluate(() => {
+            const r = [...document.querySelectorAll('.rubrique')].find(x => x.querySelector('h3')?.textContent === 'Morceau');
+            return [...r.querySelectorAll('.ligne-champ')].map(l => ({
+                etiquette: l.querySelector('label').textContent,
+                id: l.querySelector('input').id,
+                exemple: l.querySelector('input').placeholder,
+            }));
+        });
+        exiger(morceau.map(c => c.etiquette).join(',') === 'Titre,Sous-titre,Artiste',
+            'Réglages > Morceau propose Titre, Sous-titre et Artiste, dans cet ordre');
+        check(morceau.every(c => !c.exemple), 'et AUCUN exemple en filigrane dans ces champs');
+
+        // Le titre saisi ici arrive vraiment sur la partition — c'est le SEUL endroit où le nommer
+        // sur téléphone (voir le point 8 juste en dessous).
+        await page.fill('#champ-titre-morceau', 'Astérie');
+        await page.fill('#champ-sous-titre', 'arrangement, capo II');
+        await page.waitForTimeout(400);
+        const grave = await page.evaluate(() => ({
+            meta: window.app.editeur.partition.meta,
+            textes: [...document.querySelectorAll('#feuille text')].map(t => t.textContent),
         }));
-        // 400 ms d'écart = 150 BPM visé ; une marge large (117-180) absorbe la latence de Playwright
-        // (clic + minuterie, jamais un vrai métronome mécanique) sans rendre le banc fragile.
-        check(apresTap.meta !== tempoAvant && apresTap.meta >= 117 && apresTap.meta <= 180,
-            `5 taps à ~400 ms règlent bien le tempo autour de 150 BPM (obtenu : ${apresTap.meta})`);
-        check(apresTap.champ === apresTap.meta, 'le champ numérique du tempo affiche la même valeur que le modèle');
+        check(grave.meta.titre === 'Astérie' && grave.meta.sousTitre === 'arrangement, capo II',
+            'ce qu\'on y saisit va bien dans le morceau (meta.titre et meta.sousTitre)');
+        check(grave.textes.includes('Astérie') && grave.textes.includes('arrangement, capo II'),
+            'et se grave sur la partition, le sous-titre libre sous le titre');
+        await page.click('[data-fermer]');
+        await page.waitForTimeout(100);
+
+        // --- 8. Le titre a QUITTÉ la barre du haut, à TOUTES les largeurs ---------------------------
+        // Deux retours successifs. D'abord « enlever l'écriture SAR en haut à droite de l'appli » — ce
+        // « SAR » n'était pas un libellé mais le TITRE lui-même, réduit à 49px et coupé au milieu d'un
+        // mot, ce qui se lit comme un sigle sans le moindre sens : le champ avait alors disparu sur
+        // téléphone seulement. Puis « on risque de se perdre pour savoir comment changer le titre [...]
+        // pas dans la barre d'outils » : il quitte la barre PARTOUT, et se modifie désormais sur la
+        // partition elle-même (voir tests/en_tete_test.js) ou ici, dans les Réglages.
+        for (const largeur of [390, 1320]) {
+            await page.setViewportSize({ width: largeur, height: 880 });
+            await page.waitForTimeout(200);
+            const barre = await page.evaluate(() => ({
+                champ: !!document.getElementById('champ-titre'),
+                texte: document.querySelector('.barre-haut').innerText.replace(/\s+/g, ' ').trim(),
+            }));
+            exiger(barre.champ === false && !/Ast/.test(barre.texte),
+                `à ${largeur}px, la barre du haut ne porte plus le titre du morceau, ni entier ni tronqué`);
+        }
+        // Le titre saisi dans les Réglages reste bien celui du morceau, lui.
+        check((await page.evaluate(() => window.app.editeur.partition.meta.titre)) === 'Astérie',
+            'et le titre saisi dans les Réglages reste celui du morceau');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

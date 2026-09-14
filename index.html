@@ -6,8 +6,13 @@
          (voir le champ Zoom, barre de transport), qui remet réellement la partition en page au lieu
          d'en agrandir les pixels. Sans cette mention, viser des cases au doigt déclenchait sans cesse
          le zoom par double-tap du téléphone — deux notes tapées vite l'une après l'autre au même
-         endroit sont exactement un double-tap. -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+         endroit sont exactement un double-tap.
+         `viewport-fit=cover` : condition pour que `env(safe-area-inset-*)` (voir style.css, .transport)
+         renvoie autre chose que zéro — sans lui, lancée en plein écran (voir apple-mobile-web-app-
+         capable plus bas), la page ignore superbement l'arrondi des coins et la barre d'accueil du bas,
+         qui recouvrent alors une partie des boutons de la barre de transport (retour utilisateur :
+         « les boutons du bas [...] se trouvent dans les angles [...] de l'arrondi »). -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>TabHub — éditeur de tablatures</title>
     <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
     <link rel="manifest" href="manifest.json">
@@ -24,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202608301100">
+    <link rel="stylesheet" href="style.css?v=202609140300">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -59,8 +64,13 @@
     <button type="button" id="btn-reglages" class="btn-icone groupe-reglages" title="Réglages" aria-label="Réglages"></button>
     <button type="button" id="btn-aide" class="btn-icone groupe-reglages" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
 
-    <span class="pousse"></span>
-    <input type="text" id="champ-titre" class="titre-morceau" value="Sans titre" aria-label="Titre du morceau" spellcheck="false">
+    <!-- PLUS DE CHAMP TITRE ICI (retour utilisateur : « tout en haut dans la bande noire, je peux
+         écrire/modifier directement le titre de la musique. On risque de se perdre pour savoir comment
+         changer le titre. Permets-moi de modifier titre / sous-titre / artiste au niveau du titre
+         au-dessus de la portée directement, pas dans la barre d'outils »). Un champ de saisie sans
+         étiquette, perdu au milieu d'une barre d'icônes, ne se DONNAIT pas pour modifiable — et sur
+         téléphone il était de toute façon réduit à trois lettres coupées. Le titre se modifie
+         désormais là où il se lit : sur la partition (voir #panneau-en-tete), et dans Réglages. -->
     <span class="pousse"></span>
 
     <a class="logo" href="#" onclick="return false" title="TabHub" aria-label="TabHub">
@@ -86,29 +96,36 @@
      raccourcis clavier (durées, effets), pour que les deux ne puissent pas se contredire. -->
 <div class="barre-outils" id="barre-outils" role="toolbar" aria-label="Outils d'édition"></div>
 
-<div class="zone-partition" id="zone-partition" tabindex="0" role="application"
-     aria-label="Partition — flèches pour se déplacer, chiffres pour saisir une case">
-    <div class="feuille" id="feuille"></div>
+<!-- `.zone-conteneur` : simple boîte de positionnement (jamais de défilement à elle, voir style.css),
+     posée pour que #dpad-flottant puisse flotter par-dessus la partition SANS défiler avec elle
+     (le vrai défilement reste sur #zone-partition, juste en dessous). -->
+<div class="zone-conteneur">
+    <div class="zone-partition" id="zone-partition" tabindex="0" role="application"
+         aria-label="Partition — flèches pour se déplacer, chiffres pour saisir une case">
+        <div class="feuille" id="feuille"></div>
+    </div>
+    <!-- Croix de déplacement — construite par src/ui/pave.js#construireDpadFlottant, flottante et
+         semi-translucide par-dessus la partition (retour utilisateur : « il faut sortir les
+         flèches du pavé numérique [...] décaler les flèches au-dessus, avec un fond
+         semi-translucide »). Repliée avec le reste du pavé tactile (voir body.avec-pave). -->
+    <div class="dpad-flottant" id="dpad-flottant" role="group" aria-label="Déplacer le curseur"></div>
 </div>
 
-<!-- Pavé de saisie tactile — construit par src/ui/pave.js, replié tant qu'on n'en a pas besoin.
-     Il occupe SA PROPRE rangée de la grille (voir style.css) plutôt que de flotter par-dessus la
-     partition : un clavier qui recouvre ce qu'on écrit est précisément le défaut qu'il corrige. -->
+<!-- Pavé de saisie tactile (chiffres + Effacer/Insérer) — construit par src/ui/pave.js, replié tant
+     qu'on n'en a pas besoin. Il occupe SA PROPRE rangée de la grille (voir style.css) plutôt que de
+     flotter par-dessus la partition : un clavier qui recouvre ce qu'on écrit est précisément le
+     défaut qu'il corrige. Seule la croix de déplacement flotte (voir #dpad-flottant ci-dessus) :
+     elle n'écrit rien elle-même, la voir à moitié translucide par-dessus la portée ne gêne pas la
+     lecture comme le ferait un chiffre à moitié caché. -->
 <div class="pave-tactile" id="pave-tactile" role="group" aria-label="Pavé de saisie tactile" hidden></div>
 
 <div class="transport">
     <button type="button" id="btn-jouer" class="btn-transport jouer" title="Lecture / Pause (Espace)" aria-label="Lecture"></button>
     <button type="button" id="btn-stop" class="btn-transport arret" title="Arrêter (Échap)" aria-label="Arrêter"></button>
     <span class="separateur"></span>
-    <label class="info-transport" for="champ-tempo">Tempo</label>
-    <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
-    <span class="info-transport">BPM</span>
-    <!-- TAP TEMPO — comme HarmoHub : cliquer plusieurs fois au rythme voulu règle le tempo sans
-         connaître ni taper une valeur précise. Retour utilisateur : le simple champ numérique
-         « n'est pas très clair » — ce bouton donne une SECONDE façon, plus physique, de le régler,
-         et par la même occasion signale que ce coin de la barre est bien interactif. -->
-    <button type="button" id="btn-tap-tempo" class="btn-transport-texte" title="Tap tempo : cliquer plusieurs fois au rythme voulu pour régler le tempo">TAP</button>
-    <span class="separateur"></span>
+    <!-- Tempo et Métronome ne vivent plus ici : remontés dans la barre d'outils (retour utilisateur),
+         voir ui/toolbar.js#construireBarreOutils, groupe « Écriture » — aux côtés de Signature
+         rythmique et Tonalité, avec qui ils décrivent ensemble « comment ce morceau se joue ». -->
     <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
     <span class="pousse"></span>
     <span class="info-transport" id="info-selection"></span>
@@ -128,25 +145,6 @@
     <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
         aria-haspopup="true" aria-expanded="false"></button>
     <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
-    <span class="separateur"></span>
-    <!-- Métronome — repris de HarmoHub : deux boutons, l'icône du second reflétant son propre état
-         (noire seule = clic sur le temps seulement, deux croches reliées = clic de subdivision en
-         plus), voir main.js#rafraichirMetronome. Binaire/ternaire suit la signature en vigueur
-         (voir uniteDeGroupement) : aucun réglage à faire, une mesure à 6/8 clique par 3, une à 4/4
-         par 2 — comme un vrai métronome qui suivrait la partition. -->
-    <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
-        <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-            <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
-            <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
-        </svg>
-    </button>
-    <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
-        <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-            <path d="M7 20h10L14 5h-4L7 20Z"/>
-            <path d="M12 15V8"/>
-            <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
-        </svg>
-    </button>
 </div>
 
 <div class="voile" id="fenetre-reglages" hidden>
@@ -188,13 +186,29 @@
             </div>
             <div class="rubrique">
                 <h3>Morceau</h3>
+                <!-- LE TITRE VIT ICI, et non plus dans la barre du haut (retour utilisateur : « peux-tu
+                     enlever l'écriture SAR en haut à droite de l'appli ? ») — sur un téléphone, ce
+                     champ y était réduit à 49px et n'affichait que les trois premières lettres du
+                     titre, coupées en plein milieu d'un mot : un bout de texte incompréhensible plutôt
+                     qu'une information. Il reste dans la barre sur grand écran, où il a la place de
+                     dire le titre en entier (voir style.css, .titre-morceau).
+                     AUCUN EXEMPLE en filigrane (retour : « peux-tu enlever les exemples pour le titre
+                     et l'artiste ») : « ex. Fernando Sor » se lisait comme une valeur déjà saisie le
+                     temps de comprendre que non, et n'apprenait rien que l'étiquette ne dise déjà. -->
+                <div class="ligne-champ">
+                    <label for="champ-titre-morceau">Titre</label>
+                    <input type="text" id="champ-titre-morceau" class="champ">
+                </div>
+                <!-- Sous-titre LIBRE (retour : « peux-tu ajouter un sous-titre libre pour alimenter en
+                     informations le morceau ») : arrangement, tonalité d'origine, source, capo, niveau…
+                     La partition l'affiche sous le titre (voir engine/layout.js), en plus petit. -->
                 <div class="ligne-champ">
                     <label for="champ-sous-titre">Sous-titre</label>
-                    <input type="text" id="champ-sous-titre" class="champ" placeholder="ex. www.exemple.com">
+                    <input type="text" id="champ-sous-titre" class="champ">
                 </div>
                 <div class="ligne-champ">
                     <label for="champ-artiste">Artiste</label>
-                    <input type="text" id="champ-artiste" class="champ" placeholder="ex. Fernando Sor">
+                    <input type="text" id="champ-artiste" class="champ">
                 </div>
             </div>
             <div class="rubrique">
@@ -249,17 +263,11 @@
                     </button>
                 </div>
             </div>
-            <!-- « Brouillon local », pas « Fichiers » : ce nom-là appartient déjà au bouton de la barre
-                 du haut (Nouveau/Ouvrir/Exporter/PDF/MIDI, voir #btn-fichiers) — deux rubriques
-                 « Fichiers » à deux endroits différents, l'une pour ouvrir/exporter et l'autre pour un
-                 unique bouton « vider le brouillon », aurait fait chercher l'une dans l'autre. Ici, il
-                 ne s'agit QUE de la persistance locale automatique (voir Editeur.enregistrer), un sujet
-                 assez différent pour mériter son propre nom. -->
-            <div class="rubrique">
-                <h3>Brouillon local</h3>
-                <p class="texte-discret" id="etat-brouillon"></p>
-                <button type="button" class="btn-neutre" id="btn-vider-brouillon">Vider le brouillon local</button>
-            </div>
+            <!-- PAS de rubrique « Brouillon local » : la sauvegarde automatique dans le navigateur
+                 (voir main.js#planifierBrouillon) n'a pas à se piloter. HarmoHub n'expose rien de tel
+                 non plus, et un réglage qui ne sert qu'à défaire ce que l'appli fait toute seule pour
+                 vous coûte plus d'attention qu'il n'en fait gagner. Repartir de zéro se fait déjà par
+                 Fichiers → Nouveau, qui écrase le brouillon comme il se doit. -->
         </div>
         <div class="fenetre-pied">
             <button type="button" class="btn-plein" data-fermer>Terminé</button>
@@ -361,6 +369,28 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202608301100"></script>
+<!-- ÉDITION DE L'EN-TÊTE AU CLIC — s'ouvre sur le titre, le sous-titre ou l'artiste gravés sur la
+     partition (voir engine/layout.js#poserEnTete, qui les marque d'une classe, et
+     main.js#ouvrirEditeurEnTete). LES TROIS CHAMPS À LA FOIS, et pas seulement celui qu'on vient de
+     toucher : un sous-titre ou un artiste VIDE n'a rien de gravé sur quoi cliquer — les atteindre
+     demanderait sinon de les deviner. Le champ correspondant à la ligne touchée reçoit le focus.
+     Quatrième utilisateur de _positionnerPanneau/_fermerAuClicAilleurs (après le menu contextuel,
+     Fichiers et Mesures par ligne) : même mécanique, déjà éprouvée trois fois. -->
+<div class="menu-contextuel panneau-en-tete" id="panneau-en-tete" role="dialog" aria-label="Titre, sous-titre et artiste" hidden>
+    <div class="ligne-champ">
+        <label for="champ-en-tete-titre">Titre</label>
+        <input type="text" id="champ-en-tete-titre" class="champ" data-meta="titre" spellcheck="false">
+    </div>
+    <div class="ligne-champ">
+        <label for="champ-en-tete-sous-titre">Sous-titre</label>
+        <input type="text" id="champ-en-tete-sous-titre" class="champ" data-meta="sousTitre" spellcheck="false">
+    </div>
+    <div class="ligne-champ">
+        <label for="champ-en-tete-artiste">Artiste</label>
+        <input type="text" id="champ-en-tete-artiste" class="champ" data-meta="artiste" spellcheck="false">
+    </div>
+</div>
+
+<script type="module" src="src/main.js?v=202609140300"></script>
 </body>
 </html>

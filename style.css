@@ -75,9 +75,28 @@
     --selection: #4a9eff;
     --selection-halo: rgba(74, 158, 255, 0.2);
 
+    /* HAUTEUR DE BOUTON UNIQUE (retour utilisateur : « limiter le nombre de hauteurs différentes ») —
+       AVANT cette variable, six valeurs coexistaient selon le composant et le pointeur (22/30/32/34/
+       40/44px) : la barre de transport et la barre d'outils, côte à côte sur le même écran, ne
+       s'alignaient jamais. Une SEULE variable, relue par .btn-outil/.btn-icone/.btn-transport/
+       .btn-transport-texte/.btn-plein/.btn-neutre/.btn-mesures-ligne/select.champ/input.champ/
+       .menu-contextuel button : 34px à la souris, 44px au doigt (voir @media pointer:coarse plus
+       bas — la cible tactile minimale recommandée, déjà le choix historique de .btn-transport/
+       .btn-pave, étendu ici à TOUT le reste plutôt que gardé pour deux boutons seulement).
+       EXCEPTIONS VOLONTAIRES, gardées à part : .interrupteur (un interrupteur, pas un bouton — autre
+       logique visuelle) et .fleche-outils (flèches de défilement, délibérément plus discrètes que ce
+       qu'elles enjambent). */
+    --h-bouton: 34px;
     --h-barre-haut: 46px;
     --h-outils: 54px;
-    --h-transport: 52px;
+    /* + l'encoche du bas (accueil plein écran iOS, coins arrondis / barre d'accueil du téléphone —
+       retour utilisateur, capture à l'appui : « les boutons du bas [...] se trouvent dans les angles
+       [...] de l'arrondi ») : zéro sur ordinateur/Android/Safari avec barre d'adresse, un vrai nombre
+       de pixels une fois lancée en plein écran depuis l'icône (voir index.html, viewport-fit=cover —
+       condition pour que ceci ne vaille pas toujours zéro). Un SEUL point de réglage : la ligne de
+       grille (grid-template-rows, plus bas) ET .transport (padding-bottom) lisent tous deux cette
+       même variable, jamais une valeur à part qui pourrait diverger de l'autre. */
+    --h-transport: calc(52px + env(safe-area-inset-bottom));
     --w-outils-gauche: 216px;
 }
 
@@ -164,7 +183,7 @@ body > * { min-width: 0; }
 }
 
 .btn-icone {
-    width: 34px; height: 34px;
+    width: var(--h-bouton); height: var(--h-bouton);
     display: inline-flex; align-items: center; justify-content: center;
     border: 1px solid transparent;
     border-radius: 9px;
@@ -218,6 +237,19 @@ body > * { min-width: 0; }
     overflow-y: hidden;
 }
 
+/* Les deux rangées (voir ui/toolbar.js#creerRangee) s'effacent par défaut — `display: contents`
+   retire la BOÎTE elle-même de la mise en page sans toucher à ses enfants, qui rejoignent alors
+   `.barre-outils` à plat : une seule ligne, exactement la structure d'avant leur introduction. Elles
+   ne reprennent une vraie boîte (leur propre ligne, leur propre défilement) que sur téléphone, voir
+   @media (max-width: 720px) plus bas — c'est LÀ, et seulement là, que « deux rangées » veut dire
+   quelque chose.
+   `display: contents` efface la BOÎTE, pas ses enfants : les deux flèches de CHAQUE rangée (voir
+   ui/toolbar.js#creerRangee) resteraient donc quatre boutons bien réels, éparpillés au milieu de la
+   ligne aplatie, si rien ne les masquait explicitement — seule la paire MAÎTRESSE (directement
+   enfant de .barre-outils, jamais d'une rangée) a sa place ici. */
+.rangee-outils, .rangee-outils-contenu { display: contents; }
+.rangee-outils > .fleche-outils { display: none; }
+
 .groupe-outils {
     display: flex; align-items: center; gap: 3px;
     padding: 4px 7px;
@@ -234,7 +266,25 @@ body > * { min-width: 0; }
 /* Bouton « Effets » (voir ui/toolbar.js#basculerGroupeEffets) : invisible sur grand écran, où le
    groupe Effets s'affiche en ligne comme tous les autres — ne prend vie qu'à l'étroit, voir
    @media (max-width: 720px) plus bas. */
-.btn-outil.btn-effets-bascule { display: none; }
+/* LES NEUF EFFETS REPLIÉS DERRIÈRE UN BOUTON, À TOUTES LES LARGEURS (retour utilisateur : « pour
+   gagner de la place lorsque j'ai la barre d'outils en haut : rassembler tous les effets dans un
+   bouton. Lorsque je cliquerai sur "effets", la liste d'effets apparaîtra »). Le repli existait déjà,
+   mais enfermé dans @media (max-width: 720px) — l'ordinateur gardait les neuf boutons en ligne, dans
+   une barre qui débordait pourtant elle aussi (voir tests/barre_haut_largeur_test.js pour la rangée
+   voisine). Le raisonnement d'origine vaut à toutes les tailles : hammer-on, pull-off, slide… se
+   posent moins souvent qu'une figure de durée, et ne méritent pas la même place qu'elle.
+   Voir ui/toolbar.js#basculerGroupeEffets — `position: fixed` posé et mesuré AU CLIC, jamais en CSS
+   pur, qui ne sait pas où se trouve LE bouton qu'on vient de toucher. `.etiquette-groupe` (« EFFETS »)
+   reste masquée sur téléphone par la règle du bloc étroit ; sur ordinateur le popover la garde, elle
+   coiffe alors utilement la liste dépliée. */
+.btn-outil.btn-effets-bascule { display: inline-flex; }
+.groupe-outils[data-groupe="effet"] { display: none; }
+.groupe-outils[data-groupe="effet"].ouvert {
+    display: flex; flex-wrap: wrap;
+    position: fixed; z-index: 70;
+    width: max-content; max-width: min(230px, calc(100vw - 16px));
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+}
 
 /* FLÈCHES DE DÉFILEMENT DE LA BARRE D'OUTILS — voir ui/toolbar.js#flecheDefilement. `sticky` les
    colle au bord VISIBLE du conteneur qui défile (pas au bord du contenu, qui serait hors champ) :
@@ -246,6 +296,14 @@ body > * { min-width: 0; }
     z-index: 2;
     flex: none;
     width: 26px; height: 32px;
+    /* `padding: 0` — sans quoi <button> hérite du padding par défaut du navigateur (~6px de chaque
+       côté). Invisible tant que `width` reste 26px (le contenu se réduit d'autant, `box-sizing:
+       border-box` gérant ça sans drame) — mais DÉCOUVERT en tentant de réduire une flèche de rangée
+       à 0 (voir plus bas, @media max-width: 720px) : sous `border-box`, le contenu ne peut pas
+       descendre sous zéro, donc les 12px de padding devenaient un PLANCHER que `width: 0` ne pouvait
+       plus franchir — mesuré : la flèche s'obstinait à 12px quoi que `width` déclare, jusqu'à ce
+       correctif. */
+    padding: 0;
     display: flex; align-items: center; justify-content: center;
     border: none;
     background: var(--bg);
@@ -260,8 +318,16 @@ body > * { min-width: 0; }
 .fleche-outils-droite { right: 0; }
 /* Masquée plutôt que retirée du DOM (`display:none` casserait sa propre mesure de scrollWidth au
    moment même où on la remontre) : invisible et hors du passage du clavier/lecteur d'écran, mais
-   toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté. */
-.fleche-outils.invisible { opacity: 0; pointer-events: none; }
+   toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté.
+   ET LARGEUR NULLE, pas seulement transparente (retour utilisateur, capture à l'appui : « la barre
+   d'outils n'est toujours pas calée sur la gauche, il y a un vide sous la flèche undo »). Ce vide
+   n'était pas une marge : c'était CETTE flèche, invisible mais large de 26px, qui repoussait le
+   premier groupe d'outils vers la droite. La réduction à zéro n'existait que dans le bloc téléphone
+   (@media max-width: 720px, pour les flèches de RANGÉE) ; corrigée ici, à la source, elle vaut aussi
+   pour la flèche maîtresse sur ordinateur et pour celles de la barre de transport — mêmes flèches,
+   même bogue latent. Ne fonctionne QUE grâce au `padding: 0` de la règle de base plus haut : sous
+   `border-box`, les 12px de padding par défaut d'un <button> formaient un plancher infranchissable. */
+.fleche-outils.invisible { opacity: 0; pointer-events: none; width: 0; overflow: hidden; }
 body.outils-gauche .fleche-outils { display: none; }   /* colonne verticale : rien à faire défiler ainsi */
 /* .fleche-outils sert aussi la barre de TRANSPORT (voir main.js#brancherFlechesTransport) — mêmes
    règles, aucune ne mentionne #barre-outils : rien à dupliquer pour un second conteneur qui défile
@@ -289,7 +355,7 @@ body.outils-gauche .groupe-outils { flex-wrap: wrap; justify-content: flex-start
 body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-right: 0; margin-bottom: 1px; }
 
 .btn-outil {
-    min-width: 32px; height: 32px;
+    min-width: var(--h-bouton); height: var(--h-bouton);
     padding: 0 8px;
     display: inline-flex; align-items: center; justify-content: center; gap: 5px;
     border-radius: 8px;
@@ -328,7 +394,7 @@ body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-r
 .apercu-texte-gras { font-weight: 800; font-size: .82rem; }
 
 select.champ, input.champ {
-    height: 30px; padding: 0 8px;
+    height: var(--h-bouton); padding: 0 8px;
     background: var(--fond-bouton-sombre);
     border: 1px solid var(--btn-neutral-border); border-radius: 8px;
     color: var(--text-main); font-family: var(--font); font-size: var(--fs-select, .75rem); font-weight: 600;
@@ -336,7 +402,11 @@ select.champ, input.champ {
 }
 input.champ { cursor: text; }
 select.champ:focus, input.champ:focus { outline: none; border-color: var(--accent); }
-input.champ[type="number"] { width: 68px; text-align: center; }
+/* 54px, pas 68px (retour utilisateur : « la case indiquant les BPM est légèrement trop large ») —
+   seul input.champ[type="number"] de l'appli à ce jour (le champ Tempo, voir ui/toolbar.js), donc
+   rien d'autre à vérifier avant de resserrer : 400 (la valeur max, trois chiffres) tient largement
+   dans le padding restant (8px de chaque côté, hérité de .champ) sans tronquer. */
+input.champ[type="number"] { width: 54px; text-align: center; }
 
 /* MESURES PAR LIGNE — un rang de boutons plutôt qu'un menu déroulant, voir
    main.js#construireBoutonsMesuresLigne : chaque valeur se voit et se choisit d'un seul geste.
@@ -350,7 +420,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .btn-transport-texte.btn-mesures-ligne-bascule { display: none; }
 .groupe-mesures-ligne { display: inline-flex; gap: 2px; flex: none; }
 .btn-mesures-ligne {
-    min-width: 26px; height: 30px; padding: 0 6px;
+    min-width: 26px; height: var(--h-bouton); padding: 0 6px;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 7px;
     border: 1px solid var(--btn-neutral-border);
@@ -370,9 +440,21 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 /* ============================================================
    ZONE PARTITION — le papier
    ============================================================ */
-.zone-partition {
+/* Boîte de positionnement AUTOUR de .zone-partition — jamais elle-même défilante (voir
+   .dpad-flottant juste après : une croix qui flotterait par-dessus DOIT rester au même endroit de
+   l'écran, pas glisser avec la partition qu'on fait défiler dessous). `overflow: hidden` a aussi
+   pour effet, en grille CSS, de ramener sa « taille minimale automatique » à zéro — sans ça, la
+   rangée `1fr` (voir body, grid-template-rows) pourrait refuser de rétrécir sous la hauteur de son
+   contenu, exactement le défaut déjà réparé pour la largeur (voir `body > * { min-width: 0 }`). */
+.zone-conteneur {
     grid-area: zone;
-    flex: 1 1 auto;
+    position: relative;
+    overflow: hidden;
+}
+
+.zone-partition {
+    width: 100%;
+    height: 100%;
     overflow: auto;
     background: #07070a;
     padding: 22px 22px 60px;
@@ -411,6 +493,26 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 .feuille svg { display: block; }
 
+/* EN-TÊTE MODIFIABLE AU CLIC (voir engine/layout.js#poserEnTete et main.js#ouvrirEditeurEnTete).
+   Un titre gravé ne se donne pas spontanément pour cliquable : le curseur de saisie et un léger
+   éclaircissement au survol sont tout ce qui le dit — sans rien ajouter à l'encre, la partition
+   restant un document et non un formulaire. `paint-order` n'entre pas en jeu ici : on ne touche
+   qu'à l'opacité, jamais aux formes. */
+.en-tete-champ { cursor: text; }
+.en-tete-champ:hover { opacity: .62; }
+/* Le fantôme d'un titre effacé : déjà gris (couleur `discret`, voir render/svg.js), et rendu plus
+   discret encore — il doit se lire comme une INVITE, pas comme un titre qui serait « Titre ». */
+.en-tete-vide { opacity: .5; }
+.en-tete-vide:hover { opacity: .8; }
+
+/* Le panneau des trois champs. Reprend .menu-contextuel (fond, bordure, ombre, position fixe posée
+   au clic — voir main.js#_positionnerPanneau) et n'ajoute que la mise en colonne de ses lignes :
+   .menu-contextuel est taillé pour une pile de boutons, pas pour des couples étiquette/champ. */
+.panneau-en-tete { display: flex; flex-direction: column; gap: 8px; padding: 10px; min-width: 260px; }
+.panneau-en-tete .ligne-champ { display: flex; align-items: center; gap: 8px; }
+.panneau-en-tete label { flex: 0 0 74px; font-size: var(--fs-sm); color: var(--text-muted); }
+.panneau-en-tete input.champ { flex: 1 1 auto; min-width: 0; }
+
 /* Curseur d'édition : un bandeau vertical translucide sur toute la hauteur du système, plus un
    soulignement franc sur la corde visée. Le bandeau dit « où dans le temps », le soulignement
    « sur quelle corde » — deux informations distinctes, deux marques distinctes. */
@@ -427,7 +529,13 @@ input.champ[type="number"] { width: 68px; text-align: center; }
     height: var(--h-transport);
     flex: none;
     display: flex; align-items: center; gap: 8px;
-    padding: 0 12px;
+    /* `padding-bottom` reprend l'encoche déjà ajoutée à la hauteur de la rangée (voir --h-transport) :
+       le fond sombre de la barre va bien jusqu'au vrai bord de l'écran (pas de bande vide en dessous),
+       mais les BOUTONS, eux, restent centrés dans les 52px d'origine — donc levés d'autant au-dessus
+       du bord, hors des coins arrondis et de la barre d'accueil iOS. `max(12px, env(...))` à gauche/
+       droite : sans effet ici en portrait (l'encoche latérale est nulle), mais lève pareillement les
+       boutons d'extrémité hors de l'arrondi latéral si l'appli tourne un jour en paysage. */
+    padding: 0 max(12px, env(safe-area-inset-right)) env(safe-area-inset-bottom) max(12px, env(safe-area-inset-left));
     background: var(--card-bg);
     border-top: 1px solid var(--border);
     /* Défensif, comme .barre-outils : cette rangée ne s'est pas encore vue déborder, mais rien ne
@@ -438,7 +546,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 
 .btn-transport {
-    width: 38px; height: 34px;
+    width: 38px; height: var(--h-bouton);
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 9px; cursor: pointer;
     border: 1px solid var(--btn-neutral-border);
@@ -458,9 +566,10 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 }
 .btn-transport:disabled { opacity: .34; cursor: default; }
 
-/* TAP TEMPO — même hauteur que les boutons de transport, mais largeur libre pour son texte. */
+/* Bouton texte de la barre de transport (Fichiers, Mesures par ligne…) — même hauteur que les
+   boutons de transport, mais largeur libre pour son texte. */
 .btn-transport-texte {
-    height: 34px; padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
+    height: var(--h-bouton); padding: 0 10px; display: inline-flex; align-items: center; justify-content: center;
     border-radius: 9px; cursor: pointer;
     border: 1px solid var(--btn-neutral-border);
     background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
@@ -505,7 +614,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
    colonne de boutons pleine largeur, texte aligné à gauche — plus lisible qu'un bouton centré
    pour une ligne « Case 5 → case 10 (4/12 notes) ». */
 #liste-zones-manche { display: flex; flex-direction: column; gap: 8px; }
-#liste-zones-manche .btn-neutre { width: 100%; height: auto; min-height: 34px; padding: 8px 14px; text-align: left; }
+#liste-zones-manche .btn-neutre { width: 100%; height: auto; min-height: var(--h-bouton); padding: 8px 14px; text-align: left; }
 .avertissement { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: var(--fs-sm); line-height: 1.4; color: #f3a99a; background: var(--btn-red-2); border: 1px solid var(--btn-red-border); }
 
 /* ============================================================
@@ -521,6 +630,10 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .menu-contextuel button {
     display: block; width: 100%; text-align: left; background: none; border: none;
     color: var(--text-main); font-family: var(--font); font-size: var(--fs-sm);
+    /* `min-height`, jamais `height` : certains libellés (« Supprimer et décaler la suite ») peuvent
+       courir sur deux lignes selon la largeur du menu — un plancher commun aux boutons plus courts,
+       pas un plafond qui les rognerait. */
+    min-height: var(--h-bouton);
     padding: 8px 10px; border-radius: 7px; cursor: pointer;
 }
 .menu-contextuel button:hover:not(:disabled) { background: var(--fond-bouton-sombre-survol); }
@@ -590,7 +703,7 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .repli-avance { margin-top: 4px; border-top: 1px solid var(--btn-neutral-border-hover); padding-top: 10px; }
 .repli-avance > summary {
     display: flex; align-items: center; gap: 6px; cursor: pointer; list-style: none;
-    min-height: 34px; padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
+    min-height: var(--h-bouton); padding: 2px 0; font-size: var(--fs-sm); font-weight: 700;
     color: var(--text-muted); user-select: none;
 }
 .repli-avance > summary::-webkit-details-marker { display: none; }
@@ -605,14 +718,14 @@ input.champ[type="number"] { width: 68px; text-align: center; }
 .repli-avance-corps > .grille-cordes { margin-top: 8px; }
 
 .btn-plein {
-    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    height: var(--h-bouton); padding: 0 14px; border-radius: 9px; cursor: pointer;
     font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
     border: 1px solid var(--btn-green-border); color: var(--btn-text);
     background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
 }
 .btn-plein:hover { border-color: var(--btn-green-border-hover); }
 .btn-neutre {
-    height: 34px; padding: 0 14px; border-radius: 9px; cursor: pointer;
+    height: var(--h-bouton); padding: 0 14px; border-radius: 9px; cursor: pointer;
     font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
     border: 1px solid var(--btn-neutral-border); color: var(--text-main);
     background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
@@ -651,9 +764,11 @@ kbd {
 /* ============================================================
    PAVÉ DE SAISIE TACTILE (voir src/ui/pave.js)
    ============================================================
-   Deux rangées au bas de l'écran : les dix cases, puis les déplacements et corrections. Il vit dans
-   SA PROPRE rangée de la grille (« pave ») plutôt que flottant par-dessus la partition — un clavier
-   qui recouvre ce qu'on écrit est exactement le défaut du clavier système qu'il remplace. */
+   Deux rangées au bas de l'écran : les dix cases, puis Effacer/Insérer. Il vit dans SA PROPRE
+   rangée de la grille (« pave ») plutôt que flottant par-dessus la partition — un clavier qui
+   recouvre ce qu'on écrit est exactement le défaut du clavier système qu'il remplace. SEULE la
+   croix de déplacement y échappe désormais (retour utilisateur, voir .dpad-flottant plus bas) :
+   flotter ne la gêne pas, elle n'écrit rien elle-même. */
 .pave-tactile {
     grid-area: pave;
     display: flex; flex-direction: column; gap: 6px;
@@ -668,6 +783,85 @@ kbd {
    une rangée de cases doit rester une rangée de cases, jamais dix boutons de largeurs inégales où
    le pouce vise moins bien à mesure qu'il descend le manche. */
 .rangee-cases .btn-case { flex: 1 1 0; min-width: 0; }
+
+/* Croix de déplacement FLOTTANTE, par-dessus la partition (retour utilisateur : « il faut sortir les
+   flèches du pavé numérique avec les chiffres [...] décaler les flèches au-dessus ») — voir
+   index.html #dpad-flottant, SŒUR de #zone-partition dans .zone-conteneur, jamais posée DEDANS :
+   ainsi placée, elle ne défile pas avec la partition, elle reste au même endroit de l'écran quel que
+   soit ce qu'on a fait défiler dessous. Coûte ZÉRO à la mise en page (aucune rangée de grille
+   réservée, contrairement à l'ancienne .dpad-pave couchée dans le pavé numérique) : toute la hauteur
+   qu'elle prenait avant revient à la partition.
+   Même croix qu'avant (grille 3×3, seules les 4 cases cardinales portent un bouton, coins et centre
+   vides) — seul l'endroit où elle vit change, pas sa forme ni ce qu'elle fait. Carrée (plus besoin
+   des rangées inégales de l'ancienne version : elle ne partage plus sa hauteur avec personne).
+   RESSERRÉE (retour utilisateur : « les flèches prennent trop de place, il faut les resserrer »,
+   puis encore « rapproche les flèches ») — cases et espacement réduits ENSEMBLE (30px/1px, contre
+   40/3 à l'origine) à chaque fois, plutôt qu'un seul des deux. Pas d'autre levier possible ici : dans
+   cette croix, CHAQUE rangée/colonne du 3×3 porte déjà exactement un bouton (haut et bas partagent la
+   colonne du milieu, gauche et droite la rangée du milieu) — aucune n'est purement vide à rétrécir
+   sans toucher aux boutons eux-mêmes. Rapprocher les flèches, c'est donc RÉDUIRE LEUR PROPRE TAILLE
+   (et l'espacement entre elles), pas retrancher un vide qui n'existe pas.
+   SANS FOND COMMUN, désormais — le grand panneau arrondi d'origine (14px de rayon, couvrant tout le
+   3×3 y compris ses coins et son centre VIDES) s'est révélé lui-même trop visible (retour
+   utilisateur : « enlève le fond, laisse juste les flèches, il se voit trop »). Une version SANS
+   fond du tout a suivi, mais s'est révélée l'excès inverse (retour utilisateur : « on ne les voit
+   plus assez, je veux quand même un fond translucide juste derrière les flèches (en carré) ») : le
+   bon compromis n'était donc ni « un seul grand panneau » ni « aucun fond », mais UN fond translucide
+   PAR FLÈCHE, cantonné à sa propre case carrée — voir .dpad-flottant .btn-pave plus bas, LUI seul
+   porte un fond désormais, jamais le conteneur. Plus de panneau commun à padder ou arrondir :
+   `padding`/`border-radius` disparaissent d'ici, ne restant que sur chaque bouton. */
+.dpad-flottant {
+    display: none;   /* body.avec-pave la montre (voir main.js#appliquerPave) — jamais seule, jamais sans le reste du pavé */
+    position: absolute;
+    left: 14px; bottom: 14px;
+    z-index: 10;
+    grid-template-columns: repeat(3, 30px);
+    grid-template-rows: repeat(3, 30px);
+    gap: 1px;
+}
+body.avec-pave .dpad-flottant { display: grid; }
+/* Chaque flèche porte SON PROPRE fond translucide, carré (rayon hérité de .btn-pave, 9px — un carré
+   aux coins simplement adoucis, pas un panneau arrondi ni un cercle) plutôt qu'un unique panneau
+   commun aux quatre : la case vide entre les boutons (coins et centre du 3×3) reste ainsi
+   entièrement nue, seule la surface qu'une flèche occupe réellement se voit habillée.
+   GRIS, pas noir presque opaque (retour utilisateur : « ils restent en fond très sombre non
+   translucide [...] il faut les laisser en gris translucide ») : un gris (20,20,20) à .55 d'alpha,
+   mélangé au fond quasi noir du châssis (#0a0a0a) dessous, donnait un résultat à peine plus clair que
+   ce fond — LISIBLE comme gris en théorie (alpha strictement entre 0 et 1), mais LU comme un pavé
+   opaque à l'œil. Un gris moyen (128,128,128, soit 50 % gris pur) reste, lui, nettement plus clair que
+   n'importe quel fond qu'il recouvre — papier ou châssis — tout en gardant son alpha modéré (.45) :
+   traduit VISIBLEMENT comme gris translucide, pas seulement au sens strict de la valeur alpha.
+   PLUS PETIT que le bouton lui-même (retour utilisateur : « qui ne prend pas toute la largeur des 4
+   flèches »), puis agrandi de nouveau à la marge (retour utilisateur suivant : « agrandir légèrement
+   les carrés en fond ») : `background-clip: content-box` cantonne la peinture du fond à l'intérieur du
+   padding, sans jamais toucher la zone CLIQUABLE elle-même — le bouton garde sa pleine case de 30×30px
+   pour le doigt, seul le carré VISIBLE derrière la flèche (30 - 2×3 = 24px) change de taille avec le
+   padding. `background-color`, jamais le raccourci `background`, sur CETTE règle et sur :active plus
+   bas : le raccourci réinitialise `background-clip` à sa valeur par défaut (border-box) à chaque fois
+   qu'il est réécrit, ce qui aurait fait sauter le fond à la pleine largeur du bouton pile au moment de
+   l'appui. */
+.dpad-flottant .btn-pave {
+    min-height: 0; padding: 3px;
+    /* `background-image: none` est INDISPENSABLE ici, pas cosmétique : .btn-pave (règle de base) pose
+       un dégradé opaque via le raccourci `background` (--fond-bouton-sombre -> #12151a, voir :root) —
+       un raccourci ne fixe que `background-color`, jamais `background-image`, qui restait donc ce
+       dégradé SOMBRE ET OPAQUE peint PAR-DESSUS notre `background-color` translucide, l'annulant de
+       fait à l'écran (constaté : le carré restait sombre malgré un rgba() correctement translucide en
+       valeur). */
+    background-image: none;
+    background-color: rgba(128, 128, 128, .45);
+    background-clip: content-box;
+    border: none;
+}
+.dpad-flottant .btn-pave:active { background-color: rgba(170, 170, 170, .6); transform: translateY(1px); }
+/* La FLÈCHE elle-même grandit un peu, avec le carré qui l'accueille (retour utilisateur : « + les
+   flèches ») — 21px au lieu des 18px par défaut de .icone (voir plus haut) : un dépassement LOCAL à
+   la croix, qui ne touche aucune autre icône de l'appli. */
+.dpad-flottant .icone { width: 21px; height: 21px; }
+.dpad-haut   { grid-column: 2; grid-row: 1; }
+.dpad-gauche { grid-column: 1; grid-row: 2; }
+.dpad-droite { grid-column: 3; grid-row: 2; }
+.dpad-bas    { grid-column: 2; grid-row: 3; }
 
 .btn-pave {
     min-height: 44px;   /* la cible tactile minimale recommandée — voir aussi @media (pointer:coarse) */
@@ -686,6 +880,14 @@ kbd {
     user-select: none;
 }
 .btn-pave:active { background: var(--fond-bouton-sombre-survol); transform: translateY(1px); }
+/* L'ÉTAT ACTIF d'un bouton du pavé — aujourd'hui « ✕ Fantôme », qui doit dire si la note sous le
+   curseur EST déjà fantôme. Mêmes couleurs que .btn-outil.actif dans la palette : un bouton allumé
+   se lit pareil d'un bout à l'autre de l'application. `background-image: none` d'abord, la règle de
+   base posant un dégradé (raccourci `background`) qui recouvrirait sinon la couleur ci-dessous. */
+.btn-pave.actif {
+    background-image: none; background-color: var(--btn-green-1);
+    border-color: var(--btn-green-border); color: var(--btn-text);
+}
 .btn-pave-large { flex: 0 0 auto; font-size: var(--fs-sm); font-weight: 600; }
 .separateur-pave { width: 1px; align-self: stretch; background: var(--border); margin: 4px 4px; }
 .etat-pave {
@@ -702,9 +904,12 @@ kbd {
    elle est tactile). Les cibles grandissent partout où l'on vise, et les gestes propres au téléphone
    (défilement du doigt sur la partition) reprennent leurs droits. */
 @media (pointer: coarse) {
-    .btn-outil { min-width: 40px; height: 40px; }
-    .btn-icone { width: 40px; height: 40px; }
-    .btn-transport { min-width: 44px; min-height: 44px; }
+    /* SEUL point de réglage pour « au doigt, tout grandit » : .btn-outil/.btn-icone/.btn-transport/
+       .btn-transport-texte/.btn-plein/.btn-neutre/.btn-mesures-ligne/select.champ/input.champ/
+       .menu-contextuel button relisent tous cette même variable (voir :root) — aucun besoin de
+       redéfinir leur hauteur un par un ici, exactement le défaut que --h-bouton corrige. */
+    :root { --h-bouton: 44px; }
+    .btn-transport { min-width: 44px; }   /* la LARGEUR, elle, reste propre à .btn-transport (38px de base) */
     .menu-contextuel button { padding: 12px 12px; }
     /* LE DOIGT DÉFILE, IL NE LASSOTE PAS. Le lasso de sélection multiple (voir main.js,
        demarrerGeste) est un geste de SOURIS ; au doigt, glisser sur une partition veut dire la faire
@@ -742,13 +947,145 @@ kbd {
        elle-même restait donc hors champ par défaut. Un titre plus étroit + une barre plus resserrée
        referment l'essentiel de cet écart sans rien retirer : le titre reste un CHAMP DE SAISIE (on
        peut toujours cliquer dedans et voir le reste en tapant), pas un simple libellé tronqué. */
-    .titre-morceau { min-width: 44px; }
+    /* LE TITRE QUITTE LA BARRE DU HAUT (retour utilisateur : « peux-tu enlever l'écriture SAR en haut
+       à droite de l'appli ? »). Ce « SAR » n'était pas un libellé : c'était le TITRE DU MORCEAU lui-
+       même, réduit ici à 49px de large et coupé au milieu d'un mot — « Sans titre » n'y montrait que
+       « San » et la moitié du « s » suivant, ce qui se lit comme un sigle sans le moindre sens. Un
+       champ de saisie qui ne peut afficher que trois lettres coupées n'informe pas : il inquiète.
+       Il reste dans la barre dès 721px, où il a la place de dire le titre en entier ; sur téléphone,
+       il se nomme désormais dans Réglages > Morceau (voir index.html, #champ-titre-morceau), avec le
+       sous-titre et l'artiste — l'endroit où l'on décrit son morceau, plutôt qu'un coin d'écran. */
+    .titre-morceau { display: none; }
     .barre-haut { gap: 4px; padding: 0 8px; }
     .zone-partition { padding: 10px 8px 40px; }
-    /* La barre d'outils reste sur UNE ligne et défile horizontalement plutôt que de se replier sur
-       trois rangées : sur un téléphone, la hauteur est la ressource rare — c'est la partition qui
-       doit la garder, pas la palette. */
-    .barre-outils { overflow-x: auto; overflow-y: hidden; flex-wrap: nowrap; }
+    /* DEUX RANGÉES INDÉPENDANTES (retour utilisateur : « la barre d'outils du haut est beaucoup trop
+       large sur téléphone [...] il va falloir faire 2 lignes [...] tu peux conserver un menu qui se
+       déroule horizontalement, c'est juste qu'avant il y avait trop de scroll car trop de boutons »).
+       Choix INVERSE de celui qui tenait ici auparavant (une seule ligne, la hauteur jugée la
+       ressource rare) : la largeur, sur un téléphone étroit, s'est révélée la gêne la plus citée —
+       mais CHAQUE rangée garde son propre défilement horizontal (voir ui/toolbar.js#creerRangee),
+       moins sollicité qu'avant puisqu'il y a désormais deux fois moins de boutons à faire tenir dans
+       chacune.
+       Rangée 1 — Tonalité, Signature, ♭/♯, Tempo, Métronome (.rangee-outils-ecriture) ; Rangée 2 —
+       Durée, Effets (repliés en popover, voir plus bas), Mesure (.rangee-outils-reste) : `order`
+       fait passer la première en tête bien qu'elle soit construite en SECOND dans le DOM (rien à
+       réordonner côté JS). `#barre-outils` empile les deux (`flex-direction: column`) — sur grand
+       écran, où elle reste une simple ligne, cette propriété ne sert à rien puisque les rangées s'y
+       effacent (voir .rangee-outils ci-dessous).
+       `--h-outils: auto` (voir :root) : la rangée de GRILLE qui accueille .barre-outils doit pouvoir
+       grandir pour une seconde ligne — un point de réglage unique, relu par le `grid-template-rows`
+       du corps ET par .barre-outils elle-même, jamais deux valeurs à tenir en phase. */
+    :root { --h-outils: auto; }
+    /* PAS DE PADDING DU TOUT (retour utilisateur, capture à l'appui : « il faut encore supprimer
+       l'espace à gauche des bandeaux [...] quelques pixels ne servent à rien ») — un premier
+       resserrement (10px -> 8px, voir plus bas) avait réduit le vide sans l'éliminer ; sur téléphone,
+       où chaque rangée EST déjà son propre bandeau visuellement fermé (voir .rangee-outils-contenu),
+       un padding de conteneur n'ajoute plus rien d'utile, juste une marge morte avant le premier
+       bouton. Repris ici plutôt que dans la règle de base : sur grand écran, où les deux rangées
+       s'effacent en une seule ligne (voir .rangee-outils ci-dessous), le padding d'origine (10px)
+       reste le mieux assorti au reste de la barre du haut, qui n'a pas cette variante phone. */
+    .barre-outils { flex-direction: column; align-items: stretch; overflow: visible; height: auto; gap: 6px; padding: 0; }
+    /* Les deux rangées reprennent alors une vraie boîte (au lieu de s'effacer, voir plus bas) : leur
+       propre ligne, pleine largeur, avec SON défilement horizontal à elle (jamais celui d'une autre
+       rangée) — .rangee-outils-contenu porte le `overflow-x`, .rangee-outils elle-même n'est là que
+       pour poser ses deux flèches de part et d'autre. */
+    .rangee-outils { display: flex; align-items: center; gap: 2px; }
+    /* Masquées par défaut (voir la règle de base, hors media query) pour ne pas s'éparpiller dans la
+       ligne aplatie du grand écran : ICI, chaque rangée étant une VRAIE boîte, ce sont au contraire
+       ses deux propres flèches qui doivent se voir. */
+    .rangee-outils > .fleche-outils { display: flex; transition: opacity .15s, width .15s; }
+    /* RETOUR UTILISATEUR : « les 2 barres [...] ne commencent pas tout à fait à gauche, il y a un
+       vide sur la gauche des barres ». Cause : `.invisible` (voir plus haut, règle de base) éteint la
+       flèche par OPACITÉ plutôt que par `display: none` — volontairement, pour ne pas fausser sa
+       propre mesure au moment où elle redevient utile — mais sa boîte de 26px de large restait donc
+       posée là même invisible, en plus du padding de `.barre-outils` (10px) : 36px de vide avant le
+       premier bouton, tout à gauche, alors qu'il n'y a RIEN à défiler de ce côté au repos. Une flèche
+       invisible n'a par contre plus besoin de RÉSERVER sa place UNE FOIS SORTIE DE #barre-outils :
+       ici, contrairement à la paire maîtresse, elle n'est plus posée `sticky` dans le conteneur qui
+       défile (voir ui/toolbar.js#creerRangee — sa propre rangée n'est que le cadre, jamais la zone de
+       défilement) : la réduire à 0 ne fait donc courir aucun risque de la voir chevaucher du contenu
+       en cours de défilement, comme .fleche-outils.invisible sur grand écran.
+       Ce correctif ramenait le vide de 36px à ~10px (padding 8px + ce gap 2px) — encore trop pour
+       l'œil (retour utilisateur suivant, capture à l'appui : « quelques pixels ne servent à rien ») :
+       voir `.barre-outils { padding: 0; }` plus haut, qui retranche les 8px restants.
+       `width: 0` seul ne suffisait POURTANT PAS à effacer les derniers pixels — mesuré : la flèche
+       s'obstinait à occuper 12px malgré la règle. Fausse piste d'abord suivie : la « taille minimale
+       automatique » d'un enfant flex (déjà contournée ailleurs dans ce fichier, voir .zone-conteneur,
+       à l'horizontale cette fois plutôt qu'à la verticale) — `overflow: hidden` ci-dessous ne changeait
+       RIEN au nombre, la vraie cause étant ailleurs : `.fleche-outils` (voir la règle de base, plus
+       haut dans ce fichier) n'annulait jamais le PADDING PAR DÉFAUT du navigateur sur un <button>
+       (~6px de chaque côté) — invisible tant que `width` valait 26px (le contenu se réduisait d'autant
+       sous `border-box`, sans jamais atteindre zéro), mais devenu un PLANCHER de 12px (2 × 6px de
+       padding, incompressible sous `border-box`) le jour où `width: 0` a tenté de descendre en
+       dessous. Corrigé À LA SOURCE (`padding: 0` sur `.fleche-outils`, la règle de base) plutôt
+       qu'ici : la même flèche sert aussi la barre de transport (voir plus haut, « .fleche-outils sert
+       aussi... ») et aurait porté le même bogue latent le jour où ELLE aurait tenté de descendre sous
+       12px. `overflow: hidden` reste posé ci-dessous : sans effet sur CE bogue-là, mais reste une
+       précaution saine pour un élément qui va à width: 0. */
+    .rangee-outils > .fleche-outils.invisible { width: 0; overflow: hidden; }
+    .rangee-outils-contenu { display: flex; align-items: center; gap: 4px; overflow-x: auto; overflow-y: hidden; scrollbar-width: none; }
+    .rangee-outils-contenu::-webkit-scrollbar { display: none; }
+    .rangee-outils-ecriture { order: -1; }
+
+    /* ══ LA RANGÉE DU HAUT TIENT DANS LA LARGEUR, SANS DÉFILEMENT ═══════════════════════════════
+       Retour utilisateur : « pour la rangée du haut, joue sur la largeur des boutons, certains sont
+       optimisables ». Mesuré à 390px AVANT correction : 411px de contenu pour 360px de place — elle
+       débordait de 51px, soit deux boutons entiers hors champ derrière une flèche de défilement.
+
+       LA CAUSE TIENT EN UNE LIGNE : `--h-bouton` (44px au doigt) sert à la fois de HAUTEUR et de
+       LARGEUR MINIMALE — `.btn-icone { width: var(--h-bouton) }`, `.btn-outil { min-width:
+       var(--h-bouton) }`. Or cette variable ne parle que de la hauteur : c'est la dimension où un
+       doigt manque vraiment sa cible, parce que les rangées s'empilent. En largeur, un bouton qui ne
+       porte qu'un « ♭ » n'a aucun besoin de 44px, et les 44 qu'il prend, il les prend à ses voisins.
+       On garde donc les 44px de HAUT partout (la cible tactile est intacte : 44 × 36 se vise sans y
+       penser), et on rend à la largeur le droit de suivre le contenu.
+
+       Le détail des sept éléments, mesuré (voir tests/barre_haut_largeur_test.js, qui refait ce calcul
+       à chaque exécution plutôt que de faire confiance à ce commentaire) :
+         menu Signature   68 → 53   le « 4/4 » logeait dans une case dimensionnée pour « 12/8 » + la
+                                    flèche NATIVE du navigateur, à elle seule ~20px
+         menu Tonalité    67 → 52   idem
+         ♭ et ♯         44+44 → 36+36   un glyphe unique dans un carré de 44
+         champ Tempo      54 → 44   trois chiffres (400 au maximum)
+         2 métronomes   44+44 → 36+36   icône de 18px dans un carré de 44
+       Total des sept : 411 → 341px, puis 324 avec le resserrement des gouttières plus bas. La rangée
+       tient désormais SANS DÉFILEMENT de 360px (le plus étroit des téléphones courants) à l'écran de
+       bureau, flèches comprises — elles s'effacent d'elles-mêmes n'ayant plus rien à faire défiler. */
+
+    /* La flèche du menu déroulant, dessinée plutôt que native : celle du navigateur coûte ~20px par
+       menu, la nôtre 9. `background-image` en toutes lettres, JAMAIS le raccourci `background` — il
+       réécrirait au passage la couleur de fond posée par `select.champ` (le raccourci remet à leur
+       défaut toutes les sous-propriétés qu'on ne cite pas), et le menu perdrait son fond sombre. */
+    [data-groupe="ecriture"] select.champ {
+        appearance: none; -webkit-appearance: none;
+        background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 10 6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23888' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+        background-repeat: no-repeat;
+        background-position: right 4px center;
+        background-size: 9px 6px;
+        padding: 0 15px 0 6px;   /* la place de la flèche à droite, le texte serré à gauche */
+    }
+    /* 36px : LA largeur des boutons étroits de cette rangée — ♭, ♯ et les deux métronomes. Un seul
+       nombre plutôt que quatre réglages au jugé, et de quoi loger sans serrer le plus large des
+       quatre contenus (une icône de 18px, soit 9px de marge de chaque côté). `min-width` et non
+       `width` pour ♭/♯ : le bouton doit pouvoir s'élargir si son glyphe grandissait un jour. */
+    .btn-transposer { min-width: 36px; }
+    #champ-tempo { width: 44px; padding: 0 4px; }
+    /* Les deux métronomes cessent d'être CARRÉS : 38 × 44 pour une icône de 18px, c'est encore 10px
+       de marge de chaque côté. Restreint à cette rangée — `.btn-icone` sert aussi la barre du haut
+       et le transport, qui ont leurs propres contraintes. */
+    [data-groupe="ecriture"] .btn-icone { width: 36px; }
+
+    /* LES DERNIERS PIXELS ne sont plus dans les boutons mais AUTOUR d'eux : à onze éléments, 1px de
+       gouttière en moins vaut 7px de rangée, et 2px de padding de chaque côté du bandeau en valent 4.
+       Posé sur `.groupe-outils` sans distinction : la rangée du BAS (Durée/Effets/Mesure), la plus
+       longue des deux, y gagne autant. C'est ce dernier resserrement qui fait passer la rangée sous
+       la barre des 360px — et comme la flèche de défilement coûtait à elle seule 26px de la largeur
+       qu'elle servait à compenser, la faire disparaître rend bien plus que ce qu'on lui a pris. */
+    .groupe-outils { gap: 2px; padding: 4px 5px; }
+    [data-groupe="ecriture"] .separateur { margin: 0 2px; }
+    /* Les flèches MAÎTRESSES (voir ui/toolbar.js) ne défileraient plus rien de cohérent une fois
+       .barre-outils coupée en deux rangées indépendantes — chaque rangée a désormais les siennes. */
+    .fleche-outils-maitresse { display: none; }
     /* « À gauche » n'a aucun sens sur un écran étroit : la barre reprend sa place en haut, quelle que
        soit la préférence enregistrée (qui reste intacte pour le retour sur grand écran). */
     body.outils-gauche {
@@ -756,11 +1093,13 @@ kbd {
         grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
         grid-template-columns: 1fr;
     }
-    body.outils-gauche .barre-outils {
-        height: var(--h-outils); flex-direction: row; align-items: center;
-        padding: 0 10px; border-right: none; border-bottom: 1px solid var(--border);
-        overflow-x: auto; overflow-y: hidden;
-    }
+    /* Seule la BORDURE mérite encore une redéfinition ici : sur grand écran, .outils-gauche pose une
+       barre à droite (colonne verticale) plutôt qu'en dessous (voir la règle desktop) — sur téléphone,
+       la barre redevenant horizontale (même disposition que sans la préférence, voir juste au-dessus),
+       c'est la bordure du BAS qu'il faut, pas celle de droite. Tout le reste (empilement des deux
+       rangées, défilement propre à chacune…) est déjà le comportement de .barre-outils elle-même :
+       rien à répéter ici. */
+    body.outils-gauche .barre-outils { border-right: none; border-bottom: 1px solid var(--border); }
     body.outils-gauche .groupe-outils { flex-wrap: nowrap; }
     /* Le transport se resserre : Tempo et Zoom gardent leur champ, leurs ÉTIQUETTES s'effacent —
        un champ numérique à côté d'un métronome se comprend sans qu'on l'écrive. */
@@ -775,18 +1114,10 @@ kbd {
        que dupliqué ici. `.etiquette-groupe` (« EFFETS ») reste masquée par la règle plus haut : le
        bouton replié porte déjà son propre libellé, pas besoin d'un second à l'intérieur du popover.
      */
-    .btn-outil.btn-effets-bascule { display: inline-flex; }
-    .groupe-outils[data-groupe="effet"] { display: none; }
-    .groupe-outils[data-groupe="effet"].ouvert {
-        display: flex; flex-wrap: wrap;
-        position: fixed; z-index: 70;
-        width: max-content; max-width: min(230px, calc(100vw - 16px));
-        box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
-    }
 
     /* MESURES PAR LIGNE -> MÊME POPOVER, même raison (retour utilisateur : « la barre de transport
        est trop tassée » — six boutons toujours visibles, dans une rangée qui porte déjà Lecture/
-       Stop, Tempo, TAP et Métronome). Voir main.js#basculerGroupeMesuresLigne : positionné et fermé
+       Stop, Tempo et Métronome). Voir main.js#basculerGroupeMesuresLigne : positionné et fermé
        par les mêmes _positionnerPanneau/_fermerAuClicAilleurs que le popover Fichiers, gardés ici
        plutôt que dupliqués puisque c'est main.js qui construit déjà ce groupe (comme Effets reste
        dans toolbar.js, qui construit LE SIEN). `.groupe-mesures-ligne` n'a pas le fond/bordure de

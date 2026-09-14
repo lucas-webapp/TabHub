@@ -5,13 +5,23 @@
 // littéralement inutilisable — on pouvait lire une tablature, pas en écrire une. Quatre mécanismes
 // répondent à ça, et c'est eux que ce banc éprouve :
 //   • LE PAVÉ (ui/pave.js) : dix chiffres au doigt, qui passent par le MÊME `saisirChiffre` que le
-//     clavier — donc les cases à deux chiffres marchent aussi au doigt. Plus les déplacements et
-//     corrections, pris dans la même table d'actions que le clavier et la barre d'outils.
+//     clavier — donc les cases à deux chiffres marchent aussi au doigt. Plus Effacer/Insérer et,
+//     À PART, la croix de déplacement — voir « FLOTTANTE » plus bas — pris dans la même table
+//     d'actions que le clavier et la barre d'outils.
 //   • LE TAP place le curseur, comme un clic.
 //   • L'APPUI LONG ouvre le menu contextuel — l'équivalent tactile du clic droit, sans lequel
 //     supprimer/insérer sont inatteignables au doigt.
 //   • LE GLISSER ne lassote plus : il fait DÉFILER. Sans ça, la partition était impossible à
 //     parcourir sur un téléphone (chaque tentative dessinait un rectangle de sélection).
+//
+// FLOTTANTE (retour utilisateur, capture à l'appui : « il faut sortir les flèches du pavé
+// numérique [...] décaler les flèches au-dessus ») : la croix haut/gauche/droite/bas
+// (#dpad-flottant) ne vit plus DANS #pave-tactile mais À CÔTÉ, par-dessus la partition (voir
+// index.html .zone-conteneur, style.css .dpad-flottant). Deux retours ont ensuite cadré son fond :
+// un grand panneau commun « se voit trop », mais sans AUCUN fond « on ne les voit plus assez » — le
+// CONTENEUR (toute la croix, coins et centre du 3×3 compris) reste donc sans fond, seule CHAQUE
+// FLÈCHE porte le sien, translucide et carré, cantonné à sa propre case. Insensible au défilement de
+// la partition (elle reste au même endroit de l'écran, quoi qu'on ait fait défiler dessous).
 //
 // Playwright émule un vrai téléphone (`hasTouch`, viewport étroit, pointeur grossier) : les gestes
 // ci-dessous partent donc réellement en `pointerType: 'touch'`, comme sur l'appareil.
@@ -21,7 +31,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(22);
+    plan(32);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -33,8 +43,15 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         // --- Le pavé est là, tout seul, parce que l'appareil est tactile -------------------------
         const pave = page.locator('#pave-tactile');
         exiger(await pave.isVisible(), 'le pavé de saisie apparaît de lui-même sur un appareil tactile');
-        check(await page.locator('#pave-tactile .btn-case').count() === 10,
-            'il porte les dix chiffres de case (0 à 9)');
+        // ONZE touches, pas dix : « ✕ » (la note fantôme) est venue s'ajouter APRÈS le 9, de la même
+        // largeur que les chiffres — une note fantôme s'écrit « x » À LA PLACE du chiffre de case
+        // (voir engine/layout.js), c'est donc une touche de saisie et pas un effet posé à côté. On
+        // vérifie la SUITE exacte plutôt qu'un simple compte : l'ordre porte l'idée, et un compte
+        // seul laisserait passer un ✕ glissé entre le 4 et le 5.
+        check(await page.evaluate(() =>
+            [...document.querySelectorAll('#pave-tactile .rangee-cases .btn-pave')]
+                .map(b => b.textContent.trim()).join(' ') === '0 1 2 3 4 5 6 7 8 9 ✕'),
+            'il porte les dix chiffres de case (0 à 9), puis la touche « ✕ » de note fantôme');
 
         // --- Écrire une case au doigt --------------------------------------------------------------
         await page.evaluate(async () => {
@@ -72,15 +89,17 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         const etatPave = () => page.evaluate(() => document.querySelector('.etat-pave').textContent);
         check((await etatPave()).includes('case 12'), 'le pavé affiche lui-même la case posée (« case 12 »), pas seulement le modèle en coulisse');
 
-        // --- Se déplacer au doigt -------------------------------------------------------------------
+        // --- Se déplacer au doigt, depuis la croix FLOTTANTE (voir l'en-tête du banc) ---------------
+        // Plus de préfixe `#pave-tactile` ici : ces boutons vivent désormais dans #dpad-flottant,
+        // à part — voir le paragraphe « FLOTTANTE » ci-dessus.
         const curseur = () => page.evaluate(() => ({ ...window.app.editeur.curseur }));
         const avantDeplacement = await curseur();
-        await page.locator('#pave-tactile button[aria-label="Corde plus grave"]').tap();
+        await page.locator('button[aria-label="Corde plus grave"]').tap();
         await page.waitForTimeout(120);
         const apresBas = await curseur();
-        check(apresBas.corde === avantDeplacement.corde + 1, 'la flèche « bas » du pavé descend bien d\'une corde');
+        check(apresBas.corde === avantDeplacement.corde + 1, 'la flèche « bas » de la croix flottante descend bien d\'une corde');
 
-        await page.locator('#pave-tactile button[aria-label="Évènement suivant"]').tap();
+        await page.locator('button[aria-label="Évènement suivant"]').tap();
         await page.waitForTimeout(120);
         const apresDroite = await curseur();
         check(apresDroite.evenement === apresBas.evenement + 1, 'la flèche « droite » avance bien d\'un évènement');
@@ -132,8 +151,19 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         }, p);
         await page.waitForTimeout(750);   // au-delà des 550 ms de l'appui long
         exiger(await menu.isVisible(), 'un APPUI LONG sur une note ouvre le menu contextuel (équivalent tactile du clic droit)');
-        check((await menu.locator('button').allTextContents()).length === 7,
-            'avec les sept mêmes actions qu\'au clic droit');
+        // LES MÊMES ACTIONS QU'AU CLIC DROIT, quel qu'en soit le nombre : c'est l'identité des deux
+        // chemins que ce banc garantit, pas un compte qu'il faudrait corriger à chaque action ajoutée
+        // (huit à ce jour — voir menu_contextuel_test.js, qui éprouve la LISTE et son ordre). Comparer
+        // les deux listes dit la même chose en restant vrai demain.
+        const actionsAppuiLong = await menu.locator('button').allTextContents();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+        const p2 = await pointDeLaCase(0);
+        await page.mouse.click(p2.x, p2.y, { button: 'right' });
+        await page.waitForTimeout(120);
+        const actionsClicDroit = await menu.locator('button').allTextContents();
+        check(actionsAppuiLong.length > 0 && actionsAppuiLong.join('|') === actionsClicDroit.join('|'),
+            `avec exactement les mêmes actions qu'au clic droit (${actionsAppuiLong.length} au total)`);
         // On relâche : le menu doit RESTER ouvert (le doigt levé après un appui long ne l'annule pas).
         await page.evaluate(({ x, y }) => {
             const opts = { pointerType: 'touch', clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true, isPrimary: true };
@@ -180,15 +210,79 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         // plus court que tout téléphone réel, la barre transport doit rester cliquable par un simple
         // défilement plutôt que rognée sans recours (retour utilisateur : « les boutons dépassent de
         // l'écran en bas », toujours signalé après le premier passage à 100dvh — d'où ce filet).
-        await page.setViewportSize({ width: 390, height: 300 });
+        // 230px, pas 300 : depuis que la croix de déplacement flotte (retour utilisateur, voir plus
+        // bas) au lieu de peser sur la rangée « pave », le châssis fixe (haut+outils+pave+transport)
+        // tient désormais dans 300px — il faut viser plus bas pour forcer un VRAI débordement.
+        await page.setViewportSize({ width: 390, height: 230 });
         await page.waitForTimeout(150);
         exiger(await page.evaluate(() => document.documentElement.scrollHeight > document.documentElement.clientHeight),
             'sur ce viewport délibérément trop court, le contenu déborde bien pour de vrai (sans quoi ce banc ne prouverait rien)');
         let atteint = false;
-        try { await page.click('#btn-tap-tempo', { timeout: 2000 }); atteint = true; } catch { /* atteint reste false */ }
+        try { await page.click('#btn-mesures-ligne-bascule', { timeout: 2000 }); atteint = true; } catch { /* atteint reste false */ }
         check(atteint, 'malgré le débordement, un bouton de la barre transport reste atteignable (le défilement le révèle)');
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(150);
+
+        // --- La croix flottante elle-même : présente, un fond PAR FLÈCHE (jamais commun), insensible
+        // au défilement --- (voir le paragraphe « FLOTTANTE » de l'en-tête du banc). Placé ici, APRÈS
+        // tout ce qui dépend encore du contenu de la partition (la case 12, les cases 5/6/7…) et AVANT
+        // que le pavé ne soit replié (voir juste plus bas) : le remplacer par 30 mesures fraîches,
+        // pour avoir de quoi faire défiler, ne doit gêner personne d'autre dans ce banc.
+        const dpad = page.locator('#dpad-flottant');
+        exiger(await dpad.isVisible(), '#dpad-flottant existe et se montre sur un appareil tactile');
+        check(await dpad.locator('button').count() === 4, 'et porte EXACTEMENT ses quatre flèches (haut/gauche/droite/bas)');
+
+        const styleDpad = await page.evaluate(() => {
+            const alphaDe = (couleur) => {
+                const m = couleur.match(/rgba?\(([^)]+)\)/);
+                const parts = m ? m[1].split(',').map(s => parseFloat(s)) : [];
+                return parts.length === 4 ? parts[3] : 1;
+            };
+            const cs = getComputedStyle(document.getElementById('dpad-flottant'));
+            const csBouton = getComputedStyle(document.querySelector('#dpad-flottant .btn-pave'));
+            return {
+                alphaConteneur: alphaDe(cs.backgroundColor),
+                position: cs.position,
+                alphaBouton: alphaDe(csBouton.backgroundColor),
+                fondCantonne: csBouton.backgroundClip === 'content-box' && parseFloat(csBouton.paddingLeft) > 0,
+            };
+        });
+        // Trois retours successifs ont cadré ce point : un grand panneau commun « se voit trop », mais
+        // sans AUCUN fond « on ne les voit plus assez », et le fond PAR bouton, une fois réintroduit,
+        // « ne prend pas toute la largeur des 4 flèches » — le CONTENEUR (la croix entière, coins et
+        // centre du 3×3 compris) reste donc bien sans fond (alpha 0)...
+        check(styleDpad.alphaConteneur === 0, 'le conteneur de la croix n\'a lui-même toujours aucun fond — jamais un panneau commun aux quatre flèches');
+        check(styleDpad.position === 'absolute', 'et elle flotte (position absolute), jamais couchée dans une rangée de la grille');
+        // ...tandis que CHAQUE bouton flèche, lui, porte son propre fond, translucide (ni opaque ni
+        // invisible) : « un fond translucide juste derrière les flèches » (retour utilisateur), en
+        // carré (voir style.css .dpad-flottant .btn-pave), cantonné à sa propre case du 3×3.
+        check(styleDpad.alphaBouton > 0 && styleDpad.alphaBouton < 1,
+            'mais CHAQUE flèche porte bien son propre fond, semi-translucide — retour utilisateur explicite');
+        // ...et RÉDUIT (padding + background-clip:content-box), pas étalé sur toute la case cliquable
+        // (elle, inchangée quelle que soit sa taille du moment — voir style.css) : « qui ne prend pas
+        // toute la largeur des 4 flèches » (retour utilisateur).
+        check(styleDpad.fondCantonne, 'et ce fond ne prend PAS toute la largeur du bouton, cantonné par un padding — retour utilisateur explicite');
+
+        // La partition, elle, garde SA PROPRE zone de défilement (#zone-partition, à l'intérieur de
+        // .zone-conteneur) : la croix ne doit ni la faire défiler à sa place, ni défiler AVEC elle.
+        const rectAvantDefilement = await dpad.boundingBox();
+        await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.partition.mesures = Array.from({ length: 30 }, () => m.creerMesure({
+                voix: [{ evenements: [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)])) }],
+            }));
+            ed.prevenir('document');
+            window.app.dessiner();
+        });
+        await page.waitForTimeout(200);
+        await page.evaluate(() => { document.getElementById('zone-partition').scrollTop = 400; });
+        await page.waitForTimeout(150);
+        const rectApresDefilement = await dpad.boundingBox();
+        check(await page.evaluate(() => document.getElementById('zone-partition').scrollTop) === 400,
+            'préalable : la partition a bien défilé (sans quoi ce cas ne prouverait rien)');
+        check(rectApresDefilement.x === rectAvantDefilement.x && rectApresDefilement.y === rectAvantDefilement.y,
+            'et la croix flottante, elle, RESTE AU MÊME ENDROIT de l\'écran — elle ne défile pas avec la partition');
 
         // --- La préférence : éteindre l'interrupteur replie le pavé, et ça survit au rechargement -----
         await page.evaluate(() => window.app.appliquerPave(false));

@@ -19,7 +19,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('effets');
 
 (async () => {
-    plan(16);
+    plan(23);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -94,7 +94,12 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
         check(r.cas.hammer[1].velocite < r.temoin[1].velocite && r.cas.hammer[0].velocite === r.temoin[0].velocite,
             'un hammer-on adoucit la note d\'ARRIVÉE, pas celle de départ');
         check(r.cas.pull[1].velocite < r.temoin[1].velocite, 'un pull-off aussi');
-        check(r.cas.slide[1].velocite < r.temoin[1].velocite, 'un slide aussi');
+        // LE SLIDE NE SUIT PLUS CE MODÈLE, et c'est tout l'objet du correctif : il ne produit plus
+        // deux sons dont le second est adouci (comme un hammer-on), mais UN SEUL son dont la hauteur
+        // glisse — le doigt ne quitte pas la corde. Voir la section « LE SLIDE GLISSE VRAIMENT » plus
+        // bas, qui l'éprouve en détail ; ici on constate seulement qu'il a cessé d'être un hammer-on.
+        check(r.cas.slide.length === r.temoin.length - 1,
+            'un slide, lui, FUSIONNE ses deux notes en un seul son glissant — plus une arrivée adoucie');
 
         // --- Le BEND, le seul qui ne produisait RIEN --------------------------------------------
         exiger(r.cas.bend[0].bend === 2,
@@ -110,6 +115,76 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
             'la touche fait CIRCULER l\'amplitude : ½ → full → 1½ → aucun (une seule valeur imposée auparavant)');
 
         check(differe('bend'), 'récapitulatif : le bend change bien la lecture, comme les huit autres');
+        // --- LE SLIDE GLISSE VRAIMENT, il ne plaque pas deux hauteurs -------------------------------
+        // Retour utilisateur : « ajouter l'effet slide, pas uniquement le hammer-on. J'écoute un slide
+        // rapide d'un ton sur une double croche et c'est pas assez fluide. » Et pour cause : `slide` ne
+        // servait qu'à BAISSER LA VÉLOCITÉ de la note d'arrivée — exactement comme un hammer-on. On
+        // entendait donc deux hauteurs distinctes, attaque en moins, jamais un déplacement.
+        //
+        // Ce qu'on vérifie n'est pas « le son est fluide » (invérifiable par un banc) mais la STRUCTURE
+        // qui le rend fluide : UN SEUL évènement pour les deux notes, dont la hauteur porte un palier
+        // d'arrivée daté. Deux évènements, c'est deux attaques ; un seul, c'est un doigt qui se déplace.
+        const slide = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                m.creerEvenement({ valeur: 16 }, [{ ...m.creerNote(0, 5), lien: 'slide' }]),
+                m.creerEvenement({ valeur: 16 }, [m.creerNote(0, 7)]),
+                ...m.decouperEnEvenements(3.5),
+            ];
+            window.app.lecteur.programmer(ed.partition);
+            const sonnants = window.app.lecteur._evenements;
+            return {
+                nb: sonnants.length,
+                glisse: sonnants[0].glisse,
+                duree: +sonnants[0].duree.toFixed(6),
+            };
+        });
+        exiger(slide.nb === 1,
+            'deux notes liées par un slide ne produisent qu\'UN SEUL son — la note d\'arrivée n\'est plus attaquée à part');
+        check(!!slide.glisse && slide.glisse.etapes.length === 1,
+            'ce son porte un palier de glissement, et un seul : la hauteur bouge, elle ne saute pas');
+        check(slide.glisse.etapes[0].midi - slide.glisse.midi === 2,
+            'le palier vise bien un TON plus haut (case 5 -> case 7), en demi-tons et non en nom de note');
+        check(Math.abs(slide.glisse.etapes[0].arriveeA - 0.25) < 1e-6,
+            'et il doit être atteint PILE là où la note d\'arrivée aurait été attaquée (0,25 noire = une double-croche)');
+        check(Math.abs(slide.duree - 0.5) < 1e-6,
+            'le son couvre la durée des DEUX notes réunies, comme une liaison de prolongation');
+
+        // Une CHAÎNE de slides (5 -> 7 -> 9) : un seul son à deux paliers, pas trois notes.
+        const chaine = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                m.creerEvenement({ valeur: 8 }, [{ ...m.creerNote(0, 5), lien: 'slide' }]),
+                m.creerEvenement({ valeur: 8 }, [{ ...m.creerNote(0, 7), lien: 'slide' }]),
+                m.creerEvenement({ valeur: 8 }, [m.creerNote(0, 9)]),
+                ...m.decouperEnEvenements(2.5),
+            ];
+            window.app.lecteur.programmer(ed.partition);
+            const s = window.app.lecteur._evenements;
+            return { nb: s.length, paliers: s[0].glisse?.etapes.map(e => e.midi - s[0].glisse.midi) };
+        });
+        check(chaine.nb === 1 && JSON.stringify(chaine.paliers) === '[2,4]',
+            'une chaîne de slides (5 -> 7 -> 9) donne un seul son à DEUX paliers, un ton puis deux');
+
+        // Un slide vers RIEN (dernière note du morceau) ne doit rien casser : pas de palier, son normal.
+        const orphelin = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [
+                m.creerEvenement({ valeur: 4 }, [{ ...m.creerNote(0, 5), lien: 'slide' }]),
+                ...m.decouperEnEvenements(3),
+            ];
+            window.app.lecteur.programmer(ed.partition);
+            return { nb: window.app.lecteur._evenements.length, glisse: window.app.lecteur._evenements[0].glisse };
+        });
+        check(orphelin.nb === 1 && orphelin.glisse === null,
+            'un slide qui ne mène à aucune note suivante se joue simplement, sans palier en l\'air');
+
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
     bilan();
