@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609140300">
+    <link rel="stylesheet" href="style.css?v=202609141044">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -142,6 +142,15 @@
          menu déroulant, la contrainte ci-dessus reste entière. Invisible tant qu'il y a la place
          (voir .btn-mesures-ligne-bascule), donc vide dans le HTML — son texte suit la valeur active,
          posé par rafraichirBoutonsMesuresLigne. -->
+    <!-- « AFFICHAGE » : sans cette étiquette, « Auto 2 3 4 6 8 » ne disait pas de QUOI il s'agissait
+         (retour utilisateur : « ajouter une indication Affichage pour que je comprenne que les
+         chiffres Auto, 2, 3, 4 etc… correspondent au nombre de mesures que je vois affichées à
+         l'écran »). Six chiffres nus, dans un coin de barre, peuvent se lire comme un zoom, un
+         nombre de voix, une subdivision… Le `aria-label` du groupe le disait déjà en entier, mais
+         seulement à un lecteur d'écran — l'œil n'y avait pas accès.
+         Masquée sur téléphone (voir style.css) : le groupe s'y replie derrière le bouton-bascule,
+         qui porte alors lui-même son propre libellé. -->
+    <span class="info-transport etiquette-affichage">Affichage</span>
     <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
         aria-haspopup="true" aria-expanded="false"></button>
     <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
@@ -391,6 +400,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609140300"></script>
+<script type="module" src="src/main.js?v=202609141044"></script>
 </body>
 </html>

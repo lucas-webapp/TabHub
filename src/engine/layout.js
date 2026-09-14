@@ -19,9 +19,9 @@
 import * as G from './glyphs.js';
 import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure } from '../model/duration.js';
 import {
-    signatureEffective, armureEffective, positionDansMesure, hauteurDeNote, nbCordes,
+    signatureEffective, armureEffective, modeEffectif, positionDansMesure, hauteurDeNote, nbCordes, REPERES,
 } from '../model/score.js';
-import { ecrireHauteur, hauteurDepuisPas, alterationsDeLArmure, NOMS_LETTRES } from '../model/theory.js';
+import { ecrireHauteur, hauteurDepuisPas, alterationsDeLArmure, NOMS_LETTRES, tonaliteDe } from '../model/theory.js';
 import { INSTRUMENTS } from '../model/instruments.js';
 
 // ---------------------------------------------------------------------------------------------
@@ -232,6 +232,18 @@ const HAUTEUR_ANNOTATION = 2.4;
 const HAUTEUR_ACCORDS = 1.8;
 
 /**
+ * Hauteur de la bande des REPÈRES DE NAVIGATION (Segno, Coda, D.C., D.S., al Coda, Fine), en S.
+ * Même principe qu'HAUTEUR_ANNOTATION et HAUTEUR_ACCORDS : réservée SEULEMENT si l'un des systèmes
+ * en porte un — une partition sans renvoi ne doit voir aucune de ses lignes s'écarter pour rien.
+ *
+ * LA PLUS BASSE DES TROIS BANDES, juste au-dessus de la portée. C'est l'ordre de la gravure : le
+ * titre de section coiffe le tout, les noms d'accords viennent ensuite, et les renvois se posent au
+ * plus près de la musique qu'ils commandent. Sans cette bande, un Segno se dessinait PAR-DESSUS les
+ * numéros de mesure — deux signes superposés, aucun des deux lisible.
+ */
+const HAUTEUR_REPERE = 2.6;
+
+/**
  * Découpe une mesure en COLONNES : les instants de temps où AU MOINS UNE voix attaque une note ou un
  * silence, triés, avec la largeur que chacun réclame (voir largeurColonne). Une seule voix produit
  * exactement la même suite de colonnes que ses propres évènements ; deux voix produisent l'UNION de
@@ -430,9 +442,12 @@ function decouperEnSystemesGloutons(mesures, largeurUtile, mesurer) {
     for (const m of mesures) {
         const premiereDuSysteme = !courant || courant.mesures.length === 0;
         const largeurTotale = mesurer(m, premiereDuSysteme);
+        // RETOUR À LA LIGNE DEMANDÉ (voir Mesure#sautAvant) : il l'emporte sur le remplissage, même
+        // s'il reste de la place sur la ligne. C'est tout l'objet du réglage — voir Editeur.basculerSautDeLigne.
+        const saut = !!m.ref.sautAvant && courant && courant.mesures.length > 0;
         if (!courant) {
             courant = { mesures: [], largeur: 0 };
-        } else if (courant.largeur + largeurTotale > largeurUtile && courant.mesures.length > 0) {
+        } else if (saut || (courant.largeur + largeurTotale > largeurUtile && courant.mesures.length > 0)) {
             systemes.push(courant);
             courant = { mesures: [], largeur: 0 };
             // Nouveau système : la clé et l'armure s'y redessinent, donc la mesure est remesurée.
@@ -473,7 +488,16 @@ function decouperEnSystemesParCompte(mesures, n, mesurer) {
     const systemes = [];
     let i = 0;
     while (i < mesures.length) {
-        const tranche = mesures.slice(i, Math.min(i + n, mesures.length));
+        let tranche = mesures.slice(i, Math.min(i + n, mesures.length));
+        // UN RETOUR À LA LIGNE DEMANDÉ COUPE LA TRANCHE (voir Mesure#sautAvant). Honoré ICI AUSSI, et
+        // pas seulement dans le mode automatique : sans quoi une fiche d'exercices bâtie sur des
+        // systèmes de deux mesures (retour utilisateur : « si je veux uniquement créer une fiche
+        // d'exercices avec plusieurs petits morceaux de 2 mesures ») se recollerait dès qu'on
+        // choisirait « 4 » dans le réglage Affichage — le réglage global écrasant en silence une
+        // intention posée mesure par mesure. Jamais sur la PREMIÈRE de la tranche : un saut y est déjà
+        // honoré, c'est précisément là que la tranche commence.
+        const coupe = tranche.findIndex((m, k) => k > 0 && m.ref.sautAvant);
+        if (coupe > 0) tranche = tranche.slice(0, coupe);
         tranche.forEach((m, k) => mesurer(m, k === 0));
         systemes.push({ mesures: tranche, largeur: tranche.reduce((t, m) => t + m.largeurTotale, 0) });
         i += tranche.length;
@@ -606,9 +630,13 @@ export function mettreEnPage(partition, options = {}) {
         // parcourant la page (voir edit/raccourcis.js#accord).
         const aUnAccord = sys.mesures.some(m => m.ref.voix.some(v => v.evenements.some(e => (e.accord || '').trim())));
         const extraAccords = aUnAccord ? HAUTEUR_ACCORDS * S : 0;
+        // Bande des repères de navigation : voir HAUTEUR_REPERE.
+        const aUnRepere = sys.mesures.some(m => !!m.ref.repere);
+        const extraRepere = aUnRepere ? HAUTEUR_REPERE * S : 0;
         const yAccords = y + extraAnnotation + 1.5 * S;
         const yAnnotation = y + 1.6 * S;
-        const yPortee = y + geo.margeHaut * S + extraAnnotation + extraAccords;
+        const yPortee = y + geo.margeHaut * S + extraAnnotation + extraAccords + extraRepere;
+        const yRepere = yPortee - geo.margeHaut * S - 0.2 * S;
         const yTab = yPortee + hauteurPortee + ecartPorteeTab * S;
         const xDebut = geo.margeGauche + decalage;
         // Largeur RÉELLE de ce système : la somme des largeurs FIXES de ses propres mesures (voir
@@ -636,13 +664,13 @@ export function mettreEnPage(partition, options = {}) {
             const finMesure = x + largeurMesure;
             x = poserMesure(primitives, ancrages, partition, m, {
                 x, largeurMesure, facteur: facteurEffectif, finMesure,
-                yPortee, yTab, yAnnotation, yAccords, S, ST, cordes, clef, geo, iSys, avecPortee,
+                yPortee, yTab, yAnnotation, yAccords, yRepere, S, ST, cordes, clef, geo, iSys, avecPortee,
                 premiereDuSysteme: iDansSys === 0,
             });
         });
 
         ancrages.systemes.push({
-            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation + extraAccords, yPortee, yTab, xDebut, xFin, hauteurTab,
+            index: iSys, y, hauteur: hauteurSysteme + extraAnnotation + extraAccords + extraRepere, yPortee, yTab, xDebut, xFin, hauteurTab,
             // `yBas` : bas de la grille de notation, générique entre les deux mises en page (voir son
             // pendant côté piano dans mettreEnPagePiano) — pour que la bande de boucle et le reste du
             // code d'interaction n'aient jamais à savoir s'il existe une TAB sous la portée.
@@ -650,7 +678,7 @@ export function mettreEnPage(partition, options = {}) {
             debutPrimitives, finPrimitives: primitives.length,
             premiereMesure: sys.mesures[0].index, derniereMesure: sys.mesures[sys.mesures.length - 1].index,
         });
-        y += hauteurSysteme + extraAnnotation + extraAccords + geo.ecartSystemes * S;
+        y += hauteurSysteme + extraAnnotation + extraAccords + extraRepere + geo.ecartSystemes * S;
     });
 
     // LA PAGE NE RÉTRÉCIT JAMAIS SON CONTENU POUR TENIR DANS largeurPage — un système qui ne peut
@@ -961,9 +989,19 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
         const xf = xBarre - 0.75 * S;
         out.push(ligne(xf, yPortee, xf, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
         out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yPortee, G.EPAISSEURS.barreEpaisse * S, (yPorteeFa + 4 * S) - yPortee));
+    } else if (m.ref.barre === 'finale') {
+        const xf = xBarre - G.EPAISSEURS.barreEpaisse * S - 0.6 * S;
+        out.push(ligne(xf, yPortee, xf, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
+        out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S, yPortee, G.EPAISSEURS.barreEpaisse * S, (yPorteeFa + 4 * S) - yPortee));
+    } else if (m.ref.barre === 'double') {
+        const xf = xBarre - 0.55 * S;
+        out.push(ligne(xf, yPortee, xf, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
+        out.push(ligne(xBarre, yPortee, xBarre, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
     } else {
         out.push(ligne(xBarre, yPortee, xBarre, yPorteeFa + 4 * S, G.EPAISSEURS.barreMesure * S));
     }
+
+    poserRepere(out, m.ref, xDebutMesure, xBarre, yPortee, S);   // voir poserRepere
 
     ancrages.mesures.push({
         index: m.index, x: xDebutMesure, xFin: xBarre, xNotes, yPortee, yPorteeFa, systeme: ctx.iSys,
@@ -975,6 +1013,79 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
 // ---------------------------------------------------------------------------------------------
 // En-tête du morceau
 // ---------------------------------------------------------------------------------------------
+
+/**
+ * SEGNO (𝄋) et CODA (𝄌), tracés à la main.
+ *
+ * POURQUOI TRACÉS et non écrits. Ces deux signes n'existent ni dans Times New Roman ni dans
+ * Helvetica — les deux seules familles que la partition s'autorise, parce que ce sont celles que
+ * jsPDF sait composer (voir render/svg.js, qui commente ce choix) : les demander en caractères
+ * Unicode sortirait un carré vide à l'impression, là où tout le reste est juste. Ils ne figurent pas
+ * davantage dans le jeu de glyphes de l'application (voir engine/glyphs.js), qui couvre la notation
+ * de hauteur et de durée, jamais les renvois. Deux tracés, donc — écran et PDF identiques, comme
+ * tout le reste de cette feuille.
+ *
+ * L'échelle est TOUJOURS l'interligne (`S`), comme pour n'importe quelle primitive d'ici : changer S
+ * change la partition entière sans toucher à une seule coordonnée.
+ */
+function tracerSegno(out, x, y, S) {
+    // Un S oblique barré, flanqué de deux points — la forme consacrée.
+    // LE S EN DEUX LOBES, chacun une cubique dont les poignées partent DU MÊME CÔTÉ que le lobe :
+    // c'est ce qui fait le contre-courbe. Une première version plaçait ces poignées de part et
+    // d'autre, et les deux moitiés se repliaient l'une sur l'autre — à la taille d'une portée, le
+    // résultat ne se lisait pas comme un S mais comme une tache (vérifié à la loupe).
+    const a = S * 0.42;
+    const ep = G.EPAISSEURS.barreMesure * S * 1.1;
+    out.push(courbe(`M ${x + a} ${y - 2 * a} `
+        + `C ${x - a} ${y - 2.6 * a} ${x - a} ${y - 0.4 * a} ${x} ${y} `
+        + `C ${x + a} ${y + 0.4 * a} ${x + a} ${y + 2.6 * a} ${x - a} ${y + 2 * a}`, ep));
+    // La diagonale traverse le S de bas gauche à haut droite, et déborde des deux lobes.
+    out.push(courbe(`M ${x - 1.5 * a} ${y + 2.4 * a} L ${x + 1.5 * a} ${y - 2.4 * a}`, ep));
+    // Les deux points : le MÊME glyphe que les points de reprise (G.POINT), à une échelle réduite —
+    // plutôt qu'une primitive « cercle » que le moteur n'a pas, et qu'il faudrait faire porter aux
+    // deux renderers (écran ET PDF) pour deux points.
+    // Les deux points, chacun dans le quadrant libre laissé par la diagonale (haut-gauche et
+    // bas-droite) : le MÊME glyphe que les points de reprise (G.POINT), à une échelle réduite —
+    // plutôt qu'une primitive « cercle » que le moteur n'a pas, et qu'il faudrait faire porter aux
+    // deux renderers (écran ET PDF) pour deux points.
+    out.push(glyphe(G.POINT, x - 1.35 * a, y - 1.1 * a, S * 0.55));
+    out.push(glyphe(G.POINT, x + 1.35 * a, y + 1.1 * a, S * 0.55));
+}
+
+function tracerCoda(out, x, y, S) {
+    // Un cercle traversé d'une croix, débordant de part et d'autre — le signe de la coda.
+    const r = S * 0.78;
+    const ep = G.EPAISSEURS.barreMesure * S * 1.3;
+    const c = r * 0.72;
+    // Le cercle en DEUX ARCS (`courbe` est un tracé au trait, jamais rempli) : un seul arc de 360°
+    // est dégénéré en SVG — début et fin confondus, le navigateur ne dessine alors rien du tout.
+    out.push(courbe(`M ${x - c} ${y} A ${c} ${c} 0 0 1 ${x + c} ${y} A ${c} ${c} 0 0 1 ${x - c} ${y}`, ep));
+    out.push(courbe(`M ${x - r * 1.15} ${y} L ${x + r * 1.15} ${y}`, ep));
+    out.push(courbe(`M ${x} ${y - r * 1.15} L ${x} ${y + r * 1.15}`, ep));
+}
+
+/**
+ * Pose le repère de navigation d'une mesure, s'il en porte un — signe tracé ou instruction écrite,
+ * selon la famille (voir model/score.js, REPERES).
+ *
+ * À GAUCHE DE LA MESURE et au-dessus de la portée : c'est là qu'un musicien cherche un renvoi, parce
+ * que c'est là qu'il arrive en lisant. Les instructions sont en ITALIQUE, comme toute indication de
+ * jeu sur une partition gravée — et en retrait à droite (`al Coda` se lit après la barre qu'il
+ * concerne), tandis qu'un signe se pose franchement sur le début de la mesure.
+ */
+function poserRepere(out, mesure, x, xFin, y, S) {
+    const def = REPERES[mesure.repere];
+    if (!def) return;
+    // Les deux SIGNES sont dessinés à 1,25 S : à l'échelle de la portée, ils doivent se reconnaître
+    // d'un coup d'œil comme une cible de renvoi, pas se deviner. Mesuré à 0,9 S d'abord — illisible.
+    if (def.symbole === 'segno') { tracerSegno(out, x + S * 1.3, y, S * 1.25); return; }
+    if (def.symbole === 'coda') { tracerCoda(out, x + S * 1.3, y, S * 1.25); return; }
+    // Les INSTRUCTIONS se calent à DROITE de la mesure : « D.C. » ou « Fine » se lisent après ce qui
+    // les précède, jamais avant — c'est l'ordre dans lequel on joue.
+    out.push(texte(xFin - S * 0.4, y + S * 0.55, def.texte, {
+        taille: S * 1.75, police: 'serif', poids: '700', italique: true, ancre: 'fin',
+    }));
+}
 
 /**
  * DÉCALAGE HORIZONTAL qui centre le bloc de musique dans la page.
@@ -1058,9 +1169,34 @@ function poserEnTete(out, partition, geo, y) {
         const xt = geo.margeGauche + S * 0.7;
         const yt = yy + S * 2.4;
         out.push(glyphe(G.NOIRE_TEMPO, xt, yt, ech));
-        out.push(texte(xt + (G.largeurDe(G.NOIRE_TEMPO) * ech) + S * 0.4, yt + S * 0.3, `= ${Math.round(meta.tempo)}`, {
+        const apresFigure = xt + (G.largeurDe(G.NOIRE_TEMPO) * ech) + S * 0.4;
+        const battement = `= ${Math.round(meta.tempo)}`;
+        out.push(texte(apresFigure, yt + S * 0.3, battement, {
             taille: S * 1.7, police: 'serif', poids: '700', ancre: 'debut',
         }));
+        // LA TONALITÉ, à côté du tempo (retour utilisateur : « j'aimerais voir la tonalité du morceau
+        // à côté de l'indication de tempo au-dessus de la portée »). Elle est DÉJÀ sur la portée, en
+        // altérations à la clé — mais une armure ne dit pas si le morceau est en do majeur ou en la
+        // mineur : les deux portent exactement les mêmes altérations, aucune. C'est précisément la
+        // distinction que le nom apporte, et la raison pour laquelle TabHub liste des TONALITÉS
+        // plutôt que des armures dans sa barre d'outils (voir ui/toolbar.js, selTonalite).
+        //
+        // Celle de la PREMIÈRE mesure : c'est la tonalité du morceau. Un changement en cours de route
+        // se lit à son armure, là où il se produit — l'annoncer en tête serait faux pour tout ce qui
+        // précède. `partition` est passée entière ici (et non la seule `meta`) : armure et mode
+        // s'héritent de mesure en mesure, seules armureEffective/modeEffectif savent les résoudre.
+        if (partition.mesures?.length) {
+            const t = tonaliteDe(armureEffective(partition, 0), modeEffectif(partition, 0));
+            // Une mesure APPROCHÉE de la largeur du texte de tempo (0,52 em par caractère en Times
+            // gras) : le moteur ne mesure pas de texte — il n'a ni canvas ni DOM, et c'est ce qui lui
+            // permet de servir l'écran ET le PDF sans les départager. Une approximation généreuse
+            // suffit : elle ne sert qu'à espacer deux mentions, pas à aligner quoi que ce soit.
+            const largeurBattement = battement.length * S * 1.7 * 0.52;
+            // `nomLong` (« C majeur ») et non `nom` (« CM ») : voir TONALITES dans model/theory.js.
+            out.push(texte(apresFigure + largeurBattement + S * 1.1, yt + S * 0.3, t.nomLong, {
+                taille: S * 1.7, police: 'serif', poids: '500', ancre: 'debut',
+            }));
+        }
         yy += S * 3.2;
     }
     return yy + S * 0.4;
@@ -1117,7 +1253,7 @@ function poserCleTab(out, x, yTab, ST, cordes) {
 // ---------------------------------------------------------------------------------------------
 
 function poserMesure(out, ancrages, partition, m, ctx) {
-    const { yPortee, yTab, yAnnotation, yAccords, S, ST, cordes, clef, geo, facteur, avecPortee = true } = ctx;
+    const { yPortee, yTab, yAnnotation, yAccords, yRepere, S, ST, cordes, clef, geo, facteur, avecPortee = true } = ctx;
     const hauteurTab = (cordes - 1) * ST;
     let x = ctx.x;
     const xDebutMesure = x;
@@ -1320,10 +1456,32 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         out.push(ligne(xf, yTab, xf, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
         if (avecPortee) out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yPortee, G.EPAISSEURS.barreEpaisse * S, 4 * S));
         out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S - 0.1 * S, yTab, G.EPAISSEURS.barreEpaisse * S, hauteurTab));
+    } else if (m.ref.barre === 'finale') {
+        // BARRE FINALE : un trait fin doublé d'un trait épais — la fin du morceau.
+        const xf = xBarre - G.EPAISSEURS.barreEpaisse * S - 0.6 * S;
+        if (avecPortee) {
+            out.push(ligne(xf, yPortee, xf, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+            out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S, yPortee, G.EPAISSEURS.barreEpaisse * S, 4 * S));
+        }
+        out.push(ligne(xf, yTab, xf, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
+        out.push(rect(xBarre - G.EPAISSEURS.barreEpaisse * S, yTab, G.EPAISSEURS.barreEpaisse * S, hauteurTab));
+    } else if (m.ref.barre === 'double') {
+        // DOUBLE BARRE : deux traits fins — une fin de SECTION, pas du morceau.
+        const xf = xBarre - 0.55 * S;
+        if (avecPortee) {
+            out.push(ligne(xf, yPortee, xf, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+            out.push(ligne(xBarre, yPortee, xBarre, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
+        }
+        out.push(ligne(xf, yTab, xf, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
+        out.push(ligne(xBarre, yTab, xBarre, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
     } else {
         if (avecPortee) out.push(ligne(xBarre, yPortee, xBarre, yPortee + 4 * S, G.EPAISSEURS.barreMesure * S));
         out.push(ligne(xBarre, yTab, xBarre, yTab + hauteurTab, G.EPAISSEURS.barreMesure * S));
     }
+
+    // REPÈRE DE NAVIGATION (Segno, Coda, D.C., D.S., al Coda, Fine) — voir poserRepere. Posé APRÈS
+    // les barres pour qu'il se dessine par-dessus si les deux se croisaient, jamais dessous.
+    poserRepere(out, m.ref, xDebutMesure, xBarre, yRepere ?? (yPortee - HAUTEUR_REPERE * S), S);
 
     ancrages.mesures.push({
         index: m.index, x: xDebutMesure, xFin: xBarre, yPortee, yTab, hauteurTab, systeme: ctx.iSys,
@@ -1844,23 +2002,74 @@ function poserLiaisons(out, poses, S, ST) {
             const nb = b.notes.find(n => n.note.corde === na.note.corde);
             if (!nb) continue;
 
+            // UN SLIDE NE S'ÉCRIT PAS COMME UNE LIAISON (retour utilisateur : « le slide n'a pas
+            // marché sur ma partition, entre le 6 et 8 de la troisième corde »). Il ne s'agissait pas
+            // du son — le glissando s'entendait déjà (voir audio/player.js#_jouerSlide) — mais du
+            // SIGNE : la table d'étiquettes rendait une chaîne VIDE pour `slide`, et l'arc tracé était
+            // exactement celui d'une liaison de tenue. À l'écran, un slide était donc un tie muet :
+            // rien ne distinguait « glisse du 6 au 8 » de « tiens la même note ». D'où, ici, deux
+            // écritures séparées plutôt qu'une seule paramétrée par une lettre.
+            const glisse = na.note.lien === 'slide';
+            // Le sens, lu sur la HAUTEUR et non sur la frette seule : deux notes de même corde se
+            // comparent bien par leur frette, mais `hauteurVoulue` (note hors manche, voir
+            // model/score.js) peut la contredire, et sur la portée seule il n'y a pas de frette.
+            const monte = (na.yPortee != null && nb.yPortee != null)
+                ? nb.yPortee < na.yPortee
+                : (nb.note.frette ?? 0) > (na.note.frette ?? 0);
+
             if (ST != null) {
-                // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
                 const x1 = a.x + na.demiLargeurTab, x2 = b.x - nb.demiLargeurTab;
-                const yT = na.yTab + ST * 0.42;
-                out.push(courbe(arcLiaison(x1, yT, x2, nb.yTab + ST * 0.42, 1, 0.34 * S), G.EPAISSEURS.liaison * S));
-                const etiquette = { hammer: 'H', pull: 'P', slide: '', tie: '' }[na.note.lien];
-                if (etiquette) {
-                    out.push(texte((x1 + x2) / 2, na.yTab - ST * 0.42, etiquette, {
-                        taille: S * 1.1, police: 'serif', poids: '700', italique: true,
-                    }));
+                if (glisse) {
+                    // LE TRAIT OBLIQUE, entre les deux chiffres, montant ou descendant selon le sens
+                    // — le signe qu'emploient les vraies tablatures. Les deux chiffres étant sur la
+                    // MÊME ligne de corde, ils partagent leur ordonnée : c'est l'obliquité seule qui
+                    // porte le sens, d'où une amplitude toujours visible.
+                    //
+                    // Sur une double-croche, l'écart entre deux chiffres se réduit à quelques pixels :
+                    // une amplitude fixe y ferait un trait quasi VERTICAL, illisible et trompeur (il
+                    // ressemblerait à une barre de mesure). L'amplitude se plafonne donc à la moitié
+                    // de l'écart disponible — la pente reste sous 45°, le trait reste un trait.
+                    const marge = 0.16 * S;
+                    const xa = x1 + marge, xb = x2 - marge;
+                    if (xb > xa) {
+                        const amp = Math.min(0.30 * ST, (xb - xa) * 0.5);
+                        const y1 = na.yTab + (monte ? amp : -amp);
+                        const y2 = nb.yTab + (monte ? -amp : amp);
+                        out.push(ligne(xa, y1, xb, y2, G.EPAISSEURS.glisse * S));
+                    }
+                } else {
+                    // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
+                    const yT = na.yTab + ST * 0.42;
+                    out.push(courbe(arcLiaison(x1, yT, x2, nb.yTab + ST * 0.42, 1, 0.34 * S), G.EPAISSEURS.liaison * S));
+                    const etiquette = { hammer: 'H', pull: 'P', tie: '' }[na.note.lien];
+                    if (etiquette) {
+                        out.push(texte((x1 + x2) / 2, na.yTab - ST * 0.42, etiquette, {
+                            taille: S * 1.1, police: 'serif', poids: '700', italique: true,
+                        }));
+                    }
                 }
             }
-            // Sur la portée : l'arc se place du côté opposé aux hampes.
             if (na.yPortee != null && nb.yPortee != null) {
-                const sens = a.sensHampe < 0 ? 1 : -1;
                 const dA = (a.demiTete ?? 0.59) * S, dB = (b.demiTete ?? 0.59) * S;
-                out.push(courbe(arcLiaison(a.x + dA, na.yPortee + sens * 0.55 * S, b.x - dB, nb.yPortee + sens * 0.55 * S, sens, 0.38 * S), G.EPAISSEURS.liaison * S));
+                if (glisse) {
+                    // Sur la portée, le glissando joint les deux TÊTES en ligne droite — et les joint
+                    // vraiment, d'une tête à l'autre, là où l'arc de liaison contourne par-dessus ou
+                    // par-dessous. Les deux notes différant de hauteur, la droite est naturellement
+                    // oblique : rien à forcer. Un léger retrait à chaque bout pour ne pas entamer les
+                    // têtes elles-mêmes.
+                    const dx = (b.x - dB) - (a.x + dA), dy = nb.yPortee - na.yPortee;
+                    const long = Math.hypot(dx, dy) || 1;
+                    const retrait = Math.min(0.28 * S, long * 0.22);
+                    const ux = dx / long, uy = dy / long;
+                    out.push(ligne(
+                        a.x + dA + ux * retrait, na.yPortee + uy * retrait,
+                        b.x - dB - ux * retrait, nb.yPortee - uy * retrait,
+                        G.EPAISSEURS.glisse * S));
+                } else {
+                    // Sur la portée : l'arc se place du côté opposé aux hampes.
+                    const sens = a.sensHampe < 0 ? 1 : -1;
+                    out.push(courbe(arcLiaison(a.x + dA, na.yPortee + sens * 0.55 * S, b.x - dB, nb.yPortee + sens * 0.55 * S, sens, 0.38 * S), G.EPAISSEURS.liaison * S));
+                }
             }
         }
     }

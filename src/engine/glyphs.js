@@ -191,4 +191,8 @@ export const EPAISSEURS = {
     barreMesure: 0.16,
     barreEpaisse: 0.5,
     liaison: 0.1,
+    // Le trait de slide/glissando : plus franc qu'une liaison (0.1), sans aller jusqu'à la hampe
+    // (0.12) — il doit se lire d'un coup d'œil entre deux chiffres de frette, là où l'arc de liaison
+    // ne fait que souligner discrètement un enchaînement.
+    glisse: 0.115,
 };

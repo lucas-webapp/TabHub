@@ -19,7 +19,7 @@
 
 import {
     creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
-    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure,
+    signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, REPERES,
     decouperEnEvenements, MAX_VOIX,
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
@@ -1037,6 +1037,60 @@ export class Editeur {
             if (nouvelle.armure === null || nouvelle.armure === undefined) nouvelle.armure = 0;
         }
         this.corrigerCurseur();
+        this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * RETOUR À LA LIGNE avant la mesure courante — posé ou retiré (retour utilisateur : « permets-moi
+     * de faire un retour à la ligne pour la portée, à l'aide d'un clic droit par exemple. Par exemple,
+     * si je veux uniquement créer une fiche d'exercices avec plusieurs petits morceaux de 2 mesures,
+     * je dois pouvoir faire un retour à la ligne. Je pourrai ainsi indiquer des sections [...]
+     * au-dessus de chaque portée de 2 mesures. »)
+     *
+     * C'est de la MISE EN PAGE et non de la musique, mais le drapeau vit dans le DOCUMENT (voir
+     * Mesure#sautAvant) : une fiche d'exercices dont les systèmes se recolleraient à la réouverture
+     * du fichier n'aurait aucun intérêt.
+     *
+     * REFUSÉ SUR LA PREMIÈRE MESURE : elle ouvre déjà le premier système, un saut n'y produirait
+     * strictement rien — et un réglage qui s'allume sans rien changer est pire qu'un refus expliqué.
+     */
+    /**
+     * REPÈRE DE NAVIGATION sur la mesure courante — posé, remplacé, ou RETIRÉ si c'est déjà le même.
+     *
+     * La bascule sur place plutôt qu'un simple « poser » : les six repères partagent un seul
+     * emplacement par mesure (voir Mesure#repere), si bien que le bouton d'un repère déjà en place
+     * n'aurait sinon plus aucun effet — ni pose ni retrait. Retaper le même l'enlève, comme pour
+     * n'importe quel effet de la palette.
+     */
+    definirRepere(id) {
+        if (id !== null && !REPERES[id]) { this.derniereErreur = 'Repère inconnu.'; return false; }
+        this.memoriser();
+        const m = this.mesureCourante();
+        m.repere = (m.repere === id) ? null : id;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /** BARRE DE FIN de la mesure courante : 'double', 'finale', ou retour au trait simple. Même
+     *  bascule sur place, pour la même raison que definirRepere. */
+    definirBarre(type) {
+        if (type !== null && !['double', 'finale'].includes(type)) { this.derniereErreur = 'Barre inconnue.'; return false; }
+        this.memoriser();
+        const m = this.mesureCourante();
+        m.barre = (m.barre === type) ? null : type;
+        this.prevenir('edition');
+        return true;
+    }
+
+    basculerSautDeLigne() {
+        if (this.curseur.mesure === 0) {
+            this.derniereErreur = 'La première mesure commence déjà une ligne.';
+            return false;
+        }
+        this.memoriser();
+        const m = this.mesureCourante();
+        m.sautAvant = !m.sautAvant;
         this.prevenir('edition');
         return true;
     }

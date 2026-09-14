@@ -19,7 +19,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('effets');
 
 (async () => {
-    plan(23);
+    plan(31);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -184,6 +184,73 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
         });
         check(orphelin.nb === 1 && orphelin.glisse === null,
             'un slide qui ne mène à aucune note suivante se joue simplement, sans palier en l\'air');
+
+        // --- LE SIGNE DU SLIDE SUR LA PARTITION -----------------------------------------------------
+        // Le son glissait déjà (tout ce qui précède le prouve) ; c'est l'ÉCRITURE qui manquait, et
+        // c'est elle que l'utilisateur a vue manquer : « le slide n'a pas marché sur ma partition,
+        // entre le 6 et 8 de la troisième corde ». La cause était une table d'étiquettes rendant une
+        // chaîne VIDE pour `slide`, suivie du même arc que pour une liaison de tenue : à l'écran,
+        // « glisse du 6 au 8 » et « tiens la même note » se dessinaient à l'identique.
+        // On lit la liste d'affichage, pas les pixels : c'est là que la distinction existe.
+        const signe = await page.evaluate(async () => {
+            const lay = await import('/src/engine/layout.js');
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            const tracer = (lien, f1, f2) => {
+                ed.nouveau('basse');
+                ed.partition.mesures[0].voix[0].evenements = [
+                    m.creerEvenement({ valeur: 4 }, [{ ...m.creerNote(2, f1), lien }]),
+                    m.creerEvenement({ valeur: 4 }, [m.creerNote(2, f2)]),
+                    ...m.decouperEnEvenements(2),
+                ];
+                const p = lay.mettreEnPage(ed.partition, { largeurPage: 1272 }).primitives;
+                const ep = 0.115 * lay.GEO_DEFAUT.S;              // EPAISSEURS.glisse
+                return {
+                    obliques: p.filter(x => x.t === 'ligne' && Math.abs(x.ep - ep) < 1e-9)
+                        .map(x => ({ dx: +(x.x2 - x.x1).toFixed(2), dy: +(x.y2 - x.y1).toFixed(2) })),
+                    arcs: p.filter(x => x.t === 'courbe').length,
+                    lettres: p.filter(x => x.t === 'texte' && ['H', 'P'].includes(x.s)).map(x => x.s),
+                };
+            };
+            return { slideHaut: tracer('slide', 6, 8), slideBas: tracer('slide', 8, 6),
+                     tie: tracer('tie', 6, 6), hammer: tracer('hammer', 6, 8) };
+        });
+        exiger(signe.slideHaut.obliques.length === 2,
+            'un slide trace DEUX traits obliques — un sur la tablature, un entre les têtes de la portée');
+        check(signe.slideHaut.arcs === 0 && signe.tie.arcs > 0,
+            'et AUCUN arc, là où une liaison de tenue en trace : le slide ne se confond plus avec elle');
+        // `every` sur un tableau VIDE rend `true` : le compte fait partie de la vérification, sans quoi
+        // les deux qui suivent passeraient alors qu'aucun trait ne serait tracé — constaté en
+        // neutralisant le correctif, où seul l'`exiger` ci-dessus tombait.
+        check(signe.slideHaut.obliques.length === 2 && signe.slideBas.obliques.length === 2
+              && signe.slideHaut.obliques.every(t => t.dy < 0) && signe.slideBas.obliques.every(t => t.dy > 0),
+            'le trait monte du 6 vers le 8 et descend du 8 vers le 6 — le sens se lit sur le dessin');
+        check(signe.slideHaut.obliques.length === 2
+              && signe.slideHaut.obliques.every(t => t.dx > 0 && Math.abs(t.dy / t.dx) <= 1.01),
+            'sa pente reste sous 45°, jamais un stub vertical confondable avec une barre de mesure');
+        // Un seul « H », sur la TABLATURE : la portée, elle, dit le hammer-on par son arc de legato —
+        // la lettre y serait redondante, et la gravure classique ne l'y met pas.
+        check(signe.slideHaut.lettres.length === 0 && signe.hammer.lettres.join('') === 'H',
+            'pas de lettre pour un slide (la gravure n\'en met pas), un « H » sur la tablature pour un hammer-on');
+
+        // --- LES BOUTONS MONTRENT CE QUE LA PARTITION ÉCRIT -----------------------------------------
+        // Retour utilisateur : « les logos des effets ne sont pas forcément logiques ou adaptés,
+        // parfois on a du mal à comprendre — tu peux par exemple insérer le petit H pour le
+        // hammer-on ». Les trois icônes étaient auparavant trois flèches courbes distinguées par leur
+        // seul sens, et le bend en faisait une quatrième.
+        const icones = await page.evaluate(async () => {
+            const { icone } = await import('/src/ui/icons.js');
+            const svg = (n) => icone(n);
+            const lettre = (n) => (svg(n).match(/>([A-Z])<\/text>/) || [])[1] || null;
+            return { h: lettre('hammerOn'), p: lettre('pullOff'), slide: lettre('slide'),
+                     distincts: new Set(['hammerOn', 'pullOff', 'slide', 'tie', 'bend'].map(svg)).size };
+        });
+        check(icones.h === 'H' && icones.p === 'P',
+            'le bouton hammer-on porte le « H » que la partition imprime, le pull-off son « P »');
+        check(icones.slide === null,
+            'et le slide n\'en porte aucune, comme sur la partition — c\'est son trait oblique qui le dit');
+        check(icones.distincts === 5,
+            'les cinq icônes de liaison (hammer, pull, slide, tenue, bend) restent cinq dessins différents');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

@@ -35,15 +35,30 @@ const D = {
     fermer: '<path d="M18 6 6 18"/><path d="m6 6 12 12"/>',
     chevronBas: '<path d="m6 9 6 6 6-6"/>',
 
-    // Effets de jeu — le GESTE, pas une lettre. La partition imprime encore « H »/« P » en toutes
-    // lettres (convention de gravure établie, voir engine/layout.js) ; le bouton, lui, montre le
-    // geste en un coup d'œil, plus vite reconnaissable qu'une lettre au milieu d'un rang de boutons.
-    // hammerOn et pullOff sont le MIROIR vertical l'un de l'autre — cohérent avec le fait que ce
-    // sont deux gestes opposés (frapper vers le haut / tirer vers le bas), ce qui les rend
-    // reconnaissables comme une PAIRE plutôt que comme deux pictogrammes sans rapport.
-    hammerOn: '<path d="M4 18c4-9 12-11 15-9"/><path d="M15.5 6.5 19 9l-1 4.2"/>',
-    pullOff: '<path d="M4 6c4 9 12 11 15 9"/><path d="M15.5 17.5 19 15l-1-4.2"/>',
-    slide: '<path d="M6 18 17 7"/><path d="M11 7h6v6"/>',
+    // Effets de jeu : LE BOUTON MONTRE CE QUE LA PARTITION ÉCRIT.
+    //
+    // Le pari précédent était l'inverse — « le geste, pas une lettre » : une flèche cabrée vers le
+    // haut pour le hammer-on, la même retournée pour le pull-off, une flèche coudée pour le slide.
+    // Le raisonnement (deux gestes opposés se reconnaissent comme une paire) valait sur le papier,
+    // il est démenti à l'usage (retour utilisateur : « les logos des effets ne sont pas forcément
+    // logiques ou adaptés, parfois on a du mal à comprendre — tu peux par exemple insérer le petit
+    // H pour le hammer-on »). Deux raisons pour lesquelles il ne pouvait pas marcher :
+    //
+    //   1. Trois flèches courbes dans le même rang de boutons ne se distinguent que par leur sens,
+    //      et le bend en est une quatrième — au premier coup d'œil, quatre fois la même icône.
+    //   2. Surtout, aucune ne ressemblait à ce qui apparaît ENSUITE sur la partition. Le lien entre
+    //      le bouton et son effet était à apprendre ; il devrait être à lire.
+    //
+    // Donc : la liaison plus la lettre, exactement la gravure de engine/layout.js#poserLiaisons. Les
+    // deux pastilles aux extrémités disent en plus que l'effet relie DEUX notes — ce qui explique au
+    // passage pourquoi il ne fait rien sur une note isolée.
+    hammerOn: '<text x="12" y="10.8" font-family="Georgia, serif" font-size="12.5" font-weight="700" font-style="italic" text-anchor="middle" fill="currentColor" stroke="none">H</text><circle cx="6.6" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><circle cx="17.4" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><path d="M6.6 18.5q5.4 3.6 10.8 0" stroke-width="1.7"/>',
+    pullOff: '<text x="12" y="10.8" font-family="Georgia, serif" font-size="12.5" font-weight="700" font-style="italic" text-anchor="middle" fill="currentColor" stroke="none">P</text><circle cx="6.6" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><circle cx="17.4" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><path d="M6.6 18.5q5.4 3.6 10.8 0" stroke-width="1.7"/>',
+    // Slide : le trait oblique entre deux notes, le signe même du glissando — celui que la partition
+    // trace désormais (voir poserLiaisons). Deux pastilles à hauteurs DIFFÉRENTES, là où celles du
+    // hammer/pull sont à la même : c'est ce qu'un slide fait et qu'une liaison ne fait pas, changer
+    // de hauteur. Pas de lettre : la partition n'en écrit pas non plus.
+    slide: '<circle cx="5.8" cy="17.4" r="1.7" fill="currentColor" stroke="none"/><circle cx="18.2" cy="6.6" r="1.7" fill="currentColor" stroke="none"/><path d="M8 15.8 16 8.8" stroke-width="1.9"/>',
     // Liaison de prolongation : le même arc que celui posé sur la partition (voir arcLiaison dans
     // engine/layout.js), pas un caractère Unicode — celui-ci change de graisse et de courbure d'une
     // police à l'autre, et rendait ce bouton visuellement imprévisible.
@@ -60,6 +75,20 @@ const D = {
     // « ajouter du texte »), pas une bulle de dialogue — qui aurait évoqué un commentaire ou une
     // discussion, alors qu'une annotation de section s'imprime sur la partition elle-même.
     annotation: '<path d="M5 6h14"/><path d="M12 6v14"/><path d="M9 20h6"/>',
+    // --- BARRES DE FIN ET REPÈRES DE NAVIGATION (popover « Repères », voir edit/raccourcis.js) ----
+    // Les deux barres reprennent la grammaire de repriseDebut/repriseFin juste au-dessus : traits
+    // verticaux pleine hauteur, le trait ÉPAIS dessiné en <rect> rempli plutôt qu'en <path> épaissi
+    // (un trait de 2,6 d'épaisseur aurait des bouts arrondis, une barre de mesure n'en a pas).
+    barreDouble: '<path d="M9 4v16"/><path d="M15 4v16"/>',
+    barreFinale: '<path d="M9 4v16"/><rect x="14" y="4" width="2.8" height="16" rx=".5" fill="currentColor" stroke="none"/>',
+    // SEGNO : le même dessin que sur la partition (voir engine/layout.js#tracerSegno) — un bouton de
+    // palette doit montrer ce qu'il va écrire, pas une paraphrase. S oblique, barré, deux points.
+    segno: '<path d="M15.4 5.2 C8.6 3.2 8.6 10.6 12 12 C15.4 13.4 15.4 20.8 8.6 18.8" fill="none"/>'
+        + '<path d="M6.9 20.2 17.1 3.8"/>'
+        + '<circle cx="7.4" cy="8.3" r="1.2" fill="currentColor" stroke="none"/>'
+        + '<circle cx="16.6" cy="15.7" r="1.2" fill="currentColor" stroke="none"/>',
+    // CODA : cercle traversé d'une croix qui déborde de part et d'autre.
+    coda: '<circle cx="12" cy="12" r="4.6"/><path d="M12 4.6v14.8"/><path d="M4.6 12h14.8"/>',
     // MIDI : le connecteur DIN 5 broches, seul symbole vraiment associé au format — les mêmes
     // flèches que ouvrir/exporter auraient prêté à confusion juste à côté d'elles. Cinq points
     // (les broches), une encoche en haut (le détrompeur du vrai connecteur) : reconnaissable sans

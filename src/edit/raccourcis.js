@@ -10,6 +10,7 @@
 // Ajouter une action, c'est ajouter une ligne — elle apparaît des deux côtés, forcément d'accord.
 
 import { VALEURS_FIGURES } from '../model/duration.js';
+import { REPERES } from '../model/score.js';
 
 /**
  * Décrit une combinaison de touches sous forme canonique : « ctrl+shift+arrowleft ».
@@ -126,10 +127,39 @@ export const ACTIONS = [
     // (positif) qu'un MANQUE (négatif, voir corrigerDebordement) — les deux sens comptent.
     { id: 'corrigerDebordement', touches: ['alt+r'], libelle: 'Corriger cette mesure (excédent réparti en mesure neuve, manque comblé par un silence)', groupe: 'mesure', apercu: { type: 'icone', nom: 'corriger' },
       palette: ed => Math.abs(ed.ecartMesure()) > 1e-9, faire: ed => ed.corrigerDebordement() },
-    { id: 'repriseDebut', touches: [], libelle: 'Reprise ouvrante', groupe: 'mesure', apercu: { type: 'icone', nom: 'repriseDebut' },
+    // --- REPÈRES : un groupe à part, replié derrière UN bouton (voir style.css, data-groupe="repere")
+    // Retour utilisateur : « il faudrait ajouter la possibilité de noter des Coda, Da Capo, etc…
+    // comme pour les vraies portées, qui me permettent d'écrire un morceau entier. Ces notations
+    // spéciales doivent être insérées dans un seul bouton avec un popover. Placer dedans également
+    // des logos de fin de mesure, des fins de mesure avec répétition "://" et autres outils
+    // similaires. On devrait encore gagner un peu de place dans la barre d'outils. »
+    //
+    // LES DEUX REPRISES DÉMÉNAGENT ICI : elles étaient dans le groupe « Mesure », à côté d'ajouter/
+    // supprimer une mesure — des gestes de STRUCTURE, alors qu'une reprise est une instruction de
+    // JEU, de la même famille exactement que D.C. et Fine. Deux boutons de moins dans la barre, et
+    // une famille qui se tient enfin.
+    { id: 'repriseDebut', touches: [], libelle: 'Reprise ouvrante', groupe: 'repere', apercu: { type: 'icone', nom: 'repriseDebut' },
       actif: ed => ed.mesureCourante().repriseDebut, faire: ed => ed.basculerReprise('debut') },
-    { id: 'repriseFin', touches: [], libelle: 'Reprise fermante', groupe: 'mesure', apercu: { type: 'icone', nom: 'repriseFin' },
+    { id: 'repriseFin', touches: [], libelle: 'Reprise fermante', groupe: 'repere', apercu: { type: 'icone', nom: 'repriseFin' },
       actif: ed => ed.mesureCourante().repriseFin, faire: ed => ed.basculerReprise('fin') },
+    { id: 'barreDouble', touches: [], libelle: 'Double barre (fin de section)', groupe: 'repere', apercu: { type: 'icone', nom: 'barreDouble' },
+      actif: ed => ed.mesureCourante().barre === 'double', faire: ed => ed.definirBarre('double') },
+    { id: 'barreFinale', touches: [], libelle: 'Barre finale (fin du morceau)', groupe: 'repere', apercu: { type: 'icone', nom: 'barreFinale' },
+      actif: ed => ed.mesureCourante().barre === 'finale', faire: ed => ed.definirBarre('finale') },
+    // Les six repères de navigation, dérivés de la MÊME table que le modèle et le moteur de rendu
+    // (voir model/score.js, REPERES) : un repère ajouté là apparaît ici sans qu'on y touche, et ne
+    // peut pas s'y décrire autrement. Segno et Coda se montrent par leur SIGNE (le même tracé que
+    // sur la partition, voir ui/icons.js) ; les quatre instructions, par leur abrégé en italique —
+    // exactement ce qui se lira sur la portée.
+    ...Object.values(REPERES).map(r => ({
+        id: 'repere-' + r.id,
+        touches: [],
+        libelle: r.nom,
+        groupe: 'repere',
+        apercu: r.symbole ? { type: 'icone', nom: r.symbole } : { type: 'texteLeger', texte: r.texte },
+        actif: ed => ed.mesureCourante().repere === r.id,
+        faire: ed => ed.definirRepere(r.id),
+    })),
     // Étiquette de section au-dessus de la mesure courante (« Couplet 1 », « Refrain », « Pont »…).
     // Un simple window.prompt() plutôt qu'un dialogue maison : un seul champ de texte libre, sans
     // équivalent clavier possible (aucune combinaison ne saisit du texte) — comme toute action de la

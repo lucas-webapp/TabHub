@@ -163,6 +163,24 @@ export function creerVoix(capaciteNoires = 4) {
 }
 
 /** Mesure vierge : une seule voix, un seul silence — de quoi avoir toujours une position de curseur. */
+/**
+ * REPÈRES DE NAVIGATION — ce qui permet d'écrire un morceau ENTIER sans le recopier trois fois :
+ * « reprends au début », « reprends au signe », « termine ici ».
+ *
+ * DEUX FAMILLES, et c'est ce qui décide de leur dessin (voir engine/layout.js). Segno et Coda sont
+ * des SIGNES : une cible qu'un renvoi désigne, tracée telle quelle depuis des siècles. Les autres
+ * sont des INSTRUCTIONS, écrites en abrégé et en italique comme toute indication de jeu. `symbole`
+ * porte le tracé pour les deux premiers, `texte` le libellé pour les autres — jamais les deux.
+ */
+export const REPERES = {
+    segno:    { id: 'segno',    nom: 'Segno (le signe)',       symbole: 'segno' },
+    coda:     { id: 'coda',     nom: 'Coda',                   symbole: 'coda' },
+    daCapo:   { id: 'daCapo',   nom: 'Da Capo (au début)',     texte: 'D.C.' },
+    dalSegno: { id: 'dalSegno', nom: 'Dal Segno (au signe)',   texte: 'D.S.' },
+    alCoda:   { id: 'alCoda',   nom: 'al Coda (vers la coda)', texte: 'al Coda' },
+    fine:     { id: 'fine',     nom: 'Fine (fin du morceau)',  texte: 'Fine' },
+};
+
 export function creerMesure(extra = {}) {
     return {
         id: nouvelId('m'),
@@ -175,6 +193,24 @@ export function creerMesure(extra = {}) {
         repriseDebut: false,
         repriseFin: false,
         nbFois: 2,
+        // RETOUR À LA LIGNE FORCÉ AVANT cette mesure (retour utilisateur : « permets-moi de faire un
+        // retour à la ligne pour la portée [...] si je veux uniquement créer une fiche d'exercices
+        // avec plusieurs petits morceaux de 2 mesures »). De la MISE EN PAGE, pas de la musique — mais
+        // porté par le document plutôt que par l'interface : une fiche d'exercices dont les systèmes
+        // se recolleraient à la réouverture du fichier n'aurait aucun intérêt. Honoré par les DEUX
+        // découpages (voir engine/layout.js).
+        sautAvant: false,
+        // REPÈRE DE NAVIGATION posé au-dessus de cette mesure (retour utilisateur : « il faudrait
+        // ajouter la possibilité de noter des Coda, Da Capo, etc… comme pour les vraies portées, qui
+        // me permettent d'écrire un morceau entier »). Un seul par mesure : sur une partition gravée,
+        // deux instructions de renvoi au même endroit ne se lisent pas — et l'une des deux serait de
+        // toute façon inatteignable. Voir REPERES plus haut pour les valeurs, et engine/layout.js
+        // pour leur dessin (Segno et Coda tracés, les autres en texte).
+        repere: null,
+        // BARRE DE FIN de cette mesure : `null` (trait simple), 'double' (fin de section) ou
+        // 'finale' (fin du morceau). La reprise fermante reste à part (repriseFin) : c'est une barre
+        // ET une instruction de jeu, alors que ces deux-ci ne font que ponctuer.
+        barre: null,
         // Étiquette de section (« Couplet 1 », « Refrain », « Pont »…) affichée au-dessus de CETTE
         // mesure précise — jamais héritée par les suivantes, à la différence de la signature ou de
         // l'armure : une section commence à un endroit exact, elle ne se prolonge pas en silence
@@ -504,6 +540,12 @@ export function normaliser(brut) {
         else if (mesure.armure !== null && mesure.armure !== undefined) mesure.mode = 'majeur';
         mesure.repriseDebut = !!mb?.repriseDebut;
         mesure.repriseFin = !!mb?.repriseFin;
+        mesure.sautAvant = !!mb?.sautAvant;
+        // Bornés à ce que le moteur sait dessiner : un fichier importé (ou écrit à la main) ne doit
+        // pas pouvoir demander un repère inconnu, qui ne s'afficherait nulle part tout en restant
+        // dans le document — la même règle que partout ailleurs dans `normaliser`.
+        mesure.repere = REPERES[mb?.repere] ? mb.repere : null;
+        mesure.barre = ['double', 'finale'].includes(mb?.barre) ? mb.barre : null;
         mesure.nbFois = borne(mb?.nbFois, 2, 99, 2);
         // Bornée en longueur : contrairement au titre (affiché une fois, dans l'en-tête), une
         // annotation se pose au-dessus d'UNE mesure qui peut être étroite — une chaîne sans limite

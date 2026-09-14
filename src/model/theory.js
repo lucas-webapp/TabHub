@@ -78,9 +78,15 @@ export const NOMS_ARMURES = [
 const TONIQUES_MAJEURES = ['C♭', 'G♭', 'D♭', 'A♭', 'E♭', 'B♭', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F♯', 'C♯'];
 const TONIQUES_MINEURES = ['A♭', 'E♭', 'B♭', 'F', 'C', 'G', 'D', 'A', 'E', 'B', 'F♯', 'C♯', 'G♯', 'D♯', 'A♯'];
 
+// DEUX NOMS POUR CHAQUE TONALITÉ, parce qu'ils ne servent pas au même endroit.
+//   `nom`     — la forme courte (« CM », « Am »), faite pour la LISTE DÉROULANTE de la barre
+//               d'outils, où trente entrées doivent tenir dans un menu étroit.
+//   `nomLong` — la forme écrite (« C majeur »), pour la GRAVURE en tête de partition, à côté du
+//               tempo. « CM » y était illisible : ce n'est ni un nom de tonalité ni un chiffrage
+//               d'accord, juste une abréviation de menu échappée dans la partition.
 export const TONALITES = [
-    ...TONIQUES_MAJEURES.map((tonique, i) => ({ armure: i - 7, mode: 'majeur', tonique, nom: tonique + 'M' })),
-    ...TONIQUES_MINEURES.map((tonique, i) => ({ armure: i - 7, mode: 'mineur', tonique, nom: tonique + 'm' })),
+    ...TONIQUES_MAJEURES.map((tonique, i) => ({ armure: i - 7, mode: 'majeur', tonique, nom: tonique + 'M', nomLong: tonique + ' majeur' })),
+    ...TONIQUES_MINEURES.map((tonique, i) => ({ armure: i - 7, mode: 'mineur', tonique, nom: tonique + 'm', nomLong: tonique + ' mineur' })),
 ].sort((a, b) => a.armure - b.armure || (a.mode === 'majeur' ? -1 : 1));
 
 /** La tonalité (armure + mode) désignée par ce couple, ou do majeur à défaut — jamais `undefined`,

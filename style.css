@@ -36,6 +36,13 @@
     --accent: #00e676;
     --accent-hover: #00c853;
     --border: #333;
+    /* Bordure des GROUPES d'outils — franchement plus claire que --border (#333), qui se perd sur
+       #161616 (retour utilisateur : « entourer séparément chaque section avec un trait plus
+       visible »). C'est un token à part et non un --border relevé : #333 reste juste partout
+       ailleurs (séparateurs de panneaux, cadres de champs), où un trait plus marqué ferait du
+       bruit — ici il porte une INFORMATION, la frontière entre deux familles d'outils, puisqu'il
+       remplace les étiquettes qui la disaient. */
+    --border-groupe: #4d545e;
     --radius: 12px;
     --font: 'Plus Jakarta Sans', system-ui, sans-serif;
 
@@ -250,18 +257,34 @@ body > * { min-width: 0; }
 .rangee-outils, .rangee-outils-contenu { display: contents; }
 .rangee-outils > .fleche-outils { display: none; }
 
+/* UN CADRE PLUTÔT QU'UN TITRE (retour utilisateur : « au lieu d'indiquer chaque section de la barre
+   d'outil (par exemple "Durée", "Mesure" etc…), ce qui prend de la place, peux-tu entourer
+   séparément chaque section avec un trait plus visible ? Je comprendrai de moi-même de quoi il
+   s'agit, je n'ai pas besoin d'indications »).
+   Les deux disaient la même chose — « ces boutons-là vont ensemble » — mais à des prix très
+   différents : « DURÉE » coûtait sa largeur de texte À CHAQUE groupe, dans la seule barre de
+   l'application qui manque de place, là qu'un trait ne coûte rien. Le titre était donc un doublon
+   payant du cadre qui l'entourait déjà.
+   Le cadre existait, simplement trop discret pour porter seul l'information : 1px de #333 sur
+   #161616, à peine détachable du fond. D'où --border-groupe, et le léger renfoncement ci-dessous —
+   une ombre intérieure qui creuse la boîte au lieu de l'aplatir, pour que la limite se lise même là
+   où deux groupes se touchent presque. */
 .groupe-outils {
     display: flex; align-items: center; gap: 3px;
     padding: 4px 7px;
     background: var(--card-bg);
-    border: 1px solid var(--border);
+    border: 1px solid var(--border-groupe);
     border-radius: 10px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
     flex: none;
 }
-.groupe-outils > .etiquette-groupe {
-    font-size: var(--fs-2xs); color: var(--text-muted); text-transform: uppercase;
-    letter-spacing: .06em; font-weight: 700; margin-right: 3px; user-select: none;
-}
+/* Masquée À TOUTES LES LARGEURS, et dans tous les états — plus seulement sur téléphone, et plus
+   seulement en ligne. C'est le cadre qui délimite un groupe désormais ; et pour les deux groupes
+   repliés (Effets, Repères), c'est le BOUTON qui porte le mot, juste au-dessus du popover qu'on
+   vient d'ouvrir avec lui — un second intitulé à l'intérieur ne dirait rien de plus. L'élément
+   reste produit par ui/toolbar.js#groupe : il sert encore d'`aria-label` au groupe et de source au
+   libellé du bouton replié (voir GROUPES_REPLIES). */
+.groupe-outils > .etiquette-groupe { display: none; }
 
 /* Bouton « Effets » (voir ui/toolbar.js#basculerGroupeEffets) : invisible sur grand écran, où le
    groupe Effets s'affiche en ligne comme tous les autres — ne prend vie qu'à l'étroit, voir
@@ -275,11 +298,13 @@ body > * { min-width: 0; }
    posent moins souvent qu'une figure de durée, et ne méritent pas la même place qu'elle.
    Voir ui/toolbar.js#basculerGroupeEffets — `position: fixed` posé et mesuré AU CLIC, jamais en CSS
    pur, qui ne sait pas où se trouve LE bouton qu'on vient de toucher. `.etiquette-groupe` (« EFFETS »)
-   reste masquée sur téléphone par la règle du bloc étroit ; sur ordinateur le popover la garde, elle
-   coiffe alors utilement la liste dépliée. */
-.btn-outil.btn-effets-bascule { display: inline-flex; }
-.groupe-outils[data-groupe="effet"] { display: none; }
-.groupe-outils[data-groupe="effet"].ouvert {
+   ne s'affiche plus, ni en ligne ni dans le popover (voir .groupe-outils plus haut) : le bouton
+   replié porte déjà le mot, juste au-dessus. */
+.btn-outil.btn-groupe-replie { display: inline-flex; }
+.groupe-outils[data-groupe="effet"],
+.groupe-outils[data-groupe="repere"] { display: none; }
+.groupe-outils[data-groupe="effet"].ouvert,
+.groupe-outils[data-groupe="repere"].ouvert {
     display: flex; flex-wrap: wrap;
     position: fixed; z-index: 70;
     width: max-content; max-width: min(230px, calc(100vw - 16px));
@@ -352,7 +377,6 @@ body.outils-gauche .barre-outils {
     border-right: 1px solid var(--border);
 }
 body.outils-gauche .groupe-outils { flex-wrap: wrap; justify-content: flex-start; }
-body.outils-gauche .groupe-outils > .etiquette-groupe { flex: 1 0 100%; margin-right: 0; margin-bottom: 1px; }
 
 .btn-outil {
     min-width: var(--h-bouton); height: var(--h-bouton);
@@ -401,11 +425,24 @@ select.champ, input.champ {
     cursor: pointer;
 }
 input.champ { cursor: text; }
+/* LES FLÈCHES NATIVES DU CHAMP NOMBRE, RETIRÉES — elles tronquaient la valeur qu'elles bordaient.
+   Mesuré sur le champ Tempo : 56px de contenu pour 52px de place à 1320px, 48 pour 42 à 390px, donc
+   « 120 » affiché « 12 » avec le zéro coupé net. Les 4 à 6px manquants ne venaient pas des chiffres
+   (trois chiffres en 12px pèsent ~21px) mais du compteur que Chrome réserve à droite de tout
+   input[type="number"] — une largeur invisible, jamais déclarée ici, qui prenait sa part du champ
+   resserré à 54px (voir plus bas, « la case indiquant les BPM est légèrement trop large »).
+   Retirées plutôt que le champ réélargi : ce sont deux demi-flèches de 7px de haut, impossibles à
+   viser, et le tempo se règle à la molette, au clavier ou au D-pad — le compteur ne servait rien
+   qu'à rogner la valeur. */
+input.champ[type="number"] { appearance: textfield; -moz-appearance: textfield; }
+input.champ[type="number"]::-webkit-outer-spin-button,
+input.champ[type="number"]::-webkit-inner-spin-button { -webkit-appearance: none; appearance: none; margin: 0; }
 select.champ:focus, input.champ:focus { outline: none; border-color: var(--accent); }
 /* 54px, pas 68px (retour utilisateur : « la case indiquant les BPM est légèrement trop large ») —
    seul input.champ[type="number"] de l'appli à ce jour (le champ Tempo, voir ui/toolbar.js), donc
-   rien d'autre à vérifier avant de resserrer : 400 (la valeur max, trois chiffres) tient largement
-   dans le padding restant (8px de chaque côté, hérité de .champ) sans tronquer. */
+   rien d'autre à vérifier avant de resserrer. 400 (la valeur max, trois chiffres) y tient sans
+   tronquer — mais seulement depuis que le compteur natif ne prend plus sa part du champ (voir
+   input.champ[type="number"] plus haut) : à 54px AVEC lui, « 120 » perdait son zéro. */
 input.champ[type="number"] { width: 54px; text-align: center; }
 
 /* MESURES PAR LIGNE — un rang de boutons plutôt qu'un menu déroulant, voir
@@ -938,7 +975,7 @@ body.avec-pave .dpad-flottant { display: grid; }
 .bande-boucle { touch-action: none; cursor: ew-resize; }
 
 @media (max-width: 720px) {
-    .logo-texte, .groupe-outils > .etiquette-groupe { display: none; }
+    .logo-texte { display: none; }   /* .etiquette-groupe : masquée à toutes les largeurs, voir .groupe-outils plus haut */
     /* DÉBORDEMENT PRÉEXISTANT (mesuré, indépendant des repositionnements ci-dessus) : même le logo,
        icône seule, ne tenait déjà plus sur un téléphone étroit à côté d'Annuler/Fichiers/Réglages/
        Aide et d'un titre à son plancher de 120px (débordement mesuré : 97px à 390px) — invisible
@@ -1111,8 +1148,9 @@ body.avec-pave .dpad-flottant { display: grid; }
        slide…) se posent moins souvent qu'une figure de durée (retour utilisateur : « trop de
        boutons »). Voir ui/toolbar.js#basculerGroupeEffets : même mécanisme de positionnement que le
        menu contextuel (position: fixed, mesuré au clic), gardé dans le module de la palette plutôt
-       que dupliqué ici. `.etiquette-groupe` (« EFFETS ») reste masquée par la règle plus haut : le
-       bouton replié porte déjà son propre libellé, pas besoin d'un second à l'intérieur du popover.
+       que dupliqué ici. `.etiquette-groupe` (« EFFETS ») reste masquée par la règle plus haut (elle
+       l'est maintenant à toutes les largeurs) : le bouton replié porte déjà son propre libellé, pas
+       besoin d'un second à l'intérieur du popover.
      */
 
     /* MESURES PAR LIGNE -> MÊME POPOVER, même raison (retour utilisateur : « la barre de transport
@@ -1123,6 +1161,9 @@ body.avec-pave .dpad-flottant { display: grid; }
        dans toolbar.js, qui construit LE SIEN). `.groupe-mesures-ligne` n'a pas le fond/bordure de
        `.groupe-outils` (elle vit nue dans la barre de transport à l'accoutumée) : le popover les
        pose lui-même, plutôt que d'en hériter comme le fait le groupe Effets. */
+    /* « Affichage » s'efface avec le groupe qu'elle coiffe : replié derrière le bouton-bascule, ce
+       dernier porte déjà son propre libellé (la valeur active, voir rafraichirBoutonsMesuresLigne). */
+    .etiquette-affichage { display: none; }
     .btn-transport-texte.btn-mesures-ligne-bascule { display: inline-flex; }
     .groupe-mesures-ligne { display: none; }
     .groupe-mesures-ligne.ouvert {

@@ -31,7 +31,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(32);
+    plan(34);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -88,6 +88,21 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         // sert encore de fixture à un test plus loin, voir « avant l'effacement »).
         const etatPave = () => page.evaluate(() => document.querySelector('.etat-pave').textContent);
         check((await etatPave()).includes('case 12'), 'le pavé affiche lui-même la case posée (« case 12 »), pas seulement le modèle en coulisse');
+
+        // LA NUMÉROTATION DES CORDES, telle qu'un instrumentiste la dit : la plus FINE est la corde 1.
+        // Une première version annonçait « corde 6 » pour le mi aigu — l'inverse exact. Ce libellé
+        // vivait dans la barre du bas jusqu'à ce qu'un retour utilisateur l'en retire (« supprimer
+        // l'indication qui me dit sur quelle corde je suis positionné ») ; il ne subsiste que sur le
+        // pavé, où il a une autre raison d'être : au doigt, les flèches haut/bas agiraient sinon à
+        // l'aveugle. C'est donc ICI, en contexte tactile, que la garantie doit désormais tenir.
+        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 0));
+        await page.waitForTimeout(200);
+        check(/corde 1\b/.test(await etatPave()), 'le pavé nomme « corde 1 » la plus aiguë, comme un guitariste');
+        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 5));
+        await page.waitForTimeout(200);
+        check(/corde 6\b/.test(await etatPave()), 'et « corde 6 » la plus grave');
+        await page.evaluate(() => window.app.editeur.placerCurseur(0, 1, 0));
+        await page.waitForTimeout(200);
 
         // --- Se déplacer au doigt, depuis la croix FLOTTANTE (voir l'en-tête du banc) ---------------
         // Plus de préfixe `#pave-tactile` ici : ces boutons vivent désormais dans #dpad-flottant,

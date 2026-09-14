@@ -17,7 +17,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
 
 (async () => {
-    plan(13);
+    plan(14);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.evaluate(async () => {
@@ -61,8 +61,9 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         // « Coller » n'y figure PAS ici : le presse-papier est vide à l'ouverture du banc, et une
         // entrée qu'on ne peut pas utiliser n'apprend rien — elle apparaît plus bas, une fois copié.
         check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite'
-            + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure|Copier cette mesure',
-            'les huit actions attendues, dans cet ordre, et aucun « Coller » tant que rien n\'est copié');
+            + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure'
+            + '|Commencer une nouvelle ligne ici|Copier cette mesure',
+            'les neuf actions attendues, dans cet ordre, et aucun « Coller » tant que rien n\'est copié');
         const boiteMenu = await menu.boundingBox();
         check(Math.abs(boiteMenu.x - p.x) < 20 && Math.abs(boiteMenu.y - p.y) < 20, 'le menu s\'ouvre AU POINT du clic, pas ailleurs');
 
@@ -122,6 +123,32 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         const couleurSeparateur = await page.evaluate(() =>
             getComputedStyle(document.querySelector('#menu-contextuel .separateur')).borderTopColor);
         check(couleurSeparateur === 'rgb(74, 74, 74)', 'le séparateur du menu contextuel utilise une couleur assez contrastée pour se voir (pas --border, trop proche du fond)');
+
+        // --- LE LIBELLÉ DU RETOUR À LA LIGNE DIT L'ÉTAT COURANT -------------------------------------
+        // « Commencer une nouvelle ligne ici » quand il n'y a pas de saut, « Ne plus commencer… »
+        // quand il y en a un. Sans cela, l'entrée ne se lirait qu'en la touchant pour voir — et un
+        // saut déjà posé n'aurait aucun moyen de se signaler. Éprouvé EN DERNIER, avec sa propre
+        // cible dans la mesure 2 : posé au milieu du banc, il coupait l'enchaînement des vérifications
+        // de position, qui ont besoin du menu resté ouvert au même point.
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(1, 0, 0); ed.basculerSautDeLigne(); window.app.dessiner(); });
+        await page.waitForTimeout(250);
+        const pM2 = await page.evaluate(() => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = window.app.page.ancrages.mesures.find(x => x.index === 1);
+            return {
+                x: b.left + ((a.x + a.xFin) / 2 / window.app.page.largeur) * b.width,
+                y: b.top + (a.yPortee / window.app.page.hauteur) * b.height,
+            };
+        });
+        await page.mouse.click(pM2.x, pM2.y, { button: 'right' });
+        await page.waitForTimeout(200);
+        check((await menu.locator('button').allTextContents()).includes('Ne plus commencer une ligne ici'),
+            'sur une mesure qui porte déjà un saut, l\'entrée propose de le RETIRER plutôt que de le reposer');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

@@ -133,14 +133,24 @@ orthographe des altérations selon l'armure, hampes, ligatures, lignes suppléme
 | `H` `P` `S` `T` | Hammer-on, pull-off, slide, liaison de prolongation |
 | `M` `B` `X` `A` | Palm mute, bend, note fantôme, accent |
 | `Alt`+`M` | Ajouter une mesure |
-| `Espace` | Lecture / pause, **depuis le curseur** |
+| `Espace` | Lecture / pause, **depuis le début** (ou depuis la boucle, si une boucle est posée) |
 | `Échap` | Arrêter |
 | `Ctrl`+`Z` / `Ctrl`+`Y` | Annuler / rétablir |
 | `Ctrl`+`S` `O` `P` | Enregistrer `.json`, ouvrir, exporter PDF |
 | `?` | Aide-mémoire des raccourcis |
 
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
-table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire.
+table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire. **Chaque bouton d'effet
+montre ce que la partition va écrire** — un « H » sur sa liaison pour le hammer-on, un « P » pour le
+pull-off, le trait oblique du glissando pour le slide, l'arc nu pour la liaison de prolongation. Les
+pictogrammes « gestuels » qui les précédaient (quatre flèches courbes distinguées par leur seul sens)
+demandaient d'apprendre la correspondance ; celle-ci se lit.
+
+Les **sections de la barre d'outils** (durées, effets, mesure, écriture) ne portent plus de titre :
+chacune est simplement **encadrée**. Le cadre disait déjà « ces boutons vont ensemble » ; le titre le
+répétait en coûtant sa largeur de texte, dans la seule barre de l'application qui manque de place
+(152px récupérés sur ordinateur, mesurés). Le nom reste annoncé aux lecteurs d'écran (`role="group"`
++ `aria-label`) — un cadre ne s'entend pas.
 
 ### Lecture
 
@@ -152,8 +162,11 @@ tablature de chaque système : la zone se rejoue indéfiniment, pour retravaille
 repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
 C'est une préférence de SESSION, jamais sauvée avec le morceau.
 
-Le **tempo** se règle au champ numérique du transport, ou au bouton **TAP** juste à côté : cliquer
-plusieurs fois au rythme voulu le règle sans avoir à connaître ni taper une valeur précise.
+Le **tempo** se règle au champ numérique du transport (le compteur natif du navigateur y est retiré :
+à 54px de large, ses deux demi-flèches impossibles à viser rognaient le troisième chiffre — « 120 »
+s'affichait « 12 »). Il se lit aussi **au-dessus de la portée**, gravé à côté de la figure de
+référence, suivi du nom de la **tonalité** écrit en clair (« C majeur », pas l'abréviation « CM » de
+la liste déroulante).
 
 Deux **volumes** indépendants (Réglages > Son) : général (agit sur tout ce qui sonne) et métronome
 seul (relatif au premier) — 0 à 100, avec lecture immédiate.
@@ -259,8 +272,8 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Pas de dépliage des reprises à la lecture.** Les barres de reprise s'écrivent et s'exportent,
   mais la lecture parcourt la partition écrite, une fois.
 - **Les liaisons ne franchissent pas les barres de mesure.** Une note liée à la première note de la
-  mesure suivante s'entend correctement, mais l'arc n'est pas tracé : la pose des liaisons travaille
-  mesure par mesure.
+  mesure suivante s'entend correctement, mais son signe n'est pas tracé — ni l'arc d'une liaison ni
+  le trait oblique d'un slide : la pose des liaisons travaille mesure par mesure.
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.

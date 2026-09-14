@@ -33,7 +33,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rangée du haut : tient dan
 const TELEPHONES = [360, 375, 390, 414, 430];
 
 (async () => {
-    plan(18);
+    plan(21);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     try {
         const mesurer = () => page.evaluate(() => {
@@ -58,6 +58,14 @@ const TELEPHONES = [360, 375, 390, 414, 430];
                 hTempo: haut('#champ-tempo'),
             };
         });
+
+        // LE CHAMP TEMPO ET SON COMPTEUR NATIF : pas ici, mais dans tests/barre_outils_test.js.
+        // Le défaut (input[type="number"] dont le compteur natif rogne la valeur : « 120 » affiché
+        // « 12 ») n'EXISTE PAS dans ce banc-ci, et c'est structurel : Chromium n'alloue aucune place
+        // à ce compteur dans un contexte tactile, et ce banc est tout entier tactile
+        // (hasTouch/isMobile ci-dessus, sans quoi il ne mesurerait pas un téléphone). Mesuré : 42px
+        // de contenu pour 42px de place ici, correctif retiré comme posé ; 56 pour 52 à la souris.
+        // Un banc ne protège que ce qu'il peut voir échouer.
 
         // --- 1. La rangée tient, à toutes les largeurs de téléphone ---------------------------------
         for (const largeur of TELEPHONES) {
@@ -159,6 +167,40 @@ const TELEPHONES = [360, 375, 390, 414, 430];
         check(deplie.dansLEcran, 'et ce popover tient entièrement dans la fenêtre, jamais à cheval sur un bord');
         await page.keyboard.press('Escape');
         await page.waitForTimeout(150);
+
+        // --- 6. UN CADRE PLUTÔT QU'UN TITRE ---------------------------------------------------------
+        // Retour utilisateur : « au lieu d'indiquer chaque section de la barre d'outil (par exemple
+        // "Durée", "Mesure" etc…), ce qui prend de la place, peux-tu entourer séparément chaque
+        // section avec un trait plus visible ? Je comprendrai de moi-même de quoi il s'agit ».
+        // Les deux disaient la même chose ; seul le titre la faisait payer, dans la seule barre de
+        // l'application qui manque de place. On mesure donc les deux moitiés de l'échange : plus un
+        // titre visible, et un cadre qui se détache VRAIMENT du fond.
+        await page.setViewportSize({ width: 1320, height: 880 });
+        await page.waitForTimeout(250);
+        const cadres = await page.evaluate(() => {
+            const lum = (c) => { const [r, g, b] = c.match(/\d+/g).map(Number); return .2126 * r + .7152 * g + .0722 * b; };
+            const groupes = [...document.querySelectorAll('#barre-outils .groupe-outils')];
+            const vus = groupes.filter(g => g.getBoundingClientRect().width > 0);
+            return {
+                titresVisibles: [...document.querySelectorAll('#barre-outils .etiquette-groupe')]
+                    .filter(e => e.getBoundingClientRect().width > 0).map(e => e.textContent),
+                // Le nom reste lisible POUR QUI N'Y VOIT RIEN : un cadre CSS ne s'annonce pas.
+                nommes: vus.every(g => g.getAttribute('role') === 'group' && !!g.getAttribute('aria-label')),
+                // Le contraste du cadre contre l'intérieur du groupe, avant/après en clair :
+                // #333 sur #161616 donnait 29 de luminance contre 22, soit 7 points — invisible.
+                ecart: vus.map(g => {
+                    const cs = getComputedStyle(g);
+                    return Math.round(lum(cs.borderTopColor) - lum(cs.backgroundColor));
+                }),
+                contenu: document.getElementById('barre-outils').scrollWidth,
+            };
+        });
+        check(cadres.titresVisibles.length === 0,
+            'plus aucun titre de section affiché dans la barre d\'outils — le cadre le dit à leur place');
+        check(cadres.nommes,
+            'mais chaque groupe garde son nom pour un lecteur d\'écran (role="group" + aria-label) : un cadre ne s\'entend pas');
+        check(cadres.ecart.length >= 3 && cadres.ecart.every(e => e >= 30),
+            `et ce cadre se détache franchement de l'intérieur du groupe (+${Math.min(...cadres.ecart)} de luminance, contre +7 pour l'ancien #333)`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

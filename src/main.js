@@ -22,7 +22,7 @@
 import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
-import { construireBarreOutils, flecheOutilsSvg } from './ui/toolbar.js';
+import { construireBarreOutils, flecheOutilsSvg, ajusterFleches } from './ui/toolbar.js';
 import { construirePave, construireDpadFlottant } from './ui/pave.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
@@ -568,28 +568,30 @@ class TabHubApp {
         const total = this.editeur.partition.mesures.length;
         this.el.position.innerHTML = `Mesure <strong>${c.mesure + 1}</strong> / <strong>${total}</strong>`;
 
-        // Ce que dit la barre du bas sur la position : la corde et, si une note y est posée, la
-        // hauteur qu'elle sonne. C'est le seul endroit où la note se lit en clair — la tablature dit
-        // « case 7 », pas « si ».
-        // Les instrumentistes numérotent les cordes DEPUIS L'AIGUË : la plus fine est la corde 1.
-        // C'est exactement l'ordre interne (cordes[0] = la plus aiguë), donc index + 1 — et non
-        // « nombre de cordes − index », qui annonçait « corde 6 » pour le mi aigu.
-        const numeroCorde = c.corde + 1;
+        // CE QUE DIT ENCORE LA BARRE DU BAS : la hauteur réellement sonnée par la note sous le
+        // curseur, et l'état de la mesure. C'est le seul endroit où la note se lit en clair — la
+        // tablature dit « case 7 », pas « si ».
+        //
+        // PLUS « CORDE N » (retour utilisateur : « supprimer l'indication qui me dit sur quelle corde
+        // je suis positionné »). Le curseur la montre déjà, d'un soulignement franc sur la corde
+        // visée — la relire en mots dans un coin de l'écran n'apprenait rien que l'œil n'ait sous les
+        // yeux, et occupait une place que l'étiquette « Affichage » sert mieux. Le repère chiffré
+        // reste sur le PAVÉ TACTILE (voir ui/pave.js, .etat-pave), où il a une autre raison d'être :
+        // au doigt, les flèches haut/bas agiraient sinon à l'aveugle.
         const note = this.editeur.noteCourante();
         // La voix ne s'affiche QUE quand la mesure en a deux — sur la mesure du commun des cas
         // (une seule voix), le mentionner serait du bruit sans rien apprendre à personne.
-        let texte = this.editeur.nbVoixMesure() > 1
-            ? `Voix ${c.voix + 1} (${c.voix === 0 ? 'mélodie' : 'accompagnement'}) · Corde ${numeroCorde}`
-            : `Corde ${numeroCorde}`;
+        const bouts = [];
+        if (this.editeur.nbVoixMesure() > 1) bouts.push(`Voix ${c.voix + 1} (${c.voix === 0 ? 'mélodie' : 'accompagnement'})`);
         if (note) {
             const midi = hauteurDeNote(this.editeur.partition, note);
-            if (midi != null) texte += ` · case ${note.frette} · ${nomDeHauteur(midi)}`;
+            if (midi != null) bouts.push(`case ${note.frette} · ${nomDeHauteur(midi)}`);
         }
         const ecart = this.editeur.ecartMesure();
         if (Math.abs(ecart) > 1e-9) {
-            texte += ecart < 0 ? ` · mesure incomplète (${arrondi(-ecart)} ♩ manquante(s))` : ` · mesure trop pleine (+${arrondi(ecart)} ♩)`;
+            bouts.push(ecart < 0 ? `mesure incomplète (${arrondi(-ecart)} ♩ manquante(s))` : `mesure trop pleine (+${arrondi(ecart)} ♩)`);
         }
-        this.el.selection.textContent = texte;
+        this.el.selection.textContent = bouts.join(' · ');
     }
 
     // ==========================================================================================
@@ -688,10 +690,10 @@ class TabHubApp {
         const flecheDroite = fleche('droite');
         hote.insertBefore(flecheGauche, hote.firstChild);
         hote.appendChild(flecheDroite);
-        const rafraichirFleches = () => {
-            flecheGauche.classList.toggle('invisible', hote.scrollLeft <= 1);
-            flecheDroite.classList.toggle('invisible', hote.scrollLeft + hote.clientWidth >= hote.scrollWidth - 1);
-        };
+        // Même règle que la barre d'outils, au même endroit qu'elle (voir toolbar.js#ajusterFleches) :
+        // les flèches étant en flux, mesurer le débordement sans les déduire revient à se mesurer
+        // soi-même — et laisse une flèche allumée sur rien après un élargissement de la fenêtre.
+        const rafraichirFleches = () => ajusterFleches(hote, flecheGauche, flecheDroite);
         rafraichirFleches();
         hote.addEventListener('scroll', rafraichirFleches, { passive: true });
         return rafraichirFleches;
@@ -1325,6 +1327,16 @@ class TabHubApp {
             { texte: 'Ajouter une mesure avant', faire: action(() => this.editeur.ajouterMesure(false)) },
             { texte: 'Ajouter une mesure après', faire: action(() => this.editeur.ajouterMesure(true)) },
             { texte: 'Supprimer cette mesure', faire: action(() => this.editeur.supprimerMesure()) },
+            null,
+            // RETOUR À LA LIGNE (retour utilisateur : « permets-moi de faire un retour à la ligne
+            // pour la portée, à l'aide d'un clic droit par exemple »). Ici et non dans la palette :
+            // le même retour demandait aussi de GAGNER de la place dans la barre d'outils, et ce
+            // geste se pense sur la mesure qu'on regarde. Le libellé dit l'état courant, pour que
+            // l'entrée soit lisible sans avoir à deviner si le saut est déjà posé.
+            { texte: this.editeur.mesureCourante().sautAvant
+                ? 'Ne plus commencer une ligne ici'
+                : 'Commencer une nouvelle ligne ici',
+              faire: action(() => this.editeur.basculerSautDeLigne()) },
             null,
             // COPIER/COLLER UNE MESURE ENTIÈRE (retour utilisateur : « permets-moi de copier/coller une
             // mesure complète avec clic droit, et de l'insérer là où je le souhaite »). Copier ne

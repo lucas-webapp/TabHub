@@ -82,16 +82,19 @@ const hauteurs = (page) => page.evaluate(async () => {
         await page.waitForTimeout(250);
         check((await lireEtat(page)).cordes.length === 5, 'et la basse 5 cordes en compte cinq');
 
-        // La barre du bas nomme la corde comme le fait un instrumentiste : la plus AIGUË est la
-        // corde 1. Une première version annonçait « corde 6 » pour le mi aigu — l'inverse exact.
+        // L'ORDRE INTERNE DES CORDES — `cordes[0]` est la plus AIGUË. C'est de lui que dépend toute
+        // numérotation affichée : un instrumentiste appelle « corde 1 » la plus fine, et une première
+        // version annonçait « corde 6 » pour le mi aigu — l'inverse exact. On éprouve ici l'invariant
+        // du MODÈLE, qui est la cause ; le LIBELLÉ, lui, a quitté la barre du bas (retour utilisateur :
+        // « supprimer l'indication qui me dit sur quelle corde je suis positionné ») et ne subsiste
+        // que sur le pavé tactile, où il est éprouvé en contexte tactile — voir tactile_test.js.
         await page.selectOption('#champ-instrument', 'guitare');
         await page.waitForTimeout(250);
-        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 0));
-        await page.waitForTimeout(150);
-        check(/Corde 1\b/.test(await page.textContent('#info-selection')), 'la corde la plus aiguë est annoncée « corde 1 », comme la nomme un guitariste');
-        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 5));
-        await page.waitForTimeout(150);
-        check(/Corde 6\b/.test(await page.textContent('#info-selection')), 'et la plus grave « corde 6 »');
+        const ordre = await page.evaluate(() => window.app.editeur.partition.piste.accordage.cordes);
+        check(ordre[0] === Math.max(...ordre) && ordre[ordre.length - 1] === Math.min(...ordre),
+            'les cordes sont rangées de l\'AIGUË à la GRAVE — la source de toute numérotation affichée');
+        check(ordre.length === 6 && ordre[0] === 64 && ordre[5] === 40,
+            'et pour une guitare standard, de mi aigu (64) à mi grave (40)');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

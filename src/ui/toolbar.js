@@ -15,7 +15,7 @@ import * as G from '../engine/glyphs.js';
 import { icone } from './icons.js';
 import { armureEffective, modeEffectif } from '../model/score.js';
 
-const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', voix: 'Voix' };
+const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', repere: 'Repères', voix: 'Voix' };
 
 /** Chevron d'une flèche de défilement — dessiné, pas une police (voir la même logique dans
  *  ui/pave.js pour les flèches de DÉPLACEMENT du curseur, un besoin distinct qui n'a pas à
@@ -114,6 +114,46 @@ function rendreApercu(action) {
  * VISIBILITÉ d'un bouton peut, elle aussi, dépendre du curseur (« + Voix » n'a de sens que tant qu'il
  * n'y en a pas déjà deux) : `action.palette` accepte alors une fonction plutôt qu'un booléen figé.
  */
+/**
+ * DEUX FLÈCHES DE DÉFILEMENT, MISES À JOUR SANS SE MORDRE LA QUEUE.
+ *
+ * Les flèches sont `position: sticky` (voir .fleche-outils dans style.css) : collées au bord VISIBLE
+ * du conteneur, mais EN FLUX — chacune de visible ajoute donc ses 26px à `scrollWidth`. Le test naïf
+ * « scrollWidth > clientWidth » se mesure alors lui-même, et cela crée un état PIÈGE, observé en
+ * élargissant la fenêtre de 900px à 1320px :
+ *
+ *   1. à 900px, on défile jusqu'au bout : les deux flèches sont visibles, scrollWidth = 1301 + 52 ;
+ *   2. la fenêtre passe à 1320px — les 1301px de boutons tiennent désormais entièrement ;
+ *   3. mais la flèche gauche, elle, reste visible : ses 26px portent scrollWidth à 1327 pour 1320px
+ *      de place, donc « ça déborde de 7px », donc on garde une flèche gauche, donc ça déborde…
+ *
+ * Un fil qui se tient par ses propres 7px : mesuré immobile une seconde après le redimensionnement,
+ * flèche gauche allumée sur RIEN (un chargement direct à 1320px, lui, mesure 1320/1320 et tient).
+ *
+ * D'où la mesure du débordement RÉEL, flèches déduites (`offsetWidth` valant 0 pour une flèche
+ * effacée, la soustraction est juste dans les quatre combinaisons) : s'il n'y a rien à atteindre, on
+ * ramène le défilé à zéro et on éteint les deux flèches d'un coup, au lieu de laisser chaque flèche
+ * juger de son côté à partir d'une largeur qu'elle gonfle elle-même.
+ *
+ * Partagé entre la barre d'OUTILS et la barre de TRANSPORT (voir main.js#brancherFlechesTransport) :
+ * mêmes flèches, même bogue: c'est la deuxième fois qu'un défaut de ces flèches doit être corrigé en
+ * deux endroits, alors cette fois il n'y a plus qu'un endroit.
+ */
+export function ajusterFleches(conteneur, flecheGauche, flecheDroite) {
+    const largeurFleches = flecheGauche.offsetWidth + flecheDroite.offsetWidth;
+    if (conteneur.scrollWidth - largeurFleches - conteneur.clientWidth <= 1) {
+        if (conteneur.scrollLeft > 0) conteneur.scrollLeft = 0;
+        flecheGauche.classList.add('invisible');
+        flecheDroite.classList.add('invisible');
+        return;
+    }
+    // Sinon chaque flèche ne se montre que s'il reste vraiment quelque chose à atteindre de son côté.
+    // Une marge d'un pixel : les navigateurs arrondissent scrollLeft/scrollWidth différemment, une
+    // égalité stricte clignoterait sur certains.
+    flecheGauche.classList.toggle('invisible', conteneur.scrollLeft <= 1);
+    flecheDroite.classList.toggle('invisible', conteneur.scrollLeft + conteneur.clientWidth >= conteneur.scrollWidth - 1);
+}
+
 export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     hote.innerHTML = '';
     const aRafraichir = [];
@@ -155,10 +195,7 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         return b;
     };
     const brancherFleches = (conteneur, flecheGauche, flecheDroite) => {
-        const rafraichirFleches = () => {
-            flecheGauche.classList.toggle('invisible', conteneur.scrollLeft <= 1);
-            flecheDroite.classList.toggle('invisible', conteneur.scrollLeft + conteneur.clientWidth >= conteneur.scrollWidth - 1);
-        };
+        const rafraichirFleches = () => ajusterFleches(conteneur, flecheGauche, flecheDroite);
         aRafraichir.push(rafraichirFleches);
         conteneur.addEventListener('scroll', rafraichirFleches, { passive: true });
         // MOLETTE VERTICALE -> DÉFILEMENT HORIZONTAL, ici aussi (voir plus bas pour la raison) : une
@@ -199,11 +236,24 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // une fois son contenu défini (voir gMesure).
     let rangeeEcriture;
 
+    // Le titre du groupe ne s'AFFICHE plus (retour utilisateur : « au lieu d'indiquer chaque section
+    // de la barre d'outil, ce qui prend de la place, entourer séparément chaque section avec un trait
+    // plus visible » — voir .groupe-outils dans style.css, où le cadre a pris le relais). Il reste
+    // produit, pour deux raisons qui n'ont rien à voir avec la place prise à l'écran :
+    //   - `role="group"` + `aria-label` : un lecteur d'écran annonce encore « Durée, groupe » avant
+    //     d'énumérer les boutons. Un cadre CSS ne s'entend pas ; retirer le titre SANS le remplacer
+    //     aurait supprimé l'information pour qui ne voit pas la barre.
+    //   - le <span>, masqué mais présent, porte l'intitulé pour les bancs d'essai et reste le seul
+    //     endroit où le mot est écrit une fois pour toutes.
     const groupe = (titre, cle, hoteGroupe) => {
         const el = document.createElement('div');
         el.className = 'groupe-outils';
         if (cle) el.dataset.groupe = cle;   // sélecteur CSS/JS stable — voir le popover « Effets » plus bas
-        if (titre) el.innerHTML = `<span class="etiquette-groupe">${titre}</span>`;
+        if (titre) {
+            el.innerHTML = `<span class="etiquette-groupe">${titre}</span>`;
+            el.setAttribute('role', 'group');
+            el.setAttribute('aria-label', titre);
+        }
         hoteGroupe.appendChild(el);
         return el;
     };
@@ -292,30 +342,40 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // désormais. Un groupe qui ne montrerait jamais rien laisserait une étiquette « Voix » orpheline
     // dans la barre : on ne le construit donc plus du tout. `basculerVoix` reste utilisable au
     // clavier (Tab) pour un fichier déjà à deux voix, simplement sans bouton dans la palette.
-    for (const cle of ['duree', 'effet', 'mesure']) {
+    // DEUX GROUPES SE REPLIENT derrière un bouton : « Effets » (neuf gestes) et « Repères » (dix
+    // marques de navigation et de barre). Même mécanique pour les deux — d'où ce petit tableau plutôt
+    // qu'un `if (cle === 'effet')` doublé le jour où le second est arrivé : deux copies d'un popover
+    // finissent toujours par diverger sur un détail (la fermeture après choix, le résumé d'état…).
+    const GROUPES_REPLIES = {
+        effet: { classe: 'btn-effets-bascule', libelle: 'Effets',
+                 titre: 'Effets (hammer-on, pull-off, slide, liaison, bend, palm mute, note fantôme, accent, staccato)' },
+        repere: { classe: 'btn-reperes-bascule', libelle: 'Repères',
+                  titre: 'Repères et barres (reprises, double barre, barre finale, Segno, Coda, D.C., D.S., al Coda, Fine)' },
+    };
+    for (const cle of ['duree', 'effet', 'mesure', 'repere']) {
         const g = groupe(TITRES_GROUPES[cle], cle, rangeeReste);
-        if (cle === 'effet') {
+        const replie = GROUPES_REPLIES[cle];
+        if (replie) {
             const bascule = document.createElement('button');
             bascule.type = 'button';
-            bascule.className = 'btn-outil btn-effets-bascule';
-            bascule.textContent = 'Effets';
-            bascule.title = 'Effets (hammer-on, pull-off, slide, liaison, bend, palm mute, note fantôme, accent, staccato)';
+            bascule.className = `btn-outil btn-groupe-replie ${replie.classe}`;
+            bascule.textContent = replie.libelle;
+            bascule.title = replie.titre;
             bascule.setAttribute('aria-label', bascule.title);
             bascule.setAttribute('aria-haspopup', 'true');
             bascule.setAttribute('aria-expanded', 'false');
             bascule.addEventListener('click', () => basculerGroupeEffets(bascule, g));
             rangeeReste.insertBefore(bascule, g);
-            // Un effet choisi referme le popover derrière lui — sur un téléphone, revenir le fermer à
-            // la main après CHAQUE note serait vite lassant. Écouteur unique sur le groupe (délégation) :
-            // il se déclenche après celui, propre à chaque bouton, posé par boutonAction (capture plus
-            // profonde d'abord), donc toujours APRÈS que l'action a été exécutée. Sans effet tant que le
-            // popover n'est pas ouvert (grand écran) : fermerGroupeEffets ne fait alors rien à défaire.
+            // Un choix referme le popover derrière lui — sur un téléphone, revenir le fermer à la main
+            // après CHAQUE note serait vite lassant. Écouteur unique sur le groupe (délégation) : il se
+            // déclenche après celui, propre à chaque bouton, posé par boutonAction (capture plus
+            // profonde d'abord), donc toujours APRÈS que l'action a été exécutée.
             g.addEventListener('click', (e) => { if (e.target.closest('button')) fermerGroupeEffets(g, bascule); });
             for (const a of ACTIONS.filter(x => x.groupe === cle && x.palette !== false)) boutonAction(g, a);
-            // Le bouton résume l'état de son groupe replié : un effet déjà posé sur la note courante
-            // (hammer-on, bend…) se voit sans avoir à ouvrir le popover pour le vérifier. Poussé APRÈS
-            // la boucle de boutons ci-dessus dans aRafraichir (même passe, donc déjà à jour) — voir
-            // boutonAction, qui bascule `.actif` sur chacun des neuf boutons de ce groupe.
+            // Le bouton résume l'état de son groupe replié : un effet déjà posé sur la note courante,
+            // une reprise déjà en place sur la mesure, se voient sans avoir à ouvrir le popover pour
+            // aller vérifier. Poussé APRÈS la boucle de boutons ci-dessus dans aRafraichir (même passe,
+            // donc déjà à jour) — voir boutonAction, qui bascule `.actif` sur chacun d'eux.
             aRafraichir.push(() => { bascule.classList.toggle('actif', !!g.querySelector('.btn-outil.actif')); });
             continue;
         }
@@ -452,7 +512,26 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     hote.appendChild(flecheDroiteMaitresse);
     brancherFleches(hote, flecheGaucheMaitresse, flecheDroiteMaitresse);
 
-    const rafraichir = () => { for (const fn of aRafraichir) fn(); };
+    /**
+     * UN RAFRAÎCHISSEUR QUI LÈVE N'EMPORTE PAS LES AUTRES.
+     *
+     * Chaque bouton d'état lit le modèle à sa façon (voir edit/raccourcis.js, les callbacks `actif`) :
+     * `ed.evenementCourant().duree.points`, par exemple. `evenementCourant()` rend `undefined` si le
+     * curseur pointe hors de sa voix — et une seule lecture sur `undefined` faisait tomber TOUTE la
+     * passe, donc toute la barre d'outils : plus un bouton à jour, aucune explication à l'écran, une
+     * application qui a l'air gelée.
+     *
+     * Vu deux fois aujourd'hui, par deux causes différentes (un curseur laissé hors bornes par
+     * insererAvant, puis un curseur déplacé à la main depuis un banc d'essai). Les deux causes sont
+     * corrigées ; ce filet-ci traite la CONSÉQUENCE, qui était disproportionnée. Signalé en console
+     * plutôt qu'avalé : un bouton dont l'état ne suit plus reste un défaut à corriger, simplement
+     * pas un défaut qui doit emporter la barre entière avec lui.
+     */
+    const rafraichir = () => {
+        for (const fn of aRafraichir) {
+            try { fn(); } catch (err) { console.error('Rafraîchissement d\'un bouton de la palette :', err); }
+        }
+    };
     rafraichir();
     return rafraichir;
 }
