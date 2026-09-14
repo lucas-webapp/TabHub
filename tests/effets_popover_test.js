@@ -1,15 +1,18 @@
 // Banc du POPOVER « EFFETS » — regrouper les neuf boutons de geste (hammer-on, pull-off, slide,
-// liaison, bend, palm mute, note fantôme, accent, staccato) derrière un seul bouton sur téléphone.
+// liaison, bend, palm mute, note fantôme, accent, staccato) derrière un seul bouton, À TOUTES LES
+// LARGEURS D'ÉCRAN.
 //
 // CE QU'IL PROTÈGE. Retour utilisateur : « Sur téléphone, limiter le nombre de boutons — par
 // exemple un bouton « effets » qui ouvre un popover pour me montrer les effets possibles. » La barre
 // d'outils défilait déjà horizontalement (voir barre_outils_test.js), mais rien n'y réduisait le
 // nombre de boutons SIMULTANÉMENT visibles — neuf gestes touchés une fois de temps en temps pesaient
 // aussi lourd que les figures de durée, touchées à chaque note. Ce banc éprouve :
-//   • RIEN NE CHANGE sur grand écran : le bouton popover reste invisible, le groupe Effets s'affiche
-//     en ligne exactement comme avant (voir ui/toolbar.js#construireBarreOutils) ;
-//   • sur un écran étroit (@media max-width: 720px, voir style.css), c'est l'inverse : le groupe est
-//     replié par défaut, le bouton popover est seul visible ;
+//   • LE MÊME COMPORTEMENT PARTOUT : le groupe est replié par défaut, le bouton popover seul visible.
+//     Le repli n'a d'abord existé que sur téléphone (@media max-width: 720px) ; un second retour l'a
+//     étendu à l'ordinateur (« pour gagner de la place lorsque j'ai la barre d'outils en haut :
+//     rassembler tous les effets dans un bouton »), où la barre débordait tout autant. Ce banc éprouve
+//     donc les DEUX largeurs de la même manière — et c'est l'écart entre elles qu'il interdit
+//     désormais, là où il exigeait auparavant qu'il existe ;
 //   • l'ouvrir montre les neuf boutons, dans un panneau `position: fixed` qui ne déborde pas l'écran
 //     (même mécanisme que le menu contextuel, voir main.js#ouvrirMenuContextuel) ;
 //   • choisir un effet l'applique VRAIMENT (même chemin que n'importe quel bouton de la palette) et
@@ -23,14 +26,28 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('popover Effets');
 
 (async () => {
-    plan(19);
+    plan(20);
 
     // --- Grand écran (par défaut, 1320×880) : aucun changement de comportement ------------------------
     {
         const { page, erreurs, fermer } = await ouvrirApp();
         try {
-            check(!(await page.locator('.btn-effets-bascule').isVisible()), 'sur grand écran, le bouton popover « Effets » reste invisible');
-            check(await page.locator('[data-action="accent"]').isVisible(), 'et les boutons d\'effet s\'affichent toujours en ligne, comme avant cette fonctionnalité');
+            exiger(await page.locator('.btn-effets-bascule').isVisible(),
+                'sur grand écran AUSSI, le bouton « Effets » est là — le repli ne se limite plus au téléphone');
+            check(!(await page.locator('[data-action="accent"]').isVisible()),
+                'et les neuf boutons de geste ne s\'affichent plus en ligne : c\'est la place qu\'on voulait gagner');
+            // Et il s'ouvre vraiment ici aussi : le positionnement se mesure au clic (position: fixed,
+            // voir ui/toolbar.js#basculerGroupeEffets), il n'a jamais rien dû à la largeur de l'écran.
+            await page.click('.btn-effets-bascule');
+            await page.waitForTimeout(250);
+            const deplie = await page.evaluate(() => {
+                const g = document.querySelector('.groupe-outils[data-groupe="effet"]');
+                const r = g.getBoundingClientRect();
+                return { visible: r.width > 0 && r.height > 0, nb: g.querySelectorAll('.btn-outil').length,
+                         dansLEcran: r.left >= 0 && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1 };
+            });
+            check(deplie.visible && deplie.nb === 9 && deplie.dansLEcran,
+                'un clic déplie les neuf effets dans un panneau qui tient entièrement dans la fenêtre');
             check(erreurs.length === 0, 'aucune erreur JavaScript (grand écran)');
         } finally { await fermer(); }
     }

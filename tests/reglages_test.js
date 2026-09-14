@@ -194,28 +194,26 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
 
-        // --- 8. Le titre a QUITTÉ la barre du haut sur téléphone -------------------------------------
-        // Retour utilisateur : « peux-tu enlever l'écriture SAR en haut à droite de l'appli ? » — ce
+        // --- 8. Le titre a QUITTÉ la barre du haut, à TOUTES les largeurs ---------------------------
+        // Deux retours successifs. D'abord « enlever l'écriture SAR en haut à droite de l'appli » — ce
         // « SAR » n'était pas un libellé mais le TITRE lui-même, réduit à 49px et coupé au milieu d'un
-        // mot (« Sans titre » n'y montrait que « San » et la moitié du « s »), ce qui se lit comme un
-        // sigle sans le moindre sens. Il reste dans la barre sur grand écran, où il tient en entier.
-        const surTelephone = await page.evaluate(() => {
-            const t = document.getElementById('champ-titre');
-            return { largeur: Math.round(t.getBoundingClientRect().width),
-                     texteBarre: document.querySelector('.barre-haut').innerText.replace(/\s+/g, ' ').trim() };
-        });
-        exiger(surTelephone.largeur === 0, 'sur téléphone, le titre ne s\'affiche plus dans la barre du haut');
-        check(!/Ast/.test(surTelephone.texteBarre),
-            'plus le moindre fragment de titre tronqué en haut à droite — le « SAR » du retour utilisateur');
-
-        await page.setViewportSize({ width: 1320, height: 880 });
-        await page.waitForTimeout(200);
-        const surBureau = await page.evaluate(() => {
-            const t = document.getElementById('champ-titre');
-            return { largeur: Math.round(t.getBoundingClientRect().width), valeur: t.value };
-        });
-        check(surBureau.largeur >= 120 && surBureau.valeur === 'Astérie',
-            'mais sur grand écran il reste dans la barre, à sa largeur de lecture, et suit le morceau');
+        // mot, ce qui se lit comme un sigle sans le moindre sens : le champ avait alors disparu sur
+        // téléphone seulement. Puis « on risque de se perdre pour savoir comment changer le titre [...]
+        // pas dans la barre d'outils » : il quitte la barre PARTOUT, et se modifie désormais sur la
+        // partition elle-même (voir tests/en_tete_test.js) ou ici, dans les Réglages.
+        for (const largeur of [390, 1320]) {
+            await page.setViewportSize({ width: largeur, height: 880 });
+            await page.waitForTimeout(200);
+            const barre = await page.evaluate(() => ({
+                champ: !!document.getElementById('champ-titre'),
+                texte: document.querySelector('.barre-haut').innerText.replace(/\s+/g, ' ').trim(),
+            }));
+            exiger(barre.champ === false && !/Ast/.test(barre.texte),
+                `à ${largeur}px, la barre du haut ne porte plus le titre du morceau, ni entier ni tronqué`);
+        }
+        // Le titre saisi dans les Réglages reste bien celui du morceau, lui.
+        check((await page.evaluate(() => window.app.editeur.partition.meta.titre)) === 'Astérie',
+            'et le titre saisi dans les Réglages reste celui du morceau');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

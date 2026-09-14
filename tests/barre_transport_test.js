@@ -44,9 +44,15 @@ const { check, exiger, plan, bilan } = creerHarnais('barre de transport : défil
             const r = document.getElementById(id).getBoundingClientRect();
             return r.x >= 0 && r.x + r.width <= window.innerWidth;
         }, id);
-        exiger(!(await boutonVisible('btn-mesures-ligne-bascule')), 'Mesures/ligne commence bien hors champ — condition du test suivant');
-        // Playwright fait défiler lui-même l'élément visé avant de cliquer : un clic qui RÉUSSIT ici
-        // prouve que le bouton est vraiment atteignable, pas seulement présent dans le DOM.
+        // ATTEIGNABLE, qu'il soit déjà dans le champ ou non — et non plus « hors champ au départ ».
+        // Cette condition-là a cessé d'être vraie, et c'est un progrès : les flèches masquées ne
+        // gardent plus leur largeur (voir style.css, .fleche-outils.invisible), si bien que les 26px
+        // rendus par la flèche gauche suffisent, à 230px, à ramener Mesures/ligne dans l'écran. Exiger
+        // qu'il en soit absent reviendrait à exiger que ce gain soit annulé.
+        //
+        // Playwright fait défiler lui-même l'élément visé avant de cliquer : un clic qui RÉUSSIT
+        // prouve donc que le bouton est vraiment atteignable, dans le champ ou après défilement —
+        // c'est bien cela, et non sa position de départ, que ce banc a à garantir.
         await page.click('#btn-mesures-ligne-bascule');
         check(await page.evaluate(() => document.getElementById('btn-mesures-ligne-bascule').getAttribute('aria-expanded') === 'true'),
             'un clic Playwright (qui défile lui-même jusqu\'à la cible) atteint bien Mesures/ligne et l\'ouvre');
@@ -59,6 +65,16 @@ const { check, exiger, plan, bilan } = creerHarnais('barre de transport : défil
         const large = await etat();
         check(!large.deborde, 'sur un écran large, la barre de transport ne déborde pas');
         check(large.gaucheInvisible && large.droiteInvisible, 'et les deux flèches restent invisibles — rien à défiler');
+        // CE QUI PRÉCÈDE N'EST PAS ACQUIS D'AVANCE : les flèches ne se rafraîchissaient QUE sur un
+        // évènement `scroll`, jamais au redimensionnement. Élargir la fenêtre jusqu'à ce que la barre
+        // cesse de déborder laissait donc allumée une flèche « défiler à droite » sans rien à faire
+        // défiler. Le banc ne le voyait pas : le clic ci-dessus provoquait un défilement qui corrigeait
+        // l'affichage au passage. Corrigé dans main.js (le gestionnaire de `resize` les rafraîchit) —
+        // et vérifié ici SANS qu'aucun défilement n'intervienne entre-temps.
+        check((await page.evaluate(() => {
+            const t = document.querySelector('.transport');
+            return Math.round(t.querySelector('.fleche-outils-droite').getBoundingClientRect().width);
+        })) === 0, 'et une flèche masquée n\'occupe plus aucune largeur dans la barre');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

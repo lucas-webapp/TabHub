@@ -151,8 +151,19 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         }, p);
         await page.waitForTimeout(750);   // au-delà des 550 ms de l'appui long
         exiger(await menu.isVisible(), 'un APPUI LONG sur une note ouvre le menu contextuel (équivalent tactile du clic droit)');
-        check((await menu.locator('button').allTextContents()).length === 7,
-            'avec les sept mêmes actions qu\'au clic droit');
+        // LES MÊMES ACTIONS QU'AU CLIC DROIT, quel qu'en soit le nombre : c'est l'identité des deux
+        // chemins que ce banc garantit, pas un compte qu'il faudrait corriger à chaque action ajoutée
+        // (huit à ce jour — voir menu_contextuel_test.js, qui éprouve la LISTE et son ordre). Comparer
+        // les deux listes dit la même chose en restant vrai demain.
+        const actionsAppuiLong = await menu.locator('button').allTextContents();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(100);
+        const p2 = await pointDeLaCase(0);
+        await page.mouse.click(p2.x, p2.y, { button: 'right' });
+        await page.waitForTimeout(120);
+        const actionsClicDroit = await menu.locator('button').allTextContents();
+        check(actionsAppuiLong.length > 0 && actionsAppuiLong.join('|') === actionsClicDroit.join('|'),
+            `avec exactement les mêmes actions qu'au clic droit (${actionsAppuiLong.length} au total)`);
         // On relâche : le menu doit RESTER ouvert (le doigt levé après un appui long ne l'annule pas).
         await page.evaluate(({ x, y }) => {
             const opts = { pointerType: 'touch', clientX: x, clientY: y, button: 0, bubbles: true, cancelable: true, isPrimary: true };

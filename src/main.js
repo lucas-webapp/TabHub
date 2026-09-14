@@ -112,6 +112,17 @@ function appareilTactile() {
     return window.matchMedia?.('(pointer: coarse)').matches ?? false;
 }
 
+/**
+ * ÉCRAN ÉTROIT — la même question qu'`appareilTactile`, mais posée à la LARGEUR, et volontairement
+ * par la même media query que la feuille de style (`max-width: 720px`, voir style.css) : les deux
+ * doivent basculer AU MÊME instant, sans quoi la partition se centrerait pendant que la barre
+ * d'outils est encore en deux rangées, ou l'inverse. Une constante recopiée ici dériverait le jour
+ * où l'une des deux changerait ; `matchMedia` interroge la CSS elle-même.
+ */
+function ecranEtroit() {
+    return window.matchMedia?.('(max-width: 720px)').matches ?? false;
+}
+
 class TabHubApp {
     constructor() {
         this.editeur = new Editeur();
@@ -169,7 +180,7 @@ class TabHubApp {
             zone: document.getElementById('zone-partition'),
             barreOutils: document.getElementById('barre-outils'),
             message: document.getElementById('message'),
-            titre: document.getElementById('champ-titre'),
+            panneauEnTete: document.getElementById('panneau-en-tete'),
             // tempo/metronome/metronomeSubdivision : PAS ICI. Depuis que Tempo et Métronome vivent
             // dans la barre d'outils (retour utilisateur, voir ui/toolbar.js#construireBarreOutils),
             // construits par le même appel que Signature/Tonalité, ces éléments n'existent pas
@@ -259,6 +270,17 @@ class TabHubApp {
                 // Sans effet au piano (mettreEnPagePiano ne lit jamais cette option, voir son propre
                 // aiguillage en tête de mettreEnPage) : rien à conditionner ici sur l'instrument.
                 avecPortee: !this.tabSeule,
+                // CENTRER LE BLOC DE MUSIQUE dans la page (retour utilisateur : « la portée doit être
+                // centrée horizontalement (attention, sur téléphone elle doit rester à gauche) »).
+                // Voir engine/layout.js#decalageDeCentrage. Sur écran étroit, la musique est de toute
+                // façon presque toujours PLUS LARGE que la page (le décalage vaudrait zéro) — mais le
+                // « presque » compte : à faible zoom, un téléphone peut afficher une page plus large
+                // que sa musique, et le centrage s'y déclencherait sans qu'on l'ait voulu.
+                centrer: !ecranEtroit(),
+                // En-tête modifiable au clic : un titre VIDE y laisse un fantôme « Titre » sur lequel
+                // cliquer (voir poserEnTete), sans quoi l'effacer supprimerait le seul endroit d'où le
+                // retaper. Écran seulement — le PDF n'a pas de champ à remplir.
+                enTeteEditable: true,
             });
         } catch (err) {
             // Un écran noir SANS EXPLICATION est le pire des échecs — c'est exactement ce que
@@ -442,7 +464,10 @@ class TabHubApp {
         if (raison !== 'lecture') this.suivreLeCurseur();
         this.rafraichirBoutonsHistorique();
         if (raison === 'document' || raison === 'instrument') this.remplirReglages();
-        if (raison === 'document' || raison === 'meta') this.el.titre.value = this.editeur.partition.meta.titre;
+        // Le titre s'affiche désormais SUR la partition (voir engine/layout.js#poserEnTete), que
+        // `dessiner()` vient de redessiner juste au-dessus : il n'y a plus de champ à resynchroniser
+        // dans la barre du haut. Le panneau d'édition, lui, se remplit à son ouverture.
+        if ((raison === 'document' || raison === 'meta') && !this.el.panneauEnTete.hidden) this.remplirEditeurEnTete();
         if (raison === 'document' || raison === 'tempo') {
             this.el.tempo.value = this.editeur.partition.meta.tempo;
             this.lecteur.definirTempo(this.editeur.partition.meta.tempo);
@@ -993,7 +1018,27 @@ class TabHubApp {
             e.target.value = '';
         });
 
-        this.el.titre.addEventListener('input', () => this.editeur.definirMeta('titre', this.el.titre.value));
+        // ÉDITION DE L'EN-TÊTE : un clic sur le titre, le sous-titre ou l'artiste gravés ouvre le
+        // panneau des trois champs (voir ouvrirEditeurEnTete). Par DÉLÉGATION sur la feuille : le SVG
+        // est réécrit en entier à chaque rendu (voir dessiner), aucun écouteur posé sur un <text>
+        // précis ne survivrait à la frappe suivante.
+        this.el.feuille.addEventListener('click', (e) => {
+            const cible = e.target.closest?.('.en-tete-champ');
+            if (!cible) return;
+            e.stopPropagation();
+            const vise = cible.classList.contains('en-tete-sous-titre') ? 'sousTitre'
+                : cible.classList.contains('en-tete-artiste') ? 'artiste' : 'titre';
+            this.ouvrirEditeurEnTete(cible, vise);
+        });
+        for (const champ of this.el.panneauEnTete.querySelectorAll('[data-meta]')) {
+            champ.addEventListener('input', () => this.editeur.definirMeta(champ.dataset.meta, champ.value));
+            // Entrée referme : le geste attendu quand on a fini de nommer son morceau. Échap aussi —
+            // rien à annuler, l'écriture est déjà faite au fil de la frappe (comme dans les Réglages),
+            // c'est seulement une façon de refermer sans viser la partition à la souris.
+            champ.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === 'Escape') { e.preventDefault(); this.fermerEditeurEnTete(); }
+            });
+        }
         this.el.tempo.addEventListener('change', () => this.editeur.definirTempo(parseInt(this.el.tempo.value, 10)));
         this.el.tempo.addEventListener('input', () => this.lecteur.definirTempo(parseInt(this.el.tempo.value, 10) || 120));
 
@@ -1042,10 +1087,19 @@ class TabHubApp {
         let minuterie = null;
         window.addEventListener('resize', () => {
             clearTimeout(minuterie);
-            minuterie = setTimeout(() => this.dessiner(), 120);
+            minuterie = setTimeout(() => {
+                this.dessiner();
+                // LES FLÈCHES DE LA BARRE DE TRANSPORT AUSSI (voir brancherFlechesTransport). Elles ne
+                // se rafraîchissaient QUE sur un évènement `scroll` : élargir la fenêtre jusqu'à ce que
+                // la barre ne déborde plus laissait donc allumée une flèche « défiler à droite » qui
+                // n'avait plus rien à faire défiler — un bouton inerte qu'on peut cliquer sans effet.
+                // Défaut PRÉEXISTANT, resté invisible parce qu'un défilement finissait toujours par
+                // survenir et corriger l'affichage au passage ; découvert en réduisant à zéro la
+                // largeur des flèches masquées (voir style.css), qui a supprimé ce défilement fortuit.
+                this.rafraichirFlechesTransport?.();
+            }, 120);
         });
 
-        this.el.titre.value = this.editeur.partition.meta.titre;
         this.el.tempo.value = this.editeur.partition.meta.tempo;
         this.rafraichirBoutonsHistorique();
     }
@@ -1271,6 +1325,24 @@ class TabHubApp {
             { texte: 'Ajouter une mesure avant', faire: action(() => this.editeur.ajouterMesure(false)) },
             { texte: 'Ajouter une mesure après', faire: action(() => this.editeur.ajouterMesure(true)) },
             { texte: 'Supprimer cette mesure', faire: action(() => this.editeur.supprimerMesure()) },
+            null,
+            // COPIER/COLLER UNE MESURE ENTIÈRE (retour utilisateur : « permets-moi de copier/coller une
+            // mesure complète avec clic droit, et de l'insérer là où je le souhaite »). Copier ne
+            // modifie rien, donc pas de `action()` ici : ce relais redessine et lit derniereErreur,
+            // deux choses sans objet pour un geste qui ne touche pas au document. Un message confirme
+            // à la place — sans quoi le clic n'aurait AUCUN retour visible, et on ne saurait pas si la
+            // copie a pris.
+            { texte: 'Copier cette mesure', faire: () => {
+                this.fermerMenuContextuel();
+                this.editeur.copierMesure();
+                this.message(`Mesure ${this.editeur.curseur.mesure + 1} copiée`);
+            } },
+            // Les deux collages n'apparaissent que s'il y a quelque chose à coller : une entrée grise
+            // en permanence apprendrait seulement qu'on ne peut pas s'en servir.
+            ...(this.editeur.peutCollerMesure() ? [
+                { texte: 'Coller la mesure avant', faire: this._collerMesure(false) },
+                { texte: 'Coller la mesure après', faire: this._collerMesure(true) },
+            ] : []),
         ];
 
         const menu = this.el.menuContextuel;
@@ -1310,6 +1382,48 @@ class TabHubApp {
         this.el.btnFichiers.setAttribute('aria-expanded', 'true');
         this._positionnerPanneau(popover, this.el.btnFichiers);
         this._detacherPopoverFichiers = this._fermerAuClicAilleurs(popover, () => this.fermerPopoverFichiers(), this.el.btnFichiers);
+    }
+
+    /**
+     * Ouvre le panneau des trois champs de l'en-tête, ancré sur la ligne touchée.
+     *
+     * Retour utilisateur : « on risque de se perdre pour savoir comment changer le titre. Permets-moi
+     * de modifier titre / sous-titre / artiste au niveau du titre au-dessus de la portée directement,
+     * pas dans la barre d'outils. » Le titre se modifie donc LÀ OÙ IL SE LIT.
+     *
+     * LES TROIS CHAMPS ENSEMBLE, pas seulement celui qu'on vient de toucher : un sous-titre ou un
+     * artiste VIDE n'a rien de gravé sur quoi cliquer (le bloc de titre se resserre sur ce qui existe,
+     * voir poserEnTete), et les atteindre demanderait sinon de deviner qu'ils existent. Le champ de la
+     * ligne touchée reçoit le focus — cliquer le sous-titre ouvre bien sur le sous-titre.
+     */
+    ouvrirEditeurEnTete(ancre, champVise = 'titre') {
+        const p = this.el.panneauEnTete;
+        if (!p.hidden) { this.fermerEditeurEnTete(); return; }
+        this.remplirEditeurEnTete();
+        p.hidden = false;
+        this._positionnerPanneau(p, ancre);
+        // `ancre` n'est PAS passée en exception au clic-ailleurs (contrairement à un bouton-bascule) :
+        // ce <text> disparaît au premier rendu suivant, remplacé par un autre — une exception sur un
+        // nœud détaché ne protégerait plus rien, et le titre n'est de toute façon pas une bascule.
+        this._detacherPanneauEnTete = this._fermerAuClicAilleurs(p, () => this.fermerEditeurEnTete());
+        p.querySelector(`[data-meta="${champVise}"]`)?.focus();
+    }
+
+    /** Recharge les trois champs depuis le morceau — à l'ouverture, et si le document change sous eux. */
+    remplirEditeurEnTete() {
+        for (const champ of this.el.panneauEnTete.querySelectorAll('[data-meta]')) {
+            const valeur = this.editeur.partition.meta[champ.dataset.meta] || '';
+            // Jamais pendant qu'on y tape : réécrire la valeur d'un champ qui a le focus replacerait
+            // le curseur de saisie à la fin à chaque lettre — la frappe deviendrait inutilisable.
+            if (document.activeElement !== champ) champ.value = valeur;
+        }
+    }
+
+    fermerEditeurEnTete() {
+        this.el.panneauEnTete.hidden = true;
+        this._detacherPanneauEnTete?.();
+        this._detacherPanneauEnTete = null;
+        this.el.zone.focus();
     }
 
     fermerPopoverFichiers() {
@@ -1801,26 +1915,55 @@ class TabHubApp {
     }
 
     /**
+     * CAPTURE LE POINTEUR SUR UN ÉLÉMENT STABLE pour toute la durée d'un geste — et rend de quoi la
+     * relâcher.
+     *
+     * POURQUOI. Sans elle, un geste qui commence sur le SVG de la partition en dépend : le
+     * navigateur pose une capture IMPLICITE sur l'élément touché, et `dessiner()` remplace tout le
+     * contenu de la feuille (`innerHTML`) — l'élément capturé disparaît donc sous le doigt, et le
+     * navigateur cesse purement et simplement de livrer la suite du geste. Plus aucun pointermove ni
+     * pointerup : la boucle restait figée sur sa toute première position (vérifié — un seul mouvement
+     * passait avant que tout s'arrête). C'est ce qui interdisait de redessiner PENDANT le glisser, et
+     * donc ce qui faisait attendre le relâchement pour voir la barre orange (retour utilisateur : « la
+     * barre de lecture orange doit se dessiner pendant que je suis en train de la définir »).
+     *
+     * `#zone-partition` est l'hôte : c'est le plus proche ancêtre que `dessiner()` ne touche JAMAIS
+     * (il n'écrit que dans `.feuille`, son enfant). La capture y survit donc à autant de redessins
+     * qu'on veut. Sans effet sur le défilement, déjà neutralisé pendant le geste (voir
+     * _bloquerDefilementPendantGeste).
+     */
+    _capturerPointeur(e) {
+        const hote = this.el.zone;
+        try { hote.setPointerCapture(e.pointerId); } catch (err) { return () => {}; }
+        return () => { try { hote.releasePointerCapture(e.pointerId); } catch (err) { /* déjà relâché */ } };
+    }
+
+    /**
      * GLISSER LA BANDE DE BOUCLE : définit une zone [mesureAncre, mesure courante] à rejouer en
      * boucle. Un tap/clic SANS glisser retire la boucle en place, s'il y en avait une — sans ça,
      * aucun moyen tactile d'en annuler une (à la souris, Échap ne fait pas ce lien).
      *
-     * APPLIQUÉE AU RELÂCHEMENT SEULEMENT, PAS EN CONTINU — comme l'étirement de durée (voir
-     * demarrerEtirement/terminerEtirement), mais pour une raison PLUS STRICTE encore ici : appeler
-     * dessiner() PENDANT un glisser TACTILE détruit l'élément SVG qui porte la capture implicite du
-     * doigt (innerHTML remplacé sous lui), et le navigateur cesse alors purement et simplement de
-     * livrer la suite du geste — plus aucun pointermove/pointerup, la boucle reste figée sur sa toute
-     * première position (vérifié directement : un seul mouvement passait avant que tout s'arrête).
-     * Un simple message tient lieu de retour pendant qu'on glisse ; le document (et l'écran) ne
-     * bougent qu'une fois, à la fin.
+     * DESSINÉE EN DIRECT, pendant qu'on glisse (retour utilisateur : « la barre de lecture orange doit
+     * se dessiner pendant que je suis en train de la définir. Pour le moment, elle apparaît lorsque
+     * j'ai arrêté de cliquer »). Une version antérieure attendait le relâchement, pour une raison
+     * réelle : `dessiner()` remplace le SVG sous le doigt et coupait la capture implicite du pointeur
+     * en plein geste. La réponse n'est pas de redessiner moins, c'est de capturer le pointeur sur un
+     * élément que le rendu ne touche pas — voir _capturerPointeur.
+     *
+     * REDESSINÉE SEULEMENT QUAND LA PLAGE CHANGE, c'est-à-dire au franchissement d'une mesure : une
+     * boucle se borne en MESURES, pas en pixels, et remettre toute la page en page à chaque pixel
+     * parcouru serait du travail jeté. Et plus aucune légende (« Boucle : mesures 1 à 3 ») : la barre
+     * orange elle-même le dit désormais, à l'instant où on la trace.
      */
     demarrerGesteBoucle(e, mesureAncre) {
         e.preventDefault();   // sélection de texte et souris de synthèse — PAS le défilement, voir ci-dessous
         const debloquer = this._bloquerDefilementPendantGeste();
+        const relacherCapture = this._capturerPointeur(e);
         const depart = { x: e.clientX, y: e.clientY };
         const SEUIL = 6;
         let bouge = false;
         let lo = mesureAncre, hi = mesureAncre;
+        let dessineLo = null, dessineHi = null;
 
         const surMouvement = (ev) => {
             if (!bouge && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
@@ -1828,15 +1971,20 @@ class TabHubApp {
             const courante = this.mesureLaPlusProche(ev.clientX, ev.clientY) ?? mesureAncre;
             lo = Math.min(mesureAncre, courante);
             hi = Math.max(mesureAncre, courante);
-            this.message(lo === hi ? `Boucle : mesure ${lo + 1}` : `Boucle : mesures ${lo + 1} à ${hi + 1}`, 4000);
+            if (lo === dessineLo && hi === dessineHi) return;   // même plage : rien de neuf à montrer
+            dessineLo = lo; dessineHi = hi;
+            this.lecteur.definirBoucle(this.editeur.partition, lo, hi);
+            this.dessiner();
         };
         const surRelache = () => {
+            relacherCapture();
             debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
-            if (bouge) { this.lecteur.definirBoucle(this.editeur.partition, lo, hi); this.dessiner(); }
-            else if (this.lecteur.boucleLecture) { this.lecteur.retirerBoucle(); this.dessiner(); }
+            // La plage est déjà posée et dessinée par le dernier mouvement : il ne reste à traiter que
+            // le TAP immobile, qui retire la boucle en place (le seul moyen tactile d'en annuler une).
+            if (!bouge && this.lecteur.boucleLecture) { this.lecteur.retirerBoucle(); this.dessiner(); }
             this.el.zone.focus();
         };
         window.addEventListener('pointermove', surMouvement);
@@ -1853,36 +2001,59 @@ class TabHubApp {
      * que HarmoHub (voir onLoopRangeMove, mode edge-left/edge-right). Un tap immobile sur une
      * poignée ne supprime PAS la boucle (à la différence d'un tap sur le corps de la bande, voir
      * demarrerGesteBoucle) : saisir précisément un bord n'est jamais le geste de « je veux
-     * l'annuler ». Même stratégie « appliquée au relâchement seulement » que demarrerGesteBoucle,
-     * pour la même raison précise (voir sa docblock) : dessiner() en plein glisser tactile couperait
-     * la capture du doigt en plein geste.
+     * l'annuler ». Dessinée EN DIRECT comme son aînée, et pour les mêmes raisons exactement (voir sa
+     * docblock et _capturerPointeur) : étirer un bord doit se voir pendant qu'on l'étire.
      */
     demarrerGesteBoucleBord(e, bord) {
         e.preventDefault();   // même remarque qu'à demarrerGesteBoucle : ne couvre PAS le défilement
         const debloquer = this._bloquerDefilementPendantGeste();
+        const relacherCapture = this._capturerPointeur(e);
         const boucle = this.lecteur.boucleLecture;
         const fixe = bord === 'debut' ? boucle.fin : boucle.debut;
         let lo = boucle.debut, hi = boucle.fin;
+        let dessineLo = lo, dessineHi = hi;
 
         const surMouvement = (ev) => {
             const courante = this.mesureLaPlusProche(ev.clientX, ev.clientY);
             if (courante == null) return;
             if (bord === 'debut') { lo = Math.min(courante, fixe); hi = fixe; }
             else { hi = Math.max(courante, fixe); lo = fixe; }
-            this.message(lo === hi ? `Boucle : mesure ${lo + 1}` : `Boucle : mesures ${lo + 1} à ${hi + 1}`, 4000);
+            if (lo === dessineLo && hi === dessineHi) return;
+            dessineLo = lo; dessineHi = hi;
+            this.lecteur.definirBoucle(this.editeur.partition, lo, hi);
+            this.dessiner();
         };
         const surRelache = () => {
+            relacherCapture();
             debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
-            this.lecteur.definirBoucle(this.editeur.partition, lo, hi);
-            this.dessiner();
             this.el.zone.focus();
         };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
         window.addEventListener('pointercancel', surRelache);
+    }
+
+    /**
+     * Relais du collage d'une mesure — il ne se contente pas de redessiner, il REND COMPTE.
+     *
+     * Coller une mesure de guitare dans une basse écarte les notes posées sur des cordes qui
+     * n'existent pas (voir Editeur.collerMesure) : les taire laisserait croire à une copie fidèle,
+     * alors qu'il en manque. Le nombre exact est donc annoncé, comme le fait déjà l'import MIDI pour
+     * ses notes hors du manche.
+     */
+    _collerMesure(apres) {
+        return () => {
+            this.fermerMenuContextuel();
+            const bilan = this.editeur.collerMesure(apres);
+            if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; return; }
+            this.dessiner();
+            if (bilan?.abandonnees) {
+                this.message(`Mesure collée — ${bilan.abandonnees} note(s) écartée(s), hors des cordes de cet instrument.`, 6000);
+            }
+        };
     }
 
     /** Efface toutes les notes sélectionnées en UNE seule action d'annulation (voir Editeur.effacerNotes). */

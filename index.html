@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609080900">
+    <link rel="stylesheet" href="style.css?v=202609140300">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -64,8 +64,13 @@
     <button type="button" id="btn-reglages" class="btn-icone groupe-reglages" title="Réglages" aria-label="Réglages"></button>
     <button type="button" id="btn-aide" class="btn-icone groupe-reglages" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
 
-    <span class="pousse"></span>
-    <input type="text" id="champ-titre" class="titre-morceau" value="Sans titre" aria-label="Titre du morceau" spellcheck="false">
+    <!-- PLUS DE CHAMP TITRE ICI (retour utilisateur : « tout en haut dans la bande noire, je peux
+         écrire/modifier directement le titre de la musique. On risque de se perdre pour savoir comment
+         changer le titre. Permets-moi de modifier titre / sous-titre / artiste au niveau du titre
+         au-dessus de la portée directement, pas dans la barre d'outils »). Un champ de saisie sans
+         étiquette, perdu au milieu d'une barre d'icônes, ne se DONNAIT pas pour modifiable — et sur
+         téléphone il était de toute façon réduit à trois lettres coupées. Le titre se modifie
+         désormais là où il se lit : sur la partition (voir #panneau-en-tete), et dans Réglages. -->
     <span class="pousse"></span>
 
     <a class="logo" href="#" onclick="return false" title="TabHub" aria-label="TabHub">
@@ -364,6 +369,28 @@
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
 </div>
 
-<script type="module" src="src/main.js?v=202609080900"></script>
+<!-- ÉDITION DE L'EN-TÊTE AU CLIC — s'ouvre sur le titre, le sous-titre ou l'artiste gravés sur la
+     partition (voir engine/layout.js#poserEnTete, qui les marque d'une classe, et
+     main.js#ouvrirEditeurEnTete). LES TROIS CHAMPS À LA FOIS, et pas seulement celui qu'on vient de
+     toucher : un sous-titre ou un artiste VIDE n'a rien de gravé sur quoi cliquer — les atteindre
+     demanderait sinon de les deviner. Le champ correspondant à la ligne touchée reçoit le focus.
+     Quatrième utilisateur de _positionnerPanneau/_fermerAuClicAilleurs (après le menu contextuel,
+     Fichiers et Mesures par ligne) : même mécanique, déjà éprouvée trois fois. -->
+<div class="menu-contextuel panneau-en-tete" id="panneau-en-tete" role="dialog" aria-label="Titre, sous-titre et artiste" hidden>
+    <div class="ligne-champ">
+        <label for="champ-en-tete-titre">Titre</label>
+        <input type="text" id="champ-en-tete-titre" class="champ" data-meta="titre" spellcheck="false">
+    </div>
+    <div class="ligne-champ">
+        <label for="champ-en-tete-sous-titre">Sous-titre</label>
+        <input type="text" id="champ-en-tete-sous-titre" class="champ" data-meta="sousTitre" spellcheck="false">
+    </div>
+    <div class="ligne-champ">
+        <label for="champ-en-tete-artiste">Artiste</label>
+        <input type="text" id="champ-en-tete-artiste" class="champ" data-meta="artiste" spellcheck="false">
+    </div>
+</div>
+
+<script type="module" src="src/main.js?v=202609140300"></script>
 </body>
 </html>

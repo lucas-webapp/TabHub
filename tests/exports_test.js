@@ -73,7 +73,7 @@ const empreinte = (page) => page.evaluate(() => {
 });
 
 (async () => {
-    plan(19);
+    plan(23);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -94,7 +94,33 @@ const empreinte = (page) => page.evaluate(() => {
         await telJson.saveAs(cheminJson);
         exiger(fs.existsSync(cheminJson), 'le clic sur Exporter télécharge bien un fichier');
         check(/\.json$/.test(telJson.suggestedFilename()), 'le fichier porte l\'extension .json');
-        check(telJson.suggestedFilename().startsWith('Banc des exports'), 'et il est nommé d\'après le titre du morceau');
+        // LE NOM PORTE LE TITRE **ET** L'ARTISTE (retour utilisateur : « lorsque je télécharge le JSON,
+        // je veux avoir le nom de l'artiste également. Nom du fichier = Titre - Nom artiste.json »).
+        // Un dossier de relevés où tout s'appelle « Blackbird.json » sans savoir de qui ne se trie pas.
+        exiger(telJson.suggestedFilename() === 'Banc des exports - Anonyme.json',
+            `le fichier se nomme « Titre - Artiste.json » (reçu : ${telJson.suggestedFilename()})`);
+        // Les deux moitiés sont facultatives : ce qui compte est qu'un artiste manquant ne laisse pas
+        // un tiret orphelin derrière lui (« Blackbird - .json » a l'air d'un nom tronqué), et qu'un
+        // morceau sans rien du tout retombe sur un nom de secours plutôt que sur « .json » seul.
+        const noms = await page.evaluate(async () => {
+            const { nomDuMorceau, nomDeFichierSur } = await import('/src/io/json.js');
+            const f = (meta) => nomDeFichierSur(nomDuMorceau(meta), '.json');
+            return {
+                deux: f({ titre: 'I wish', artiste: 'Stevie Wonder' }),
+                titreSeul: f({ titre: 'I wish' }),
+                artisteSeul: f({ artiste: 'Stevie Wonder' }),
+                rien: f({}),
+                espaces: f({ titre: '  Blackbird  ', artiste: '   ' }),
+                interdits: f({ titre: 'a/b:c', artiste: 'X*Y' }),
+            };
+        });
+        check(noms.deux === 'I wish - Stevie Wonder.json' && noms.titreSeul === 'I wish.json',
+            'titre + artiste donnent « Titre - Artiste », le titre seul reste le titre seul');
+        check(noms.espaces === 'Blackbird.json' && noms.artisteSeul === 'Stevie Wonder.json',
+            'un artiste vide (ou fait d\'espaces) ne laisse AUCUN tiret orphelin, et un artiste sans titre vaut mieux que rien');
+        check(noms.rien === 'tablature.json', 'et sans titre ni artiste, un nom de secours plutôt qu\'un fichier sans nom');
+        check(noms.interdits === 'a_b_c - X_Y.json',
+            'les caractères interdits par les systèmes de fichiers sont neutralisés des DEUX côtés du tiret');
 
         const brut = JSON.parse(fs.readFileSync(cheminJson, 'utf8'));
         check(brut.format === 'tabhub-partition', 'le fichier se déclare au format TabHub');

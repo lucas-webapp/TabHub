@@ -45,6 +45,11 @@ export class Editeur {
         // touche jamais au DOM, donc jamais de toast d'ici ; l'appelant (main.js) lit ce champ juste
         // après avoir invoqué une commande et l'affiche si besoin.
         this.derniereErreur = null;
+        // PRESSE-PAPIER D'UNE MESURE (voir copierMesure/collerMesure). Volontairement porté par
+        // l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à un
+        // `nouveau()` comme à un changement d'instrument — copier une mesure de guitare pour la
+        // reporter dans une basse est un geste légitime, que collerMesure sait rendre sûr.
+        this.presseMesure = null;
     }
 
     // -- Abonnement ------------------------------------------------------------------------------
@@ -943,6 +948,81 @@ export class Editeur {
         this.curseur.evenement = 0;
         this.corrigerCurseur();
         this.prevenir('edition');
+    }
+
+    /**
+     * COPIE la mesure courante dans un presse-papier interne (retour utilisateur : « permets-moi de
+     * copier/coller une mesure complète avec clic droit, et de l'insérer là où je le souhaite »).
+     *
+     * Ne modifie RIEN — donc aucun point d'annulation : copier n'est pas une édition, et polluer
+     * l'historique d'un geste qui ne change pas le document ferait qu'un Ctrl+Z après une copie
+     * semblerait « ne rien faire ».
+     *
+     * ON MÉMORISE AUSSI LA SIGNATURE EN VIGUEUR, pas seulement les notes : c'est elle qui donne un
+     * sens à leur somme. Coller une mesure de 4 temps dans un passage en 3/4 sans cette précaution
+     * produirait une mesure qui déborde silencieusement — voir collerMesure, qui s'en sert.
+     */
+    copierMesure() {
+        this.presseMesure = {
+            mesure: cloner(this.mesureCourante()),
+            signature: { ...signatureEffective(this.partition, this.curseur.mesure) },
+            cordes: nbCordes(this.partition),
+        };
+        return true;
+    }
+
+    /** Y a-t-il quelque chose à coller ? Sert au menu contextuel, qui masque l'entrée si non. */
+    peutCollerMesure() { return !!this.presseMesure; }
+
+    /**
+     * COLLE la mesure copiée, avant ou après celle du curseur — jamais par-dessus : « insérer là où je
+     * le souhaite » veut dire ajouter, pas écraser ce qui s'y trouve.
+     *
+     * DEUX PIÈGES, traités plutôt que laissés au hasard.
+     *
+     * 1. LES CORDES. Une mesure de guitare collée dans une basse porterait des notes sur des cordes
+     *    qui n'existent pas — invisibles à l'écran (aucune ligne pour les recevoir) mais bien dans le
+     *    document, et audibles. Elles sont donc écartées, et leur nombre remonté à l'appelant pour
+     *    qu'il le DISE, comme le fait déjà l'import MIDI de ses notes hors du manche.
+     *
+     * 2. LA SIGNATURE. Une mesure de 4 temps collée dans un passage en 3/4 doit garder SA signature,
+     *    sinon sa somme ne correspond plus à sa capacité. Mais la poser telle quelle la propagerait à
+     *    TOUTE LA SUITE du morceau (voir signatureEffective, qui remonte à la dernière mesure qui en
+     *    fixe une) : on rend donc explicitement à la mesure SUIVANTE la signature qui régnait là
+     *    avant le collage. Le changement reste local, exactement là où on a collé.
+     */
+    collerMesure(apres = true) {
+        if (!this.presseMesure) { this.derniereErreur = 'Aucune mesure copiée.'; return null; }
+        const cordesCibles = nbCordes(this.partition);
+        const copie = cloner(this.presseMesure.mesure);
+        let abandonnees = 0;
+        for (const voix of copie.voix) {
+            for (const e of voix.evenements) {
+                const avant = e.notes.length;
+                e.notes = e.notes.filter(n => n.corde < cordesCibles);
+                abandonnees += avant - e.notes.length;
+                if (!e.notes.length) e.silence = true;
+            }
+        }
+
+        this.memoriser();
+        const at = apres ? this.curseur.mesure + 1 : this.curseur.mesure;
+        const signatureAvant = { ...signatureEffective(this.partition, Math.min(at, this.partition.mesures.length - 1)) };
+        const sigCopie = this.presseMesure.signature;
+        const memeSignature = sigCopie.battements === signatureAvant.battements && sigCopie.unite === signatureAvant.unite;
+        copie.signature = memeSignature ? null : { ...sigCopie };
+        this.partition.mesures.splice(at, 0, copie);
+        // Rendre à la suite la signature qu'elle avait : sans ça, le 4/4 de la mesure collée
+        // deviendrait celui de tout ce qui la suit.
+        if (!memeSignature) {
+            const suivante = this.partition.mesures[at + 1];
+            if (suivante && !suivante.signature) suivante.signature = signatureAvant;
+        }
+        this.curseur.mesure = at;
+        this.curseur.evenement = 0;
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return { abandonnees };
     }
 
     supprimerMesure() {

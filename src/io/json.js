@@ -15,6 +15,22 @@ export function nomDeFichierSur(nom, extension) {
 }
 
 /**
+ * NOM LISIBLE DU MORCEAU pour un fichier téléchargé : « Titre - Artiste » (retour utilisateur :
+ * « lorsque je télécharge le JSON, je veux avoir le nom de l'artiste également. Nom du fichier =
+ * Titre - Nom artiste.json »). Un dossier de relevés où tout s'appelle « Sans titre.json » ou
+ * « Blackbird.json » sans savoir de qui ne se trie pas.
+ *
+ * LES DEUX MOITIÉS SONT FACULTATIVES, et c'est tout l'intérêt de passer par ici plutôt que
+ * d'interpoler à la main : un morceau sans artiste ne doit pas produire « Blackbird - .json » (un
+ * tiret orphelin, et un nom qui a l'air tronqué), et un artiste sans titre vaut mieux que rien du
+ * tout. On assemble donc ce qui existe, et `nomDeFichierSur` retombe sur « tablature » si les deux
+ * manquent.
+ */
+export function nomDuMorceau(meta = {}) {
+    return [meta.titre, meta.artiste].map(x => String(x || '').trim()).filter(Boolean).join(' - ');
+}
+
+/**
  * Déclenche le téléchargement d'un contenu. Un lien `download` synthétique plutôt qu'une nouvelle
  * fenêtre : le navigateur enchaîne directement sur « Enregistrer sous », sans onglet intermédiaire
  * ni fenêtre surgissante à autoriser.
@@ -35,7 +51,7 @@ export function telecharger(contenu, nomFichier, typeMime) {
 
 /** Exporte la partition dans un .json téléchargé. Renvoie le nom du fichier écrit. */
 export function enregistrerPartition(partition) {
-    const nom = nomDeFichierSur(partition.meta.titre, '.json');
+    const nom = nomDeFichierSur(nomDuMorceau(partition.meta), '.json');
     const contenu = JSON.stringify({ ...partition, meta: { ...partition.meta, modifieLe: new Date().toISOString() } }, null, 2);
     telecharger(contenu, nom, 'application/json');
     return nom;

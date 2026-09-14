@@ -33,7 +33,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rangée du haut : tient dan
 const TELEPHONES = [360, 375, 390, 414, 430];
 
 (async () => {
-    plan(13);
+    plan(18);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 390, height: 844 }, hasTouch: true, isMobile: true });
     try {
         const mesurer = () => page.evaluate(() => {
@@ -105,6 +105,60 @@ const TELEPHONES = [360, 375, 390, 414, 430];
         check(bureau.apparence !== 'none' && bureau.image === 'none',
             'sur grand écran, le menu déroulant retrouve la flèche NATIVE du système');
         check(bureau.largBemol >= 34, 'et le bouton ♭ y garde une largeur confortable');
+
+        // --- 6. LA BARRE EST CALÉE À GAUCHE, sur ordinateur aussi -----------------------------------
+        // Retour utilisateur, capture à l'appui : « la barre d'outils n'est toujours pas calée sur la
+        // gauche, il y a un vide sous la flèche undo ». Ce vide n'était pas une marge : c'était la
+        // flèche de défilement MAÎTRESSE, masquée par `opacity: 0` mais toujours large de 26px, qui
+        // repoussait le premier groupe. La réduction à zéro n'existait que dans le bloc téléphone, pour
+        // les flèches de RANGÉE — corrigée depuis à la source (voir style.css, .fleche-outils.invisible).
+        //
+        // Éprouvé par la POSITION du premier groupe comparée à celle du premier bouton de la barre du
+        // haut, et non par la largeur de la flèche : c'est l'alignement des deux barres qui se voit à
+        // l'écran, et lui seul que le retour décrit.
+        await page.setViewportSize({ width: 1320, height: 880 });
+        await page.waitForTimeout(250);
+        const cale = await page.evaluate(() => {
+            const g = document.querySelector('.barre-outils .groupe-outils');
+            const undo = document.getElementById('btn-annuler');
+            const fl = document.querySelector('.fleche-outils-maitresse');
+            return {
+                xGroupe: Math.round(g.getBoundingClientRect().x),
+                xUndo: Math.round(undo.getBoundingClientRect().x),
+                flecheCachee: fl.classList.contains('invisible'),
+                largeurFleche: Math.round(fl.getBoundingClientRect().width),
+            };
+        });
+        exiger(cale.flecheCachee && cale.largeurFleche === 0,
+            'la flèche de défilement masquée n\'occupe plus aucune largeur (elle en prenait 26)');
+        check(Math.abs(cale.xGroupe - cale.xUndo) <= 6,
+            `le premier groupe d'outils s'aligne sur le bouton Annuler de la barre du haut (${cale.xGroupe}px contre ${cale.xUndo}px)`);
+
+        // --- 7. LES NEUF EFFETS SONT REPLIÉS, sur ordinateur aussi ----------------------------------
+        // Retour utilisateur : « pour gagner de la place lorsque j'ai la barre d'outils en haut :
+        // rassembler tous les effets dans un bouton ». Le repli existait, enfermé dans le bloc
+        // téléphone : l'ordinateur gardait neuf boutons en ligne dans une barre qui débordait aussi.
+        const effets = await page.evaluate(() => {
+            const b = document.querySelector('.btn-effets-bascule');
+            const g = document.querySelector('.groupe-outils[data-groupe="effet"]');
+            return { bouton: b.getBoundingClientRect().width > 0, groupe: g.getBoundingClientRect().width > 0 };
+        });
+        exiger(effets.bouton && !effets.groupe,
+            'sur ordinateur, un seul bouton « Effets » remplace les neuf boutons de geste');
+        await page.click('.btn-effets-bascule');
+        await page.waitForTimeout(250);
+        const deplie = await page.evaluate(() => {
+            const g = document.querySelector('.groupe-outils[data-groupe="effet"]');
+            const r = g.getBoundingClientRect();
+            return { ouvert: g.classList.contains('ouvert'), visible: r.width > 0 && r.height > 0,
+                     nb: g.querySelectorAll('.btn-outil').length,
+                     dansLEcran: r.left >= 0 && r.right <= window.innerWidth + 1 && r.bottom <= window.innerHeight + 1 };
+        });
+        check(deplie.ouvert && deplie.visible && deplie.nb === 9,
+            'un clic les déplie tous les neuf dans un popover');
+        check(deplie.dansLEcran, 'et ce popover tient entièrement dans la fenêtre, jamais à cheval sur un bord');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(150);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

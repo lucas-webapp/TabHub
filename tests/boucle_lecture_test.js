@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(36);
+    plan(41);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -482,6 +482,46 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             'pendant un glisser de boucle, un touchmove est REFUSÉ (preventDefault) — le navigateur ne peut plus s\'emparer du geste pour défiler, quel que soit son support de touch-action sur du SVG');
         check(defilement.avant === false && defilement.apres === false,
             'et hors de ce geste — avant comme après — le touchmove repasse librement : le défilement au doigt de la partition reste entier');
+
+        // --- LA BANDE SE DESSINE PENDANT QU'ON LA TRACE ---------------------------------------------
+        // Retour utilisateur : « la barre de lecture orange doit se dessiner pendant que je suis en
+        // train de la définir. Pour le moment, elle apparaît lorsque j'ai arrêté de cliquer. »
+        //
+        // CE QUI L'EN EMPÊCHAIT était réel, pas de la paresse : `dessiner()` remplace le contenu de la
+        // feuille, ce qui détruit l'élément SVG portant la capture IMPLICITE du pointeur — le
+        // navigateur cessait alors de livrer la suite du geste (plus aucun pointermove ni pointerup).
+        // La réponse n'est pas de redessiner moins mais de capturer le pointeur sur un élément que le
+        // rendu ne touche jamais : #zone-partition (voir main.js#_capturerPointeur).
+        //
+        // On mesure donc l'état AVANT le relâchement — le seul moment où l'ancienne version ne montrait
+        // rien — et on vérifie qu'un geste de plusieurs étapes livre bien TOUTES ses étapes.
+        await page.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.dessiner(); });
+        await page.waitForTimeout(150);
+        const d0 = await pointMesure(0);
+        const d2 = await pointMesure(2);
+        await page.mouse.move(d0.x, d0.y);
+        await page.mouse.down();
+        await page.mouse.move(d0.x + 24, d0.y, { steps: 3 });
+        const enCours1 = await page.evaluate(() => window.app.lecteur.boucleLecture);
+        await page.mouse.move(d2.x, d2.y, { steps: 8 });
+        const enCours2 = await page.evaluate(() => ({
+            boucle: window.app.lecteur.boucleLecture,
+            // La bande orange est-elle RÉELLEMENT dessinée à cet instant, pas seulement enregistrée ?
+            halos: document.querySelectorAll('#feuille rect.bande-boucle').length,
+        }));
+        await page.mouse.up();
+        await page.waitForTimeout(150);
+        exiger(enCours1 && enCours1.debut === 0 && enCours1.fin === 0,
+            'dès les premiers pixels parcourus, la boucle existe déjà — avant tout relâchement');
+        exiger(enCours2.boucle && enCours2.boucle.debut === 0 && enCours2.boucle.fin === 2,
+            'et elle SUIT le geste jusqu\'à la mesure 3 : la capture du pointeur survit aux redessins');
+        check(enCours2.halos > 0, 'la bande orange est bel et bien tracée à l\'écran pendant le glisser');
+        check((await page.evaluate(() => window.app.lecteur.boucleLecture.fin)) === 2,
+            'et le relâchement ne fait que confirmer ce qu\'on voyait déjà');
+
+        // PLUS DE LÉGENDE (« Boucle : mesures 1 à 3 ») : la barre orange le dit elle-même désormais.
+        check(!/Boucle/.test(await page.evaluate(() => document.body.innerText)),
+            'aucune légende « Boucle : mesures … » ne s\'affiche plus nulle part — la bande suffit');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

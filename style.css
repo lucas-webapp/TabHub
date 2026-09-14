@@ -266,7 +266,25 @@ body > * { min-width: 0; }
 /* Bouton « Effets » (voir ui/toolbar.js#basculerGroupeEffets) : invisible sur grand écran, où le
    groupe Effets s'affiche en ligne comme tous les autres — ne prend vie qu'à l'étroit, voir
    @media (max-width: 720px) plus bas. */
-.btn-outil.btn-effets-bascule { display: none; }
+/* LES NEUF EFFETS REPLIÉS DERRIÈRE UN BOUTON, À TOUTES LES LARGEURS (retour utilisateur : « pour
+   gagner de la place lorsque j'ai la barre d'outils en haut : rassembler tous les effets dans un
+   bouton. Lorsque je cliquerai sur "effets", la liste d'effets apparaîtra »). Le repli existait déjà,
+   mais enfermé dans @media (max-width: 720px) — l'ordinateur gardait les neuf boutons en ligne, dans
+   une barre qui débordait pourtant elle aussi (voir tests/barre_haut_largeur_test.js pour la rangée
+   voisine). Le raisonnement d'origine vaut à toutes les tailles : hammer-on, pull-off, slide… se
+   posent moins souvent qu'une figure de durée, et ne méritent pas la même place qu'elle.
+   Voir ui/toolbar.js#basculerGroupeEffets — `position: fixed` posé et mesuré AU CLIC, jamais en CSS
+   pur, qui ne sait pas où se trouve LE bouton qu'on vient de toucher. `.etiquette-groupe` (« EFFETS »)
+   reste masquée sur téléphone par la règle du bloc étroit ; sur ordinateur le popover la garde, elle
+   coiffe alors utilement la liste dépliée. */
+.btn-outil.btn-effets-bascule { display: inline-flex; }
+.groupe-outils[data-groupe="effet"] { display: none; }
+.groupe-outils[data-groupe="effet"].ouvert {
+    display: flex; flex-wrap: wrap;
+    position: fixed; z-index: 70;
+    width: max-content; max-width: min(230px, calc(100vw - 16px));
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+}
 
 /* FLÈCHES DE DÉFILEMENT DE LA BARRE D'OUTILS — voir ui/toolbar.js#flecheDefilement. `sticky` les
    colle au bord VISIBLE du conteneur qui défile (pas au bord du contenu, qui serait hors champ) :
@@ -300,8 +318,16 @@ body > * { min-width: 0; }
 .fleche-outils-droite { right: 0; }
 /* Masquée plutôt que retirée du DOM (`display:none` casserait sa propre mesure de scrollWidth au
    moment même où on la remontre) : invisible et hors du passage du clavier/lecteur d'écran, mais
-   toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté. */
-.fleche-outils.invisible { opacity: 0; pointer-events: none; }
+   toujours là pour se remontrer dès qu'il y a de nouveau quelque chose à atteindre de son côté.
+   ET LARGEUR NULLE, pas seulement transparente (retour utilisateur, capture à l'appui : « la barre
+   d'outils n'est toujours pas calée sur la gauche, il y a un vide sous la flèche undo »). Ce vide
+   n'était pas une marge : c'était CETTE flèche, invisible mais large de 26px, qui repoussait le
+   premier groupe d'outils vers la droite. La réduction à zéro n'existait que dans le bloc téléphone
+   (@media max-width: 720px, pour les flèches de RANGÉE) ; corrigée ici, à la source, elle vaut aussi
+   pour la flèche maîtresse sur ordinateur et pour celles de la barre de transport — mêmes flèches,
+   même bogue latent. Ne fonctionne QUE grâce au `padding: 0` de la règle de base plus haut : sous
+   `border-box`, les 12px de padding par défaut d'un <button> formaient un plancher infranchissable. */
+.fleche-outils.invisible { opacity: 0; pointer-events: none; width: 0; overflow: hidden; }
 body.outils-gauche .fleche-outils { display: none; }   /* colonne verticale : rien à faire défiler ainsi */
 /* .fleche-outils sert aussi la barre de TRANSPORT (voir main.js#brancherFlechesTransport) — mêmes
    règles, aucune ne mentionne #barre-outils : rien à dupliquer pour un second conteneur qui défile
@@ -466,6 +492,26 @@ input.champ[type="number"] { width: 54px; text-align: center; }
     flex: none;
 }
 .feuille svg { display: block; }
+
+/* EN-TÊTE MODIFIABLE AU CLIC (voir engine/layout.js#poserEnTete et main.js#ouvrirEditeurEnTete).
+   Un titre gravé ne se donne pas spontanément pour cliquable : le curseur de saisie et un léger
+   éclaircissement au survol sont tout ce qui le dit — sans rien ajouter à l'encre, la partition
+   restant un document et non un formulaire. `paint-order` n'entre pas en jeu ici : on ne touche
+   qu'à l'opacité, jamais aux formes. */
+.en-tete-champ { cursor: text; }
+.en-tete-champ:hover { opacity: .62; }
+/* Le fantôme d'un titre effacé : déjà gris (couleur `discret`, voir render/svg.js), et rendu plus
+   discret encore — il doit se lire comme une INVITE, pas comme un titre qui serait « Titre ». */
+.en-tete-vide { opacity: .5; }
+.en-tete-vide:hover { opacity: .8; }
+
+/* Le panneau des trois champs. Reprend .menu-contextuel (fond, bordure, ombre, position fixe posée
+   au clic — voir main.js#_positionnerPanneau) et n'ajoute que la mise en colonne de ses lignes :
+   .menu-contextuel est taillé pour une pile de boutons, pas pour des couples étiquette/champ. */
+.panneau-en-tete { display: flex; flex-direction: column; gap: 8px; padding: 10px; min-width: 260px; }
+.panneau-en-tete .ligne-champ { display: flex; align-items: center; gap: 8px; }
+.panneau-en-tete label { flex: 0 0 74px; font-size: var(--fs-sm); color: var(--text-muted); }
+.panneau-en-tete input.champ { flex: 1 1 auto; min-width: 0; }
 
 /* Curseur d'édition : un bandeau vertical translucide sur toute la hauteur du système, plus un
    soulignement franc sur la corde visée. Le bandeau dit « où dans le temps », le soulignement
@@ -1068,14 +1114,6 @@ body.avec-pave .dpad-flottant { display: grid; }
        que dupliqué ici. `.etiquette-groupe` (« EFFETS ») reste masquée par la règle plus haut : le
        bouton replié porte déjà son propre libellé, pas besoin d'un second à l'intérieur du popover.
      */
-    .btn-outil.btn-effets-bascule { display: inline-flex; }
-    .groupe-outils[data-groupe="effet"] { display: none; }
-    .groupe-outils[data-groupe="effet"].ouvert {
-        display: flex; flex-wrap: wrap;
-        position: fixed; z-index: 70;
-        width: max-content; max-width: min(230px, calc(100vw - 16px));
-        box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
-    }
 
     /* MESURES PAR LIGNE -> MÊME POPOVER, même raison (retour utilisateur : « la barre de transport
        est trop tassée » — six boutons toujours visibles, dans une rangée qui porte déjà Lecture/
