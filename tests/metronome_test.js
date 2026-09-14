@@ -23,12 +23,15 @@ const { check, exiger, plan, bilan } = creerHarnais('métronome');
         check(await page.evaluate(() => !document.getElementById('champ-reglette')),
             'la case à cocher « Réglette » a bien disparu');
 
-        // --- Les deux boutons existent, désactivés par défaut --------------------------------------
-        // Posés dans la barre d'outils (groupe « Écriture », aux côtés de Signature/Tonalité — retour
-        // utilisateur, voir ui/toolbar.js), plus dans la barre de transport : peu importe où, ce banc
-        // ne teste que leur existence et leur comportement, jamais un emplacement précis.
-        exiger(await page.evaluate(() => !!document.getElementById('btn-metronome') && !!document.getElementById('btn-metronome-subdivision')),
-            'les deux boutons du métronome existent');
+        // --- Les deux commandes existent, désactivées par défaut -----------------------------------
+        // DEUX COMMANDES DE NATURES DIFFÉRENTES, et c'est ce qui les a séparées. Le métronome
+        // lui-même est un bouton du BLOC DE LECTURE (#bloc-lecture, voir index.html) : on l'allume et
+        // on l'éteint en jouant. Le clic sur les croches est devenu un interrupteur de RÉGLAGES > Son
+        // (#champ-metronome-subdivision) : c'est une manière dont le métronome se comporte, qu'on
+        // choisit une fois — et elle se retenait déjà d'une session à l'autre, comme un réglage.
+        // Ce banc ne teste ni l'un ni l'autre emplacement, seulement l'existence et le comportement.
+        exiger(await page.evaluate(() => !!document.getElementById('btn-metronome') && !!document.getElementById('champ-metronome-subdivision')),
+            'les deux commandes du métronome existent — le bouton de lecture et l\'interrupteur des Réglages');
         check((await page.evaluate(() => window.app.lecteur.metronomeActif)) === false, 'désactivé par défaut (préférence explicite, pas un bruit imposé)');
 
         // --- Le clic bascule l'état ET l'habillage visuel -------------------------------------------
@@ -82,16 +85,27 @@ const { check, exiger, plan, bilan } = creerHarnais('métronome');
         // à zéro avant d'éprouver le BOUTON lui-même, sans quoi le clic qui suit le désactiverait.
         await page.evaluate(() => { window.app.lecteur.metronomeSubdivision = false; window.app.rafraichirMetronome(); });
 
-        // --- Le bouton de subdivision change de valeur ET d'icône (noire <-> croches) ---------------
-        const avantSub = await page.evaluate(() => document.getElementById('btn-metronome-subdivision').querySelector('svg').innerHTML);
-        await page.click('#btn-metronome-subdivision');
+        // --- L'INTERRUPTEUR de subdivision, dans Réglages > Son --------------------------------------
+        // Il faut OUVRIR les Réglages : un interrupteur dans un panneau fermé n'est pas cliquable, et
+        // c'est aussi le geste réel de l'utilisateur.
+        await page.click('#btn-reglages');
+        await page.waitForTimeout(250);
+        const avantSub = await page.evaluate(() => document.getElementById('champ-metronome-subdivision').getAttribute('aria-checked'));
+        await page.click('#champ-metronome-subdivision');
+        await page.waitForTimeout(120);
         const r2 = await page.evaluate(() => ({
             sub: window.app.lecteur.metronomeSubdivision,
-            classe: document.getElementById('btn-metronome-subdivision').classList.contains('actif'),
-            icone: document.getElementById('btn-metronome-subdivision').querySelector('svg').innerHTML,
+            coche: document.getElementById('champ-metronome-subdivision').getAttribute('aria-checked'),
         }));
-        check(r2.sub === true && r2.classe === true, 'le bouton « croche » active la subdivision, habillage compris');
-        check(r2.icone !== avantSub, 'et son icône change (noire seule -> deux croches reliées), pas figée');
+        check(r2.sub === true && r2.coche === 'true', 'l\'interrupteur « Clic sur les croches » active la subdivision, habillage compris');
+        // PLUS DE DESSIN À ÉCHANGER : le bouton-icône d'avant devait annoncer son propre état par son
+        // seul tracé (une noire, ou deux croches reliées) — deux jeux de glyphes à tenir pour dire ce
+        // qu'un interrupteur montre sans rien à interpréter. La vérification porte donc désormais sur
+        // le CHANGEMENT d'état, pas sur un changement d'icône.
+        check(avantSub === 'false' && r2.coche === 'true',
+            'et son état change visiblement (aria-checked false -> true), là où l\'ancienne icône devait dessiner son propre état');
+        await page.click('#fenetre-reglages [data-fermer]');
+        await page.waitForTimeout(150);
 
         // --- Persistance : les deux réglages survivent au rechargement ------------------------------
         await page.reload({ waitUntil: 'domcontentloaded' });

@@ -46,6 +46,14 @@ export const GEO_DEFAUT = {
     avertirErreurs: true,      // fond teinté sur une mesure dont une voix ne totalise pas la
                                 // bonne durée — mis à false pour l'export PDF (couleur translucide,
                                 // non portable vers jsPDF)
+    // ÉCHELLE DU BLOC DE TITRE (titre, sous-titre, artiste), en facteur — 1 = les proportions de
+    // gravure d'origine. Réglable pour l'export PDF (retour utilisateur : « me permettre d'ajuster
+    // [...] la taille des titres »), où un titre long peut voler une ligne de musique à la première
+    // page, et où l'inverse — un titre trop discret sur une fiche d'exercices — se voit aussi.
+    // UN FACTEUR, PAS DES TAILLES : les trois lignes gardent ainsi leurs rapports entre elles (le
+    // titre reste presque deux fois le nom de l'artiste), et les interlignes du bloc suivent la
+    // même échelle — sans quoi agrandir le titre l'aurait fait mordre sur le sous-titre.
+    echelleEnTete: 1,
 };
 
 /**
@@ -1130,7 +1138,11 @@ function poserEnTete(out, partition, geo, y) {
     const S = geo.S;
     const centre = geo.largeurPage / 2;
     const meta = partition.meta || {};
-    let yy = y + S * 2.6;
+    // `E` : l'échelle du bloc de titre (voir GEO_DEFAUT#echelleEnTete). Elle multiplie les tailles
+    // ET les avances verticales du bloc, jamais la musique qui suit — le tempo, la tonalité et les
+    // portées gardent leurs proportions de gravure quoi qu'on fasse du titre.
+    const E = geo.echelleEnTete ?? 1;
+    let yy = y + S * 2.6 * E;
 
     // LES TROIS LIGNES SE MODIFIENT D'UN CLIC, là où elles s'affichent (retour utilisateur : « on
     // risque de se perdre pour savoir comment changer le titre [...] permets-moi de modifier titre /
@@ -1138,24 +1150,24 @@ function poserEnTete(out, partition, geo, y) {
     // tout ce que le moteur fournit : elle donne à l'interface une prise sur le texte rendu (voir
     // main.js#ouvrirEditeurEnTete), et le moteur n'en sait pas plus — il ne connaît ni clic ni DOM.
     if (meta.titre) {
-        out.push(texte(centre, yy + S * 2.1, meta.titre, { taille: S * 3.1, police: 'serif', poids: '700', classe: 'en-tete-champ en-tete-titre' }));
-        yy += S * 3.6;
+        out.push(texte(centre, yy + S * 2.1 * E, meta.titre, { taille: S * 3.1 * E, police: 'serif', poids: '700', classe: 'en-tete-champ en-tete-titre' }));
+        yy += S * 3.6 * E;
     } else if (geo.enTeteEditable) {
         // TITRE VIDE : un fantôme cliquable, à l'écran SEULEMENT. Sans lui, effacer son titre
         // supprimerait du même coup le seul endroit où le retaper — un cul-de-sac dont on ne sort
         // plus que par les Réglages, ce qui est exactement le détour que ce clic vient supprimer.
         // Absent du PDF (`enTeteEditable` n'y est pas posé) : un document imprimé n'a pas de champ
         // à remplir, et le bloc de titre y retrouve sa hauteur exacte, resserrée sur ce qui existe.
-        out.push(texte(centre, yy + S * 2.1, 'Titre', { taille: S * 3.1, police: 'serif', poids: '700', couleur: 'discret', classe: 'en-tete-champ en-tete-titre en-tete-vide' }));
-        yy += S * 3.6;
+        out.push(texte(centre, yy + S * 2.1 * E, 'Titre', { taille: S * 3.1 * E, police: 'serif', poids: '700', couleur: 'discret', classe: 'en-tete-champ en-tete-titre en-tete-vide' }));
+        yy += S * 3.6 * E;
     }
     if (meta.sousTitre) {
-        out.push(texte(centre, yy + S * 1.1, meta.sousTitre, { taille: S * 1.6, police: 'serif', poids: '500', classe: 'en-tete-champ en-tete-sous-titre' }));
-        yy += S * 2.1;
+        out.push(texte(centre, yy + S * 1.1 * E, meta.sousTitre, { taille: S * 1.6 * E, police: 'serif', poids: '500', classe: 'en-tete-champ en-tete-sous-titre' }));
+        yy += S * 2.1 * E;
     }
     if (meta.artiste) {
-        out.push(texte(centre, yy + S * 1.15, meta.artiste, { taille: S * 1.75, police: 'serif', poids: '700', classe: 'en-tete-champ en-tete-artiste' }));
-        yy += S * 2.3;
+        out.push(texte(centre, yy + S * 1.15 * E, meta.artiste, { taille: S * 1.75 * E, police: 'serif', poids: '700', classe: 'en-tete-champ en-tete-artiste' }));
+        yy += S * 2.3 * E;
     }
 
     // Indication de tempo : la FIGURE de note plutôt que le mot « noire ». C'est la notation

@@ -346,14 +346,34 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // marques de navigation et de barre). Même mécanique pour les deux — d'où ce petit tableau plutôt
     // qu'un `if (cle === 'effet')` doublé le jour où le second est arrivé : deux copies d'un popover
     // finissent toujours par diverger sur un détail (la fermeture après choix, le résumé d'état…).
+    // `hote` : DANS QUEL CADRE le bouton replié va vivre (retour utilisateur : « le bouton "Effets"
+    // doit être inclus dans l'encadrement d'ajout de notes. Pour le moment il est à part. De la même
+    // façon, le bouton "Repères" doit être inclus dans l'encadrement des modifications de la portée
+    // et armure »).
+    //
+    // Les deux boutons vivaient ENTRE les cadres, seuls au milieu — ce qui les faisait lire comme
+    // deux outils sans famille, alors que chacun en a une : un effet se pose sur la note qu'on
+    // écrit, un repère se pose sur la portée qu'on organise. Depuis que les cadres ont remplacé les
+    // titres de section, cette position « entre deux » a cessé d'être neutre : elle dit
+    // « n'appartient à rien ».
+    //
+    // Le POPOVER, lui, ne change pas de place : il est mesuré au clic depuis le bouton (voir
+    // basculerGroupeEffets) et se pose en `position: fixed`, donc il s'ouvre là où le bouton se
+    // trouve, quel que soit le cadre qui l'héberge.
     const GROUPES_REPLIES = {
-        effet: { classe: 'btn-effets-bascule', libelle: 'Effets',
+        effet: { classe: 'btn-effets-bascule', libelle: 'Effets', hote: 'duree',
                  titre: 'Effets (hammer-on, pull-off, slide, liaison, bend, palm mute, note fantôme, accent, staccato)' },
-        repere: { classe: 'btn-reperes-bascule', libelle: 'Repères',
+        repere: { classe: 'btn-reperes-bascule', libelle: 'Repères', hote: 'ecriture',
                   titre: 'Repères et barres (reprises, double barre, barre finale, Segno, Coda, D.C., D.S., al Coda, Fine)' },
     };
+    // Les cadres retenus au passage, pour y déposer les boutons repliés une fois tous construits :
+    // « Écriture » n'existe que plus bas (il lui faut d'abord son contenu), donc le dépôt ne peut pas
+    // se faire dans la boucle.
+    const cadres = {};
+    const basculesAPlacer = [];
     for (const cle of ['duree', 'effet', 'mesure', 'repere']) {
         const g = groupe(TITRES_GROUPES[cle], cle, rangeeReste);
+        cadres[cle] = g;
         const replie = GROUPES_REPLIES[cle];
         if (replie) {
             const bascule = document.createElement('button');
@@ -365,7 +385,7 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
             bascule.setAttribute('aria-haspopup', 'true');
             bascule.setAttribute('aria-expanded', 'false');
             bascule.addEventListener('click', () => basculerGroupeEffets(bascule, g));
-            rangeeReste.insertBefore(bascule, g);
+            basculesAPlacer.push({ bascule, hote: replie.hote, g });
             // Un choix referme le popover derrière lui — sur un téléphone, revenir le fermer à la main
             // après CHAQUE note serait vite lassant. Écouteur unique sur le groupe (délégation) : il se
             // déclenche après celui, propre à chaque bouton, posé par boutonAction (capture plus
@@ -390,6 +410,7 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     // trop large sur téléphone [...] il va falloir faire 2 lignes »).
     rangeeEcriture = creerRangee('rangee-outils-ecriture');
     const gMesure = groupe('Écriture', 'ecriture', rangeeEcriture);
+    cadres.ecriture = gMesure;
 
     const selSignature = document.createElement('select');
     selSignature.className = 'champ';
@@ -459,37 +480,18 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
     transposer(1, '♯', 'Transposer tout le morceau d\'un demi-ton vers le HAUT');
 
     // --- Tempo et Métronome : remontés depuis la barre de transport (retour utilisateur) -----------
-    // Même groupe qu'armure/tonalité : les quatre décrivent ensemble « comment ce morceau se joue »,
-    // et se retrouvent de fait dans la même rangée sur téléphone (voir data-groupe="ecriture" plus
-    // haut). Construits ici en HTML plutôt qu'à la main champ par champ : c'est EXACTEMENT le
-    // balisage qui vivait dans index.html#.transport (mêmes id, mêmes attributs) — main.js les
-    // retrouve par leurs id, où qu'ils vivent désormais dans le DOM (voir main.js, this.el.tempo/
-    // metronome/metronomeSubdivision, assignés APRÈS cet appel plutôt que dans le premier `this.el`).
-    const separateurReglages = document.createElement('span');
-    separateurReglages.className = 'separateur';
-    gMesure.appendChild(separateurReglages);
-    // <template> plutôt qu'un <div> : son .content est un DocumentFragment — l'insérer dans gMesure
-    // (juste plus bas) déplace directement ses enfants, sans laisser derrière un conteneur superflu
-    // qui casserait `gMesure > *` ou l'espacement flex entre boutons voisins.
-    const gabaritReglages = document.createElement('template');
-    gabaritReglages.innerHTML = `
-        <label class="info-transport" for="champ-tempo">Tempo</label>
-        <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
-        <span class="info-transport">BPM</span>
-        <button type="button" id="btn-metronome-subdivision" class="btn-icone" title="Ajouter un clic sur la subdivision (croche)" aria-label="Ajouter un clic sur la subdivision" aria-pressed="false">
-            <svg class="icone" viewBox="0 0 24 24" aria-hidden="true">
-                <ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/>
-                <path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>
-            </svg>
-        </button>
-        <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
-            <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                <path d="M7 20h10L14 5h-4L7 20Z"/>
-                <path d="M12 15V8"/>
-                <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
-            </svg>
-        </button>`;
-    gMesure.appendChild(gabaritReglages.content);
+    // TEMPO ET MÉTRONOME NE VIVENT PLUS ICI. Ils y avaient été remontés depuis la barre de transport
+    // pour voisiner avec Signature rythmique et Tonalité — les quatre décrivant ensemble « comment ce
+    // morceau se joue ». Le classement se défend, mais il séparait ce qu'on touche EN JOUANT de ce
+    // qu'on touche EN ÉCRIVANT, et le tempo comme le métronome se règlent en jouant : ils rejoignent
+    // Lecture/Stop dans le bloc de lecture (retour utilisateur : « peux-tu me créer un bloc de
+    // lecture indépendant qui permet d'intégrer les boutons de lecture / stop, et de gestion du
+    // tempo et du métronome ? Pour le moment c'est séparé »). Voir #bloc-lecture dans index.html.
+    //
+    // Leur balisage repart donc en HTML STATIQUE, d'où il venait : il était fabriqué ici par un
+    // <template>, un détour qui n'existait que pour les déplacer sans toucher à main.js (qui les
+    // retrouve par leurs id). Plus de déplacement, plus de gabarit.
+    // Ce groupe y gagne 160px — mesurés — dans la seule barre de l'application qui manque de place.
 
     aRafraichir.push(() => {
         const sig = editeur.mesureCourante().signature
@@ -500,6 +502,15 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         // son armure d'un endroit et son mode d'un autre, si le morceau n'a changé que l'un des deux.
         selTonalite.value = `${armureEffective(editeur.partition, editeur.curseur.mesure)}|${modeEffectif(editeur.partition, editeur.curseur.mesure)}`;
     });
+
+    // LES DEUX BOUTONS REPLIÉS REJOIGNENT LEUR CADRE, maintenant que tous existent (voir
+    // GROUPES_REPLIES, qui porte le pourquoi). En DERNIER dans leur cadre : « Effets » se lit après
+    // les figures de durée, « Repères » après la signature et l'armure — dans les deux cas, le
+    // détail après l'essentiel. Le cadre d'accueil est délibérément un AUTRE que le groupe replié
+    // lui-même : le bouton vit chez « Durée », le popover qu'il ouvre reste le groupe « effet ».
+    for (const { bascule, hote } of basculesAPlacer) {
+        (cadres[hote] || rangeeReste).appendChild(bascule);
+    }
 
     // La flèche droite maîtresse ferme la marche, tout à la fin de `hote` — exactement où vivait
     // l'unique paire de flèches avant ce correctif. Chaque flèche ne se montre que s'il reste

@@ -20,7 +20,7 @@
 import {
     creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
     signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, REPERES,
-    decouperEnEvenements, MAX_VOIX,
+    decouperEnEvenements, figuresSilencePour, MAX_VOIX,
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
 import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage, hauteurDeCase } from '../model/instruments.js';
@@ -396,10 +396,18 @@ export class Editeur {
         this.memoriser();
         evenement.notes = evenement.notes.filter(n => n.corde !== this.curseur.corde);
         if (!evenement.notes.length) evenement.silence = true;
-        // Une mesure vidée note après note garderait sinon le chapelet de petits silences hérités du
-        // rythme qui s'y jouait — un soupir, un demi-soupir, encore un soupir... On la reconsolide en
-        // la décomposition standard (la même qu'à la naissance d'une voix neuve) dès que PLUS AUCUN
-        // évènement de la voix ne porte de note : le curseur revient à son unique/premier silence.
+        // LE TEMPS LIBÉRÉ REJOINT LES SILENCES VOISINS, à chaque effacement (voir
+        // _fusionnerSilences). La condition qui vivait ici — ne reconsolider que si PLUS AUCUN
+        // évènement de la voix ne portait de note — était le défaut lui-même : une seule note
+        // restée quelque part dans la mesure figeait tout le chapelet de petites figures hérité du
+        // rythme effacé (retour utilisateur : « il reste des demi-soupirs ou quarts de soupirs qui
+        // m'empêchent d'écrire dans la mesure »).
+        this._fusionnerSilences();
+        // La voix ENTIÈREMENT vide revient en plus à sa décomposition de naissance, curseur au
+        // début : _fusionnerSilences y donnerait déjà une figure unique, mais pas forcément la même
+        // (une mesure de 3/8 naît en un silence de trois croches, que la règle d'alignement
+        // écrirait autrement), et le curseur n'a aucune raison de rester au milieu d'une mesure
+        // qu'on vient de vider.
         const voix = this.voixCourante();
         if (voix.evenements.every(e => e.silence || !e.notes.length)) {
             voix.evenements = creerVoix(capaciteMesure(this.partition, this.curseur.mesure)).evenements;
@@ -441,6 +449,10 @@ export class Editeur {
             voixTouchees.set(`${r.mesure}:${r.voix}`, { voix, mesure: r.mesure });
         }
         for (const { voix, mesure } of voixTouchees.values()) {
+            // Le temps libéré rejoint les silences voisins, voix par voix (voir _fusionnerSilencesDe)
+            // — sans quoi un lasso passé sur un passage entier le laissait criblé de petites figures,
+            // le même défaut que sur un effacement note à note.
+            this._fusionnerSilencesDe(voix);
             if (voix.evenements.every(e => e.silence || !e.notes.length)) {
                 voix.evenements = creerVoix(capaciteMesure(this.partition, mesure)).evenements;
             }
@@ -484,6 +496,120 @@ export class Editeur {
      * d'annulation avant d'appeler ceci — sans ce drapeau, l'appel imbriqué en ouvrirait un SECOND,
      * et défaire « une case tapée » aurait demandé deux Ctrl+Z au lieu d'un.
      */
+    /**
+     * FUSIONNE LES SUITES DE SILENCES DE LA VOIX COURANTE — et c'est ce qui manquait.
+     *
+     * LE DÉFAUT, tel que l'utilisateur l'a vécu : « lorsque je définis une note et que je la
+     * supprime, il reste des demi-soupirs ou quarts de soupirs qui m'empêchent d'écrire dans la
+     * mesure (message d'erreur : manque de place dans la mesure). Je dois pouvoir supprimer ces
+     * silences, ou ils doivent s'adapter automatiquement. » Capture à l'appui : une mesure criblée de
+     * demi-soupirs autour d'une seule note.
+     *
+     * LA CAUSE. `effacerNote` reconsolidait bien la voix — mais SEULEMENT quand elle était devenue
+     * entièrement vide (`voix.evenements.every(estSilence)`). Une seule note restée quelque part
+     * dans la mesure suffisait donc à figer tout le chapelet de petites figures hérité du rythme
+     * qu'on venait d'effacer. Et ce chapelet n'est pas qu'inélégant : écrire une blanche depuis un
+     * silence du milieu exige que les silences SUIVANTS totalisent la place — ce qu'ils font — mais
+     * les silences qui PRÉCÈDENT, eux, restaient hors de portée, et l'espace libre se retrouvait
+     * coupé en deux par le curseur.
+     *
+     * LE MODÈLE DES ÉDITEURS. Dans MuseScore comme dans Guitar Pro, un silence n'est jamais une
+     * FIGURE qu'on aurait posée : c'est du temps vide, réécrit automatiquement avec le moins de
+     * figures possible à chaque changement. Effacer une note y rend son temps au silence voisin ;
+     * deux silences contigus n'existent pas s'ils peuvent n'en faire qu'un. C'est exactement ce que
+     * fait cette méthode, appliquée après CHAQUE geste qui peut laisser du temps vide.
+     *
+     * LES FIGURES SONT CHOISIES SELON LA POSITION, pas seulement selon la durée (voir
+     * model/score.js#figuresSilencePour) : trois temps à partir du deuxième temps d'un 4/4 donnent
+     * une noire puis une blanche, jamais une blanche pointée qui enjamberait la moitié de la mesure.
+     *
+     * LE CURSEUR SE RÉANCRE PAR LE TEMPS, pas par l'indice. Fusionner change le nombre
+     * d'évènements : garder `curseur.evenement` tel quel ferait sauter le curseur ailleurs dans la
+     * mesure, parfois hors bornes. On note donc l'instant qu'il désignait AVANT, et on retrouve
+     * APRÈS l'évènement qui contient cet instant — ce qui, du point de vue de qui écrit, ne bouge
+     * pas : le curseur reste là où il était dans le temps.
+     *
+     * @returns {boolean} vrai si la voix a changé.
+     */
+    _fusionnerSilences() {
+        const voix = this.voixCourante();
+        if (!voix) return false;
+
+        // L'instant visé par le curseur, avant toute modification.
+        let instantCurseur = 0;
+        for (let i = 0; i < this.curseur.evenement && i < voix.evenements.length; i++) {
+            instantCurseur += dureeEnNoires(voix.evenements[i].duree);
+        }
+
+        if (!this._fusionnerSilencesDe(voix)) return false;
+
+        // Réancrage : le premier évènement qui commence à l'instant visé, ou celui qui le contient.
+        let t = 0, cible = 0;
+        for (let k = 0; k < voix.evenements.length; k++) {
+            const fin = t + dureeEnNoires(voix.evenements[k].duree);
+            if (instantCurseur < fin - 1e-9) { cible = k; break; }
+            t = fin;
+            cible = k;
+        }
+        this.curseur.evenement = Math.min(cible, voix.evenements.length - 1);
+        return true;
+    }
+
+    /**
+     * La réécriture elle-même, sur N'IMPORTE QUELLE voix — sans toucher au curseur.
+     *
+     * Séparée de `_fusionnerSilences` pour `effacerNotes`, qui efface d'un coup des notes réparties
+     * sur PLUSIEURS mesures (le lasso) : le curseur n'y désigne qu'une de ces voix, et réancrer
+     * n'aurait de sens que pour celle-là. Chaque voix touchée passe donc par ici, et le curseur est
+     * remis en bornes une seule fois, à la fin, par `corrigerCurseur`.
+     */
+    _fusionnerSilencesDe(voix) {
+        if (!voix) return false;
+        const estSilence = (e) => e.silence || !e.notes.length;
+        const sortie = [];
+        let i = 0, pos = 0, change = false;
+        while (i < voix.evenements.length) {
+            if (!estSilence(voix.evenements[i])) {
+                sortie.push(voix.evenements[i]);
+                pos += dureeEnNoires(voix.evenements[i].duree);
+                i++;
+                continue;
+            }
+            let j = i, total = 0;
+            while (j < voix.evenements.length && estSilence(voix.evenements[j])) {
+                total += dureeEnNoires(voix.evenements[j].duree);
+                j++;
+            }
+            const figures = figuresSilencePour(total, pos);
+            // Un passage inalignable (une durée qu'aucune suite de figures ne couvre exactement, ce
+            // que `definirSignature` peut laisser derrière lui) : on garde l'existant plutôt que de
+            // perdre du temps de mesure. Mieux vaut un chapelet qu'une mesure qui ne totalise plus.
+            const couvre = figures.reduce((t, f) => t + dureeEnNoires(f), 0);
+            if (figures.length && Math.abs(couvre - total) < 1e-9) {
+                // ON COMPARE LES SUITES DE FIGURES, pas seulement leur NOMBRE. Première rédaction :
+                // `figures.length < j - i`, c'est-à-dire « n'écrire que si ça réduit ». Elle laissait
+                // donc passer les figures MAL PLACÉES, qui sont pourtant la moitié du problème :
+                // rétrécir une note rendait le temps libéré via decouperEnEvenements, aveugle à la
+                // position, et un soupir pointé posé à deux temps et demi d'un 4/4 — qui enjambe le
+                // quatrième temps — y restait tel quel faute de « réduire » quoi que ce soit. La
+                // réécriture est parfois plus longue d'une figure ; elle est toujours juste.
+                const memes = figures.length === j - i && figures.every((f, k) =>
+                    f.valeur === voix.evenements[i + k].duree.valeur
+                    && !!f.points === !!voix.evenements[i + k].duree.points
+                    && !voix.evenements[i + k].duree.nolet);
+                if (!memes) change = true;
+                for (const f of figures) sortie.push(creerEvenement(f, [], { silence: true }));
+            } else {
+                for (let k = i; k < j; k++) sortie.push(voix.evenements[k]);
+            }
+            pos += total;
+            i = j;
+        }
+        if (!change) return false;
+        voix.evenements = sortie;
+        return true;
+    }
+
     _essaierNouvelleDuree(nouvelleDuree, { dejaMemorise = false } = {}) {
         this.derniereErreur = null;
         const voix = this.voixCourante();
@@ -533,6 +659,22 @@ export class Editeur {
             }
             voix.evenements.splice(iEvt + 1, k - (iEvt + 1), ...decouperEnEvenements(libere));
         }
+        // PAS DE FUSION DES SILENCES ICI, et c'est un choix que j'ai dû corriger.
+        //
+        // Je l'y avais mise, pour que le temps rendu par un rétrécissement soit réécrit selon sa
+        // position (voir model/score.js#figuresSilencePour) plutôt que par `decouperEnEvenements`,
+        // aveugle à la place qu'il occupe. Cohérent sur le papier ; en pratique, elle CASSAIT le
+        // geste central de la saisie rythmique. Choisir « blanche » sur un silence redimensionne ce
+        // silence — c'est ainsi qu'on réserve la place avant de taper la case — et la fusion, juste
+        // après, réécrivait aussitôt ce silence redimensionné en sa forme canonique : à l'écran,
+        // cliquer « blanche » sur un silence ne faisait plus rien du tout.
+        //
+        // Un silence explicitement dimensionné doit tenir. La fusion ne s'applique donc qu'aux
+        // gestes qui LIBÈRENT du temps sans en désigner la forme — effacer une note, en faire un
+        // silence, passer le lasso — là où l'utilisateur n'a rien choisi et où le chapelet de
+        // petites figures est un pur résidu. C'est aussi exactement le défaut qu'il a signalé.
+        // Reste donc, tel quel, le silence pointé que decouperEnEvenements peut poser à contretemps
+        // après un rétrécissement : une imperfection de gravure, sans effet sur ce qu'on peut écrire.
         return true;
     }
 
@@ -570,7 +712,13 @@ export class Editeur {
         this.memoriser();
         const e = this.evenementCourant();
         if (e.silence || !e.notes.length) { e.silence = false; }
-        else { e.notes = []; e.silence = true; }
+        else {
+            e.notes = []; e.silence = true;
+            // Devenu silence, cet évènement rejoint ses voisins silencieux (voir _fusionnerSilences) :
+            // transformer une noire en soupir au milieu de trois autres soupirs doit donner une
+            // blanche de silence, pas quatre soupirs de suite.
+            this._fusionnerSilences();
+        }
         this.prevenir('edition');
     }
 

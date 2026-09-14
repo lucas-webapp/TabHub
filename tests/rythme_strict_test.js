@@ -37,7 +37,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(52);
+    plan(59);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -358,6 +358,129 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             'et ce silence de fin, désormais correctement dimensionné, se raccourcit sans le moindre détour par ⇥ Corriger');
         check(Math.abs(r.ecartApresRaccourciM) < 1e-6, 'la mesure retombe exactement sur sa capacité après ce raccourci');
         check(Math.abs(r.ecartApresHauteurM) < 1e-6, 'et la même garantie tient au piano (saisirHauteur), dès la première note cliquée');
+
+        // --- LES SILENCES SE FONDENT TOUT SEULS ------------------------------------------------------
+        // Retour utilisateur, capture à l'appui (une mesure criblée de demi-soupirs) : « lorsque je
+        // définis une note et que je la supprime, il reste des demi-soupirs ou quarts de soupirs qui
+        // m'empêchent d'écrire dans la mesure (message d'erreur : manque de place dans la mesure). Je
+        // dois pouvoir supprimer ces silences, ou ils doivent s'adapter automatiquement. »
+        //
+        // LA CAUSE ÉTAIT UNE CONDITION TROP ÉTROITE : `effacerNote` reconsolidait la voix, mais
+        // seulement quand elle était devenue ENTIÈREMENT vide. Une seule note restée quelque part
+        // suffisait donc à figer tout le chapelet hérité du rythme effacé.
+        const figures = () => page.evaluate(() => window.app.editeur.mesureCourante().voix[0].evenements
+            .map(e => ((e.silence || !e.notes.length) ? 's' : 'n') + e.duree.valeur + (e.duree.points ? '.' : '')).join(' '));
+        const total = () => page.evaluate(async () => {
+            const { dureeEnNoires } = await import('/src/model/duration.js');
+            return window.app.editeur.mesureCourante().voix[0].evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0);
+        });
+
+        // Huit croches, puis on les efface toutes sauf la première — en les RETROUVANT à chaque tour
+        // plutôt qu'en réutilisant des indices, qui bougent précisément parce que les silences
+        // fusionnent (mon premier essai s'y est trompé et effaçait à côté).
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.appliquerDuree(8);
+            for (let i = 0; i < 8; i++) { ed.placerCurseur(0, i, 0, 0); ed.saisirChiffre(i + 1); }
+            for (;;) {
+                const evts = ed.mesureCourante().voix[0].evenements;
+                const avecNote = evts.map((e, i) => ({ e, i })).filter(x => x.e.notes.length).map(x => x.i);
+                if (avecNote.length <= 1) break;
+                ed.placerCurseur(0, avecNote[avecNote.length - 1], 0, 0);
+                ed.effacerNote();
+            }
+            ed.prevenir('edition');
+        });
+        await page.waitForTimeout(200);
+        const apresEffacement = await figures();
+        exiger(apresEffacement === 'n8 s8 s4 s2',
+            `effacer sept croches sur huit laisse TROIS silences, pas sept (${apresEffacement})`);
+        check(Math.abs((await total()) - 4) < 1e-9, 'et la mesure totalise toujours exactement sa capacité');
+
+        // LES FIGURES SUIVENT LA POSITION, pas seulement la durée : 3,5 temps à partir d'une demi-
+        // croche donnent croche + noire + blanche. Une blanche pointée + croche (ce que donnerait un
+        // découpage aveugle à la place) enjamberait la moitié de la mesure — aucune édition ne
+        // l'écrit, et le lecteur ne verrait plus où tombent les temps.
+        check(apresEffacement.endsWith('s8 s4 s2'),
+            'les silences sont écrits selon leur PLACE dans la mesure (croche + noire + blanche), jamais une figure qui enjambe un temps fort');
+
+        // CE QUE LA FUSION NE CORRIGE PAS, et il faut le dire ici plutôt que de le laisser croire :
+        // j'avais d'abord ajouté une vérification « et la blanche passe enfin », en supposant que le
+        // chapelet était ce qui produisait le « pas assez de place dans la mesure » signalé. Mesuré,
+        // c'est faux — `_essaierNouvelleDuree` traverse déjà une SUITE entière de silences, donc la
+        // blanche s'écrivait aussi bien avant la fusion qu'après. Les deux moitiés du retour
+        // utilisateur ont deux causes distinctes : le chapelet (corrigé ici) et le refus strict quand
+        // une NOTE, ou la fin de la voix, borne l'espace libre — celui-là est voulu (voir le docblock
+        // de _essaierNouvelleDuree, et le rappel d'Alt+R dans son message).
+
+        // IDEMPOTENCE : refondre une voix déjà fondue ne doit RIEN changer. Sans quoi la fusion
+        // tournerait à chaque geste sur un résultat instable — et le curseur, réancré à chaque fois,
+        // sauterait sous les doigts.
+        const idempotent = await page.evaluate(() => {
+            const avant = window.app.editeur.mesureCourante().voix[0].evenements.length;
+            const change = window.app.editeur._fusionnerSilences();
+            return { change, avant, apres: window.app.editeur.mesureCourante().voix[0].evenements.length };
+        });
+        check(idempotent.change === false && idempotent.avant === idempotent.apres,
+            'refondre une voix déjà fondue ne change rien — la réécriture est stable, elle ne tourne pas sur elle-même');
+
+        // LE LASSO AUSSI (effacerNotes) : effacer d'un geste un passage entier laissait le même
+        // chapelet, par le même chemin de code — la reconsolidation n'y valait aussi que pour une
+        // voix devenue ENTIÈREMENT vide.
+        const lasso = await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.appliquerDuree(8);
+            for (let i = 0; i < 8; i++) { ed.placerCurseur(0, i, 0, 0); ed.saisirChiffre(i + 1); }
+            // on efface les six du milieu, en laissant la première et la dernière
+            ed.effacerNotes([1, 2, 3, 4, 5, 6].map(i => ({ mesure: 0, voix: 0, evenement: i, corde: 0 })));
+            return ed.mesureCourante().voix[0].evenements
+                .map(e => ((e.silence || !e.notes.length) ? 's' : 'n') + e.duree.valeur + (e.duree.points ? '.' : '')).join(' ');
+        });
+        // QUATRE SILENCES ET NON UN SEUL, et c'est la bonne réponse : trois temps à partir d'une
+        // demi-croche, coincés entre deux croches jouées, ne peuvent pas s'écrire d'une figure. La
+        // règle d'alignement (voir figuresSilencePour) donne croche + noire + noire + croche — ce
+        // qu'écrirait un copiste. Quatre au lieu de six, donc, pas un au lieu de six : la fusion
+        // réduit ce qui peut l'être et refuse d'inventer une figure qui enjamberait un temps fort.
+        check(lasso === 'n8 s8 s4 s4 s8 n8',
+            `un lasso passé sur six croches les fond aussi (${lasso}) : quatre silences au lieu de six, tous alignés sur les temps`);
+
+        // TOUT EFFACER rend UNE figure unique, curseur au début.
+        const vide = await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.appliquerDuree(16);
+            for (let i = 0; i < 8; i++) { ed.placerCurseur(0, i, 0, 0); ed.saisirChiffre(i + 1); }
+            for (;;) {
+                const evts = ed.mesureCourante().voix[0].evenements;
+                const avecNote = evts.map((e, i) => ({ e, i })).filter(x => x.e.notes.length).map(x => x.i);
+                if (!avecNote.length) break;
+                ed.placerCurseur(0, avecNote[avecNote.length - 1], 0, 0);
+                ed.effacerNote();
+            }
+            return { n: ed.mesureCourante().voix[0].evenements.length, curseur: ed.curseur.evenement };
+        });
+        check(vide.n === 1 && vide.curseur === 0,
+            'une mesure entièrement vidée revient à UN silence unique, curseur à son début');
+
+        // UN SILENCE EXPLICITEMENT DIMENSIONNÉ TIENT. Garde-fou contre ma propre correction : j'avais
+        // d'abord fondu les silences après TOUT changement de durée, y compris celui qu'on vient de
+        // demander — choisir « blanche » sur un silence le redimensionnait, puis la fusion le
+        // réécrivait aussitôt en sa forme canonique. À l'écran, le clic ne faisait plus rien.
+        const dimensionne = await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.placerCurseur(0, 0, 0, 0);
+            const ok = ed.appliquerDuree(2);
+            const avant = ed.mesureCourante().voix[0].evenements.map(e => e.duree.valeur).join(',');
+            ed.saisirChiffre(7);
+            const apres = ed.mesureCourante().voix[0].evenements
+                .map(e => ((e.silence || !e.notes.length) ? 's' : 'n') + e.duree.valeur).join(' ');
+            return { ok, avant, apres };
+        });
+        check(dimensionne.ok && dimensionne.avant === '2,2' && dimensionne.apres === 'n2 s2',
+            `choisir une durée sur un silence le redimensionne bel et bien, et la case tapée ensuite s'y écrit (${dimensionne.apres})`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

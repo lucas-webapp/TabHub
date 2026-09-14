@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(41);
+    plan(44);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -522,6 +522,53 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         // PLUS DE LÉGENDE (« Boucle : mesures 1 à 3 ») : la barre orange le dit elle-même désormais.
         check(!/Boucle/.test(await page.evaluate(() => document.body.innerText)),
             'aucune légende « Boucle : mesures … » ne s\'affiche plus nulle part — la bande suffit');
+
+        // --- MODIFIER PENDANT QUE ÇA TOURNE ---------------------------------------------------------
+        // Retour utilisateur : « elle doit s'adapter en temps réel aux modifications, même lorsque la
+        // lecture en boucle n'est pas arrêtée ». C'est le cas où le décalage se sentait le plus : on
+        // retravaille un passage en l'entendant tourner, on corrige une note, et le tour suivant
+        // rejouait encore l'ancienne (voir player.js#reprogrammerSiEnCours).
+        //
+        // ET LES BORNES DE LA BOUCLE SE REPOSENT. `Transport.cancel()` ne les touche pas, mais elles
+        // sont calculées en tics depuis des NUMÉROS de mesure : ajouter une mesure AVANT la boucle
+        // déplace ce qu'elle doit encadrer, et garder les anciens tics ferait boucler à côté.
+        const enBoucle = await page.evaluate(async () => {
+            const ed = window.app.editeur, l = window.app.lecteur;
+            ed.nouveau('guitare');
+            for (let i = 0; i < 4; i++) ed.ajouterMesure(true);
+            ed.appliquerDuree(4);
+            ed.placerCurseur(2, 0, 0, 0); ed.saisirChiffre(5);
+            await l.jouer(ed.partition, 0);
+            l.definirBoucle(ed.partition, 2, 3);
+            await new Promise(r => setTimeout(r, 200));
+            const avant = { n: l._evenements.length, debut: String(Tone.Transport.loopStart), etat: l.etat };
+            // Une note DANS la boucle
+            ed.placerCurseur(2, 1, 0, 0); ed.saisirChiffre(9);
+            await new Promise(r => setTimeout(r, 200));
+            const apresNote = { n: l._evenements.length, etat: l.etat, loop: Tone.Transport.loop };
+            // UNE SIGNATURE CHANGÉE AVANT LA BOUCLE : les bornes, elles, sont en TICS, calculées
+            // depuis des numéros de mesure — une mesure qui passe de 4/4 à 2/4 raccourcit tout ce
+            // qui la suit, donc la boucle doit se recalculer ou elle boucle à côté.
+            ed.placerCurseur(0, 0, 0, 0); ed.definirSignature(2, 4);
+            await new Promise(r => setTimeout(r, 250));
+            const apresSignature = { debut: String(Tone.Transport.loopStart), etat: l.etat, loop: Tone.Transport.loop };
+            l.arreter();
+            return { avant, apresNote, apresSignature };
+        });
+        exiger(enBoucle.avant.n === 1 && enBoucle.avant.etat === 'lecture',
+            'une note programmée, boucle posée sur les mesures 3-4, lecture en cours');
+        check(enBoucle.apresNote.n === 2 && enBoucle.apresNote.etat === 'lecture' && enBoucle.apresNote.loop,
+            'une note écrite DANS la boucle pendant qu\'elle tourne rejoint aussitôt ce qui sonne — sans couper la lecture ni la boucle');
+        check(enBoucle.apresSignature.debut !== enBoucle.avant.debut && enBoucle.apresSignature.loop && enBoucle.apresSignature.etat === 'lecture',
+            `raccourcir une mesure AVANT la boucle recalcule ses bornes (${enBoucle.avant.debut} -> ${enBoucle.apresSignature.debut}), au lieu de boucler à côté`);
+        // CE QUE CETTE VÉRIFICATION NE COUVRE PAS, et que j'ai constaté en l'écrivant : la boucle est
+        // définie par des NUMÉROS de mesure, pas par la musique qu'ils contiennent. Insérer une
+        // mesure AVANT elle laisse donc la bande orange sur les mêmes numéros, tandis que la musique
+        // glisse d'un cran dessous — les bornes en tics ne bougent pas, et c'est cohérent avec le
+        // modèle, simplement pas forcément avec l'intention. Signalé à l'utilisateur plutôt que
+        // corrigé en passant : décaler les numéros demanderait que l'éditeur sache OÙ une mesure a
+        // été insérée et que la boucle (un état de session du LECTEUR) l'apprenne — un couplage à
+        // décider, pas à improviser.
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

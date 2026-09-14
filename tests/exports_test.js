@@ -73,7 +73,7 @@ const empreinte = (page) => page.evaluate(() => {
 });
 
 (async () => {
-    plan(23);
+    plan(27);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -112,6 +112,10 @@ const empreinte = (page) => page.evaluate(() => {
                 rien: f({}),
                 espaces: f({ titre: '  Blackbird  ', artiste: '   ' }),
                 interdits: f({ titre: 'a/b:c', artiste: 'X*Y' }),
+                accents: f({ titre: 'Étude en la mineur', artiste: 'Fernando Sor' }),
+                ligature: f({ titre: 'Cœur' }),
+                cedille: f({ titre: 'Française', artiste: 'Gymnopédie' }),
+                horsLatin: f({ titre: 'Ω' }),
             };
         });
         check(noms.deux === 'I wish - Stevie Wonder.json' && noms.titreSeul === 'I wish.json',
@@ -121,6 +125,19 @@ const empreinte = (page) => page.evaluate(() => {
         check(noms.rien === 'tablature.json', 'et sans titre ni artiste, un nom de secours plutôt qu\'un fichier sans nom');
         check(noms.interdits === 'a_b_c - X_Y.json',
             'les caractères interdits par les systèmes de fichiers sont neutralisés des DEUX côtés du tiret');
+
+        // LES ACCENTS SE REPLIENT EN ASCII, et ce n'est pas une coquetterie : mesuré, TOUT caractère
+        // non-ASCII posé dans l'attribut `download` d'un lien fait retomber le navigateur sur son nom
+        // par défaut — le fichier arrivait nommé « download ». Défaut préexistant, sur les trois
+        // exports à la fois, qu'aucun banc n'avait vu parce que leurs titres témoins étaient sans
+        // accent ; une application francophone de partitions en croise à longueur de temps (Étude,
+        // Prélude, Gymnopédie…). « Etude » est une perte cosmétique ; « download » n'est pas un nom.
+        check(noms.accents === 'Etude en la mineur - Fernando Sor.json',
+            `les accents se replient en ASCII plutôt que de faire perdre le nom entier (${noms.accents})`);
+        check(noms.ligature === 'Coeur.json' && noms.cedille === 'Francaise - Gymnopedie.json',
+            'ligatures épelées (œ -> oe) et cédille réduite : les accents latins passent tous, pas seulement l\'aigu');
+        check(noms.horsLatin === 'tablature.json',
+            'et un titre qui ne laisse RIEN après ce repli (grec, japonais…) retombe sur le nom de secours, jamais sur un fichier sans nom');
 
         const brut = JSON.parse(fs.readFileSync(cheminJson, 'utf8'));
         check(brut.format === 'tabhub-partition', 'le fichier se déclare au format TabHub');
@@ -158,14 +175,29 @@ const empreinte = (page) => page.evaluate(() => {
         check((await empreinte(page)) === avant, 'et la partition en cours reste intacte');
 
         // --- Export PDF ---------------------------------------------------------------------------------
-        const attentePdf = page.waitForEvent('download');
+        // DEUX CLICS ET NON PLUS UN : « Exporter PDF » ouvre désormais l'aperçu avant export (retour
+        // utilisateur : « me montrer la mise en page avant d'enregistrer le PDF »), et c'est de là que
+        // part le téléchargement. Le premier jet de ce banc attendait encore un téléchargement direct
+        // et expirait — il avait raison de le faire : l'ancien geste n'existe plus. Ce que l'aperçu
+        // lui-même garantit est éprouvé à part (voir tests/apercu_pdf_test.js) ; ici on ne vérifie
+        // que le FICHIER qui en sort.
         await page.click('#btn-fichiers');
         await page.click('#popover-fichiers [data-action="pdf"]');
+        await page.waitForSelector('#fenetre-pdf:not([hidden])');
+        const attentePdf = page.waitForEvent('download');
+        await page.click('#pdf-enregistrer');
         const telPdf = await attentePdf;
         const cheminPdf = path.join(dossier, 'temoin.pdf');
         await telPdf.saveAs(cheminPdf);
         const donnees = fs.readFileSync(cheminPdf);
         exiger(donnees.slice(0, 5).toString('latin1') === '%PDF-', 'le clic sur Exporter PDF télécharge un vrai PDF');
+        // « Titre - Artiste.pdf », COMME LE .json, et c'est le point (retour utilisateur : « tu peux
+        // effectivement modifier les noms de tous les fichiers exportés avec Titre - Artiste »). Le
+        // .json le faisait déjà, le PDF et le MIDI portaient encore le titre seul — trois
+        // interpolations à la main pour un seul besoin, qui avaient divergé. Tout passe maintenant
+        // par io/json.js#nomDuMorceau, et ce banc vérifie les deux formats côte à côte.
+        check(telPdf.suggestedFilename() === 'Banc des exports - Anonyme.pdf',
+            `le PDF se nomme lui aussi « Titre - Artiste.pdf » (reçu : ${telPdf.suggestedFilename()})`);
 
         // TOUT DOIT ÊTRE VECTORIEL. C'est la raison d'être du double moteur de rendu : une partition
         // rastérisée devient grise à l'impression. La présence d'une seule image dans le fichier

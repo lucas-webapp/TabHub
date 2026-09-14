@@ -54,7 +54,7 @@ const TELEPHONES = [360, 375, 390, 414, 430];
                     .filter(e => e.getBoundingClientRect().width > 0)
                     .every(e => { const r = e.getBoundingClientRect(); return r.left >= -1 && r.right <= window.innerWidth + 1; }),
                 hBemol: haut('[data-action="transposerBas"]'), lBemol: larg('[data-action="transposerBas"]'),
-                hMetro: haut('#btn-metronome'), lMetro: larg('#btn-metronome'),
+                hMetro: haut('#btn-metronome'), lMetro: larg('#btn-metronome'),   // désormais dans la barre du BAS, voir plus bas
                 hTempo: haut('#champ-tempo'),
             };
         });
@@ -86,8 +86,13 @@ const TELEPHONES = [360, 375, 390, 414, 430];
         // --- 3. La cible tactile est INTACTE : on n'a pris que de la largeur ------------------------
         check(m390.hBemol === 44 && m390.hMetro === 44 && m390.hTempo === 44,
             'les 44px de HAUT sont intacts partout — c\'est l\'axe où le doigt manque sa cible, jamais celui où l\'on rogne');
-        check(m390.lBemol === 36 && m390.lMetro === 36,
-            'et les boutons étroits (♭, ♯, métronomes) partagent une seule et même largeur de 36px');
+        // LE MÉTRONOME A QUITTÉ CETTE RANGÉE : il est reparti dans la barre du bas, réuni avec
+        // Lecture/Stop et le Tempo dans le bloc de lecture (voir #bloc-lecture dans index.html). Il y
+        // mesure 44px — la cible tactile pleine, puisque la place n'y manque plus — et ce banc, qui
+        // ne parle que de la RANGÉE DU HAUT, n'a plus à en juger. Restent ♭ et ♯, les deux seuls
+        // boutons étroits de cette rangée, dont la largeur commune reste ce qu'elle protège.
+        check(m390.lBemol === 36,
+            `et les boutons étroits de cette rangée (♭, ♯) tiennent leur largeur resserrée de 36px (${m390.lBemol})`);
 
         // --- 4. Le fond des menus déroulants survit à la flèche dessinée ----------------------------
         const menu = await page.evaluate(() => {

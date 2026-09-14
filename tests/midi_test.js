@@ -27,7 +27,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('MIDI');
 
 (async () => {
-    plan(59);
+    plan(60);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-midi-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -262,6 +262,7 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
             ed.partition.meta.titre = 'Export MIDI test';
+            ed.partition.meta.artiste = 'Anonyme';
             ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
             ed.prevenir('document');
         });
@@ -281,7 +282,10 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         await telMidi.saveAs(cheminMidi);
         exiger(fs.existsSync(cheminMidi), 'le clic sur « Exporter en MIDI » télécharge bien un fichier');
         check(/\.mid$/.test(telMidi.suggestedFilename()), 'le fichier porte l\'extension .mid');
-        check(telMidi.suggestedFilename().startsWith('Export MIDI test'), 'et il est nommé d\'après le titre du morceau');
+        // « Titre - Artiste.mid », comme le .json et le .pdf (voir io/json.js#nomDuMorceau, le seul
+        // endroit qui décide d'un nom de fichier) : le MIDI portait le titre seul.
+        check(telMidi.suggestedFilename() === 'Export MIDI test - Anonyme.mid',
+            `et il est nommé « Titre - Artiste.mid » (reçu : ${telMidi.suggestedFilename()})`);
         check(fs.readFileSync(cheminMidi).slice(0, 4).toString() === 'MThd', 'le fichier écrit sur disque commence bien par « MThd »');
 
         // Même INSTRUMENT qu'à l'export (guitare) : au delà de ce banc, changer d'instrument avant de
@@ -479,6 +483,21 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         page.off('download', surTelechargement);
         check(telechargementsPartie.length === 2 && telechargementsPartie.every(n => /\.mid$/.test(n)),
             '« Un fichier par partie » télécharge bien un .mid PAR section (deux ici), pas un seul');
+        // TROIS TERMES pour un fichier par section : « Titre - Artiste - Partie.mid ». Long, mais
+        // chacun répond à une question différente (quel morceau, de qui, quelle partie) et ces
+        // fichiers arrivent en lot dans un même dossier — c'est précisément là que le nom doit
+        // suffire à les départager.
+        // Le préfixe est LU sur la partition du moment, pas écrit en dur : ce bloc-ci travaille sur
+        // un morceau reconstruit plus haut, dont le titre n'est pas celui du début de banc (première
+        // rédaction : je l'avais supposé, le banc a rendu « Sans titre - Partie 1.mid » et avait
+        // raison).
+        const prefixe = await page.evaluate(async () => {
+            const { nomDuMorceau } = await import('/src/io/json.js');
+            return nomDuMorceau(window.app.editeur.partition.meta);
+        });
+        check(telechargementsPartie.every(n => n.startsWith(prefixe + ' - '))
+              && new Set(telechargementsPartie).size === 2,
+            `chacun porte « ${prefixe} - Partie.mid », et deux noms distincts (${telechargementsPartie.join(', ')})`);
         check(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'et la fenêtre se referme d\'elle-même une fois le choix fait');
 
         // --- Un fichier .mid corrompu prévient, ne casse rien -----------------------------------------

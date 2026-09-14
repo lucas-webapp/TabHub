@@ -26,7 +26,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('popover Effets');
 
 (async () => {
-    plan(20);
+    plan(25);
 
     // --- Grand écran (par défaut, 1320×880) : aucun changement de comportement ------------------------
     {
@@ -119,6 +119,46 @@ const { check, exiger, plan, bilan } = creerHarnais('popover Effets');
         await page.keyboard.press('Escape');
         await page.waitForTimeout(100);
         check(!(await page.locator('[data-action="accent"]').isVisible()), 'Échap referme aussi le popover');
+
+        // --- CHAQUE BOUTON REPLIÉ DANS SON CADRE ----------------------------------------------------
+        // Retour utilisateur : « le bouton "Effets" doit être inclus dans l'encadrement d'ajout de
+        // notes. Pour le moment il est à part. De la même façon, le bouton "Repères" doit être inclus
+        // dans l'encadrement des modifications de la portée et armure. »
+        //
+        // Les deux vivaient ENTRE les cadres, seuls au milieu — lisibles comme deux outils sans
+        // famille, alors que chacun en a une. Depuis que les cadres ont remplacé les titres de
+        // section, « entre deux » a cessé d'être une position neutre : elle dit « n'appartient à
+        // rien ». On vérifie l'appartenance par le DOM (`closest`), pas par une coordonnée : c'est
+        // l'appartenance elle-même qui est demandée, pas un alignement à quelques pixels.
+        const cadres = await page.evaluate(() => ({
+            effets: document.querySelector('.btn-effets-bascule')?.closest('.groupe-outils')?.dataset.groupe,
+            reperes: document.querySelector('.btn-reperes-bascule')?.closest('.groupe-outils')?.dataset.groupe,
+            orphelins: [...document.querySelectorAll('#barre-outils .btn-groupe-replie')]
+                .filter(b => !b.closest('.groupe-outils')).length,
+        }));
+        check(cadres.effets === 'duree',
+            `« Effets » vit dans le cadre où l'on choisit ce qu'on écrit (${cadres.effets}), plus entre deux cadres`);
+        check(cadres.reperes === 'ecriture',
+            `« Repères » vit dans le cadre de la portée et de l'armure (${cadres.reperes})`);
+        check(cadres.orphelins === 0, 'et plus aucun bouton replié ne flotte hors cadre');
+
+        // LE POPOVER, LUI, N'A PAS BOUGÉ : il est mesuré au clic depuis le bouton et posé en
+        // `position: fixed` — changer le cadre qui héberge le bouton ne devait donc rien y changer,
+        // et c'est ce qu'on vérifie plutôt que de le supposer.
+        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 10]]) {
+            await page.click(bouton);
+            await page.waitForTimeout(250);
+            const etat = await page.evaluate((g) => {
+                const el = document.querySelector(`.groupe-outils[data-groupe="${g}"]`);
+                const r = el.getBoundingClientRect();
+                return { ouvert: el.classList.contains('ouvert'), nb: el.querySelectorAll('.btn-outil').length,
+                         dansEcran: r.left >= -1 && r.right <= window.innerWidth + 1 && r.top >= -1 && r.bottom <= window.innerHeight + 1 };
+            }, groupe);
+            check(etat.ouvert && etat.nb === attendu && etat.dansEcran,
+                `le popover « ${groupe} » s'ouvre toujours, ses ${etat.nb} boutons entièrement dans la fenêtre, depuis son nouveau cadre`);
+            await page.keyboard.press('Escape');
+            await page.waitForTimeout(120);
+        }
 
         check(erreurs.length === 0, 'aucune erreur JavaScript (téléphone)' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

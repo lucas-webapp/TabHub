@@ -149,10 +149,30 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         await page.waitForTimeout(100);
         await page.click('#btn-reglages');
         await page.waitForTimeout(150);
-        check((await page.evaluate(() => !document.getElementById('etat-brouillon')
-            && !document.getElementById('btn-vider-brouillon')
-            && !/brouillon/i.test(document.getElementById('fenetre-reglages').textContent))),
-            'et les Réglages n\'en parlent plus du tout : ni statut, ni bouton « vider », ni mention résiduelle');
+        // UNE INDICATION, TOUJOURS AUCUNE COMMANDE. Ce banc exigeait auparavant que les Réglages ne
+        // parlent PLUS DU TOUT du brouillon — statut compris. La moitié de cette exigence tenait, et
+        // l'autre a été révisée : l'absence de tout message laissait sans réponse « mon travail est-il
+        // gardé quelque part ? », et un panneau de réglages est l'endroit où l'on va la poser. Ce qui
+        // reste interdit, et c'est là tout l'enjeu, c'est le RÉGLAGE : un interrupteur dont le seul
+        // pouvoir serait d'empêcher l'appli de sauvegarder pour vous se paierait en attention à
+        // chaque ouverture du panneau, sans jamais rien apporter à qui écrit de la musique.
+        const brouillon = await page.evaluate(() => {
+            const etat = document.getElementById('etat-brouillon');
+            const fenetre = document.getElementById('fenetre-reglages');
+            return {
+                statut: etat ? etat.textContent : null,
+                // Rien de cliquable NI de saisissable sur cette ligne : ni bouton, ni interrupteur,
+                // ni champ — c'est ce qui distingue une indication d'un réglage.
+                commandes: etat ? etat.closest('.ligne-champ').querySelectorAll('button, input, select').length : -1,
+                vider: !!document.getElementById('btn-vider-brouillon'),
+                // Le mot « brouillon » lui-même n'apparaît pas : « Enregistrement automatique » dit ce
+                // que ça FAIT, là où « brouillon local » nommait une mécanique interne.
+                motBrouillon: /brouillon/i.test(fenetre.textContent),
+            };
+        });
+        check(brouillon.statut && /activé/.test(brouillon.statut) && brouillon.commandes === 0
+              && !brouillon.vider && !brouillon.motBrouillon,
+            `les Réglages DISENT que l'enregistrement automatique tourne (« ${brouillon.statut} ») sans offrir de le piloter : aucune commande sur la ligne, aucun bouton « vider », et pas le mot « brouillon »`);
 
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);

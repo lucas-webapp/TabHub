@@ -29,7 +29,7 @@ import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
-import { exporterPdf } from './io/pdf.js';
+import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective } from './model/score.js';
@@ -98,6 +98,7 @@ const CLE_METRONOME = 'tabhub.metronome';
 const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
 const CLE_VOLUME_METRONOME = 'tabhub.volumeMetronome';
+const CLE_PDF = 'tabhub.pdf';   // les réglages de mise en page du PDF, voir ouvrirApercuPdf
 
 /**
  * Vrai si l'appareil désigne AU DOIGT plutôt qu'à la souris — la seule question qui compte pour
@@ -181,11 +182,14 @@ class TabHubApp {
             barreOutils: document.getElementById('barre-outils'),
             message: document.getElementById('message'),
             panneauEnTete: document.getElementById('panneau-en-tete'),
-            // tempo/metronome/metronomeSubdivision : PAS ICI. Depuis que Tempo et Métronome vivent
-            // dans la barre d'outils (retour utilisateur, voir ui/toolbar.js#construireBarreOutils),
-            // construits par le même appel que Signature/Tonalité, ces éléments n'existent pas
-            // ENCORE à ce point du constructeur — ils sont assignés juste plus bas, une fois
-            // construireBarreOutils() effectivement appelé.
+            // Tempo et Métronome, DE RETOUR ICI avec les autres : ils avaient dû migrer plus bas dans
+            // le constructeur le temps où ui/toolbar.js les fabriquait (ils n'existaient pas encore
+            // dans le DOM à ce point-là). Ils vivent de nouveau en HTML statique, dans le bloc de
+            // lecture (voir #bloc-lecture dans index.html) — donc plus d'assignation différée.
+            tempo: document.getElementById('champ-tempo'),
+            metronome: document.getElementById('btn-metronome'),
+            metronomeSubdivision: document.getElementById('champ-metronome-subdivision'),   // dans Réglages > Son, voir index.html
+            blocLecture: document.getElementById('bloc-lecture'),
             groupeMesuresLigne: document.getElementById('groupe-mesures-ligne'),
             btnMesuresLigneBascule: document.getElementById('btn-mesures-ligne-bascule'),
             position: document.getElementById('info-position'),
@@ -206,13 +210,6 @@ class TabHubApp {
             signalerErreur: (texte) => this.message(texte),
         };
         this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, crochetsUi);
-        // Tempo et Métronome viennent d'être posés par l'appel ci-dessus (voir le commentaire sur
-        // `this.el` plus haut) : c'est SEULEMENT maintenant qu'ils existent dans le DOM.
-        Object.assign(this.el, {
-            tempo: document.getElementById('champ-tempo'),
-            metronome: document.getElementById('btn-metronome'),
-            metronomeSubdivision: document.getElementById('btn-metronome-subdivision'),
-        });
         // Le pavé tactile partage EXACTEMENT les mêmes crochets que la barre d'outils : les deux
         // exécutent les mêmes actions et doivent donc signaler les mêmes refus et rendre le focus au
         // même endroit — jamais deux comportements à tenir juste en parallèle.
@@ -472,6 +469,20 @@ class TabHubApp {
             this.el.tempo.value = this.editeur.partition.meta.tempo;
             this.lecteur.definirTempo(this.editeur.partition.meta.tempo);
         }
+        // CE QU'ON ENTEND SUIT CE QU'ON ÉCRIT (retour utilisateur : « lorsque je modifie une mesure,
+        // la lecture audio n'est pas toujours à jour et garde les informations précédentes. Elle doit
+        // s'adapter en temps réel aux modifications, même lorsque la lecture en boucle n'est pas
+        // arrêtée »). La partition n'était traduite en évènements d'horloge qu'au DÉMARRAGE de la
+        // lecture : tout ce qu'on écrivait ensuite n'existait pas pour l'audio, et en boucle on
+        // entendait indéfiniment l'état d'avant la correction.
+        //
+        // Sur TOUTES les raisons qui touchent la musique, l'annulation et le rétablissement compris
+        // — c'est là que le décalage s'entend le plus (on annule parce qu'on n'aimait pas ce qu'on a
+        // entendu). Deux exclusions : 'curseur', qui ne change rien à ce qui sonne, et 'lecture',
+        // émise par le lecteur lui-même, qui se reprogrammerait en boucle.
+        if (raison !== 'curseur' && raison !== 'lecture') {
+            this.lecteur.reprogrammerSiEnCours(this.editeur.partition);
+        }
         // Retour sonore à la saisie : entendre la note qu'on vient de poser évite l'essentiel des
         // erreurs de corde, invisibles à l'œil sur une tablature. Jamais pendant la lecture, où il
         // doublerait ce qu'on entend déjà.
@@ -501,11 +512,12 @@ class TabHubApp {
         const sub = this.lecteur.metronomeSubdivision;
         this.el.metronome.classList.toggle('actif', actif);
         this.el.metronome.setAttribute('aria-pressed', String(actif));
-        this.el.metronomeSubdivision.classList.toggle('actif', sub);
-        this.el.metronomeSubdivision.setAttribute('aria-pressed', String(sub));
-        this.el.metronomeSubdivision.querySelector('svg').innerHTML = sub
-            ? '<ellipse cx="6" cy="18" rx="3" ry="2.3" fill="currentColor"/><ellipse cx="17" cy="19" rx="3" ry="2.3" fill="currentColor"/><path d="M9 18V6l8 2v11" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'
-            : '<ellipse cx="9" cy="18" rx="4" ry="3" fill="currentColor"/><path d="M13 18V4" stroke="currentColor" stroke-width="2" stroke-linecap="round" fill="none"/>';
+        // La subdivision est devenue un INTERRUPTEUR dans Réglages > Son (voir index.html) : plus de
+        // classe `actif` ni de dessin à échanger — `aria-checked` suffit, et .interrupteur[aria-checked]
+        // porte déjà tout l'aspect (voir style.css). Les deux jeux de glyphes qui disaient « une
+        // noire » ou « deux croches » n'avaient de raison d'être que tant qu'une icône devait
+        // annoncer elle-même son propre état.
+        this.el.metronomeSubdivision.setAttribute('aria-checked', String(sub));
     }
 
     /**
@@ -712,12 +724,52 @@ class TabHubApp {
      */
     enregistrer() {
         clearTimeout(this._minuterieBrouillon);
+        const err = this._ecrireBrouillon();
+        this.message(err ? 'Échec de l\'enregistrement local : ' + err.message : 'Enregistré');
+    }
+
+    /**
+     * L'ÉCRITURE DU BROUILLON, EN UN SEUL ENDROIT — appelée par `enregistrer` (maintenant, à la
+     * demande) comme par `planifierBrouillon` (en différé, tout seul). Les deux l'écrivaient chacune
+     * de son côté ; depuis que Réglages > Fichiers en affiche l'heure, elles doivent aussi la NOTER
+     * chacune, et deux copies d'un même geste finissent toujours par n'en noter qu'une.
+     * @returns {Error|null} l'erreur, s'il y en a une — `enregistrer` la dit, `planifierBrouillon`
+     *   l'avale : un brouillon différé qui échoue n'a pas à interrompre la frappe pour l'annoncer.
+     */
+    _ecrireBrouillon() {
         try {
             localStorage.setItem(CLE_BROUILLON, JSON.stringify(this.editeur.partition));
-            this.message('Enregistré');
+            this._brouillonEcritLe = new Date();
+            this.rafraichirEtatBrouillon();
+            return null;
         } catch (err) {
-            this.message('Échec de l\'enregistrement local : ' + err.message);
+            // Quota plein ou stockage refusé : le brouillon est un confort, pas une garantie. L'état
+            // affiché le dit alors franchement, plutôt que de laisser une heure périmée faire croire
+            // à une sauvegarde qui n'a pas eu lieu.
+            this._brouillonEnEchec = true;
+            this.rafraichirEtatBrouillon();
+            return err;
         }
+    }
+
+    /**
+     * La ligne « Enregistrement automatique » de Réglages > Fichiers (voir index.html).
+     *
+     * UNE INDICATION, PAS UNE COMMANDE. Le brouillon n'a jamais eu d'interrupteur, et c'était juste :
+     * un réglage qui ne sert qu'à empêcher l'appli de sauvegarder pour vous coûte plus d'attention
+     * qu'il n'en fait gagner. Mais l'absence de réglage laissait la question sans réponse — « mon
+     * travail est-il gardé quelque part ? » — et un panneau de réglages est l'endroit où on va la
+     * poser. L'heure y répond sans rien demander.
+     */
+    rafraichirEtatBrouillon() {
+        const el = document.getElementById('etat-brouillon');
+        if (!el) return;
+        if (this._brouillonEnEchec) { el.textContent = 'indisponible'; el.classList.add('valeur-etat-alerte'); return; }
+        el.classList.remove('valeur-etat-alerte');
+        if (!this._brouillonEcritLe) { el.textContent = 'activé'; return; }
+        // L'heure, pas un « il y a 3 minutes » : un compte relatif se périme dès qu'on le lit, et il
+        // faudrait une minuterie pour le tenir à jour pendant que le panneau reste ouvert.
+        el.textContent = 'activé — ' + this._brouillonEcritLe.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
     }
 
     /** Exporter : un fichier .json portable, téléchargé — l'ancien sens d'« Enregistrer ». */
@@ -744,12 +796,146 @@ class TabHubApp {
         }
     }
 
-    exporterPdf() {
+    /**
+     * « Exporter PDF » N'EXPORTE PLUS DIRECTEMENT : il ouvre l'aperçu (retour utilisateur : « me
+     * montrer la mise en page avant d'enregistrer le PDF »). L'enregistrement se fait depuis la
+     * fenêtre, au bouton « Enregistrer le PDF » — voir ouvrirApercuPdf et enregistrerPdf.
+     * Le raccourci Ctrl+P passe par ici aussi : un aperçu que le clavier contournerait serait un
+     * aperçu qu'on oublie d'avoir.
+     */
+    exporterPdf() { this.ouvrirApercuPdf(); }
+
+    /** Les réglages de mise en page en vigueur, complétés par les valeurs d'origine. */
+    _optionsPdf() {
+        return {
+            format: 'a4', marges: 'normales', mesuresParLigne: 0,
+            interligne: BORNES_PDF.interligne.defaut,
+            ecartSystemes: BORNES_PDF.ecartSystemes.defaut,
+            echelleEnTete: BORNES_PDF.echelleEnTete.defaut,
+            ...(this._pdf || {}),
+            // TAB seule (voir appliquerTabSeule) : le PDF suit le même réglage que l'écran — sans
+            // effet au piano, comme sur l'écran (mettreEnPagePiano ne lit jamais cette option). Ce
+            // n'est PAS un réglage de cette fenêtre : c'en serait un second accès, et l'aperçu le
+            // montre déjà tel qu'il est.
+            avecPortee: !this.tabSeule,
+        };
+    }
+
+    /**
+     * L'APERÇU AVANT EXPORT. Voir #fenetre-pdf dans index.html, qui porte le pourquoi.
+     *
+     * Les réglages sont RELUS du stockage à chaque ouverture plutôt que gardés en mémoire vive :
+     * une fenêtre de mise en page dont les choix s'oublient au rechargement ferait refaire six
+     * réglages à chaque session, pour un morceau qui n'a pas changé de longueur entre-temps.
+     */
+    ouvrirApercuPdf() {
+        try { this._pdf = JSON.parse(localStorage.getItem(CLE_PDF)) || {}; }
+        catch (err) { this._pdf = {}; }
+        this._pdfPage = 0;
+
+        const sel = (id) => document.getElementById(id);
+        const o = this._optionsPdf();
+
+        sel('pdf-format').innerHTML = Object.entries(FORMATS)
+            .map(([id, f]) => `<option value="${id}"${id === o.format ? ' selected' : ''}>${f.nom}</option>`).join('');
+        sel('pdf-marges').innerHTML = Object.entries(JEUX_MARGES)
+            .map(([id, m]) => `<option value="${id}"${id === o.marges ? ' selected' : ''}>${m.nom}</option>`).join('');
+        // « Auto » vaut 0 et non `null` dans la liste : la valeur d'un <option> est toujours une
+        // chaîne, et `parseInt('') `donnerait NaN. preparerPdf retraduit 0 en `null` (mode glouton).
+        sel('pdf-mesures-ligne').innerHTML = ['<option value="0">Auto</option>']
+            .concat([1, 2, 3, 4, 5, 6, 7, 8].map(n => `<option value="${n}">${n}</option>`)).join('');
+        sel('pdf-mesures-ligne').value = String(o.mesuresParLigne || 0);
+
+        for (const [id, cle] of [['pdf-interligne', 'interligne'], ['pdf-ecart', 'ecartSystemes'], ['pdf-titres', 'echelleEnTete']]) {
+            const b = BORNES_PDF[cle], r = sel(id);
+            r.min = b.min; r.max = b.max; r.step = b.pas; r.value = o[cle];
+        }
+
+        const lire = () => {
+            this._pdf = {
+                format: sel('pdf-format').value,
+                marges: sel('pdf-marges').value,
+                mesuresParLigne: parseInt(sel('pdf-mesures-ligne').value, 10) || 0,
+                interligne: parseFloat(sel('pdf-interligne').value),
+                ecartSystemes: parseFloat(sel('pdf-ecart').value),
+                echelleEnTete: parseFloat(sel('pdf-titres').value),
+            };
+            localStorage.setItem(CLE_PDF, JSON.stringify(this._pdf));
+            this.dessinerApercuPdf();
+        };
+        for (const id of ['pdf-format', 'pdf-marges', 'pdf-mesures-ligne']) sel(id).onchange = lire;
+        // `input` et non `change` sur les curseurs : l'aperçu suit le doigt, c'est tout l'intérêt
+        // d'un curseur ici — on cherche la valeur qui fait tomber une page, on ne la connaît pas
+        // d'avance. Le redessin est un rendu SVG d'UNE page, pas du morceau entier.
+        for (const id of ['pdf-interligne', 'pdf-ecart', 'pdf-titres']) sel(id).oninput = lire;
+
+        sel('pdf-reinit').onclick = () => {
+            localStorage.removeItem(CLE_PDF);
+            this.ouvrirApercuPdf();   // se rouvre sur les valeurs d'origine, fenêtre déjà affichée
+        };
+        sel('pdf-page-prec').onclick = () => { this._pdfPage--; this.dessinerApercuPdf(); };
+        sel('pdf-page-suiv').onclick = () => { this._pdfPage++; this.dessinerApercuPdf(); };
+        sel('pdf-enregistrer').onclick = () => this.enregistrerPdf();
+
+        this.dessinerApercuPdf();
+        this.ouvrirFenetre('fenetre-pdf');
+    }
+
+    /**
+     * Dessine LA page courante de l'aperçu, et met à jour le bilan.
+     *
+     * Le `page` passé au rendu est celui de preparerPdf, mais avec les dimensions de la FEUILLE et
+     * non celles du contenu : la liste d'affichage vit dans un repère sans bord de page (elle
+     * s'étend sur toute la hauteur du morceau), et c'est la pagination qui découpe. Le décalage
+     * remonte la tranche voulue en haut de la feuille — exactement le calcul de construirePdf, à la
+     * même ligne près.
+     */
+    dessinerApercuPdf() {
+        const cible = document.getElementById('pdf-feuille');
+        if (!cible) return;
+        const o = this._optionsPdf();
+        let prep;
+        try {
+            prep = preparerPdf(this.editeur.partition, o);
+        } catch (err) {
+            console.error(err);
+            cible.innerHTML = '';
+            document.getElementById('pdf-bilan').textContent = 'Aperçu indisponible';
+            return;
+        }
+        const { page, feuilles, format, marges, hauteurEnTete } = prep;
+        const n = Math.max(1, feuilles.length);
+        this._pdfPage = Math.min(Math.max(0, this._pdfPage), n - 1);
+        const feuille = feuilles[this._pdfPage];
+
+        if (feuille) {
+            cible.innerHTML = rendreSvg({ ...page, largeur: format.largeur, hauteur: format.hauteur }, {
+                systemesVisibles: feuille.systemes,
+                decalage: { dx: marges.gauche, dy: marges.haut + (this._pdfPage === 0 ? hauteurEnTete : 0) - feuille.y0 },
+                // La palette du PDF, pas celle de l'écran : papier blanc, encre noire. C'est un
+                // aperçu d'IMPRESSION — le papier crème de l'écran y mentirait sur le résultat.
+                palette: PALETTE_PDF,
+            });
+        } else {
+            cible.innerHTML = '';
+        }
+        document.getElementById('pdf-compteur').textContent = `Page ${this._pdfPage + 1} / ${n}`;
+        document.getElementById('pdf-page-prec').disabled = this._pdfPage === 0;
+        document.getElementById('pdf-page-suiv').disabled = this._pdfPage >= n - 1;
+        document.getElementById('pdf-valeur-interligne').textContent = o.interligne.toFixed(2) + ' mm';
+        document.getElementById('pdf-valeur-ecart').textContent = o.ecartSystemes.toFixed(1);
+        document.getElementById('pdf-valeur-titres').textContent = Math.round(o.echelleEnTete * 100) + ' %';
+        const mesures = this.editeur.partition.mesures.length;
+        document.getElementById('pdf-bilan').textContent =
+            `${n} page${n > 1 ? 's' : ''} · ${mesures} mesure${mesures > 1 ? 's' : ''} · ${page.ancrages.systemes.length} portée${page.ancrages.systemes.length > 1 ? 's' : ''}`;
+    }
+
+    /** Enregistre le PDF avec les réglages de l'aperçu, puis referme la fenêtre. */
+    enregistrerPdf() {
         try {
             this.message('Génération du PDF…', 20000);
-            // TAB seule (voir appliquerTabSeule) : le PDF suit le même réglage que l'écran — sans
-            // effet au piano, comme sur l'écran (mettreEnPagePiano ne lit jamais cette option).
-            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition, { avecPortee: !this.tabSeule });
+            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition, this._optionsPdf());
+            this.fermerFenetres();
             this.message(`PDF téléchargé → ${nomFichier} (${nbPages} page${nbPages > 1 ? 's' : ''})`);
         } catch (err) {
             console.error(err);
@@ -946,10 +1132,7 @@ class TabHubApp {
      */
     planifierBrouillon() {
         clearTimeout(this._minuterieBrouillon);
-        this._minuterieBrouillon = setTimeout(() => {
-            try { localStorage.setItem(CLE_BROUILLON, JSON.stringify(this.editeur.partition)); }
-            catch (err) { /* quota plein ou stockage refusé : le brouillon est un confort, pas une garantie */ }
-        }, 700);
+        this._minuterieBrouillon = setTimeout(() => this._ecrireBrouillon(), 700);
     }
 
     restaurerBrouillon() {
@@ -1056,7 +1239,7 @@ class TabHubApp {
             localStorage.setItem(CLE_METRONOME, this.lecteur.metronomeActif ? '1' : '0');
             this.rafraichirMetronome();
         });
-        surClic('btn-metronome-subdivision', () => {
+        surClic('champ-metronome-subdivision', () => {
             this.lecteur.metronomeSubdivision = !this.lecteur.metronomeSubdivision;
             localStorage.setItem(CLE_METRONOME_SUBDIVISION, this.lecteur.metronomeSubdivision ? '1' : '0');
             this.rafraichirMetronome();
@@ -2249,12 +2432,20 @@ class TabHubApp {
             localStorage.setItem(CLE_VOLUME_METRONOME, String(p));
         };
 
-        // Rien ici sur le brouillon local : il s'écrit et se relit tout seul (voir planifierBrouillon
-        // et restaurerBrouillon), et c'est très bien ainsi. Il a eu sa rubrique dans les Réglages —
-        // statut + « Vider le brouillon local » — retirée depuis : HarmoHub n'expose rien de tel, et
-        // un réglage dont le seul pouvoir est de défaire ce que l'appli fait pour vous se paie en
-        // attention à chaque ouverture du panneau, sans jamais rien apporter à qui écrit de la
-        // musique. Repartir de zéro reste à un clic : Fichiers → Nouveau écrase le brouillon.
+        // Le clic sur les croches, VENU DE LA BARRE DU BAS (voir index.html, Réglages > Son) : un
+        // réglage de comportement du métronome, pas une commande de lecture. L'écouteur du clic vit
+        // avec les autres dans brancherInterface (il y était déjà, sous son ancien id) ; ici on ne
+        // fait que refléter l'état à l'ouverture du panneau, comme pour le pavé et TAB seule.
+        this.rafraichirMetronome();
+
+        // BROUILLON LOCAL : une INDICATION, jamais un interrupteur. La rubrique « Brouillon local »
+        // qu'il a eue autrefois — statut + « Vider le brouillon local » — a bien été retirée, et pour
+        // une bonne raison : un réglage dont le seul pouvoir est de défaire ce que l'appli fait pour
+        // vous se paie en attention à chaque ouverture du panneau. Ce qui revient ici n'est pas ce
+        // réglage mais sa MOITIÉ INFORMATIVE, dans le groupe Fichiers : l'absence de tout message
+        // laissait sans réponse « mon travail est-il gardé quelque part ? », et un panneau de réglages
+        // est l'endroit où l'on va la poser. Repartir de zéro reste à un clic : Fichiers → Nouveau.
+        this.rafraichirEtatBrouillon();
     }
 
     /** L'aide-mémoire se GÉNÈRE depuis la table des actions : elle ne peut pas mentir sur les touches. */

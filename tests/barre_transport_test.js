@@ -9,28 +9,32 @@
 // main.js#brancherFlechesTransport, qui reprend ui/toolbar.js#flecheOutilsSvg) : deux flèches
 // collantes, cachées d'elles-mêmes quand il n'y a rien à atteindre de leur côté.
 //
-// 200px, PAS 390 : depuis que Tempo et Métronome ont quitté cette barre pour la barre d'outils
-// (retour utilisateur, voir ui/toolbar.js), .transport (Lecture/Stop, position, Mesures/ligne) ne
-// déborde plus sur AUCUN téléphone réel. Ce banc force donc un viewport bien plus étroit qu'aucun
-// appareil existant pour continuer à éprouver le FILET lui-même (les flèches, si jamais ce mécanisme
-// redevenait nécessaire), pas un cas qui se présentera un jour tel quel — même logique que le filet
-// « écran anormalement court » de tactile_test.js.
+// 300px, ET LE SEUIL A BOUGÉ DEUX FOIS — chaque fois pour une raison différente, qu'il vaut la peine
+// de garder écrite puisque le prochain changement de cette barre le déplacera encore.
 //
-// 200 ET NON PLUS 230, et le déplacement du seuil est lui-même un gain, pas un contournement. Les
-// flèches étant `sticky`, donc EN FLUX, chacune de visible ajoutait ses 26px à `scrollWidth` : le
-// test de débordement se mesurait lui-même, et à 230px c'étaient ces 26px SEULS qui débordaient —
-// une flèche droite allumée parce qu'il y avait une flèche droite. Mesuré depuis que le débordement
-// se calcule flèches déduites (voir ui/toolbar.js#ajusterFleches) : le contenu utile pèse 218px, si
-// bien qu'à 230px la barre TIENT et les deux flèches s'éteignent, tandis que le débordement réel
-// commence sous 220px. Le banc éprouve donc le filet là où il y a vraiment quelque chose à
-// atteindre — et garantit au passage, à 230px, qu'il ne s'allume PLUS pour rien.
+//   1. À l'origine 390px : la barre portait Lecture/Stop, Tempo ET Métronome, et débordait sur un
+//      téléphone ordinaire.
+//   2. Puis 230px : Tempo et Métronome étaient partis dans la barre d'outils, et il fallait un
+//      viewport plus étroit qu'aucun appareil réel pour éprouver encore le filet.
+//   3. Puis 200px : les flèches, `sticky` donc EN FLUX, ajoutaient chacune ses 26px à `scrollWidth`
+//      — le test de débordement se mesurait lui-même, et à 230px c'étaient ces 26px SEULS qui
+//      débordaient. Corrigé (voir ui/toolbar.js#ajusterFleches), le contenu tombait à 218px utiles.
+//   4. Aujourd'hui 300px : les cinq commandes de lecture sont revenues ici, réunies dans un bloc
+//      encadré (voir #bloc-lecture dans index.html, et le retour utilisateur qu'il cite). Le contenu
+//      utile pèse 313px. Mesuré largeur par largeur : la barre déborde jusqu'à 310px et tient à
+//      partir de 315px.
+//
+// 300px reste plus étroit que tout téléphone en service (l'iPhone SE, le plus petit, fait 320px) :
+// ce banc éprouve le FILET, pas un cas qu'on rencontrera — même logique que le filet « écran
+// anormalement court » de tactile_test.js. Et il garantit en fin de course qu'à 320px, lui, tout
+// tient sans rien à faire défiler.
 const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('barre de transport : défilement');
 
 (async () => {
     plan(9);
-    const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 200, height: 844 }, hasTouch: true, isMobile: true });
+    const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 300, height: 844 }, hasTouch: true, isMobile: true });
     try {
         const etat = () => page.evaluate(() => {
             const t = document.querySelector('.transport');
@@ -44,7 +48,7 @@ const { check, exiger, plan, bilan } = creerHarnais('barre de transport : défil
         });
 
         const avant = await etat();
-        exiger(avant.deborde, 'à 200px (délibérément plus étroit qu\'aucun téléphone réel), la barre de transport déborde bien — condition du reste de ce banc');
+        exiger(avant.deborde, 'à 300px (plus étroit que tout téléphone en service), la barre de transport déborde bien — condition du reste de ce banc');
         check(avant.gaucheInvisible === true, 'tout à gauche au départ : la flèche GAUCHE est invisible');
         check(avant.droiteInvisible === false, 'et la flèche DROITE se montre (Mesures/ligne reste à atteindre)');
 
@@ -68,22 +72,22 @@ const { check, exiger, plan, bilan } = creerHarnais('barre de transport : défil
         await page.keyboard.press('Escape');
         await page.waitForTimeout(100);
 
-        // --- ET À 230px, PLUS RIEN À ATTEINDRE : l'ancienne condition devenue garantie ----------------
-        // Ce banc EXIGEAIT auparavant que la barre déborde à 230px. Ce n'est plus vrai, et c'est la
-        // bonne nouvelle : les 26px que la flèche droite s'ajoutait à elle-même ne comptent plus
-        // (218px de contenu utile pour 230px de place — mesuré ; correctif retiré, la barre annonce
-        // 244px et rallume sa flèche droite). On vérifie donc l'inverse, là même où l'ancienne
-        // exigence se tenait.
+        // --- ET À 320px, LE PLUS PETIT TÉLÉPHONE EN SERVICE, PLUS RIEN À ATTEINDRE -------------------
+        // La garantie qui compte vraiment pour un utilisateur : sur l'appareil le plus étroit qu'on
+        // puisse encore avoir en main (iPhone SE, 320px), la barre du bas tient tout entière et les
+        // deux flèches s'éteignent — aucune commande de lecture à aller chercher par un défilement.
         //
-        // ICI, EN VENANT DE 200px, ET PAS APRÈS LE PASSAGE EN 1400px : à 1400 les deux flèches sont
-        // déjà éteintes, donc aucune n'ajoute ses 26px, donc l'élargissement à 230 ne peut rien
-        // révéler — la vérification passerait correctif retiré (constaté). Elle doit partir d'un état
-        // où une flèche est ALLUMÉE, ce que la section 200px ci-dessus laisse derrière elle.
-        await page.setViewportSize({ width: 230, height: 844 });
+        // ELLE ÉPROUVE AUSSI LE CORRECTIF DES FLÈCHES, et c'est pour cela qu'elle vient d'un état où
+        // une flèche est ALLUMÉE (la section 300px ci-dessus) et non du grand écran : à 1400px les
+        // deux flèches sont déjà éteintes, donc aucune n'ajoute ses 26px à `scrollWidth`, donc
+        // l'élargissement ne révélerait rien — la vérification passerait correctif retiré (constaté
+        // en le neutralisant). Ici, correctif retiré, la barre annonce 26px de trop et rallume sa
+        // flèche droite sur ses propres pixels.
+        await page.setViewportSize({ width: 320, height: 844 });
         await page.waitForTimeout(200);
         const etroit = await etat();
         check(!etroit.deborde && etroit.gaucheInvisible && etroit.droiteInvisible,
-            'à 230px la barre tient tout entière et les deux flèches s\'éteignent — une flèche ne se compte plus elle-même');
+            'à 320px — le plus petit téléphone en service — la barre tient tout entière et les deux flèches s\'éteignent');
 
         // --- Sur un GRAND écran, rien ne déborde : les deux flèches restent invisibles --------------
         await page.setViewportSize({ width: 1400, height: 900 });

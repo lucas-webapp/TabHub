@@ -409,6 +409,40 @@ export class Lecteur {
         if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
     }
 
+    /**
+     * REPROGRAMME LA LECTURE EN COURS, sans l'interrompre — pour que ce qu'on entend suive ce qu'on
+     * écrit.
+     *
+     * LE DÉFAUT (retour utilisateur : « lorsque je modifie une mesure, la lecture audio n'est pas
+     * toujours à jour et garde les informations précédentes. Elle doit s'adapter en temps réel aux
+     * modifications, même lorsque la lecture en boucle n'est pas arrêtée »). `programmer` n'était
+     * appelé qu'au DÉMARRAGE (voir `jouer`, sous `etat === 'arret'`) : toute la partition était
+     * traduite en évènements d'horloge une fois pour toutes, et une note ajoutée ensuite n'existait
+     * simplement pas pour l'audio. En boucle, le décalage devenait flagrant — on retravaille un
+     * passage en l'entendant tourner, on corrige une note, et le tour suivant rejoue l'ancienne.
+     *
+     * POURQUOI ON PEUT LE FAIRE SANS ARRÊTER. `programmer` annule puis replace TOUS les évènements
+     * à des positions ABSOLUES en tics (`${'${n}'}i`), sans jamais toucher à l'horloge elle-même : le
+     * transport continue de courir, et les évènements replacés avant sa position actuelle ne se
+     * redéclenchent pas — il les a déjà dépassés. Les notes en train de sonner ne sont pas coupées
+     * non plus : leur relâchement vit sur l'horloge AUDIO (triggerAttackRelease l'a déjà programmé),
+     * pas sur le transport que `cancel` vide.
+     *
+     * ET LA BOUCLE EST REPOSÉE. `Transport.cancel()` ne touche pas à loopStart/loopEnd, mais ces
+     * bornes sont calculées en tics depuis des NUMÉROS de mesure : ajouter ou retirer une mesure
+     * avant la boucle déplace ce qu'elle doit encadrer, et laisser les anciens tics en place ferait
+     * boucler à côté. On les recalcule donc sur la partition telle qu'elle est maintenant.
+     *
+     * Sans effet à l'arrêt : il n'y a alors rien à rattraper, et `jouer` programmera au démarrage.
+     */
+    reprogrammerSiEnCours(partition) {
+        const Tone = globalThis.Tone;
+        if (!Tone?.Transport || this.etat === 'arret') return false;
+        this.programmer(partition);
+        if (this.boucleLecture) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+        return true;
+    }
+
     /** Retire la boucle : la lecture continue tout droit au lieu de rebrousser chemin. */
     retirerBoucle() {
         this.boucleLecture = null;

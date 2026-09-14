@@ -85,11 +85,16 @@
     /* HAUTEUR DE BOUTON UNIQUE (retour utilisateur : « limiter le nombre de hauteurs différentes ») —
        AVANT cette variable, six valeurs coexistaient selon le composant et le pointeur (22/30/32/34/
        40/44px) : la barre de transport et la barre d'outils, côte à côte sur le même écran, ne
-       s'alignaient jamais. Une SEULE variable, relue par .btn-outil/.btn-icone/.btn-transport/
+       s'alignaient jamais. Une SEULE variable, relue par .btn-outil/.btn-icone/
        .btn-transport-texte/.btn-plein/.btn-neutre/.btn-mesures-ligne/select.champ/input.champ/
        .menu-contextuel button : 34px à la souris, 44px au doigt (voir @media pointer:coarse plus
-       bas — la cible tactile minimale recommandée, déjà le choix historique de .btn-transport/
-       .btn-pave, étendu ici à TOUT le reste plutôt que gardé pour deux boutons seulement).
+       bas — la cible tactile minimale recommandée, déjà le choix historique de .btn-pave, étendu ici
+       à TOUT le reste plutôt que gardé pour deux boutons seulement).
+       EXCEPTION AJOUTÉE DEPUIS : .btn-lecture (Lecture/Stop) tient sa propre hauteur de 40px à la
+       souris, la seule de l'application à dépasser les 34px. Non par inadvertance : ce sont les deux
+       boutons les plus souvent visés, et l'utilisateur les a signalés « trop petits » précisément à
+       cette hauteur-là. Au doigt ils reviennent dans le rang (--h-bouton, 44px), où la cible tactile
+       commande déjà la bonne valeur.
        EXCEPTIONS VOLONTAIRES, gardées à part : .interrupteur (un interrupteur, pas un bouton — autre
        logique visuelle) et .fleche-outils (flèches de défilement, délibérément plus discrètes que ce
        qu'elles enjambent). */
@@ -582,8 +587,46 @@ input.champ[type="number"] { width: 54px; text-align: center; }
     overflow-y: hidden;
 }
 
-.btn-transport {
-    width: 38px; height: var(--h-bouton);
+/* LE BLOC DE LECTURE — voir #bloc-lecture dans index.html, qui porte le pourquoi.
+   Un cadre, comme les groupes de la barre d'outils (mêmes valeurs, même token --border-groupe) :
+   c'est LE même geste de conception, et il doit se reconnaître comme tel d'un coup d'œil — « ces
+   commandes vont ensemble ». Un fond légèrement plus clair que la barre, en plus du cadre : ce bloc
+   est le seul de la barre du bas, il n'a pas de voisin encadré à côté de qui se détacher. */
+.bloc-lecture {
+    flex: none;
+    display: flex; align-items: center; gap: 4px;
+    padding: 4px 8px;
+    background: var(--fond-bouton-sombre);
+    border: 1px solid var(--border-groupe);
+    border-radius: 11px;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, .04);
+}
+
+/* LES DEUX ZONES LATÉRALES, `flex: 1` CHACUNE : c'est ce qui met le bloc au milieu de la FENÊTRE.
+   Deux `flex: 1` se partagent l'espace restant à parts égales, donc le centre géométrique du bloc
+   tombe au centre de la barre — quelles que soient les largeurs respectives des deux zones (mesuré :
+   73px à gauche, 239px à droite ; un simple `margin: auto` l'aurait décalé de 83px vers la gauche).
+   `min-width: 0` : sans lui, une zone au contenu large refuse de se comprimer et repousse le bloc.
+   Elles restent des boîtes flex ordinaires, jamais une grille : les flèches de défilement de la barre
+   (voir .fleche-outils, posées en premier et dernier enfants par main.js#brancherFlechesTransport)
+   sont des enfants directs de .transport — une grille en trois colonnes les aurait prises pour des
+   colonnes. */
+.transport-cote {
+    flex: 1 1 0; min-width: 0;
+    display: flex; align-items: center; gap: 8px;
+    overflow: hidden;
+}
+.transport-droite { justify-content: flex-end; }
+
+/* LECTURE ET STOP, LES DEUX BOUTONS LES PLUS VISÉS DE L'APPLICATION (retour utilisateur : « les
+   boutons de lecture sont trop petits »). Ils partageaient les 38 × 34px d'un bouton d'outil, alors
+   qu'on les touche dix fois pour une fois qu'on change de durée. 52 × 40 à la souris ; au doigt, la
+   règle de --h-bouton (44px de cible tactile) s'applique en hauteur ET 56 en largeur, voir le bloc
+   téléphone plus bas. Les couleurs ne changent pas : vert pour partir, rouge pour arrêter, déjà
+   justes et déjà apprises. */
+.btn-lecture {
+    width: 52px; height: 40px;
+    flex: none;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 9px; cursor: pointer;
     border: 1px solid var(--btn-neutral-border);
@@ -591,17 +634,24 @@ input.champ[type="number"] { width: 54px; text-align: center; }
     color: var(--text-main);
     transition: background .12s, border-color .12s;
 }
-.btn-transport:hover:not(:disabled) { border-color: var(--btn-neutral-border-hover); }
-.btn-transport.jouer {
+.btn-lecture:hover:not(:disabled) { border-color: var(--btn-neutral-border-hover); }
+.btn-lecture.jouer {
     background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
     border-color: var(--btn-green-border); color: var(--btn-text);
 }
-.btn-transport.jouer:hover { border-color: var(--btn-green-border-hover); }
-.btn-transport.arret {
+.btn-lecture.jouer:hover { border-color: var(--btn-green-border-hover); }
+.btn-lecture.arret {
     background: linear-gradient(180deg, var(--btn-red-1) 0%, var(--btn-red-2) 100%);
     border-color: var(--btn-red-border); color: var(--btn-text);
 }
-.btn-transport:disabled { opacity: .34; cursor: default; }
+.btn-lecture:disabled { opacity: .34; cursor: default; }
+/* L'icône suit le bouton : 18px dans 34px de haut passait pour 20px dans 40px — sans quoi un bouton
+   agrandi n'aurait gagné que du vide autour du même petit triangle. */
+.btn-lecture .icone { width: 20px; height: 20px; }
+
+/* `.btn-transport` a disparu : Lecture et Stop, ses deux seuls porteurs, sont devenus .btn-lecture
+   (voir plus haut). `.btn-transport-texte` juste en dessous n'en dérive pas — c'est une classe à
+   part, pour un bouton à libellé (Fichiers, Mesures par ligne), et elle reste utilisée. */
 
 /* Bouton texte de la barre de transport (Fichiers, Mesures par ligne…) — même hauteur que les
    boutons de transport, mais largeur libre pour son texte. */
@@ -617,6 +667,12 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 .btn-transport-texte:active { background: var(--btn-green-1); border-color: var(--btn-green-border); color: var(--btn-text); }
 
 .info-transport { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* VALEUR D'ÉTAT dans les Réglages (« Enregistrement automatique — 14:32 ») : ce n'est ni un champ ni
+   un libellé, mais une valeur en lecture seule. Alignée à droite comme les valeurs des curseurs de
+   volume, dont elle reprend la graisse — pour qu'une ligne d'INFORMATION et une ligne de RÉGLAGE se
+   lisent d'emblée comme deux choses différentes, la première ne pouvant pas se cliquer. */
+.valeur-etat { margin-left: auto; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.valeur-etat-alerte { color: var(--btn-red-border-hover); }
 .info-transport strong { color: var(--text-main); font-weight: 700; }
 
 /* ============================================================
@@ -646,6 +702,40 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 .fenetre-tete h2 { margin: 0; font-size: var(--fs-lg); font-weight: 800; }
 .fenetre-corps { padding: 16px; display: flex; flex-direction: column; gap: 16px; }
 .fenetre-pied { padding: 12px 16px; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; gap: 8px; }
+
+/* APERÇU AVANT EXPORT PDF — voir #fenetre-pdf dans index.html, qui porte le pourquoi.
+   PLUS LARGE que les autres fenêtres (560px) : celles-là sont des colonnes de réglages, celle-ci
+   montre une FEUILLE A4 en même temps qu'on la règle — et une feuille trop petite pour qu'on y
+   distingue les portées ne répond pas à « montre-moi la mise en page ». */
+.fenetre-pdf { width: min(1000px, 100%); }
+/* DEUX COLONNES, l'aperçu large et les réglages étroits — et l'aperçu EN PREMIER, à gauche : c'est
+   ce qu'on est venu voir, les réglages ne servent qu'à le corriger. `minmax(0, …)` sur la première :
+   sans le 0, la colonne refuse de descendre sous la largeur intrinsèque du SVG et fait déborder la
+   fenêtre. `align-items: start` : les réglages se collent en haut plutôt que de s'étirer sur toute
+   la hauteur d'une feuille A4. */
+.corps-pdf { display: grid; grid-template-columns: minmax(0, 1fr) 240px; gap: 18px; align-items: start; }
+.pdf-apercu { display: flex; flex-direction: column; gap: 10px; min-width: 0; }
+/* La feuille : une ombre portée et un fond blanc, pour qu'on la lise comme une PAGE posée sur un
+   plan de travail et non comme une zone de l'interface. Le SVG rendu porte ses dimensions en
+   millimètres (voir main.js#dessinerApercuPdf) ; `width: 100%; height: auto` le met à l'échelle du
+   conteneur en gardant ses proportions exactes — un A4 reste un A4. */
+.pdf-feuille {
+    background: #fff; border-radius: 3px;
+    box-shadow: 0 6px 22px rgba(0, 0, 0, .55);
+    overflow: hidden;
+    /* Réserve la place d'une feuille A4 AVANT que le SVG n'arrive : sans elle, la fenêtre change de
+       hauteur d'un coup au premier rendu, et chaque changement de format la fait sauter. */
+    aspect-ratio: 210 / 297;
+}
+.pdf-feuille svg { display: block; width: 100%; height: 100%; }
+.pdf-pagination { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.pdf-compteur { font-size: var(--fs-sm); font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.pdf-reglages { display: flex; flex-direction: column; gap: 14px; }
+.pdf-reglages .ligne-champ { margin-bottom: 0; }
+.pdf-reinit { margin-top: 2px; }
+/* Le bilan (« 2 pages · 24 mesures · 8 portées ») à GAUCHE du pied, face aux boutons : c'est le
+   dernier regard avant le clic, il doit être sur le chemin de l'œil vers « Enregistrer ». */
+.pdf-bilan { font-size: var(--fs-sm); color: var(--text-muted); font-variant-numeric: tabular-nums; }
 
 /* Fenêtre de choix de ZONE DE MANCHE à l'import MIDI (voir main.js#choisirZoneManche) : une
    colonne de boutons pleine largeur, texte aligné à gauche — plus lisible qu'un bouton centré
@@ -941,12 +1031,14 @@ body.avec-pave .dpad-flottant { display: grid; }
    elle est tactile). Les cibles grandissent partout où l'on vise, et les gestes propres au téléphone
    (défilement du doigt sur la partition) reprennent leurs droits. */
 @media (pointer: coarse) {
-    /* SEUL point de réglage pour « au doigt, tout grandit » : .btn-outil/.btn-icone/.btn-transport/
+    /* SEUL point de réglage pour « au doigt, tout grandit » : .btn-outil/.btn-icone/.btn-lecture/
        .btn-transport-texte/.btn-plein/.btn-neutre/.btn-mesures-ligne/select.champ/input.champ/
        .menu-contextuel button relisent tous cette même variable (voir :root) — aucun besoin de
        redéfinir leur hauteur un par un ici, exactement le défaut que --h-bouton corrige. */
     :root { --h-bouton: 44px; }
-    .btn-transport { min-width: 44px; }   /* la LARGEUR, elle, reste propre à .btn-transport (38px de base) */
+    /* LECTURE ET STOP AU DOIGT : la hauteur suit --h-bouton (44px) comme tout le reste. La largeur
+       est reprise plus bas, dans le bloc téléphone, où la place manque vraiment. */
+    .btn-lecture { height: var(--h-bouton); }
     .menu-contextuel button { padding: 12px 12px; }
     /* LE DOIGT DÉFILE, IL NE LASSOTE PAS. Le lasso de sélection multiple (voir main.js,
        demarrerGeste) est un geste de SOURIS ; au doigt, glisser sur une partition veut dire la faire
@@ -1143,6 +1235,15 @@ body.avec-pave .dpad-flottant { display: grid; }
     .info-transport, .info-position, .info-selection { display: none; }
     .transport { padding: 0 8px; gap: 6px; }
 
+    /* APERÇU PDF SUR TÉLÉPHONE : une seule colonne, l'aperçu au-dessus des réglages (voir .corps-pdf
+       sur grand écran). Deux colonnes de 240px ne tiennent pas dans 390px, et scinder l'aperçu
+       n'aurait aucun sens — c'est LUI qu'on regarde. La feuille se limite en hauteur pour que les
+       réglages restent atteignables sans traverser une page A4 entière au doigt : on règle, on voit
+       le haut de la page, on fait défiler si on veut le reste. */
+    .corps-pdf { grid-template-columns: 1fr; gap: 14px; }
+    .pdf-feuille { aspect-ratio: auto; max-height: 46vh; }
+    .pdf-feuille svg { height: auto; max-height: 46vh; width: auto; max-width: 100%; margin: 0 auto; }
+
     /* GROUPE EFFETS -> UN SEUL BOUTON qui ouvre un POPOVER, plutôt que neuf boutons de geste toujours
        visibles — sur un téléphone, la largeur est la ressource rare, et ces effets-là (hammer-on,
        slide…) se posent moins souvent qu'une figure de durée (retour utilisateur : « trop de
@@ -1164,6 +1265,34 @@ body.avec-pave .dpad-flottant { display: grid; }
     /* « Affichage » s'efface avec le groupe qu'elle coiffe : replié derrière le bouton-bascule, ce
        dernier porte déjà son propre libellé (la valeur active, voir rafraichirBoutonsMesuresLigne). */
     .etiquette-affichage { display: none; }
+
+    /* LE BLOC DE LECTURE SUR TÉLÉPHONE : à gauche, en premier, JAMAIS centré (retour utilisateur :
+       « il faut discerner ordinateur ou téléphone pour cet item »). À 390px, centrer un bloc de
+       ~250px laisserait 70px de chaque côté — de quoi ne rien mettre d'utilisable ; et l'information
+       de position (« Mesure 1 / 4 ») est déjà masquée ici, donc la zone de gauche n'a rien à porter.
+       `order` plutôt qu'un réordonnancement du HTML : les trois zones gardent dans le DOM l'ordre où
+       un lecteur d'écran doit les lire (ce qu'on lit, ce qu'on joue, ce qu'on affiche), la mise en
+       page seule les range autrement.
+       `flex: none` sur les côtés : leur `flex: 1 1 0` d'ordinateur n'a plus de sens une fois le
+       centrage abandonné, et il volerait au bloc la largeur dont il a besoin. */
+    .bloc-lecture { order: 0; padding: 3px 6px; gap: 3px; }
+    .transport-cote { flex: none; order: 1; gap: 4px; }
+    #info-position, #info-selection { display: none; }
+    /* « Tempo », « BPM », « Mesure 1 / 4 » : rien à ajouter ici, la règle `.info-transport` juste
+       au-dessus les efface déjà TOUS (ils la portent tous les trois). J'avais d'abord écrit des
+       règles propres à chacun, et voulu garder « Tempo » au nom du principe qui a valu l'étiquette
+       « Affichage » — un nombre nu ne se laisse pas deviner. Mesuré : le mot coûte 38px, et la barre
+       passait de 390 à 417px de contenu pour 390 de place. Il reste donc caché ; ce qui le rattrape,
+       c'est le cadre du bloc de lecture, absent à l'époque de cette règle — « 120 » y voisine
+       maintenant avec Lecture, Stop et un métronome, dans une boîte qui dit ce qu'elle est. */
+    #info-position, #info-selection { display: none; }   /* redondant mais explicite : voir ci-dessus */
+
+    /* 48px ET NON 56 pour Lecture/Stop au doigt : la mesure a tranché. À 56, la barre du bas
+       débordait de 42px à 360px et de 82px à 320px, alors qu'elle tenait à TOUTES les largeurs avant
+       ce bloc (mesuré avant/après, largeur par largeur) — un bloc de lecture qu'il faut faire défiler
+       pour atteindre aurait mal répondu à « les boutons de lecture sont trop petits ». 48px reste
+       au-dessus des 44px de cible tactile recommandée, et la HAUTEUR, elle, ne bouge pas. */
+    .btn-lecture { width: 48px; }
     .btn-transport-texte.btn-mesures-ligne-bascule { display: inline-flex; }
     .groupe-mesures-ligne { display: none; }
     .groupe-mesures-ligne.ouvert {

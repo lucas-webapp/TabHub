@@ -144,7 +144,16 @@ export function rendreSvg(page, options = {}) {
     const dessous = dessousP.map(p => primitiveVersSvg(p, palette)).join('');
     const corps = corpsPrimitives.map(p => primitiveVersSvg(p, palette)).join('');
     const dessus = dessusP.map(p => primitiveVersSvg(p, palette)).join('');
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${ech(page.largeur)}" height="${ech(page.hauteur)}" viewBox="0 0 ${ech(page.largeur)} ${ech(page.hauteur)}" role="img">${defs}${fond}${dessous}${corps}${dessus}</svg>`;
+    // DÉCALAGE, comme en a toujours eu le rendu PDF (`dx`/`dy` de render/pdf.js#dessinerPrimitives).
+    // Cette asymétrie-là n'avait pas de raison d'être : la liste d'affichage est commune aux deux
+    // rendus, mais seul l'un des deux savait la poser ailleurs qu'à l'origine. C'est ce qui manquait
+    // pour APERCEVOIR une page de PDF à l'écran — les systèmes de la page 2 vivent loin en bas dans
+    // les coordonnées de la mise en page, et il faut les remonter pour les voir seuls sur leur page
+    // (voir main.js#dessinerApercuPdf). Un seul `<g transform>` autour du tout, plutôt qu'un décalage
+    // reporté sur chaque primitive : le fond, lui, reste en place — c'est la PAGE, pas son contenu.
+    const d = options.decalage;
+    const enveloppe = (contenu) => d ? `<g transform="translate(${ech(d.dx || 0)},${ech(d.dy || 0)})">${contenu}</g>` : contenu;
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${ech(page.largeur)}" height="${ech(page.hauteur)}" viewBox="0 0 ${ech(page.largeur)} ${ech(page.hauteur)}" role="img">${defs}${fond}${enveloppe(dessous + corps + dessus)}</svg>`;
 }
 
 export { primitiveVersSvg, couleurDe };

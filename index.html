@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609141044">
+    <link rel="stylesheet" href="style.css?v=202609141533">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -119,41 +119,95 @@
      lecture comme le ferait un chiffre à moitié caché. -->
 <div class="pave-tactile" id="pave-tactile" role="group" aria-label="Pavé de saisie tactile" hidden></div>
 
+<!-- BARRE DU BAS, en trois zones : ce qu'on LIT à gauche, ce qu'on JOUE au centre, ce qu'on
+     AFFICHE à droite.
+
+     UN BLOC DE LECTURE À PART, ET AU CENTRE (retour utilisateur : « peux-tu me créer un bloc de
+     lecture indépendant qui permet d'intégrer les boutons de lecture / stop, et de gestion du tempo
+     et du métronome ? Pour le moment c'est séparé, et les boutons de lecture sont trop petits et
+     tout en bas à gauche »). Trois reproches, trois causes distinctes :
+
+       • « c'est séparé » — Lecture/Stop vivaient ici, Tempo et Métronome dans la barre d'outils, où
+         ils avaient été remontés pour voisiner avec Signature et Tonalité (« comment ce morceau se
+         joue »). Le classement se défend sur le papier ; à l'usage il sépare ce qu'on touche EN
+         JOUANT de ce qu'on touche EN ÉCRIVANT, et le tempo comme le métronome se règlent en jouant.
+         Les cinq commandes sont donc réunies dans un seul bloc encadré. La barre d'outils y gagne au
+         passage les 160px qu'elles y occupaient.
+       • « trop petits » — 38 × 34px, la taille d'un bouton d'outil. Lecture et Stop sont les deux
+         boutons les plus souvent visés de l'application : .btn-lecture les porte à 52 × 40 à la
+         souris et 56 × 44 au doigt (voir style.css).
+       • « tout en bas à gauche » — le bloc est CENTRÉ sur la largeur de la barre, comme le transport
+         de n'importe quel lecteur. Les deux zones latérales portent `flex: 1` (voir style.css) :
+         elles se partagent le reste à parts égales, donc le bloc tombe au milieu de la FENÊTRE et
+         non au milieu de ce qui reste après la zone la plus large.
+
+     SUR TÉLÉPHONE, PAS DE CENTRAGE (« il faut discerner ordinateur ou téléphone pour cet item ») :
+     à 390px, centrer un bloc de 250px ne laisse plus de place utilisable de part et d'autre. Le bloc
+     passe à gauche, en premier, et l'unité « BPM » s'efface — voir style.css, @media(max-width:720px).
+-->
 <div class="transport">
-    <button type="button" id="btn-jouer" class="btn-transport jouer" title="Lecture / Pause (Espace)" aria-label="Lecture"></button>
-    <button type="button" id="btn-stop" class="btn-transport arret" title="Arrêter (Échap)" aria-label="Arrêter"></button>
-    <span class="separateur"></span>
-    <!-- Tempo et Métronome ne vivent plus ici : remontés dans la barre d'outils (retour utilisateur),
-         voir ui/toolbar.js#construireBarreOutils, groupe « Écriture » — aux côtés de Signature
-         rythmique et Tonalité, avec qui ils décrivent ensemble « comment ce morceau se joue ». -->
-    <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
-    <span class="pousse"></span>
-    <span class="info-transport" id="info-selection"></span>
-    <span class="separateur"></span>
-    <!-- MISE EN AVANT : un réglage déjà là, mais discret au point de passer pour absent (retour
-         utilisateur : « je peux voir uniquement une mesure en horizontal » sur téléphone — c'est
-         justement ce champ, en « Auto », qui décidait de n'en montrer qu'une). Un rang de boutons,
-         pas un menu déroulant cliqué à l'aveugle : chaque valeur se voit et se choisit d'un seul
-         geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne.
-         Sur téléphone (retour utilisateur : « la barre de transport est trop tassée »), ces six
-         boutons se replient derrière #btn-mesures-ligne-bascule — même popover que « Effets » dans
-         la barre d'outils, voir style.css @media(max-width:720px) et
-         main.js#basculerGroupeMesuresLigne : TOUJOURS un rang de boutons une fois ouvert, jamais un
-         menu déroulant, la contrainte ci-dessus reste entière. Invisible tant qu'il y a la place
-         (voir .btn-mesures-ligne-bascule), donc vide dans le HTML — son texte suit la valeur active,
-         posé par rafraichirBoutonsMesuresLigne. -->
-    <!-- « AFFICHAGE » : sans cette étiquette, « Auto 2 3 4 6 8 » ne disait pas de QUOI il s'agissait
-         (retour utilisateur : « ajouter une indication Affichage pour que je comprenne que les
-         chiffres Auto, 2, 3, 4 etc… correspondent au nombre de mesures que je vois affichées à
-         l'écran »). Six chiffres nus, dans un coin de barre, peuvent se lire comme un zoom, un
-         nombre de voix, une subdivision… Le `aria-label` du groupe le disait déjà en entier, mais
-         seulement à un lecteur d'écran — l'œil n'y avait pas accès.
-         Masquée sur téléphone (voir style.css) : le groupe s'y replie derrière le bouton-bascule,
-         qui porte alors lui-même son propre libellé. -->
-    <span class="info-transport etiquette-affichage">Affichage</span>
-    <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
-        aria-haspopup="true" aria-expanded="false"></button>
-    <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
+    <div class="transport-cote transport-gauche">
+        <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
+        <span class="info-transport" id="info-selection"></span>
+    </div>
+
+    <!-- LE BLOC. `role="group"` + `aria-label` : sans lui, un lecteur d'écran énumérerait cinq
+         commandes sans dire qu'elles forment un ensemble — le cadre visuel ne s'entend pas (même
+         raison que pour les groupes de la barre d'outils, voir ui/toolbar.js#groupe). -->
+    <div class="bloc-lecture" id="bloc-lecture" role="group" aria-label="Lecture">
+        <button type="button" id="btn-jouer" class="btn-lecture jouer" title="Lecture / Pause (Espace)" aria-label="Lecture"></button>
+        <button type="button" id="btn-stop" class="btn-lecture arret" title="Arrêter (Échap)" aria-label="Arrêter"></button>
+        <span class="separateur"></span>
+        <!-- Tempo et Métronome, REVENUS ICI depuis la barre d'outils (voir plus haut). Ils y étaient
+             fabriqués par un <template> dans ui/toolbar.js, justement parce que leur place naturelle
+             est un balisage statique et que main.js les retrouve par leurs id : de retour dans
+             index.html, le gabarit et le commentaire qui l'expliquait disparaissent tous les deux. -->
+        <label class="info-transport etiquette-tempo" for="champ-tempo">Tempo</label>
+        <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
+        <span class="info-transport etiquette-bpm">BPM</span>
+        <!-- LE CLIC SUR LA SUBDIVISION N'EST PLUS ICI : il a rejoint Réglages > Son (voir
+             #champ-metronome-subdivision plus bas). Ce n'est pas une commande de lecture mais une
+             MANIÈRE dont le métronome se comporte — on la choisit une fois, pas à chaque essai — et
+             elle était déjà retenue d'une session à l'autre (localStorage), comme un réglage.
+             Ce départ était aussi nécessaire : mesuré, la barre du bas tenait à toutes les largeurs
+             de téléphone AVANT ce bloc, et débordait ensuite de 42px à 360px et 82px à 320px. Les
+             cinq commandes réunies ne rentraient pas ; celle-ci était la seule dont la place était
+             discutable de toute façon. -->
+        <button type="button" id="btn-metronome" class="btn-icone" title="Garder le métronome pendant la lecture" aria-label="Garder le métronome pendant la lecture" aria-pressed="false">
+            <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <path d="M7 20h10L14 5h-4L7 20Z"/>
+                <path d="M12 15V8"/>
+                <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
+            </svg>
+        </button>
+    </div>
+
+    <div class="transport-cote transport-droite">
+        <!-- MISE EN AVANT : un réglage déjà là, mais discret au point de passer pour absent (retour
+             utilisateur : « je peux voir uniquement une mesure en horizontal » sur téléphone — c'est
+             justement ce champ, en « Auto », qui décidait de n'en montrer qu'une). Un rang de boutons,
+             pas un menu déroulant cliqué à l'aveugle : chaque valeur se voit et se choisit d'un seul
+             geste, comme la palette au-dessus. Voir main.js#construireBoutonsMesuresLigne.
+             Sur téléphone (retour utilisateur : « la barre de transport est trop tassée »), ces six
+             boutons se replient derrière #btn-mesures-ligne-bascule — même popover que « Effets » dans
+             la barre d'outils, voir style.css @media(max-width:720px) et
+             main.js#basculerGroupeMesuresLigne : TOUJOURS un rang de boutons une fois ouvert, jamais un
+             menu déroulant, la contrainte ci-dessus reste entière. Invisible tant qu'il y a la place
+             (voir .btn-mesures-ligne-bascule), donc vide dans le HTML — son texte suit la valeur active,
+             posé par rafraichirBoutonsMesuresLigne. -->
+        <!-- « AFFICHAGE » : sans cette étiquette, « Auto 2 3 4 6 8 » ne disait pas de QUOI il s'agissait
+             (retour utilisateur : « ajouter une indication Affichage pour que je comprenne que les
+             chiffres Auto, 2, 3, 4 etc… correspondent au nombre de mesures que je vois affichées à
+             l'écran »). Six chiffres nus, dans un coin de barre, peuvent se lire comme un zoom, un
+             nombre de voix, une subdivision… Le `aria-label` du groupe le disait déjà en entier, mais
+             seulement à un lecteur d'écran — l'œil n'y avait pas accès.
+             Masquée sur téléphone (voir style.css) : le groupe s'y replie derrière le bouton-bascule,
+             qui porte alors lui-même son propre libellé. -->
+        <span class="info-transport etiquette-affichage">Affichage</span>
+        <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
+            aria-haspopup="true" aria-expanded="false"></button>
+        <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
+    </div>
 </div>
 
 <div class="voile" id="fenetre-reglages" hidden>
@@ -163,8 +217,60 @@
             <span class="pousse"></span>
             <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
         </div>
+        <!-- LES RÉGLAGES, TRIÉS EN CINQ GROUPES, dans cet ordre : Morceau, Instrument, Son, Affichage,
+             Fichiers (retour utilisateur : « comme pour HarmoHub, les paramètres vont petit à petit
+             être renforcés. Il faut bien trier les paramètres liés au son, à la gestion des fichiers,
+             et à l'affichage de la façon la plus cohérente possible »).
+
+             L'ORDRE VA DU MORCEAU VERS L'APPLI : ce qu'on écrit (Morceau), avec quoi (Instrument),
+             comment ça sonne (Son), comment ça s'affiche (Affichage), comment ça se garde (Fichiers).
+             Morceau passe donc en tête, où vivait Instrument — c'est l'ordre de HarmoHub, et c'est
+             aussi la question qu'on se pose en premier en ouvrant un panneau de réglages : « de quel
+             morceau parle-t-on ? ».
+
+             PAS D'ONGLETS, une seule colonne qui défile — la leçon déjà tirée dans HarmoHub (retour
+             utilisateur là-bas : « j'aime bien la présentation en onglets, mais vu qu'il y a peu de
+             paramètres, c'est peut-être pas nécessaire ») : des onglets obligent à DEVINER dans lequel
+             se trouve le réglage cherché, alors que le tout tient en une page. Un titre par groupe
+             suffit tant que ça tient ; le jour où ça ne tiendra plus, ce sont les `<details
+             class="repli-avance">` qui absorberont le surplus, groupe par groupe, comme le fait déjà
+             Instrument — un repli local coûte moins qu'une navigation globale.
+
+             ET CE PANNEAU NE CONTIENT QUE DES PRÉFÉRENCES. Les ACTIONS sur les fichiers (Nouveau,
+             Ouvrir, Exporter, PDF, MIDI) restent derrière le bouton « Fichiers » de la barre du haut
+             et n'ont pas de second accès ici : c'est le même écueil que HarmoHub a dû défaire (« un
+             gestionnaire de fichiers n'est pas un réglage », après deux signalements de « plusieurs
+             options se recroisent »). Le groupe Fichiers ci-dessous ne dit donc que ce qui PERSISTE
+             entre deux exports. -->
         <div class="fenetre-corps">
-            <div class="rubrique">
+<div class="rubrique">
+                <h3>Morceau</h3>
+                <!-- LE TITRE VIT ICI, et non plus dans la barre du haut (retour utilisateur : « peux-tu
+                     enlever l'écriture SAR en haut à droite de l'appli ? ») — sur un téléphone, ce
+                     champ y était réduit à 49px et n'affichait que les trois premières lettres du
+                     titre, coupées en plein milieu d'un mot : un bout de texte incompréhensible plutôt
+                     qu'une information. Il reste dans la barre sur grand écran, où il a la place de
+                     dire le titre en entier (voir style.css, .titre-morceau).
+                     AUCUN EXEMPLE en filigrane (retour : « peux-tu enlever les exemples pour le titre
+                     et l'artiste ») : « ex. Fernando Sor » se lisait comme une valeur déjà saisie le
+                     temps de comprendre que non, et n'apprenait rien que l'étiquette ne dise déjà. -->
+                <div class="ligne-champ">
+                    <label for="champ-titre-morceau">Titre</label>
+                    <input type="text" id="champ-titre-morceau" class="champ">
+                </div>
+                <!-- Sous-titre LIBRE (retour : « peux-tu ajouter un sous-titre libre pour alimenter en
+                     informations le morceau ») : arrangement, tonalité d'origine, source, capo, niveau…
+                     La partition l'affiche sous le titre (voir engine/layout.js), en plus petit. -->
+                <div class="ligne-champ">
+                    <label for="champ-sous-titre">Sous-titre</label>
+                    <input type="text" id="champ-sous-titre" class="champ">
+                </div>
+                <div class="ligne-champ">
+                    <label for="champ-artiste">Artiste</label>
+                    <input type="text" id="champ-artiste" class="champ">
+                </div>
+            </div>
+<div class="rubrique">
                 <h3>Instrument</h3>
                 <div class="ligne-champ">
                     <label for="champ-instrument">Instrument</label>
@@ -193,34 +299,7 @@
                     </div>
                 </details>
             </div>
-            <div class="rubrique">
-                <h3>Morceau</h3>
-                <!-- LE TITRE VIT ICI, et non plus dans la barre du haut (retour utilisateur : « peux-tu
-                     enlever l'écriture SAR en haut à droite de l'appli ? ») — sur un téléphone, ce
-                     champ y était réduit à 49px et n'affichait que les trois premières lettres du
-                     titre, coupées en plein milieu d'un mot : un bout de texte incompréhensible plutôt
-                     qu'une information. Il reste dans la barre sur grand écran, où il a la place de
-                     dire le titre en entier (voir style.css, .titre-morceau).
-                     AUCUN EXEMPLE en filigrane (retour : « peux-tu enlever les exemples pour le titre
-                     et l'artiste ») : « ex. Fernando Sor » se lisait comme une valeur déjà saisie le
-                     temps de comprendre que non, et n'apprenait rien que l'étiquette ne dise déjà. -->
-                <div class="ligne-champ">
-                    <label for="champ-titre-morceau">Titre</label>
-                    <input type="text" id="champ-titre-morceau" class="champ">
-                </div>
-                <!-- Sous-titre LIBRE (retour : « peux-tu ajouter un sous-titre libre pour alimenter en
-                     informations le morceau ») : arrangement, tonalité d'origine, source, capo, niveau…
-                     La partition l'affiche sous le titre (voir engine/layout.js), en plus petit. -->
-                <div class="ligne-champ">
-                    <label for="champ-sous-titre">Sous-titre</label>
-                    <input type="text" id="champ-sous-titre" class="champ">
-                </div>
-                <div class="ligne-champ">
-                    <label for="champ-artiste">Artiste</label>
-                    <input type="text" id="champ-artiste" class="champ">
-                </div>
-            </div>
-            <div class="rubrique">
+<div class="rubrique">
                 <h3>Son</h3>
                 <div class="ligne-curseur">
                     <div class="ligne-curseur-tete">
@@ -236,9 +315,28 @@
                     </div>
                     <input type="range" id="champ-volume-metronome" min="0" max="100" value="80">
                 </div>
+                <!-- VENU DE LA BARRE DU BAS, où il était un bouton-icône à côté du métronome (voir
+                     #bloc-lecture). Un réglage de COMPORTEMENT, pas une commande : « le métronome
+                     clique-t-il aussi les croches ? » se décide une fois pour toutes, et se retenait
+                     déjà d'une session à l'autre. Un interrupteur plutôt qu'une icône à deux états :
+                     une icône devait dire par son seul dessin lequel des deux états était en cours,
+                     ce qu'un interrupteur montre sans rien à interpréter. -->
+                <div class="ligne-champ">
+                    <label for="champ-metronome-subdivision">Clic sur les croches</label>
+                    <button type="button" id="champ-metronome-subdivision" class="interrupteur" role="switch" aria-checked="false">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
+                </div>
             </div>
-            <div class="rubrique">
-                <h3>Interface</h3>
+<div class="rubrique">
+                <h3>Affichage</h3>
+                <!-- « AFFICHAGE » ET NON PLUS « INTERFACE » (retour utilisateur : « il faut bien trier
+                     les paramètres liés au son, à la gestion des fichiers, et à l'affichage de la façon
+                     la plus cohérente possible »). C'est son mot, et c'est le bon périmètre : où se
+                     place la barre d'outils, si le pavé tactile est là, si la portée est là — les trois
+                     répondent à « qu'est-ce qui est à l'écran », pas à « comment l'appli est faite ».
+                     Nommé pour ce que le groupe COUVRIRA, comme dans HarmoHub (« Affichage » et non
+                     « Affichage de la grille », pour ne pas avoir à le renommer au premier ajout). -->
                 <div class="ligne-champ">
                     <label for="champ-position-outils">Barre d'outils</label>
                     <select id="champ-position-outils" class="champ">
@@ -272,11 +370,26 @@
                     </button>
                 </div>
             </div>
-            <!-- PAS de rubrique « Brouillon local » : la sauvegarde automatique dans le navigateur
-                 (voir main.js#planifierBrouillon) n'a pas à se piloter. HarmoHub n'expose rien de tel
-                 non plus, et un réglage qui ne sert qu'à défaire ce que l'appli fait toute seule pour
-                 vous coûte plus d'attention qu'il n'en fait gagner. Repartir de zéro se fait déjà par
-                 Fichiers → Nouveau, qui écrase le brouillon comme il se doit. -->
+            <div class="rubrique">
+                <h3>Fichiers</h3>
+                <!-- UNE INDICATION, PAS UN INTERRUPTEUR. Il n'y a jamais eu de rubrique « Brouillon
+                     local » ici, et c'était juste : un réglage qui ne sert qu'à empêcher l'appli de
+                     sauvegarder pour vous coûte plus d'attention qu'il n'en fait gagner (voir
+                     main.js#planifierBrouillon). Mais l'absence de réglage laissait aussi la question
+                     sans réponse : « mon travail est-il gardé quelque part ? ». Une ligne d'état y
+                     répond sans rien demander — c'est de la réassurance, pas une commande.
+                     L'heure est posée par main.js#rafraichirEtatBrouillon, à chaque sauvegarde. -->
+                <div class="ligne-champ">
+                    <label id="etiquette-brouillon">Enregistrement automatique</label>
+                    <span class="valeur-etat" id="etat-brouillon" aria-live="polite">—</span>
+                </div>
+                <!-- LES RÉGLAGES DE MISE EN PAGE DU PDF NE SONT PAS ICI, et c'est délibéré : ils
+                     vivent dans la fenêtre d'aperçu (voir #fenetre-pdf), là où l'on VOIT ce qu'ils
+                     changent. Un « nombre de mesures par ligne » réglé à l'aveugle dans un panneau,
+                     puis constaté à l'ouverture du fichier, est exactement le va-et-vient que
+                     l'aperçu supprime. Ils y sont retenus d'une fois sur l'autre, donc rien à
+                     dupliquer ici. -->
+            </div>
         </div>
         <div class="fenetre-pied">
             <button type="button" class="btn-plein" data-fermer>Terminé</button>
@@ -299,6 +412,102 @@
 <!-- Choix avant export MIDI — comme HarmoHub : proposé seulement s'il y a plusieurs SECTIONS (voir
      model/score.js#sectionsDe, main.js#exporterMidiFichier), un fichier par section restant sans
      intérêt pour un morceau qui n'en a qu'une. -->
+<!-- APERÇU AVANT EXPORT PDF (retour utilisateur : « pour les exports PDF : me montrer la mise en
+     page avant d'enregistrer le PDF, et me permettre d'ajuster : le nombre de mesures par ligne,
+     l'espacement entre les portées (pour optimiser le nombre de pages si besoin), la taille des
+     titres, et d'autres paramètres que tu trouves intéressants »).
+
+     CE QUE L'APERÇU MONTRE EST LE PDF, PAS UNE APPROXIMATION. Les deux passent par le même
+     io/pdf.js#preparerPdf : même liste d'affichage, même paginateur, mêmes marges — seul le rendu
+     final diffère (SVG à l'écran, jsPDF dans le fichier), et c'est précisément l'architecture à deux
+     rendus sur une liste commune qui rend cela possible sans second moteur à tenir d'accord. Le
+     nombre de pages annoncé est donc CELUI DU FICHIER, ce qui est l'essentiel : « optimiser le nombre
+     de pages » demande un chiffre exact, pas une estimation.
+
+     LES RÉGLAGES VIVENT ICI, PAS DANS LES RÉGLAGES GÉNÉRAUX, et c'est le point de conception. Un
+     « nombre de mesures par ligne » choisi dans un panneau, puis constaté à l'ouverture du fichier,
+     c'est le va-et-vient que cette fenêtre supprime : on voit l'effet en même temps qu'on règle. Ils
+     sont retenus d'une fois sur l'autre (voir main.js, CLE_PDF), donc il n'y a rien à dupliquer
+     ailleurs — voir le commentaire du groupe Fichiers dans les Réglages.
+
+     SIX RÉGLAGES, dans l'ordre de leur effet sur le nombre de pages : la taille de la portée d'abord
+     (de loin le levier le plus fort — mesuré, 2,1 -> 1,6 mm fait passer un morceau de 2 pages à 1),
+     puis les mesures par ligne, l'espacement, les marges, le format, et enfin la taille des titres,
+     qui ne joue que sur la première page. Chaque borne est motivée dans io/pdf.js#BORNES_PDF. -->
+<div class="voile" id="fenetre-pdf" hidden>
+    <div class="fenetre fenetre-pdf" role="dialog" aria-modal="true" aria-labelledby="titre-pdf">
+        <div class="fenetre-tete">
+            <h2 id="titre-pdf">Aperçu avant export PDF</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps corps-pdf">
+            <!-- L'APERÇU, à gauche sur ordinateur et EN PREMIER sur téléphone : c'est ce qu'on est
+                 venu voir. Le SVG est posé par main.js#dessinerApercuPdf, aux dimensions réelles de
+                 la feuille en millimètres — la CSS le met à l'échelle du conteneur, donc l'aperçu
+                 reste juste quel que soit l'écran. -->
+            <div class="pdf-apercu">
+                <div class="pdf-feuille" id="pdf-feuille" role="img" aria-label="Aperçu de la page"></div>
+                <div class="pdf-pagination">
+                    <button type="button" class="btn-neutre" id="pdf-page-prec" aria-label="Page précédente">‹</button>
+                    <span class="pdf-compteur" id="pdf-compteur" aria-live="polite">Page 1 / 1</span>
+                    <button type="button" class="btn-neutre" id="pdf-page-suiv" aria-label="Page suivante">›</button>
+                </div>
+            </div>
+            <div class="pdf-reglages">
+                <!-- LE LEVIER LE PLUS FORT EN PREMIER : c'est lui qu'on cherche quand on veut gagner
+                     une page, et le mettre en tête évite d'essayer les cinq autres d'abord. -->
+                <div class="ligne-curseur">
+                    <div class="ligne-curseur-tete">
+                        <label for="pdf-interligne">Taille de la portée</label>
+                        <span class="valeur" id="pdf-valeur-interligne">2.10 mm</span>
+                    </div>
+                    <input type="range" id="pdf-interligne">
+                </div>
+                <div class="ligne-champ">
+                    <label for="pdf-mesures-ligne">Mesures par ligne</label>
+                    <select id="pdf-mesures-ligne" class="champ"></select>
+                </div>
+                <div class="ligne-curseur">
+                    <div class="ligne-curseur-tete">
+                        <label for="pdf-ecart">Espacement des portées</label>
+                        <span class="valeur" id="pdf-valeur-ecart">3.2</span>
+                    </div>
+                    <input type="range" id="pdf-ecart">
+                </div>
+                <div class="ligne-champ">
+                    <label for="pdf-marges">Marges</label>
+                    <select id="pdf-marges" class="champ"></select>
+                </div>
+                <div class="ligne-champ">
+                    <label for="pdf-format">Format de page</label>
+                    <select id="pdf-format" class="champ"></select>
+                </div>
+                <div class="ligne-curseur">
+                    <div class="ligne-curseur-tete">
+                        <label for="pdf-titres">Taille des titres</label>
+                        <span class="valeur" id="pdf-valeur-titres">100 %</span>
+                    </div>
+                    <input type="range" id="pdf-titres">
+                </div>
+                <!-- RETOUR AUX VALEURS D'ORIGINE : six réglages, c'est six façons de se perdre, et
+                     « je ne sais plus ce que j'avais changé » n'a pas d'autre sortie qu'un bouton.
+                     Les valeurs d'origine sont celles qu'exportaient les versions antérieures : ce
+                     bouton ramène donc littéralement au PDF d'avant cette fenêtre. -->
+                <button type="button" class="btn-neutre pdf-reinit" id="pdf-reinit">Valeurs d'origine</button>
+            </div>
+        </div>
+        <div class="fenetre-pied">
+            <!-- LE NOMBRE DE PAGES À CÔTÉ DU BOUTON QUI ENREGISTRE, pas perdu dans les réglages :
+                 c'est la réponse à « est-ce que ça tient ? », et le dernier regard avant le clic. -->
+            <span class="pdf-bilan" id="pdf-bilan" aria-live="polite"></span>
+            <span class="pousse"></span>
+            <button type="button" class="btn-neutre" data-fermer>Annuler</button>
+            <button type="button" class="btn-plein" id="pdf-enregistrer">Enregistrer le PDF</button>
+        </div>
+    </div>
+</div>
+
 <div class="voile" id="fenetre-choix-export-midi" hidden>
     <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-choix-export-midi">
         <div class="fenetre-tete">
@@ -400,6 +609,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609141044"></script>
+<script type="module" src="src/main.js?v=202609141533"></script>
 </body>
 </html>

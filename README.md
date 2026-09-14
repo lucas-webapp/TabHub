@@ -139,6 +139,16 @@ orthographe des altérations selon l'armure, hampes, ligatures, lignes suppléme
 | `Ctrl`+`S` `O` `P` | Enregistrer `.json`, ouvrir, exporter PDF |
 | `?` | Aide-mémoire des raccourcis |
 
+**Les silences ne se posent pas, ils se calculent.** Un silence n'est jamais une figure qu'on aurait
+écrite : c'est du temps vide, réécrit avec le moins de figures possible à chaque changement — comme
+dans MuseScore ou Guitar Pro. Effacer une note rend son temps aux silences voisins, et deux silences
+contigus n'existent pas s'ils peuvent n'en faire qu'un : effacer sept croches sur huit laisse trois
+silences, pas sept. Les figures suivent leur **place** dans la mesure, pas seulement leur durée : un
+silence ne commence que sur une position multiple de sa propre durée, si bien que trois temps à
+partir du deuxième temps d'un 4/4 donnent une noire puis une blanche, jamais une blanche pointée qui
+enjamberait la moitié de la mesure. Un silence qu'on a soi-même dimensionné (choisir « blanche » sur
+un silence, pour y préparer une note) n'est en revanche jamais réécrit.
+
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
 table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire. **Chaque bouton d'effet
 montre ce que la partition va écrire** — un « H » sur sa liaison pour le hammer-on, un « P » pour le
@@ -146,8 +156,9 @@ pull-off, le trait oblique du glissando pour le slide, l'arc nu pour la liaison 
 pictogrammes « gestuels » qui les précédaient (quatre flèches courbes distinguées par leur seul sens)
 demandaient d'apprendre la correspondance ; celle-ci se lit.
 
-Les **sections de la barre d'outils** (durées, effets, mesure, écriture) ne portent plus de titre :
-chacune est simplement **encadrée**. Le cadre disait déjà « ces boutons vont ensemble » ; le titre le
+Les **sections de la barre d'outils** (durées, mesure, écriture) ne portent plus de titre : chacune
+est simplement **encadrée**, et les deux boutons repliés vivent DANS leur cadre — « Effets » avec les
+figures de durée, « Repères » avec la signature et l'armure. Le cadre disait déjà « ces boutons vont ensemble » ; le titre le
 répétait en coûtant sa largeur de texte, dans la seule barre de l'application qui manque de place
 (152px récupérés sur ordinateur, mesurés). Le nom reste annoncé aux lecteurs d'écran (`role="group"`
 + `aria-label`) — un cadre ne s'entend pas.
@@ -162,11 +173,23 @@ tablature de chaque système : la zone se rejoue indéfiniment, pour retravaille
 repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
 C'est une préférence de SESSION, jamais sauvée avec le morceau.
 
-Le **tempo** se règle au champ numérique du transport (le compteur natif du navigateur y est retiré :
+Lecture/Stop, **tempo** et **métronome** vivent ensemble dans un **bloc de lecture** encadré, au
+centre de la barre du bas sur ordinateur, à gauche sur téléphone. Les cinq commandes étaient
+auparavant réparties entre deux barres : tempo et métronome siégeaient dans la barre d'outils, aux
+côtés de la signature et de l'armure. Le classement se défendait — les quatre décrivent « comment ce
+morceau se joue » — mais il séparait ce qu'on touche EN JOUANT de ce qu'on touche EN ÉCRIVANT. La
+barre d'outils y a gagné 160px, mesurés.
+
+Le **tempo** se règle au champ numérique de ce bloc (le compteur natif du navigateur y est retiré :
 à 54px de large, ses deux demi-flèches impossibles à viser rognaient le troisième chiffre — « 120 »
 s'affichait « 12 »). Il se lit aussi **au-dessus de la portée**, gravé à côté de la figure de
 référence, suivi du nom de la **tonalité** écrit en clair (« C majeur », pas l'abréviation « CM » de
 la liste déroulante).
+
+La lecture **suit les modifications en temps réel**, boucle comprise : écrire, effacer ou annuler
+pendant que ça joue reprogramme l'horloge sans interrompre le son. La partition n'était traduite en
+évènements d'horloge qu'au démarrage — on retravaillait un passage en boucle, on corrigeait une note,
+et le tour suivant rejouait l'ancienne.
 
 Deux **volumes** indépendants (Réglages > Son) : général (agit sur tout ce qui sonne) et métronome
 seul (relatif au premier) — 0 à 100, avec lecture immédiate.
@@ -204,9 +227,26 @@ garde donc son propre bouton vert toujours visible plutôt que de se noyer dans 
   seulement le geste le plus fréquent rendu instantané (aussi `Ctrl+S`).
 - **Exporter** télécharge, lui, un `.json` indenté qui est le modèle tel quel — lisible et modifiable
   à la main ; c'est le fichier à archiver ou à faire circuler.
+
+Tous les fichiers exportés portent le nom **« Titre - Artiste »** (`.json`, `.pdf`, `.mid`, et
+« Titre - Artiste - Partie.mid » pour un fichier par section) : un dossier de relevés où tout
+s'appelle « Sans titre.json » ne se trie pas. Un seul endroit décide de ce nom
+(`io/json.js#nomDuMorceau`). Les accents y sont repliés en ASCII — « Étude » donne « Etude » —
+parce que tout caractère non-ASCII posé dans l'attribut `download` d'un lien fait retomber le
+navigateur sur son nom par défaut : le fichier arrivait nommé « download ». Un accent en moins reste
+un nom qu'on reconnaît.
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
-- **Exporter PDF** écrit un PDF A4 vectoriel, paginé sans jamais couper un système en deux.
+- **Exporter PDF** ouvre d'abord un **aperçu de la mise en page**, et n'écrit le fichier qu'ensuite.
+  Six réglages y agissent en direct, dans l'ordre de leur effet sur le nombre de pages : taille de la
+  portée (de loin le plus fort — 2,1 → 1,6 mm fait passer un morceau de deux pages à une), mesures
+  par ligne, espacement des portées, marges (serrées/normales/larges), format de page (A4/Lettre) et
+  taille des titres. Le nombre de pages annoncé est **celui du fichier**, pas une estimation : les
+  deux passent par le même `io/pdf.js#preparerPdf`, donc la même liste d'affichage et le même
+  paginateur — c'est ce que permet l'architecture à deux rendus sur une liste commune. Les réglages
+  sont retenus d'une fois sur l'autre, et vivent là plutôt que dans les Réglages généraux : on voit
+  leur effet en même temps qu'on règle. Le PDF reste vectoriel et paginé sans jamais couper un
+  système en deux.
 - **Exporter en MIDI** écrit un `.mid` (format 0) lisible par n'importe quel séquenceur, DAW ou
   logiciel de notation — le modèle raisonnant déjà en hauteurs MIDI (voir `model/theory.js`), il n'y
   avait qu'à écrire cette correspondance dans le format standard. Un morceau qui a plusieurs

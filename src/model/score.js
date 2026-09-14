@@ -155,6 +155,51 @@ export function figuresPour(noires) {
 }
 
 /**
+ * LES FIGURES DE SILENCE POUR UN PASSAGE, À SA PLACE DANS LA MESURE.
+ *
+ * LE PROBLÈME QUE `figuresPour` NE RÉSOUT PAS. Elle donne la plus longue suite de figures qui couvre
+ * une durée, sans savoir OÙ cette durée commence — ce qui est exactement ce qu'il faut pour remplir
+ * une mesure depuis son début, et faux dès qu'on part d'ailleurs. Trois temps à partir du deuxième
+ * temps d'un 4/4 y donnent une blanche pointée : une figure qui enjambe la moitié de la mesure, ce
+ * qu'aucune édition n'écrit. Un lecteur ne voit alors plus où tombent les temps.
+ *
+ * LA RÈGLE DE GRAVURE, celle que suivent MuseScore, Guitar Pro et les éditions imprimées : un
+ * silence ne commence QUE sur une position multiple de sa propre durée. Une blanche de silence
+ * tombe sur le temps 1 ou le temps 3 d'un 4/4, jamais sur le 2 ; une noire sur n'importe quel temps ;
+ * une croche sur n'importe quelle croche. On prend donc, à chaque pas, la plus longue figure qui
+ * tienne dans ce qui reste ET dont la position soit alignée — ce qui produit, pour trois temps depuis
+ * le deuxième, une noire puis une blanche. C'est ce qu'écrirait un copiste.
+ *
+ * PAS DE SILENCE POINTÉ ICI, à la différence de `figuresPour`. Un silence pointé ne s'emploie qu'à
+ * l'intérieur d'un temps composé (le 6/8, le 9/8), où il complète le temps ; ailleurs il enjambe et
+ * brouille la lecture. Les exclure coûte parfois une figure de plus, jamais une figure fautive — et
+ * la mesure composée reste couverte, puisqu'un temps de 6/8 vaut trois croches que l'alignement
+ * regroupe correctement.
+ *
+ * @param {number} noires   durée du passage à couvrir
+ * @param {number} depuis   sa position dans la mesure, en noires depuis le début
+ */
+export function figuresSilencePour(noires, depuis = 0) {
+    const EPS = 1e-9;
+    const sortie = [];
+    let reste = noires, pos = depuis;
+    while (reste > EPS) {
+        let posee = false;
+        for (const valeur of [1, 2, 4, 8, 16, 32]) {
+            const d = dureeEnNoires({ valeur, points: 0 });
+            if (d > reste + EPS) continue;
+            // Alignement : `pos` doit être un multiple entier de `d`. C'est toute la règle.
+            if (Math.abs(pos / d - Math.round(pos / d)) > 1e-6) continue;
+            sortie.push({ valeur, points: 0 });
+            reste -= d; pos += d; posee = true;
+            break;
+        }
+        if (!posee) break;   // reste plus court qu'une triple-croche, ou position inalignable
+    }
+    return sortie;
+}
+
+/**
  * Voix neuve, dimensionnée pour occuper toute la capacité de la mesure qui l'accueille — jamais une
  * seule noire par défaut, qui laisserait une mesure en 3/8 ou 6/8 « incomplète » dès sa création.
  */

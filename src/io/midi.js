@@ -14,7 +14,7 @@
 import { aplatir, hauteurDeNote, positionDebutMesure, signatureEffective, sectionsDe, creerPartition, creerMesure, creerEvenement, creerNote, figuresPour, normaliser } from '../model/score.js';
 import { noiresParMesure } from '../model/duration.js';
 import { INSTRUMENTS, hauteurDeCase, accordageParDefaut } from '../model/instruments.js';
-import { nomDeFichierSur, telecharger } from './json.js';
+import { nomDeFichierSur, nomDuMorceau, telecharger } from './json.js';
 
 /** Résolution du fichier écrit — indépendante du PPQ de Tone.Transport (voir audio/player.js),
  *  qui ne concerne que la LECTURE en mémoire. 480 est la valeur la plus répandue dans l'écosystème
@@ -210,7 +210,7 @@ export function exporterMidi(partition) {
         ? sections.map((s, i) => ({ tic: Math.round(positionDebutMesure(partition, s.debut) * PPQ), titre: titreSection(s, i) }))
         : undefined;
     const octets = genererMidi(partition, { marqueurs });
-    const nom = nomDeFichierSur(partition.meta.titre, '.mid');
+    const nom = nomDeFichierSur(nomDuMorceau(partition.meta), '.mid');   // « Titre - Artiste.mid », voir io/json.js#nomDuMorceau
     telecharger(octets, nom, 'audio/midi');
     return nom;
 }
@@ -229,7 +229,12 @@ export function genererMidiSections(partition) {
         return {
             titre,
             octets: genererMidi(partition, { debut: s.debut, fin: s.fin }),
-            nom: nomDeFichierSur(`${partition.meta.titre || 'Sans titre'} - ${titre}`, '.mid'),
+            // « Titre - Artiste - Couplet.mid ». Trois termes, mais chacun répond à une question
+            // différente (quel morceau, de qui, quelle partie) et le fichier se retrouve dans un
+            // dossier ; `nomDuMorceau` laisse déjà tomber la moitié qui manque, donc pas de tiret
+            // orphelin si l'artiste est vide. Le repli « Sans titre » n'a plus à être écrit ici :
+            // nomDeFichierSur retombe sur « tablature » quand les deux moitiés manquent.
+            nom: nomDeFichierSur([nomDuMorceau(partition.meta), titre].filter(Boolean).join(' - '), '.mid'),
         };
     });
 }

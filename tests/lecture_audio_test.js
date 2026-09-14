@@ -11,7 +11,7 @@ const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(27);
+    plan(33);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
@@ -182,6 +182,77 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
         check(apresFinNaturelle.etat === 'arret', 'le lecteur s\'arrête bien TOUT SEUL en fin de morceau');
         check(apresFinNaturelle.titreBouton === 'Lecture (Espace)',
             'et le bouton revient au triangle « Lecture », sans qu\'il ait fallu cliquer sur #btn-jouer/#btn-stop pour ça');
+
+        // --- CE QU'ON ENTEND SUIT CE QU'ON ÉCRIT ----------------------------------------------------
+        // Retour utilisateur : « lorsque je modifie une mesure, la lecture audio n'est pas toujours à
+        // jour et garde les informations précédentes. Elle doit s'adapter en temps réel aux
+        // modifications, même lorsque la lecture en boucle n'est pas arrêtée. »
+        //
+        // LA CAUSE. `programmer` n'était appelé qu'au DÉMARRAGE (voir player.js#jouer, sous
+        // `etat === 'arret'`) : la partition était traduite en évènements d'horloge une fois pour
+        // toutes, et tout ce qu'on écrivait ensuite n'existait simplement pas pour l'audio.
+        //
+        // ET SANS INTERROMPRE LA LECTURE, ce qui est la moitié de la garantie : reprogrammer en
+        // arrêtant puis relançant se serait entendu comme un hoquet à chaque note tapée. `programmer`
+        // replace ses évènements à des positions ABSOLUES en tics sans toucher à l'horloge, donc le
+        // transport court sans s'en apercevoir — c'est ce que vérifie `etat` à chaque étape.
+        const programmes = () => page.evaluate(() => ({
+            n: window.app.lecteur._evenements.length,
+            notes: window.app.lecteur._evenements.map(e => e.note).join(','),
+            etat: window.app.lecteur.etat,
+        }));
+        await page.evaluate(async () => {
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.appliquerDuree(4);
+            ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(5);
+            await window.app.lecteur.jouer(ed.partition, 0);
+        });
+        await page.waitForTimeout(300);
+        const avantEdition = await programmes();
+        exiger(avantEdition.n === 1 && avantEdition.etat === 'lecture',
+            `une seule note programmée au départ, lecture en cours (${avantEdition.notes})`);
+
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.placerCurseur(0, 1, 0, 0); ed.saisirChiffre(9);
+        });
+        await page.waitForTimeout(300);
+        const apresEdition = await programmes();
+        check(apresEdition.n === 2 && apresEdition.etat === 'lecture',
+            `une note écrite PENDANT la lecture rejoint aussitôt ce qui sonne (${apresEdition.notes}), sans arrêter la lecture`);
+
+        // L'ANNULATION AUSSI, et c'est là que le décalage s'entendait le plus : on annule parce
+        // qu'on n'a pas aimé ce qu'on venait d'entendre.
+        await page.evaluate(() => window.app.editeur.annuler());
+        await page.waitForTimeout(300);
+        const apresAnnulation = await programmes();
+        check(apresAnnulation.n === 1 && apresAnnulation.etat === 'lecture',
+            `Ctrl+Z pendant la lecture retire aussi la note de ce qui sonne (${apresAnnulation.notes})`);
+
+        // UN DÉPLACEMENT DE CURSEUR NE REPROGRAMME RIEN : il ne change rien à ce qui sonne, et
+        // reprogrammer à chaque flèche serait du travail pur pendant la lecture.
+        // ON COMPTE LES APPELS, en enveloppant `programmer` — première rédaction : je posais un
+        // témoin sur le lecteur et vérifiais qu'il survivait, ce qu'il aurait fait dans les deux cas
+        // puisque `programmer` n'y touche pas. Une vérification qui ne peut pas échouer ne protège
+        // rien.
+        const comptes = await page.evaluate(async () => {
+            const l = window.app.lecteur;
+            const vrai = l.programmer.bind(l);
+            let n = 0;
+            l.programmer = (p) => { n++; return vrai(p); };
+            window.app.editeur.deplacerEvenement(1);
+            await new Promise(r => setTimeout(r, 150));
+            const apresCurseur = n;
+            window.app.editeur.saisirChiffre(4);
+            await new Promise(r => setTimeout(r, 150));
+            const apresSaisie = n;
+            l.programmer = vrai;
+            return { apresCurseur, apresSaisie };
+        });
+        check(comptes.apresCurseur === 0 && comptes.apresSaisie > 0,
+            `déplacer le curseur ne reprogramme pas (${comptes.apresCurseur} appel), écrire une case si (${comptes.apresSaisie})`);
+        await page.evaluate(() => window.app.lecteur.arreter());
 
         check(erreurs.length === 0, 'aucune erreur JavaScript pendant la lecture' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
