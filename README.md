@@ -197,6 +197,28 @@ répétait en coûtant sa largeur de texte, dans la seule barre de l'application
 (152px récupérés sur ordinateur, mesurés). Le nom reste annoncé aux lecteurs d'écran (`role="group"`
 + `aria-label`) — un cadre ne s'entend pas.
 
+### Onglets — plusieurs morceaux à la fois
+
+Sur ordinateur, une **barre d'onglets sous la barre d'outils** garde plusieurs morceaux ouverts en
+même temps, pour en comparer deux versions sans fermer l'une pour ouvrir l'autre. Le **+** en ouvre
+un de plus (un morceau neuf) ; la croix en ferme un, avec le même avertissement que « Nouveau » ou
+« Ouvrir » — fermer, c'est écraser. TabHub bascule d'abord sur l'onglet visé : on voit ce qu'on est
+sur le point de perdre, et l'avertissement porte sur le bon document. Le dernier onglet n'a pas de
+croix : il y a toujours un morceau ouvert, comme il y a toujours au moins une mesure.
+
+**Ce qui appartient à un onglet** : la partition, le curseur, l'historique d'annulation et la bande
+de boucle. **Ce qui reste commun** : la durée choisie dans la palette (un réglage de main, pas une
+propriété du morceau) et le **presse-papier de mesure** — c'est précisément lui qui rend les onglets
+utiles, puisqu'il permet de reporter une mesure d'une version à l'autre.
+
+Le **brouillon du navigateur porte tous les onglets** : un rechargement les retrouve tous, avec celui
+sur lequel on travaillait. Un brouillon écrit avant l'arrivée des onglets se relit en un seul.
+
+**Rien de tout cela sur téléphone** ni sur un écran de moins de 720px : « cette option prend trop de
+place à l'écran ». La rangée se referme alors entièrement — pas un pixel de hauteur perdu. Les
+onglets déjà ouverts ne sont pas effacés pour autant : ils restent en mémoire et dans le brouillon, et
+réapparaissent dès que l'écran est assez large.
+
 ### Lecture
 
 #### Rythme ternaire (swing)
@@ -487,7 +509,8 @@ src/
   io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter),
                         midi.js, versions.js (historique local, borné)
   ui/                 icons.js, toolbar.js, dialogue.js (fenêtres de l'app, pas du navigateur),
-                        rythme.js (aide rythmique : la grille cliquable et l'aperçu gravé)
+                        rythme.js (aide rythmique : la grille cliquable et l'aperçu gravé),
+                        onglets.js (la barre d'onglets — dessin seul, l'état vit dans main.js)
   main.js             LE SEUL module qui touche au DOM et connaît tous les autres
 outils/
   generer-glyphes.py  extrait les contours de Bravura vers src/engine/glyphes-bravura.js

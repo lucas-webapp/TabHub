@@ -23,6 +23,7 @@ import { Editeur } from './edit/commands.js';
 import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils, flecheOutilsSvg, ajusterFleches } from './ui/toolbar.js';
+import { rendreOnglets, titreOnglet } from './ui/onglets.js';
 import { construirePave, construireDpadFlottant } from './ui/pave.js';
 import { demander, saisir } from './ui/dialogue.js';
 import * as Rythme from './ui/rythme.js';
@@ -35,7 +36,7 @@ import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, 
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective, signatureEffective } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
 import { VALEURS_FIGURES } from './model/duration.js';
 
@@ -229,6 +230,7 @@ class TabHubApp {
             feuille: document.getElementById('feuille'),
             zone: document.getElementById('zone-partition'),
             barreOutils: document.getElementById('barre-outils'),
+            barreOnglets: document.getElementById('barre-onglets'),
             message: document.getElementById('message'),
             panneauEnTete: document.getElementById('panneau-en-tete'),
             // Tempo et Métronome, DE RETOUR ICI avec les autres : ils avaient dû migrer plus bas dans
@@ -259,6 +261,21 @@ class TabHubApp {
             dpadFlottant: document.getElementById('dpad-flottant'),
         };
 
+        // LES ONGLETS — un morceau par onglet (voir ui/onglets.js pour le pourquoi).
+        //
+        // UN SEUL ÉDITEUR, ET C'EST TOUT L'ENJEU. `this.editeur` porte TOUJOURS l'onglet actif :
+        // sa partition, son curseur, son historique. Les onglets INACTIFS gardent le leur ici, dans
+        // `etat`. L'onglet actif, lui, a `etat: null` — la vérité est dans l'éditeur, et la garder à
+        // deux endroits serait exactement le genre de duplication qui finit par diverger (le projet
+        // s'en est déjà défait deux fois : tables d'effets, champs de titre). `_recolterOngletActif`
+        // et `_installerOnglet` sont donc les DEUX SEULS endroits qui déplacent cet état.
+        //
+        // Un seul éditeur permet aussi de ne RIEN rebrancher en changeant d'onglet : la barre
+        // d'outils, le clavier et le pavé tactile tiennent tous une référence à cet objet-là,
+        // établie une fois pour toutes au démarrage.
+        this.onglets = [{ etat: null }];
+        this.ongletActif = 0;
+
         this.restaurerBrouillon();
         this.poserIcones();
         const crochetsUi = {
@@ -287,6 +304,9 @@ class TabHubApp {
         construireDpadFlottant(this.el.dpadFlottant, this.editeur, crochetsUi);
         this.appliquerPave(this.paveActif);
         this.brancherInterface();
+        // La barre d'onglets une première fois : `surChangementEditeur` la redessine ensuite à chaque
+        // changement de document, mais rien n'en a encore déclenché à ce stade du démarrage.
+        this.rafraichirOnglets();
         brancherClavier(this.editeur, {
             lectureAlternee: () => this.lectureAlternee(),
             arreter: () => this.arreter(),
@@ -545,17 +565,27 @@ class TabHubApp {
     // ==========================================================================================
 
     surChangementEditeur(raison) {
-        // Un morceau NEUF ne doit jamais hériter de la boucle du précédent — c'est un état de
-        // SESSION (voir Lecteur.boucleLecture), jamais sauvé, mais justement pour ça : rien à
-        // l'écran ne montrerait qu'un morceau tout juste ouvert continue de rejouer quatre mesures
-        // de l'ancien en boucle (même précaution que HarmoHub, dont ce geste est repris).
-        if (raison === 'document') this.lecteur.retirerBoucle();
         // LA BANDE DE BOUCLE SUIT SES MESURES, pas leurs numéros (voir Lecteur.reancrerBoucle).
         // AVANT `dessiner`, et sur TOUTES les raisons : la bande est dessinée à partir des numéros,
         // et une insertion, une suppression, un collage ou une annulation vient peut-être de les
         // décaler. Un seul appel ici couvre tout ce qui touche au tableau des mesures, aujourd'hui
         // comme demain — c'est la raison d'être de l'ancrage.
+        //
+        // ET C'EST LUI QUI RETIRE LA BOUCLE D'UN MORCEAU QU'ON QUITTE. Il y avait ici, avant
+        // l'ancrage, un `retirerBoucle()` sur la raison 'document' : un morceau neuf ne doit pas
+        // hériter de la boucle du précédent. Cette règle est devenue à la fois REDONDANTE et FAUSSE.
+        //   - Redondante : un morceau neuf a des mesures neuves, donc des `id` que les ancres ne
+        //     retrouvent pas — `reancrerBoucle` s'en défait de lui-même.
+        //   - Fausse : un CHANGEMENT D'ONGLET émet la même raison 'document', et la boucle de
+        //     l'onglet qu'on rouvre borne des mesures qui existent bel et bien. La règle l'effaçait
+        //     (mesuré : la bande ne revenait pas avec son onglet), alors que les ancres suffisaient
+        //     à décider. Une condition de moins, et la bonne réponse dans les deux cas.
         if (raison !== 'curseur' && raison !== 'lecture') this.lecteur.reancrerBoucle(this.editeur.partition);
+        // L'INTITULÉ D'UN ONGLET EST LE TITRE DU MORCEAU : il change donc quand le document change
+        // (ouverture, nouvel onglet) et quand on retitre (raison 'meta'). Redessiner la barre est
+        // une poignée de boutons — moins cher qu'un mécanisme de mise à jour fine, et sans la classe
+        // de bogues où l'affichage et l'état cessent de dire la même chose.
+        if (raison === 'document' || raison === 'meta') this.rafraichirOnglets();
         this.dessiner();
         // Le curseur reste à l'écran. Nécessaire depuis que seuls les systèmes visibles sont
         // dessinés : un curseur poussé hors de la bande dessinée s'afficherait sur du vide, sans
@@ -1185,7 +1215,20 @@ class TabHubApp {
      */
     _ecrireBrouillon() {
         try {
-            localStorage.setItem(CLE_BROUILLON, JSON.stringify(this.editeur.partition));
+            // TOUS LES ONGLETS DANS LE BROUILLON, pas seulement celui qu'on regarde : rouvrir
+            // l'application avec un seul des trois morceaux sur lesquels on travaillait serait une
+            // perte silencieuse, et c'est exactement ce que le brouillon existe pour éviter.
+            // L'onglet ACTIF est lu dans l'éditeur (la vérité y est), les autres dans leur état
+            // rangé — la même règle que titresOnglets.
+            //
+            // L'historique d'annulation n'y va PAS, comme il n'y allait pas avant : un Ctrl+Z qui
+            // traverserait un rechargement de navigateur n'a jamais été promis, et les piles pèsent
+            // une copie complète de la partition chacune.
+            localStorage.setItem(CLE_BROUILLON, JSON.stringify({
+                v: 2,
+                actif: this.ongletActif,
+                onglets: this.onglets.map((o, i) => (i === this.ongletActif ? this.editeur.partition : o.etat?.partition)).filter(Boolean),
+            }));
             this._brouillonEcritLe = new Date();
             this.rafraichirEtatBrouillon();
             return null;
@@ -1742,8 +1785,163 @@ class TabHubApp {
             // écrit par une version antérieure du format (l'ancien tableau plat `evenements`, par
             // exemple) planterait sinon `mettreEnPage` au premier accès à `mesure.voix`, en silence —
             // écran noir au démarrage, rien dans la console qui pointe vers la vraie cause.
-            this.editeur.remplacer(JSON.parse(brut));
-        } catch (err) { /* brouillon illisible : on repart d'une partition neuve, sans rien dire */ }
+            const lu = JSON.parse(brut);
+            // DEUX FORMATS À LIRE. Un brouillon d'avant les onglets est une PARTITION nue (elle a des
+            // `mesures`) ; depuis, c'est `{ v: 2, actif, onglets: [...] }`. On reconnaît l'ancien par
+            // sa forme plutôt que par un numéro de version qu'il ne porte pas — et un utilisateur qui
+            // met l'application à jour retrouve son travail au lieu d'un morceau vide.
+            const partitions = Array.isArray(lu?.onglets) && lu.onglets.length ? lu.onglets : [lu];
+            this.onglets = partitions.map(() => ({ etat: null }));
+            this.ongletActif = Math.max(0, Math.min(partitions.length - 1, Number(lu?.actif) || 0));
+            // Chaque onglet passe par `normaliser` (via `remplacer`), PAS une simple assignation :
+            // voir la note ci-dessus — c'est ce qui protège de l'écran noir sur un format antérieur.
+            partitions.forEach((p, i) => {
+                if (i === this.ongletActif) return;
+                this.editeur.remplacer(p);
+                this.onglets[i].etat = {
+                    partition: this.editeur.partition,
+                    curseur: { mesure: 0, voix: 0, evenement: 0, corde: 0 },
+                    passe: [], futur: [], boucle: null, ancresBoucle: null,
+                };
+            });
+            this.editeur.remplacer(partitions[this.ongletActif]);
+        } catch (err) {
+            // Brouillon illisible : on repart d'une partition neuve, sans rien dire — mais l'état des
+            // onglets doit redevenir cohérent, sans quoi la barre montrerait des onglets qui ne
+            // portent rien.
+            this.onglets = [{ etat: null }];
+            this.ongletActif = 0;
+        }
+    }
+
+    // ==========================================================================================
+    // Onglets — plusieurs morceaux ouverts à la fois (voir ui/onglets.js)
+    // ==========================================================================================
+
+    /**
+     * Range l'état de l'éditeur dans l'onglet actif, avant de passer à un autre.
+     *
+     * TOUT CE QUI APPARTIENT AU DOCUMENT, et rien d'autre : la partition, le curseur, les deux piles
+     * d'annulation, et la boucle de lecture (qui désigne des mesures de CE morceau — voir
+     * Lecteur.reancrerBoucle). Restent délibérément COMMUNS à tous les onglets :
+     *   - la DURÉE COURANTE de la palette : c'est un réglage de main, pas une propriété du morceau ;
+     *     avoir à rechoisir « croche » en changeant d'onglet serait une friction sans raison.
+     *   - le PRESSE-PAPIER de mesure : c'est précisément ce qui rend les onglets utiles pour
+     *     « comparer des versions » — copier une mesure ici, la coller là. Le vider au changement
+     *     d'onglet supprimerait le seul geste qui traverse les deux.
+     */
+    _recolterOngletActif() {
+        const o = this.onglets[this.ongletActif];
+        if (!o) return;
+        o.etat = {
+            partition: this.editeur.partition,
+            curseur: { ...this.editeur.curseur },
+            passe: this.editeur.passe.slice(),
+            futur: this.editeur.futur.slice(),
+            boucle: this.lecteur.boucleLecture ? { ...this.lecteur.boucleLecture } : null,
+            ancresBoucle: this.lecteur._ancresBoucle ? { ...this.lecteur._ancresBoucle } : null,
+        };
+    }
+
+    /**
+     * Installe l'onglet `i` dans l'éditeur, et le déclare actif. Son état stocké est REMIS À NULL :
+     * la vérité repart dans l'éditeur, et il n'y a jamais deux copies vivantes du même document.
+     *
+     * `prevenir('document')` en fin de course fait tout le reste — redessin, réglages, boucle
+     * ré-ancrée, brouillon — par le chemin que prend déjà l'ouverture d'un fichier. Rien de
+     * particulier à un changement d'onglet, donc rien de plus à maintenir.
+     */
+    _installerOnglet(i) {
+        const o = this.onglets[i];
+        if (!o) return;
+        this.ongletActif = i;
+        if (o.etat) {
+            this.editeur.partition = o.etat.partition;
+            this.editeur.curseur = { ...o.etat.curseur };
+            this.editeur.passe = o.etat.passe;
+            this.editeur.futur = o.etat.futur;
+            this.editeur._dernierChiffre = null;
+            this.lecteur.boucleLecture = o.etat.boucle;
+            this.lecteur._ancresBoucle = o.etat.ancresBoucle;
+        }
+        o.etat = null;
+        this.editeur.corrigerCurseur();
+        this.editeur.prevenir('document');
+    }
+
+    /** Les intitulés, dans l'ordre : celui de l'éditeur pour l'onglet actif, celui de l'état rangé
+     *  pour les autres. Un seul endroit qui sait où chercher, pour les deux cas. */
+    titresOnglets() {
+        return this.onglets.map((o, i) => titreOnglet(i === this.ongletActif ? this.editeur.partition : o.etat?.partition));
+    }
+
+    rafraichirOnglets() {
+        if (!this.el.barreOnglets) return;
+        rendreOnglets(this.el.barreOnglets, { titres: this.titresOnglets(), actif: this.ongletActif }, {
+            surActiver: (i) => this.activerOnglet(i),
+            surFermer: (i) => this.fermerOnglet(i),
+            surNouveau: () => this.nouvelOnglet(),
+        });
+    }
+
+    /**
+     * Change d'onglet. LA LECTURE S'ARRÊTE : le transport est programmé depuis le morceau qu'on
+     * quitte (voir Lecteur.programmer), et le laisser courir ferait entendre l'ancien pendant qu'on
+     * regarde le nouveau. Un arrêt franc vaut mieux qu'une reprogrammation muette à un endroit qui
+     * n'a aucun sens dans l'autre morceau.
+     */
+    activerOnglet(i) {
+        if (i === this.ongletActif || !this.onglets[i]) return;
+        this.arreter();
+        this._recolterOngletActif();
+        this._installerOnglet(i);
+    }
+
+    /** Un onglet de plus, sur un morceau neuf, et on s'y place — comme un « Nouveau » qui ne
+     *  remplacerait rien. C'est pourquoi il ne passe PAS par le garde-fou d'écrasement : il n'écrase
+     *  précisément rien (voir peutEcraserLeMorceau, qui protège le contraire). */
+    nouvelOnglet() {
+        this.arreter();
+        this._recolterOngletActif();
+        this.onglets.push({ etat: null });
+        this.editeur.remplacer(creerPartition(this.editeur.partition.piste.instrument));
+        this.ongletActif = this.onglets.length - 1;
+        // `remplacer` a déjà prévenu, mais AVANT que `ongletActif` ne bouge : la barre montrerait
+        // encore l'ancien onglet comme actif. On redessine donc une fois de plus, ici.
+        this.lecteur.retirerBoucle();
+        this.rafraichirOnglets();
+        this.dessiner();
+        this.planifierBrouillon();
+    }
+
+    /**
+     * Ferme un onglet — avec le MÊME garde-fou que tout ce qui fait disparaître un morceau (voir
+     * peutEcraserLeMorceau) : fermer, c'est écraser, simplement d'un autre geste.
+     *
+     * JAMAIS LE DERNIER : il y a toujours un morceau ouvert, comme il y a toujours au moins une
+     * mesure (voir supprimerMesure). La croix ne s'affiche d'ailleurs pas dans ce cas.
+     */
+    async fermerOnglet(i) {
+        if (this.onglets.length <= 1 || !this.onglets[i]) return;
+        this.arreter();
+        // ON S'Y PLACE D'ABORD, et ce n'est pas un détail de mise en œuvre.
+        //
+        // `peutEcraserLeMorceau` inspecte le morceau ACTIF (son historique d'annulation, voir
+        // `peutAnnuler`) et c'est lui qu'il archive dans les versions. Appelé sur un onglet d'à côté,
+        // il aurait donc posé sa question à propos du mauvais document, et archivé le mauvais aussi.
+        // Basculer dessus rend le garde-fou juste par construction — et montre à l'utilisateur ce
+        // qu'il est sur le point de perdre, ce qui est précisément ce qu'on attend d'un avertissement.
+        //
+        // Si le garde-fou refuse, on reste donc sur cet onglet-là : on regarde celui qu'on a voulu
+        // fermer, ce qui est cohérent avec le geste qu'on vient d'interrompre.
+        if (i !== this.ongletActif) this.activerOnglet(i);
+        const titre = this.titresOnglets()[i];
+        if (!(await this.peutEcraserLeMorceau(`Fermer l'onglet « ${titre} »`))) return;
+        // Le voisin de GAUCHE, ou celui de droite s'il n'y en a pas à gauche — jamais un saut à
+        // l'autre bout de la barre.
+        this.onglets.splice(i, 1);
+        this._installerOnglet(Math.max(0, i - 1));
+        this.planifierBrouillon();
     }
 
     // ==========================================================================================

@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**44 bancs, 1141 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**45 bancs, 1201 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -23,6 +23,7 @@ utilisateur devenus des cas permanents.
 | `ternaire_test.js` | Une seule grille de temps pour l'audio, le métronome et le MIDI ; la tête de lecture repasse par la réciproque ; l'indication gravée |
 | `midi_test.js` | Aller-retour `.mid`, doigté par zone de manche, export par section, notes de même hauteur chevauchées |
 | `import_rythme_test.js` | Triolets et swing importés JUSTE : une grille par temps, la question binaire/ternaire, la détection qui ne confond pas swing et vrais triolets |
+| `onglets_test.js` | Plusieurs morceaux ouverts : l'ÉTANCHÉITÉ des documents, ce qui reste commun (durée, presse-papier), le brouillon multi-onglets, et rien au doigt |
 | `boucle_lecture_test.js` | La bande orange : geste souris/doigt, poignées, et l'ancrage qui la fait suivre ses mesures à travers insertion, suppression et annulation |
 
 ## Lancer

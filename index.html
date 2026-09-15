@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609151638">
+    <link rel="stylesheet" href="style.css?v=202609151641">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -95,6 +95,13 @@
 <!-- La palette est construite par ui/toolbar.js : ses boutons dérivent des mêmes tables que les
      raccourcis clavier (durées, effets), pour que les deux ne puissent pas se contredire. -->
 <div class="barre-outils" id="barre-outils" role="toolbar" aria-label="Outils d'édition"></div>
+
+<!-- BARRE D'ONGLETS — plusieurs morceaux ouverts à la fois (retour utilisateur : « permets-moi de
+     travailler sur plusieurs onglets en même temps, comme sur GuitarPro, cela me permettra de
+     comparer des versions »). Construite par src/ui/onglets.js. Effacée sous 720px et au doigt (voir
+     .barre-onglets dans style.css) : « sur téléphone, ne pas mettre cette option qui prend trop de
+     place à l'écran ». Sa rangée de grille se referme alors d'elle-même, comme celle du pavé. -->
+<div class="barre-onglets" id="barre-onglets" role="tablist" aria-label="Morceaux ouverts"></div>
 
 <!-- `.zone-conteneur` : simple boîte de positionnement (jamais de défilement à elle, voir style.css),
      posée pour que #dpad-flottant puisse flotter par-dessus la partition SANS défiler avec elle
@@ -778,6 +785,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609151638"></script>
+<script type="module" src="src/main.js?v=202609151641"></script>
 </body>
 </html>

@@ -143,8 +143,8 @@ body {
        son gabarit `auto` la réduit à zéro tant que l'élément est `hidden` (donc display:none). Une
        rangée conditionnelle aurait demandé de réécrire les deux `grid-template-areas` en JavaScript
        à chaque bascule, pour un résultat identique. */
-    grid-template-areas: "haut" "outils" "zone" "pave" "bas";
-    grid-template-rows: var(--h-barre-haut) var(--h-outils) 1fr auto var(--h-transport);
+    grid-template-areas: "haut" "outils" "onglets" "zone" "pave" "bas";
+    grid-template-rows: var(--h-barre-haut) var(--h-outils) auto 1fr auto var(--h-transport);
     grid-template-columns: 1fr;
     /* `overflow-y: auto` plutôt que `hidden` : `100dvh` (voir plus haut) fait déjà correspondre cette
        grille à ce qui est VRAIMENT visible dans le cas normal, mais rien ne garantit qu'il en aille
@@ -161,8 +161,11 @@ body {
     -webkit-font-smoothing: antialiased;
 }
 body.outils-gauche {
-    grid-template-areas: "haut haut" "outils zone" "pave pave" "bas bas";
-    grid-template-rows: var(--h-barre-haut) 1fr auto var(--h-transport);
+    /* La barre d'outils À GAUCHE enjambe deux rangées (elle apparaît deux fois dans le gabarit) :
+       les onglets restent ainsi au-dessus de la PARTITION, jamais au-dessus de la palette — ce sont
+       les morceaux ouverts qu'ils désignent, pas les outils. */
+    grid-template-areas: "haut haut" "outils onglets" "outils zone" "pave pave" "bas bas";
+    grid-template-rows: var(--h-barre-haut) auto 1fr auto var(--h-transport);
     grid-template-columns: var(--w-outils-gauche) 1fr;
 }
 
@@ -499,6 +502,78 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 /* ============================================================
    ZONE PARTITION — le papier
    ============================================================ */
+/* ============================================================
+   BARRE D'ONGLETS — plusieurs morceaux ouverts (voir src/ui/onglets.js)
+   ============================================================ */
+/* PAS AU DOIGT, PAS SUR PETIT ÉCRAN : « sur téléphone, ne pas mettre cette option qui prend trop de
+   place à l'écran ». `display: none` referme la rangée de grille d'elle-même (gabarit `auto`),
+   exactement comme pour le pavé tactile — aucun gabarit à réécrire en JavaScript.
+   LES DEUX CONDITIONS, et pas seulement la largeur : une tablette au doigt peut être large, et la
+   barre y coûterait la même hauteur d'écran pour un geste (viser une croix de 16px) qui n'est pas
+   celui d'un doigt. */
+.barre-onglets {
+    grid-area: onglets;
+    display: flex; align-items: stretch; gap: 4px;
+    padding: 4px 8px 0;
+    background: var(--card-bg);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    /* La barre ne défile QUE si les onglets débordent : sans cette hauteur minimale, une barre vide
+       (jamais le cas — il y a toujours un onglet) se replierait à zéro. */
+    min-height: 0;
+}
+@media (max-width: 720px), (pointer: coarse) { .barre-onglets { display: none; } }
+
+/* Un onglet : son intitulé, et sa croix. Le CONTENANT porte l'état actif, pour que le fond couvre
+   les deux boutons — un fond posé sur le seul intitulé laisserait la croix en dehors. */
+.onglet {
+    display: inline-flex; align-items: center; gap: 2px;
+    max-width: 220px;
+    border: 1px solid var(--border); border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    background: var(--fond-bouton-sombre);
+    padding: 0 4px 0 2px;
+}
+.onglet:hover { background: var(--fond-bouton-sombre-survol); }
+/* L'ONGLET ACTIF SE FOND DANS LA PARTITION en dessous : c'est la grammaire des onglets depuis
+   toujours — celui qui est ouvert n'a plus de bord en bas, il EST la feuille. Un simple
+   changement de couleur ne dirait pas laquelle des deux surfaces on regarde. */
+.onglet.actif {
+    background: var(--papier);
+    border-color: var(--border);
+    margin-bottom: -1px;
+    padding-bottom: 1px;
+}
+.onglet-nom {
+    background: none; border: none; cursor: pointer;
+    color: var(--text-muted); font-family: inherit; font-size: var(--fs-sm);
+    padding: 5px 6px; max-width: 180px;
+    /* Tronqué plutôt que replié : un onglet à deux lignes ferait varier la hauteur de la barre, donc
+       celle de la partition, à chaque ouverture de morceau. Le titre complet reste en infobulle. */
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.onglet.actif .onglet-nom { color: #1a1a1a; font-weight: 700; }
+.onglet-nom:hover { color: var(--text-main); }
+.onglet.actif .onglet-nom:hover { color: #000; }
+.onglet-fermer {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 18px; height: 18px; flex: 0 0 auto;
+    background: none; border: none; border-radius: 4px; cursor: pointer;
+    color: var(--text-muted); padding: 0;
+}
+.onglet-fermer svg { width: 12px; height: 12px; }
+.onglet-fermer:hover { background: var(--btn-red-2); color: #f3a99a; }
+.onglet.actif .onglet-fermer { color: #6b6b6b; }
+.onglet.actif .onglet-fermer:hover { color: #a33; background: rgba(170, 51, 51, .12); }
+.onglet-nouveau {
+    display: inline-flex; align-items: center; justify-content: center;
+    width: 26px; flex: 0 0 auto; margin-bottom: 4px;
+    background: var(--fond-bouton-sombre); color: var(--text-muted);
+    border: 1px solid var(--border); border-radius: 7px; cursor: pointer;
+}
+.onglet-nouveau svg { width: 14px; height: 14px; }
+.onglet-nouveau:hover { background: var(--fond-bouton-sombre-survol); color: var(--text-main); }
+
 /* Boîte de positionnement AUTOUR de .zone-partition — jamais elle-même défilante (voir
    .dpad-flottant juste après : une croix qui flotterait par-dessus DOIT rester au même endroit de
    l'écran, pas glisser avec la partition qu'on fait défiler dessous). `overflow: hidden` a aussi
@@ -1591,7 +1666,7 @@ body.avec-pave .dpad-flottant { display: grid; }
 /* L'aperçu : le panneau « papier » au milieu d'une fenêtre sombre se lit comme une partition. */
 .apercu-rythme {
     border: 1px solid var(--border); border-radius: 10px;
-    background: var(--papier, #FDFBF7);
+    background: var(--papier);
     overflow: auto; max-height: 34vh; padding: 4px;
 }
 .apercu-rythme svg { display: block; }
