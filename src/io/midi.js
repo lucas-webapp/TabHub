@@ -11,8 +11,10 @@
 // FORMAT 0 (une seule piste) : TabHub ne connaît qu'un instrument par fichier — inutile d'écrire
 // plusieurs pistes que rien, ici, ne distingue.
 
-import { aplatir, hauteurDeNote, positionDebutMesure, signatureEffective, sectionsDe, creerPartition, creerMesure, creerEvenement, creerNote, figuresPour, normaliser,
-         grilleTernaire, sonneDepuisEcrit } from '../model/score.js';
+import { aplatir, hauteurDeNote, positionDebutMesure, signatureEffective, sectionsDe, creerPartition, creerMesure, creerEvenement, creerNote, normaliser,
+         grilleTernaire, sonneDepuisEcrit, ecritDepuisSonne } from '../model/score.js';
+import { grilleDesTemps, deduireSubdivisions, callerSurGrille, bordSuivant, figuresSurGrille,
+         detecterSwing } from '../model/rythme.js';
 import { noiresParMesure } from '../model/duration.js';
 import { INSTRUMENTS, hauteurDeCase, accordageParDefaut } from '../model/instruments.js';
 import { nomDeFichierSur, nomDuMorceau, telecharger } from './json.js';
@@ -396,12 +398,12 @@ export function analyserMidi(bytes) {
     };
 }
 
-/** Grille de quantification d'un import — un fichier MIDI (surtout joué en direct) ne tombe
- *  quasiment jamais pile sur une figure standard. Une double-croche (0,25 noire) est un compromis :
- *  assez fine pour ne pas aplatir un passage rapide, assez large pour ne pas fragmenter un simple
- *  léger flottement de timing en une bouillie de micro-figures. */
-const GRILLE_NOIRES = 0.25;
-const snap = (noires) => Math.round(noires / GRILLE_NOIRES) * GRILLE_NOIRES;
+// PLUS DE GRILLE PLATE DE DOUBLES-CROCHES ICI. L'import quantifiait tout sur 0,25 noire, la même
+// grille du début à la fin du morceau : un triolet de croches (des TIERS de temps) y tombait sur 0,
+// 1/4 et 3/4 — double, croche, double. Faux, et faux d'une manière qu'on ne corrige pas à la main
+// sans tout réécrire. La grille est désormais construite TEMPS PAR TEMPS, chacun subdivisé en 2, 3
+// ou 4 selon ce que ses attaques réclament : voir model/rythme.js, la MÊME grille et la MÊME
+// conversion en figures que l'aide rythmique.
 
 /**
  * Position de manche pour une hauteur MIDI donnée — la case la plus BASSE parmi les cordes qui
@@ -470,9 +472,56 @@ export function analyserZonesManche(analyse, instrumentId, accordage, capo = 0) 
 }
 
 /**
- * Construit une partition TabHub depuis le résultat d'analyserMidi — la traversée mesure par
- * mesure qui remplace le flot continu du fichier par des figures standard, quantifiées sur
- * GRILLE_NOIRES, réparties dans les mesures de l'instrument visé.
+ * LE MORCEAU A-T-IL L'AIR SWINGUÉ ? Une réponse à PROPOSER à l'utilisateur, pas à lui imposer — elle
+ * ne sert qu'à pré-cocher la question posée à l'import (voir main.js#chargerFichierMidi).
+ *
+ * POURQUOI ON DEMANDE MALGRÉ LA DÉTECTION. Un fichier MIDI ne porte AUCUNE notion de swing : il
+ * contient des positions, et deux lectures du même fichier sont également défendables. Des croches
+ * aux deux tiers du temps, c'est soit un triolet écrit (noire de triolet + croche de triolet), soit
+ * des croches droites jouées swing — la même musique, deux partitions. Seul le musicien sait
+ * laquelle il veut lire, et c'est exactement ce que l'utilisateur proposait de nous dire.
+ *
+ * ET POURQUOI ON DÉTECTE QUAND MÊME : pré-cocher la bonne réponse épargne un clic à chaque import,
+ * et se tromper ne coûte que ce clic — jamais une partition.
+ *
+ * @returns {{ternaire:boolean, swing:number, binaire:number, triolet:number}} `ternaire` est la
+ *   proposition ; les trois compteurs disent sur quoi elle s'appuie (temps swingués, binaires, et
+ *   vrais triolets à trois notes, qu'il ne faut surtout PAS dé-swinguer).
+ */
+export function detecterRythme(analyse) {
+    if (!analyse?.notes?.length) return { ternaire: false, swing: 0, binaire: 0, triolet: 0 };
+    const EPS = 1e-9;
+    const signatureA = (x) => {
+        let courante = analyse.signatures[0];
+        for (const s of analyse.signatures) { if (s.noires <= x + EPS) courante = s; else break; }
+        return courante;
+    };
+    const fin = analyse.notes.reduce((m, n) => Math.max(m, n.finNoires), 0);
+    const mesures = [];
+    for (let p = 0, garde = 0; garde < 4000; garde++) {
+        const sig = signatureA(p);
+        const capacite = noiresParMesure(sig);
+        mesures.push({ debut: p, capacite, signature: sig });
+        p += capacite;
+        if (p > fin + EPS) break;
+    }
+    return detecterSwing(grilleDesTemps(mesures), analyse.notes.map(n => n.debutNoires));
+}
+
+/**
+ * Construit une partition TabHub depuis le résultat d'analyserMidi — la traversée mesure par mesure
+ * qui remplace le flot continu du fichier par des figures standard, réparties dans les mesures de
+ * l'instrument visé.
+ *
+ * LA QUANTIFICATION SE FAIT TEMPS PAR TEMPS, sur une grille dont chaque temps porte SA subdivision
+ * (2, 3 ou 4), déduite de ses attaques — jamais sur une grille plate de doubles-croches, qui ne sait
+ * pas écrire un tiers de temps et transformait tout triolet en « double, croche, double ». Voir
+ * model/rythme.js : c'est la MÊME grille et la MÊME conversion que l'aide rythmique, donc un rythme
+ * importé s'écrit exactement comme un rythme posé à la main.
+ *
+ * `ternaire` : le morceau est déclaré swingué. Les positions du fichier sont alors ramenées à
+ * l'écriture DROITE par la réciproque de la transformation de swing (voir model/duration.js), et
+ * `meta.ternaire` dit de les rejouer longue-brève — l'inverse exact de l'export.
  *
  * UNE NOTE QUI DÉBORDE D'UNE MESURE SE POURSUIT, LIÉE, DANS LA SUIVANTE — jamais tronquée : c'est le
  * même mécanisme qui fait qu'une ronde tenue par-dessus une barre de mesure s'entend correctement à
@@ -483,17 +532,64 @@ export function analyserZonesManche(analyse, instrumentId, accordage, capo = 0) 
  * meilleurePositionPour/analyserZonesManche, main.js#choisirZoneManche : une cohérence de doigté
  * plutôt que la case la plus basse n'importe où sur le manche.
  */
-export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare', accordage = null, capo = 0, zone = null) {
+export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare', accordage = null, capo = 0, zone = null, ternaire = false) {
     const fiche = INSTRUMENTS[instrumentId] ? instrumentId : 'guitare';
     const accord = accordage || accordageParDefaut(fiche);
     const casesMax = INSTRUMENTS[fiche].casesMax;
     const EPS = 1e-9;
 
+    const signatureA = (positionNoires) => {
+        let courante = analyse.signatures[0];
+        for (const s of analyse.signatures) { if (s.noires <= positionNoires + EPS) courante = s; else break; }
+        return courante;
+    };
+
+    // --- LES MESURES, PUIS LES TEMPS — avant de quantifier quoi que ce soit ----------------------
+    // La grille de quantification a besoin de savoir OÙ sont les temps, et cela ne se déduit que des
+    // signatures du fichier. On déroule donc les mesures d'abord, assez loin pour couvrir la dernière
+    // note, PLUS UNE : une position peut s'arrondir vers le haut, et la grille doit exister là où
+    // elle atterrit.
+    const finBrute = analyse.notes.reduce((m, n) => Math.max(m, n.finNoires), 0);
+    const mesuresGrille = [];
+    for (let p = 0, garde = 0; garde < 4000; garde++) {
+        const sig = signatureA(p);
+        const capacite = noiresParMesure(sig);
+        mesuresGrille.push({ debut: p, capacite, signature: sig });
+        p += capacite;
+        if (p > finBrute + EPS) { mesuresGrille.push({ debut: p, capacite: noiresParMesure(signatureA(p)), signature: signatureA(p) }); break; }
+    }
+    const temps = grilleDesTemps(mesuresGrille);
+
+    // --- LECTURE TERNAIRE DÉCLARÉE : du temps SONNÉ au temps ÉCRIT ------------------------------
+    // L'utilisateur a dit que le morceau est swingué (voir main.js#chargerFichierMidi, qui le lui
+    // demande en pré-cochant ce que la détection propose). MIDI ne porte aucune notion de swing :
+    // le fichier contient des croches jouées longue-brève, donc des positions aux DEUX TIERS du
+    // temps. On les ramène ici à l'écriture DROITE, exactement par la réciproque qui sert déjà à la
+    // tête de lecture (voir model/duration.js) — puis `meta.ternaire` dit comment les rejouer.
+    //
+    // C'EST L'INVERSE EXACT DE L'EXPORT, et c'est ce qui rend l'aller-retour de TabHub avec lui-même
+    // sans perte : ce qu'on exporte swingué se réimporte en croches droites plus l'indication.
+    const grilleSwing = ternaire ? temps.map(t => ({ debut: t.debut, fin: t.debut + t.duree, unite: t.duree })) : null;
+    const versEcrit = (x) => (grilleSwing ? ecritDepuisSonne(grilleSwing, x) : x);
+    const notesEcrites = analyse.notes.map(n => ({
+        pitch: n.pitch, debut: versEcrit(n.debutNoires), fin: versEcrit(n.finNoires),
+    }));
+
+    // --- LA SUBDIVISION DE CHAQUE TEMPS, déduite de ses attaques --------------------------------
+    // Là où l'aide rythmique fait cliquer l'utilisateur, l'import LIT : un temps dont les attaques
+    // tombent sur des tiers reçoit une grille en trois, et son triolet s'écrit juste (voir
+    // model/rythme.js#subdivisionPour, et la marge qui interdit d'inventer un triolet pour deux
+    // doubles jouées un peu tard).
+    deduireSubdivisions(temps, notesEcrites.map(n => n.debut));
+
     // --- Regroupement en « colonnes » (accords) : même départ quantifié = une seule attaque --------
     const parDebut = new Map();
-    for (const n of analyse.notes) {
-        const debut = snap(n.debutNoires);
-        const fin = Math.max(debut + GRILLE_NOIRES, snap(n.finNoires));
+    for (const n of notesEcrites) {
+        const debut = callerSurGrille(temps, n.debut);
+        // Une note plus brève qu'une cellule s'arrondirait à une durée nulle : on lui donne la
+        // cellule qu'elle a entamée, plutôt qu'un évènement sans durée que rien ne saurait écrire.
+        let fin = callerSurGrille(temps, n.fin);
+        if (fin <= debut + EPS) fin = bordSuivant(temps, debut);
         if (!parDebut.has(debut)) parDebut.set(debut, { debut, fin, pitches: [] });
         const groupe = parDebut.get(debut);
         groupe.fin = Math.max(groupe.fin, fin);
@@ -506,12 +602,6 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
     // cherche à résoudre). Un accord qui déborde encore sur le départ du suivant est donc raccourci
     // ici : mieux qu'une incohérence de curseur qui déciderait ensuite n'importe quoi.
     for (let k = 0; k < groupes.length - 1; k++) groupes[k].fin = Math.min(groupes[k].fin, groupes[k + 1].debut);
-
-    const signatureA = (positionNoires) => {
-        let courante = analyse.signatures[0];
-        for (const s of analyse.signatures) { if (s.noires <= positionNoires + EPS) courante = s; else break; }
-        return courante;
-    };
 
     const mesures = [];
     let positionMesure = 0;
@@ -528,21 +618,25 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
         const evenements = [];
         let curseur = positionMesure;
 
-        const poserFigures = (duree, notes, encoreApres) => {
-            const figs = figuresPour(duree);
+        // LES FIGURES VIENNENT DE LA GRILLE DES TEMPS, et non d'une durée prise isolément : c'est la
+        // seule façon d'écrire un tiers de temps, qui n'est la somme d'aucune figure binaire. Les
+        // deux bornes sont ABSOLUES (voir model/rythme.js#figuresSurGrille), parce que c'est la
+        // PLACE d'une note dans son temps qui décide de sa figure — pas sa seule longueur.
+        const poserFigures = (debut, fin, notes, encoreApres) => {
+            const figs = figuresSurGrille(temps, debut, fin);
             figs.forEach((f, k) => {
                 const copies = notes.map(n => creerNote(n.corde, n.frette));
                 if (k < figs.length - 1 || encoreApres) copies.forEach(n => { n.lien = 'tie'; });
                 evenements.push(creerEvenement(f, copies, {}));
             });
         };
-        const poserSilence = (duree) => {
-            for (const f of figuresPour(duree)) evenements.push(creerEvenement(f, [], { silence: true }));
+        const poserSilence = (debut, fin) => {
+            for (const f of figuresSurGrille(temps, debut, fin)) evenements.push(creerEvenement(f, [], { silence: true }));
         };
 
         if (continuation) {
             const dureeIci = Math.min(continuation.reste, capacite);
-            poserFigures(dureeIci, continuation.notes, dureeIci < continuation.reste - EPS);
+            poserFigures(curseur, curseur + dureeIci, continuation.notes, dureeIci < continuation.reste - EPS);
             curseur += dureeIci;
             continuation.reste -= dureeIci;
             if (continuation.reste <= EPS) continuation = null;
@@ -550,7 +644,7 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
 
         while (groupeIdx < groupes.length && groupes[groupeIdx].debut < finMesure - EPS) {
             const g = groupes[groupeIdx];
-            if (g.debut > curseur + EPS) { poserSilence(g.debut - curseur); curseur = g.debut; }
+            if (g.debut > curseur + EPS) { poserSilence(curseur, g.debut); curseur = g.debut; }
 
             const cordesUtilisees = new Set();
             const notesAssignees = [];
@@ -560,16 +654,18 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
                 cordesUtilisees.add(pos.corde);
                 notesAssignees.push(pos);
             }
-            const dureeGroupe = Math.max(GRILLE_NOIRES, g.fin - g.debut);
-            const dureeIci = Math.min(dureeGroupe, finMesure - g.debut);
-            if (notesAssignees.length) poserFigures(dureeIci, notesAssignees, dureeIci < dureeGroupe - EPS);
-            else poserSilence(dureeIci);   // toutes les hauteurs de cet accord étaient hors du manche
-            curseur = g.debut + dureeIci;
-            if (dureeIci < dureeGroupe - EPS && notesAssignees.length) continuation = { notes: notesAssignees, reste: dureeGroupe - dureeIci };
+            // Au moins UNE cellule de son propre temps : la borne de fin est déjà calée (voir plus
+            // haut), ce garde-fou ne sert plus qu'aux durées qu'un fichier malformé rendrait nulles.
+            const finGroupe = Math.max(g.fin, bordSuivant(temps, g.debut));
+            const finIci = Math.min(finGroupe, finMesure);
+            if (notesAssignees.length) poserFigures(g.debut, finIci, notesAssignees, finIci < finGroupe - EPS);
+            else poserSilence(g.debut, finIci);   // toutes les hauteurs de cet accord étaient hors du manche
+            curseur = finIci;
+            if (finIci < finGroupe - EPS && notesAssignees.length) continuation = { notes: notesAssignees, reste: finGroupe - finIci };
             groupeIdx++;
         }
 
-        if (curseur < finMesure - EPS) poserSilence(finMesure - curseur);
+        if (curseur < finMesure - EPS) poserSilence(curseur, finMesure);
 
         const mesure = creerMesure({ voix: [{ evenements }] });
         if (!signaturePrecedente || sig.battements !== signaturePrecedente.battements || sig.unite !== signaturePrecedente.unite) {
@@ -584,6 +680,9 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
     partition.piste.accordage = accord;
     partition.piste.capo = capo;
     partition.meta.tempo = Math.max(20, Math.min(400, analyse.tempo || 120));
+    // Le morceau est déclaré swingué : l'écriture est droite (on vient de la ramener là), c'est
+    // l'indication qui dit de la jouer longue-brève. Voir model/score.js `meta.ternaire`.
+    partition.meta.ternaire = !!ternaire;
     if (analyse.titre) partition.meta.titre = analyse.titre.slice(0, 200);
     partition.mesures = mesures.length ? mesures : partition.mesures;
     if (partition.mesures[0]) {

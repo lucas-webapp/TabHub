@@ -33,7 +33,7 @@ import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, MAX_VERSIONS } from './io/versions.js';
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
-import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
+import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective, signatureEffective } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
@@ -546,6 +546,12 @@ class TabHubApp {
         // l'écran ne montrerait qu'un morceau tout juste ouvert continue de rejouer quatre mesures
         // de l'ancien en boucle (même précaution que HarmoHub, dont ce geste est repris).
         if (raison === 'document') this.lecteur.retirerBoucle();
+        // LA BANDE DE BOUCLE SUIT SES MESURES, pas leurs numéros (voir Lecteur.reancrerBoucle).
+        // AVANT `dessiner`, et sur TOUTES les raisons : la bande est dessinée à partir des numéros,
+        // et une insertion, une suppression, un collage ou une annulation vient peut-être de les
+        // décaler. Un seul appel ici couvre tout ce qui touche au tableau des mesures, aujourd'hui
+        // comme demain — c'est la raison d'être de l'ancrage.
+        if (raison !== 'curseur' && raison !== 'lecture') this.lecteur.reancrerBoucle(this.editeur.partition);
         this.dessiner();
         // Le curseur reste à l'écran. Nécessaire depuis que seuls les systèmes visibles sont
         // dessinés : un curseur poussé hors de la bande dessinée s'afficherait sur du vide, sans
@@ -1423,6 +1429,51 @@ class TabHubApp {
     }
 
     /**
+     * DEMANDE LE RYTHME DU FICHIER À IMPORTER, et le mode d'import du même geste.
+     *
+     * UNE SEULE FENÊTRE POUR LES DEUX QUESTIONS (« remplace ou à la suite ? » et « binaire ou
+     * ternaire ? ») : ce sont deux décisions sur le MÊME import, et les empiler en deux étapes
+     * ferait un assistant là où il n'y a qu'un fichier à ouvrir. Le rythme se règle dans le corps de
+     * la fenêtre, le mode reste au pied — c'est lui qui la referme.
+     *
+     * POURQUOI DEMANDER PLUTÔT QUE DEVINER. Un .mid ne porte AUCUNE notion de swing, seulement des
+     * positions : des croches aux deux tiers du temps se lisent aussi bien en triolets écrits qu'en
+     * croches droites jouées swing. Deux partitions pour la même musique, et seul le musicien sait
+     * laquelle il veut lire — c'est ce que l'utilisateur proposait de nous dire. La détection
+     * (io/midi.js#detecterRythme) ne fait que PRÉ-COCHER, et dit sur quoi elle s'appuie.
+     *
+     * @returns {Promise<boolean|null>} `true` si ternaire, `false` si binaire, `null` si annulé.
+     *   Le mode d'import ('nouveau' | 'suite') est déposé dans `this._choixImportMidi`.
+     */
+    async demanderRythmeImport(analyse) {
+        const detection = detecterRythme(analyse);
+        let ternaire = detection.ternaire;
+        const boutons = [...document.querySelectorAll('#segments-rythme-import [data-rythme]')];
+        const note = document.getElementById('note-rythme-import');
+        const peindre = () => {
+            for (const b of boutons) {
+                const choisi = (b.dataset.rythme === 'ternaire') === ternaire;
+                b.classList.toggle('actif', choisi);
+                b.setAttribute('aria-checked', String(choisi));
+            }
+        };
+        // CE QUE LA DÉTECTION A VU, écrit en clair : c'est ce qui permet de la contredire en
+        // connaissance de cause. Un « on a détecté du swing » sans chiffres ne se discute pas.
+        note.textContent = detection.swing || detection.triolet
+            ? (detection.ternaire
+                ? `Swing détecté sur ${detection.swing} temps : les croches seront écrites droites, avec l'indication ternaire.`
+                : `${detection.triolet ? `${detection.triolet} temps en triolets écrits. ` : ''}Le rythme du fichier sera écrit tel quel.`)
+            : '';
+        peindre();
+        for (const b of boutons) {
+            b.onclick = () => { ternaire = b.dataset.rythme === 'ternaire'; peindre(); };
+        }
+        const choix = await this.choisirDans('fenetre-choix-import-midi');
+        this._choixImportMidi = choix;
+        return choix == null ? null : ternaire;
+    }
+
+    /**
      * Popule puis affiche la fenêtre de choix de ZONE DE MANCHE à l'import MIDI (voir
      * io/midi.js#analyserZonesManche) : un bouton par zone PERTINENTE POUR CE FICHIER — jamais
      * une liste générique, une zone qu'aucune note du fichier n'atteint n'étant pas proposée —
@@ -1521,9 +1572,16 @@ class TabHubApp {
                 }
             }
 
-            const { partition, abandonnees } = construirePartitionDepuisMidi(analyse, piste.instrument, piste.accordage, piste.capo, zone);
-            const choix = await this.choisirDans('fenetre-choix-import-midi');
-            if (choix == null) return;   // annulé
+            // LE RYTHME SE DEMANDE AVANT DE CONSTRUIRE, parce qu'il change tout ce qui suit : en
+            // ternaire, les positions du fichier sont ramenées à l'écriture droite avant d'être
+            // quantifiées (voir io/midi.js). La réponse est PRÉ-COCHÉE par détection — un .mid ne
+            // porte aucune notion de swing, seul le musicien tranche, mais deviner juste la plupart
+            // du temps épargne un clic à chaque import.
+            const ternaire = await this.demanderRythmeImport(analyse);
+            if (ternaire == null) return;   // annulé
+            const { partition, abandonnees } = construirePartitionDepuisMidi(
+                analyse, piste.instrument, piste.accordage, piste.capo, zone, ternaire);
+            const choix = this._choixImportMidi;
 
             // Détail de CAUSE pour les notes abandonnées : hors de portée de l'instrument (aucune
             // zone n'y aurait rien changé) plutôt qu'exclues par la zone choisie — deux raisons très

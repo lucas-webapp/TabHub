@@ -87,6 +87,13 @@ export class Lecteur {
         // boucle qui survivrait en silence à un rechargement rouvrirait l'appli en train de rejouer
         // indéfiniment quatre mesures sans que rien ne l'explique.
         this.boucleLecture = null;
+        // LES ANCRES DE LA BOUCLE : les `id` des deux mesures qu'elle borne (voir model/score.js,
+        // creerMesure — chaque mesure en porte un, stable, que `cloner` préserve). `boucleLecture`
+        // ci-dessus garde les NUMÉROS, parce que c'est ce dont le dessin et l'horloge ont besoin ;
+        // mais un numéro n'est qu'une position dans un tableau, et insérer une mesure avant la
+        // boucle le rend faux en silence. Les ancres, elles, désignent les mesures ELLES-MÊMES —
+        // voir reancrerBoucle, le seul endroit qui remet les numéros d'accord avec elles.
+        this._ancresBoucle = null;
         // Volumes (0-100), comme HarmoHub : un pourcentage se règle au jugé, un dB se calcule. 100 =
         // plein volume (0 dB), 80 par défaut pour le métronome — un repère qu'on entend, jamais celui
         // qu'on écoute. Les DEUX s'appliquent MÊME AVANT `demarrer()` (l'utilisateur peut ouvrir les
@@ -434,8 +441,71 @@ export class Lecteur {
         // chaque micro-mouvement du doigt, pour un résultat identique).
         if (r && r.debut === mesureDebut && r.fin === mesureFin) return;
         this.boucleLecture = { debut: mesureDebut, fin: mesureFin };
+        this._ancresBoucle = {
+            debut: partition?.mesures?.[mesureDebut]?.id ?? null,
+            fin: partition?.mesures?.[mesureFin]?.id ?? null,
+        };
         const Tone = globalThis.Tone;
         if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+    }
+
+    /**
+     * REMET LES NUMÉROS DE LA BOUCLE D'ACCORD AVEC LES MESURES QU'ELLE BORNE.
+     *
+     * LE DÉFAUT (signalé de longue date) : la bande orange se repérait par NUMÉRO de mesure.
+     * Insérer une mesure avant elle laissait donc la bande sur les mêmes numéros pendant que la
+     * musique glissait dessous — on rebouclait sur un autre passage que celui qu'on avait encadré,
+     * sans un mot.
+     *
+     * POURQUOI RÉSOUDRE PLUTÔT QUE DÉCALER. Décaler la boucle à chaque commande qui touche au
+     * tableau des mesures demanderait de les recenser toutes (ajouter, coller, supprimer, remplacer,
+     * importer à la suite…) ET de porter la boucle dans l'historique, pour qu'une annulation la
+     * ramène avec le reste. Six endroits à ne jamais oublier, dont un qu'on oublierait. Ici il n'y
+     * en a qu'un : la boucle est DÉRIVÉE des mesures, comme le reste de l'affichage. Toute
+     * modification du document, présente ou future, repasse par ce seul calcul — c'est la règle que
+     * ce projet applique partout : deux vérités finissent toujours par diverger.
+     *
+     * LES ANCRES SURVIVENT À L'ANNULATION parce que l'historique CLONE la partition (voir
+     * commands.js#memoriser, `cloner`) : un `id` est une donnée du document comme une autre, il
+     * traverse la copie profonde. Une réouverture de fichier, elle, refait des mesures neuves (voir
+     * normaliser) — mais un document qu'on vient d'ouvrir n'a pas de boucle non plus, la question ne
+     * se pose pas.
+     *
+     * MESURE ANCRE SUPPRIMÉE : si les DEUX ont disparu, la boucle n'a plus rien à border et s'en va.
+     * Si une seule survit, la boucle se resserre sur elle — jamais une bande qui réapparaît ailleurs
+     * que là où on l'avait posée.
+     *
+     * @returns {boolean} vrai si les numéros ou l'existence de la boucle ont changé — à l'appelant
+     *   de redessiner (voir main.js#surChangementEditeur).
+     */
+    reancrerBoucle(partition) {
+        if (!this.boucleLecture || !this._ancresBoucle) return false;
+        // ANCRE JAMAIS POSÉE (une boucle définie sur un numéro hors du morceau — que l'interface ne
+        // produit pas, mais qu'un appel direct pourrait) : on ne ré-ancre pas ce qu'on n'a pas su
+        // ancrer. Les numéros restent tels quels, plutôt qu'une boucle qui s'évanouirait au premier
+        // redessin faute d'un `id` à retrouver.
+        if (!this._ancresBoucle.debut || !this._ancresBoucle.fin) return false;
+        const parId = new Map();
+        (partition?.mesures || []).forEach((m, i) => { if (m?.id) parId.set(m.id, i); });
+        const iDebut = parId.has(this._ancresBoucle.debut) ? parId.get(this._ancresBoucle.debut) : null;
+        const iFin = parId.has(this._ancresBoucle.fin) ? parId.get(this._ancresBoucle.fin) : null;
+
+        if (iDebut === null && iFin === null) { this.retirerBoucle(); return true; }
+        // Une seule ancre retrouvée : la boucle se resserre sur elle. Et si l'édition a croisé les
+        // deux (une mesure déplacée d'un bord à l'autre), on remet les bornes dans l'ordre plutôt
+        // que de laisser une plage négative, que ni le dessin ni l'horloge ne sauraient lire.
+        const a = iDebut ?? iFin, b = iFin ?? iDebut;
+        const debut = Math.min(a, b), fin = Math.max(a, b);
+        const bouge = this.boucleLecture.debut !== debut || this.boucleLecture.fin !== fin;
+        this.boucleLecture = { debut, fin };
+        // LES BORNES DE L'HORLOGE SONT REPOSÉES DANS TOUS LES CAS, même quand les numéros n'ont pas
+        // bougé : elles sont calculées en tics depuis les CAPACITÉS des mesures qui précèdent (voir
+        // _appliquerBoucle), qu'un changement de signature suffit à déplacer sans toucher à un seul
+        // numéro. Le calcul est une addition sur un tableau — le refaire coûte moins cher que de se
+        // demander, à chaque édition, si celle-ci pouvait l'invalider.
+        const Tone = globalThis.Tone;
+        if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+        return bouge;
     }
 
     /**
@@ -475,6 +545,7 @@ export class Lecteur {
     /** Retire la boucle : la lecture continue tout droit au lieu de rebrousser chemin. */
     retirerBoucle() {
         this.boucleLecture = null;
+        this._ancresBoucle = null;
         const Tone = globalThis.Tone;
         if (Tone?.Transport) Tone.Transport.loop = false;
     }

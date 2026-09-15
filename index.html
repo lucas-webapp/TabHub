@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609151623">
+    <link rel="stylesheet" href="style.css?v=202609151624">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -711,6 +711,19 @@
         </div>
         <div class="fenetre-corps">
             <p>Ce fichier MIDI remplace-t-il le morceau en cours, ou vient-il s'ajouter à la suite, comme une nouvelle partie ?</p>
+            <!-- LE RYTHME DU FICHIER : un .mid ne porte aucune notion de swing, seulement des
+                 positions. Des croches aux deux tiers du temps se lisent aussi bien en triolets
+                 écrits qu'en croches droites jouées swing — deux partitions pour la même musique, et
+                 seul le musicien sait laquelle il veut. La réponse est PRÉ-COCHÉE par détection
+                 (voir io/midi.js#detecterRythme) : se tromper ne coûte qu'un clic. -->
+            <div class="bloc-rythme-import">
+                <span class="etiquette-rythme-import">Rythme du morceau</span>
+                <div class="segments" id="segments-rythme-import" role="radiogroup" aria-label="Rythme du morceau">
+                    <button type="button" class="btn-neutre" data-rythme="binaire" role="radio" aria-checked="true">Binaire</button>
+                    <button type="button" class="btn-neutre" data-rythme="ternaire" role="radio" aria-checked="false">Ternaire (swing)</button>
+                </div>
+                <p class="note-rythme-import" id="note-rythme-import"></p>
+            </div>
         </div>
         <div class="fenetre-pied">
             <button type="button" class="btn-neutre" data-choix="suite">À la suite du morceau</button>
@@ -765,6 +778,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609151623"></script>
+<script type="module" src="src/main.js?v=202609151624"></script>
 </body>
 </html>

@@ -231,6 +231,15 @@ tablature de chaque système : la zone se rejoue indéfiniment, pour retravaille
 repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
 C'est une préférence de SESSION, jamais sauvée avec le morceau.
 
+Elle **suit les mesures qu'elle borne**, pas leurs numéros. Insérer, coller ou supprimer une mesure
+avant elle — ou annuler l'un de ces gestes — la laisse sur le même passage, et son horloge se
+recalcule avec. La boucle est ancrée aux `id` des deux mesures (chaque mesure en porte un, stable, que
+la copie profonde de l'historique préserve) et ses numéros en sont RE-DÉRIVÉS à chaque modification du
+document : un seul calcul à un seul endroit, plutôt qu'un décalage à recenser dans chaque commande
+qui touche au tableau des mesures. Si la mesure de début disparaît, la boucle se resserre sur celle de
+fin ; si les deux disparaissent, elle s'en va — jamais une bande qui réapparaît ailleurs que là où on
+l'avait posée.
+
 Lecture/Stop, **tempo** et **métronome** vivent ensemble dans un **bloc de lecture** encadré, au
 centre de la barre du bas sur ordinateur, à gauche sur téléphone. Les cinq commandes étaient
 auparavant réparties entre deux barres : tempo et métronome siégeaient dans la barre d'outils, aux
@@ -344,6 +353,38 @@ un nom qu'on reconnaît.
   ressortent bien à deux, chacune à sa place : le lecteur d'octets tient une file d'attaques ouvertes
   par hauteur, et un « note off » ne referme que la plus ancienne. Une note restée sans « note off »
   est refermée en fin de piste plutôt que jetée.
+
+#### Le rythme d'un fichier importé
+
+Le rythme est quantifié **temps par temps**, chaque temps recevant la subdivision que ses attaques
+réclament — 2, 3 ou 4 — puis converti en figures par la **même** conversion que l'aide rythmique
+(`model/rythme.js`). Un triolet s'écrit donc triolet, et un seul temps en triolet au milieu de
+croches ne contamine pas ses voisins. Une grille plate de doubles-croches, comme avant, ne sait pas
+écrire un tiers de temps : les douze croches d'un triolet y ressortaient en « double, croche, double »
+répété — mesuré, et c'est ce que le banc `import_rythme_test.js` reproduit en neutralisant le
+correctif. Le triolet doit expliquer le temps **deux fois mieux** que la meilleure lecture binaire
+pour être retenu : sur du jeu flottant, dont aucune lecture n'est exacte, on penche vers l'écriture la
+plus sobre.
+
+La fenêtre d'import demande aussi **si le morceau est binaire ou ternaire**, et c'est une vraie
+question : un `.mid` ne porte *aucune* notion de swing, seulement des positions. Des croches aux deux
+tiers du temps se lisent aussi bien en triolets écrits (noire + croche de triolet) qu'en croches
+droites jouées swing — deux partitions pour la même musique, et seul le musicien sait laquelle il veut
+lire. Les deux réponses sont donc justes, et TabHub écrit ce qu'on lui dit :
+
+| Réponse | Ce qui est écrit |
+|---|---|
+| **Binaire** | le rythme du fichier tel quel — ici `♩3 ♪3` par temps, le triolet gravé |
+| **Ternaire (swing)** | des croches **droites**, plus l'indication `♫ = ♩♪` en tête |
+
+La réponse est **pré-cochée par détection**, et la fenêtre dit sur quoi elle s'appuie (« swing détecté
+sur 8 temps ») pour qu'on puisse la contredire en connaissance de cause. La détection distingue le
+swing (une attaque aux deux tiers, aucune au premier tiers) des **vrais triolets à trois notes**, qu'il
+ne faut surtout pas « dé-swinguer » : leurs trois notes égales deviendraient double, double, croche.
+Se tromper ne coûte qu'un clic, jamais une partition.
+
+Conséquence : l'aller-retour de TabHub avec lui-même est **sans perte** en ternaire — ce qu'on exporte
+swingué se réimporte en croches droites plus l'indication.
 - Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Il ne
   se règle pas et ne se pilote pas — il n'y a rien à activer, rien à vider, comme dans HarmoHub. Un
   seul brouillon à la fois, jamais un gestionnaire multi-fichiers : Fichiers > Nouveau l'écrase,
@@ -413,6 +454,8 @@ src/
     instruments.js      instruments, accordages, capodastre
     score.js            partition > mesures > évènements > notes ; format du .json ;
                           grille des temps pour la lecture ternaire (audio ET MIDI)
+    rythme.js           la grille des temps et sa conversion en figures — partagée par l'aide
+                          rythmique (qu'on clique) et l'import MIDI (qui la déduit)
   engine/             LA GRAVURE — modèle → liste d'affichage
     glyphes-bravura.js  GÉNÉRÉ — contours extraits de Bravura (ne pas modifier à la main)
     glyphs.js           API des glyphes + épaisseurs de trait de la gravure
@@ -428,7 +471,7 @@ src/
   io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter),
                         midi.js, versions.js (historique local, borné)
   ui/                 icons.js, toolbar.js, dialogue.js (fenêtres de l'app, pas du navigateur),
-                        rythme.js (aide rythmique : grille, conversion en figures, aperçu gravé)
+                        rythme.js (aide rythmique : la grille cliquable et l'aperçu gravé)
   main.js             LE SEUL module qui touche au DOM et connaît tous les autres
 outils/
   generer-glyphes.py  extrait les contours de Bravura vers src/engine/glyphes-bravura.js
@@ -455,13 +498,14 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
-- **L'import MIDI aplatit le rythme.** Les durées sont ramenées à la grille de la double-croche :
-  un **triolet** venu d'un DAW s'y approche, il ne s'y retrouve pas. Le **swing** non plus n'est pas
-  reconnu comme tel — un fichier joué ternaire se relit en positions décalées, pas en croches droites
-  plus l'indication `Ternaire`. Et tout ce qui sonne ensemble arrive dans **une seule voix** : deux
-  lignes indépendantes se fondent en une suite d'accords. L'export, lui, ne perd rien de tout cela.
-- **La bande de boucle se repère par NUMÉRO de mesure.** Insérer une mesure avant elle laisse donc la
-  bande sur les mêmes numéros pendant que la musique glisse dessous : il faut la reposer.
+- **L'import MIDI fond tout dans une seule voix.** Deux lignes indépendantes qui sonnent ensemble
+  deviennent une suite d'accords : séparer les voix d'un fichier source est un problème autrement
+  plus dur, et TabHub n'a de toute façon qu'une voix par mesure (voir plus haut). Le rythme, lui,
+  n'est plus aplati : triolets et swing sont désormais lus correctement (voir *Le rythme d'un fichier
+  importé*).
+- **Les triples-croches ne sont pas écrites**, ni à l'aide rythmique ni à l'import : la subdivision
+  la plus fine d'un temps est la double-croche (décidé avec l'utilisateur). Un passage plus rapide
+  s'approche à la double la plus proche.
 - **Le bend est joué par un synthétiseur à part.** La hauteur se courbe bien pendant la lecture,
   amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
   simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en

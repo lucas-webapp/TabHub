@@ -749,6 +749,22 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 /* Fenêtre de choix de ZONE DE MANCHE à l'import MIDI (voir main.js#choisirZoneManche) : une
    colonne de boutons pleine largeur, texte aligné à gauche — plus lisible qu'un bouton centré
    pour une ligne « Case 5 → case 10 (4/12 notes) ». */
+/* LE RYTHME DU FICHIER, à l'import MIDI (voir #fenetre-choix-import-midi) : deux boutons dont un
+   seul est allumé, comme les chiffres « mesures par ligne » du transport — même vert allumé, pour
+   que « celui-ci est choisi » se lise partout pareil. Un vrai groupe de radios (role=radiogroup) :
+   la question a exactement deux réponses, et l'une est toujours vraie. */
+.bloc-rythme-import { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.etiquette-rythme-import { display: block; margin-bottom: 8px; font-size: var(--fs-sm); color: var(--text-muted); }
+#segments-rythme-import { display: flex; gap: 8px; }
+#segments-rythme-import .btn-neutre { flex: 1; }
+#segments-rythme-import .btn-neutre.actif {
+    background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
+    border-color: var(--btn-green-border);
+    color: var(--btn-text);
+}
+.note-rythme-import { margin: 8px 0 0; font-size: var(--fs-sm); line-height: 1.4; color: var(--text-muted); }
+.note-rythme-import:empty { display: none; }
+
 #liste-zones-manche { display: flex; flex-direction: column; gap: 8px; }
 #liste-zones-manche .btn-neutre { width: 100%; height: auto; min-height: var(--h-bouton); padding: 8px 14px; text-align: left; }
 .avertissement { margin: 0; padding: 8px 10px; border-radius: 8px; font-size: var(--fs-sm); line-height: 1.4; color: #f3a99a; background: var(--btn-red-2); border: 1px solid var(--btn-red-border); }

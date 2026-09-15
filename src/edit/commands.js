@@ -1095,11 +1095,13 @@ export class Editeur {
      * REMPLACE `evenementsParMesure.length` mesures À PARTIR DE `depart` par les rythmes donnés —
      * l'insertion de l'aide rythmique (voir ui/rythme.js et main.js#insererRythme).
      *
-     * REMPLACER ET NON INSÉRER, et c'est un choix. Insérer AJOUTERAIT des mesures, décalant tout ce
-     * qui suit : sur un morceau de trente mesures, poser un rythme à la quatrième en repousserait
-     * vingt-six, y compris les repères et la bande de boucle qui se lisent par NUMÉRO de mesure. On
-     * remplace donc la place qu'on désigne — c'est ce que dit la fenêtre (« remplacera les mesures 3
-     * à 5 ») avant de cliquer, et c'est ce qu'on attend en visant un endroit précis.
+     * REMPLACER ET NON INSÉRER, et c'est un choix. On DÉSIGNE une place — la fenêtre l'écrit avant
+     * qu'on clique (« remplacera les mesures 3 à 5 ») — et c'est cette place qu'on veut voir porter
+     * le rythme dessiné. Insérer repousserait au contraire tout ce qui suit : sur un morceau de
+     * trente mesures, poser un rythme à la quatrième en décalerait vingt-six, dont on n'a rien
+     * demandé. (Repères, annotations et bande de boucle SUIVRAIENT, eux : les premiers sont portés
+     * par la mesure elle-même, la seconde est ancrée à ses `id` — voir Lecteur.reancrerBoucle. Ce
+     * n'est donc pas ce qui décide ici.)
      *
      * LE MORCEAU S'ALLONGE SI BESOIN : viser les deux dernières mesures d'un morceau qui n'en a plus
      * qu'une doit marcher — on ajoute alors ce qui manque, plutôt que de refuser ou de tronquer le

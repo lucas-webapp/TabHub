@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(44);
+    plan(55);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -561,14 +561,122 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             'une note écrite DANS la boucle pendant qu\'elle tourne rejoint aussitôt ce qui sonne — sans couper la lecture ni la boucle');
         check(enBoucle.apresSignature.debut !== enBoucle.avant.debut && enBoucle.apresSignature.loop && enBoucle.apresSignature.etat === 'lecture',
             `raccourcir une mesure AVANT la boucle recalcule ses bornes (${enBoucle.avant.debut} -> ${enBoucle.apresSignature.debut}), au lieu de boucler à côté`);
-        // CE QUE CETTE VÉRIFICATION NE COUVRE PAS, et que j'ai constaté en l'écrivant : la boucle est
-        // définie par des NUMÉROS de mesure, pas par la musique qu'ils contiennent. Insérer une
-        // mesure AVANT elle laisse donc la bande orange sur les mêmes numéros, tandis que la musique
-        // glisse d'un cran dessous — les bornes en tics ne bougent pas, et c'est cohérent avec le
-        // modèle, simplement pas forcément avec l'intention. Signalé à l'utilisateur plutôt que
-        // corrigé en passant : décaler les numéros demanderait que l'éditeur sache OÙ une mesure a
-        // été insérée et que la boucle (un état de session du LECTEUR) l'apprenne — un couplage à
-        // décider, pas à improviser.
+        // --- LA BANDE SUIT SES MESURES, PAS LEURS NUMÉROS -------------------------------------------
+        // LE DÉFAUT, longtemps signalé et corrigé ici : la boucle se repérait par NUMÉRO de mesure.
+        // Insérer une mesure avant elle laissait la bande orange sur les mêmes numéros pendant que la
+        // musique glissait d'un cran dessous — on rebouclait sur un autre passage que celui qu'on
+        // avait encadré, sans un mot.
+        //
+        // LA CORRECTION est un ancrage aux `id` des mesures (voir player.js#reancrerBoucle), pas un
+        // décalage commande par commande. C'est ce que les cas ci-dessous éprouvent : on ne vérifie
+        // pas « ajouterMesure décale bien de 1 », on vérifie que la boucle borne TOUJOURS LES MÊMES
+        // MESURES, quel que soit le geste — y compris l'annulation, que six décalages éparpillés
+        // n'auraient pas couverte.
+        const idsDeLaBoucle = () => page.evaluate(() => {
+            const l = window.app.lecteur, m = window.app.editeur.partition.mesures;
+            if (!l.boucleLecture) return null;
+            return {
+                debut: l.boucleLecture.debut,
+                fin: l.boucleLecture.fin,
+                idDebut: m[l.boucleLecture.debut] && m[l.boucleLecture.debut].id,
+                idFin: m[l.boucleLecture.fin] && m[l.boucleLecture.fin].id,
+                nMesures: m.length,
+            };
+        });
+
+        const ancrage = await page.evaluate(() => {
+            const ed = window.app.editeur, l = window.app.lecteur;
+            ed.nouveau('guitare');
+            for (let i = 0; i < 6; i++) ed.ajouterMesure(true);
+            // Une note repère DANS la boucle, pour pouvoir dire si la bande encadre encore la même
+            // musique — un numéro identique ne prouverait rien.
+            ed.placerCurseur(3, 0, 0, 0); ed.appliquerDuree(4); ed.saisirChiffre(7);
+            l.definirBoucle(ed.partition, 3, 4);
+            return { ids: [ed.partition.mesures[3].id, ed.partition.mesures[4].id] };
+        });
+        const pose = await idsDeLaBoucle();
+        exiger(pose && pose.debut === 3 && pose.fin === 4 && pose.idDebut === ancrage.ids[0],
+            'préalable : boucle posée sur les mesures 4-5 (index 3-4), d\'un morceau de dix mesures');
+
+        // 1. INSERTION AVANT la boucle : les numéros avancent d'un cran, les MESURES bornées ne
+        //    changent pas.
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.placerCurseur(0, 0, 0, 0);
+            ed.ajouterMesure(false);   // insère AVANT la mesure 1
+        });
+        await page.waitForTimeout(150);
+        const apresInsertion = await idsDeLaBoucle();
+        check(apresInsertion.debut === 4 && apresInsertion.fin === 5,
+            `insérer une mesure AVANT la boucle décale ses numéros (3-4 -> ${apresInsertion.debut}-${apresInsertion.fin})`);
+        check(apresInsertion.idDebut === ancrage.ids[0] && apresInsertion.idFin === ancrage.ids[1],
+            'et ce sont TOUJOURS LES MÊMES MESURES qu\'elle borne — la bande n\'a pas glissé sous la musique');
+        check((await page.evaluate(() => {
+            const m = window.app.editeur.partition.mesures[window.app.lecteur.boucleLecture.debut];
+            return m.voix[0].evenements.some(e => e.notes.some(n => n.frette === 7));
+        })), 'la note repère est bien encore dans la première mesure de la boucle');
+
+        // 2. INSERTION APRÈS la boucle : rien ne doit bouger. Comparé à l'état JUSTE AVANT cette
+        //    insertion, et non à des numéros écrits en dur : la vérification reste alors un signal à
+        //    elle seule, au lieu de répéter l'échec du cas précédent.
+        const avantApres = await idsDeLaBoucle();
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.placerCurseur(ed.partition.mesures.length - 1, 0, 0, 0);
+            ed.ajouterMesure(true);
+        });
+        await page.waitForTimeout(150);
+        const apresApres = await idsDeLaBoucle();
+        check(apresApres.debut === avantApres.debut && apresApres.fin === avantApres.fin
+              && apresApres.nMesures === avantApres.nMesures + 1,
+            `insérer une mesure APRÈS la boucle ne la déplace pas d'un cran — seul ce qui précède compte (${avantApres.debut}-${avantApres.fin} -> ${apresApres.debut}-${apresApres.fin})`);
+
+        // 3. ANNULATION : le cas qu'un décalage commande par commande aurait manqué. Ctrl+Z défait
+        //    l'insertion, donc la boucle doit RETROUVER ses anciens numéros sans rien perdre.
+        await page.evaluate(() => { window.app.editeur.annuler(); window.app.editeur.annuler(); });
+        await page.waitForTimeout(150);
+        const apresAnnulation = await idsDeLaBoucle();
+        check(apresAnnulation.debut === 3 && apresAnnulation.fin === 4 && apresAnnulation.nMesures === 10,
+            `annuler les deux insertions ramène la boucle sur 3-4 (reçu ${apresAnnulation.debut}-${apresAnnulation.fin})`);
+        check(apresAnnulation.idDebut === ancrage.ids[0] && apresAnnulation.idFin === ancrage.ids[1],
+            'et toujours les mêmes mesures : les `id` traversent la copie profonde de l\'historique');
+
+        // 4. SUPPRESSION D'UNE MESURE AVANT la boucle : les numéros reculent, les mesures tiennent.
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.placerCurseur(0, 0, 0, 0);
+            ed.supprimerMesure();
+        });
+        await page.waitForTimeout(150);
+        const apresSuppression = await idsDeLaBoucle();
+        check(apresSuppression.debut === 2 && apresSuppression.fin === 3
+              && apresSuppression.idDebut === ancrage.ids[0],
+            `supprimer une mesure avant la boucle recule ses numéros (reçu ${apresSuppression.debut}-${apresSuppression.fin}), mêmes mesures bornées`);
+
+        // 5. SUPPRESSION D'UNE ANCRE : la boucle se resserre sur celle qui reste, jamais une bande
+        //    qui réapparaît ailleurs que là où on l'avait posée.
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.placerCurseur(window.app.lecteur.boucleLecture.debut, 0, 0, 0);
+            ed.supprimerMesure();
+        });
+        await page.waitForTimeout(150);
+        const apresAncrePerdue = await idsDeLaBoucle();
+        check(apresAncrePerdue && apresAncrePerdue.debut === apresAncrePerdue.fin
+              && apresAncrePerdue.idDebut === ancrage.ids[1],
+            `supprimer la mesure de DÉBUT resserre la boucle sur celle de fin, qui existe encore (reçu ${JSON.stringify([apresAncrePerdue.debut, apresAncrePerdue.fin])})`);
+
+        // 6. LES DEUX ANCRES PERDUES : plus rien à border, la bande s'en va.
+        await page.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.placerCurseur(window.app.lecteur.boucleLecture.debut, 0, 0, 0);
+            ed.supprimerMesure();
+        });
+        await page.waitForTimeout(150);
+        check((await idsDeLaBoucle()) === null,
+            'et supprimer la dernière mesure qu\'elle bornait retire la boucle, plutôt que de la laisser pointer dans le vide');
+        check((await page.evaluate(() => window.Tone && window.Tone.Transport.loop)) === false,
+            'l\'horloge cesse de boucler du même coup — pas une boucle fantôme qui tournerait encore');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
