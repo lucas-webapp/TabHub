@@ -27,7 +27,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('MIDI');
 
 (async () => {
-    plan(60);
+    plan(66);
     const dossier = fs.mkdtempSync(path.join(os.tmpdir(), 'tabhub-midi-'));
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
@@ -499,6 +499,79 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
               && new Set(telechargementsPartie).size === 2,
             `chacun porte « ${prefixe} - Partie.mid », et deux noms distincts (${telechargementsPartie.join(', ')})`);
         check(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'et la fenêtre se referme d\'elle-même une fois le choix fait');
+
+        // --- NOTES DE MÊME HAUTEUR QUI SE CHEVAUCHENT -------------------------------------------------
+        // LE DÉFAUT QUE CE CAS A DÉBUSQUÉ : le lecteur retenait UN SEUL tic de départ par hauteur
+        // (une Map hauteur -> tic). Un second « note on » sur la même hauteur avant le « note off » du
+        // premier écrasait son départ, et la première note disparaissait sans un mot. Mesuré avant
+        // correction : deux notes écrites, UNE relue ; trois superposées, UNE relue — et pas au bon
+        // endroit. Le cas n'est pas exotique, c'est ce que produit tout séquenceur qui laisse deux
+        // notes legato se chevaucher d'un cheveu, donc la plupart des exports de DAW.
+        //
+        // LES FICHIERS SONT ÉCRITS ICI, octet par octet, et non exportés par TabHub : l'export trie
+        // justement les « off » avant les « on » au même tic (voir genererMidi) et ne peut donc PAS
+        // produire le cas. Il faut le fabriquer pour l'éprouver — c'est tout l'intérêt d'un banc qui
+        // ne se contente pas d'un aller-retour avec soi-même.
+        const relire = (evts) => page.evaluate(async (evts) => {
+            const M = await import('/src/io/midi.js');
+            const vlq = (n) => { const o = [n & 0x7f]; n >>= 7; while (n > 0) { o.unshift((n & 0x7f) | 0x80); n >>= 7; } return o; };
+            const piste = [];
+            let dernier = 0;
+            for (const [tic, ...octets] of evts) { piste.push(...vlq(tic - dernier), ...octets); dernier = tic; }
+            piste.push(0x00, 0xff, 0x2f, 0x00);
+            const u32 = (n) => [(n >>> 24) & 255, (n >>> 16) & 255, (n >>> 8) & 255, n & 255];
+            const u16 = (n) => [(n >>> 8) & 255, n & 255];
+            const octets = new Uint8Array([
+                0x4d, 0x54, 0x68, 0x64, ...u32(6), ...u16(0), ...u16(1), ...u16(480),
+                0x4d, 0x54, 0x72, 0x6b, ...u32(piste.length), ...piste,
+            ]);
+            const a = M.analyserMidi(octets);
+            // `construirePartitionDepuisMidi` rend { partition, abandonnees } : les notes hors manche
+            // sont comptées à part plutôt que perdues en silence (voir io/midi.js).
+            const { partition: part, abandonnees } = M.construirePartitionDepuisMidi(a, 'guitare');
+            return {
+                lues: a.notes.map(n => `${n.pitch}@${n.debutNoires}-${n.finNoires}`),
+                abandonnees,
+                dansLaPartition: part.mesures.reduce((t, m) =>
+                    t + m.voix.reduce((u, v) => u + v.evenements.reduce((w, e) => w + e.notes.length, 0), 0), 0),
+            };
+        }, evts);
+
+        const chevauchees = await relire([
+            [0, 0x90, 60, 100], [240, 0x90, 60, 100], [480, 0x80, 60, 0], [720, 0x80, 60, 0],
+        ]);
+        check(chevauchees.lues.length === 2,
+            `deux notes de MÊME hauteur qui se chevauchent ressortent bien à DEUX (reçu ${chevauchees.lues.length} : ${chevauchees.lues.join(' ')})`);
+        // APPARIEMENT DANS L'ORDRE D'ARRIVÉE : le plus ancien « on » ouvert se ferme au premier
+        // « off ». Sur deux notes chevauchées ça rend deux notes de même longueur décalées — la
+        // lecture naturelle — là où l'ordre inverse imbriquerait une courte dans une longue.
+        check(JSON.stringify(chevauchees.lues) === JSON.stringify(['60@0-1', '60@0.5-1.5']),
+            `et chacune garde SA place et SA longueur, appariée dans l'ordre d'arrivée (${chevauchees.lues.join(' ')})`);
+        check(chevauchees.dansLaPartition === 2,
+            'les deux arrivent jusqu\'à la partition reconstruite, pas seulement jusqu\'au lecteur d\'octets');
+
+        const troisFois = await relire([
+            [0, 0x90, 60, 100], [120, 0x90, 60, 100], [240, 0x90, 60, 100],
+            [480, 0x80, 60, 0], [600, 0x80, 60, 0], [720, 0x80, 60, 0],
+        ]);
+        check(troisFois.lues.length === 3 && troisFois.dansLaPartition === 3,
+            `trois notes superposées sur la même hauteur ressortent à trois (reçu ${troisFois.lues.length}) — un « off » ne ferme QU'UNE note`);
+
+        // Un « off » manquant : le fichier est mal formé, mais la note y est parfaitement audible
+        // dans le logiciel qui l'a produit. On la referme au dernier évènement de la piste plutôt que
+        // de la jeter — perdre une note en silence est le pire des deux comportements.
+        const offManquant = await relire([
+            [0, 0x90, 60, 100], [240, 0x90, 60, 100], [480, 0x80, 60, 0],
+        ]);
+        check(offManquant.lues.length === 2,
+            `un seul « off » pour deux « on » : les deux notes sont récupérées, la seconde refermée en fin de piste (${offManquant.lues.join(' ')})`);
+
+        // Et le cas PROPRE, celui que TabHub produit lui-même, ne bouge pas d'un iota.
+        const propre = await relire([
+            [0, 0x90, 60, 100], [240, 0x80, 60, 0], [240, 0x90, 60, 100], [480, 0x80, 60, 0],
+        ]);
+        check(JSON.stringify(propre.lues) === JSON.stringify(['60@0-0.5', '60@0.5-1']),
+            'un enchaînement PROPRE (off puis on au même tic) se lit exactement comme avant — deux notes bout à bout');
 
         // --- Un fichier .mid corrompu prévient, ne casse rien -----------------------------------------
         const avantCorrompu = await page.evaluate(() => window.app.editeur.partition.meta.titre);

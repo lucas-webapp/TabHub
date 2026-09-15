@@ -1,8 +1,13 @@
 # Bancs d'essai TabHub
 
-Sept bancs, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE QU'IL PROTÈGE et
-pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité — plusieurs
-d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le raconte.
+**43 bancs, 1094 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
+— plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
+raconte.
+
+Le tableau ci-dessous est une SÉLECTION, pas l'inventaire : `tests/*_test.js` fait foi, et chaque
+fichier s'ouvre sur ce qu'il protège. On y trouve aussi bien les fondations que les retours
+utilisateur devenus des cas permanents.
 
 | Banc | Ce qu'il protège |
 |---|---|
@@ -13,6 +18,10 @@ d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentair
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio |
 | `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
+| `rythme_test.js` | L'aide rythmique : grille, conversion en vraies figures, aperçu gravé, insertion placée |
+| `rythme_impose_test.js` | Taper une case NE change PAS la durée d'un rythme imposé, et la surbrillance survit |
+| `ternaire_test.js` | Une seule grille de temps pour l'audio, le métronome et le MIDI ; la tête de lecture repasse par la réciproque ; l'indication gravée |
+| `midi_test.js` | Aller-retour `.mid`, doigté par zone de manche, export par section, notes de même hauteur chevauchées |
 
 ## Lancer
 

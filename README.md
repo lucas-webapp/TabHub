@@ -149,6 +149,26 @@ partir du deuxième temps d'un 4/4 donnent une noire puis une blanche, jamais un
 enjamberait la moitié de la mesure. Un silence qu'on a soi-même dimensionné (choisir « blanche » sur
 un silence, pour y préparer une note) n'est en revanche jamais réécrit.
 
+#### L'aide rythmique
+
+« Des fois j'ai des difficultés à écrire la partition à cause du rythme. » L'aide rythmique
+(clic droit sur une mesure → **Aide rythmique à partir d'ici…**) sépare les deux décisions qu'on
+prenait jusque-là d'un seul geste : **quel rythme**, puis **quelles notes**.
+
+On pose des barres dans une grille de **1 à 4 mesures consécutives** — un clic pose une attaque, un
+glissé l'étire, un clic sur l'en-tête d'un temps en change la subdivision (triolet, double, croche).
+TabHub affiche alors la **vraie écriture** en dessous : chiffres de triolet, ligatures pointée +
+double, silences réécrits au plus court. C'est le moteur de gravure lui-même qui la produit, sur une
+partition jetable sans tablature — donc elle ne peut pas mentir sur ce que l'insertion va écrire.
+
+L'insertion **remplace** les mesures visées, à l'endroit choisi à la souris ou au doigt, et laisse la
+**tablature vide** : les cases à choisir apparaissent en surbrillance, `Tab` saute de l'une à la
+suivante, et taper une case **ne change plus la durée** de l'évènement. C'est le point qui rendait
+l'exercice impossible : la durée de la palette est collante, si bien qu'un rythme imposé de six
+figures ressortait en six croches plates et la mesure à −1 temps.
+
+Les notes et les effets s'écrivent ensuite, par-dessus un rythme déjà juste.
+
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
 table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire. **Chaque bouton d'effet
 montre ce que la partition va écrire** — un « H » sur sa liaison pour le hammer-on, un « P » pour le
@@ -164,6 +184,29 @@ répétait en coûtant sa largeur de texte, dans la seule barre de l'application
 + `aria-label`) — un cadre ne s'entend pas.
 
 ### Lecture
+
+#### Rythme ternaire (swing)
+
+« Est-ce qu'on peut implémenter dans la portée un système classique, qui permet de dire
+croche = triolet ? » Le bouton **Ternaire** (popover *Repères*) pose la convention du jazz, du blues
+et de la variété : on **écrit des croches droites** — bien plus lisibles, et c'est tout l'intérêt —
+et une indication gravée en tête de partition, `♫ = ♩♪` sous son crochet de triolet, dit qu'elles se
+**jouent longue-brève**, deux tiers du temps puis un tiers. L'autre voie, un triolet gravé sur chaque
+temps, est illisible sur un morceau entier et fausse le comptage à la moindre correction.
+
+L'indication est **gravée** (têtes, hampes, ligature, crochet, chiffre « 3 »), avec les mêmes signes
+que la musique en dessous : le signe n'existe pas en un caractère Unicode, aucune police de texte ne
+dessine de ligature, et le PDF reçoit exactement le même tracé que l'écran.
+
+Le ternaire s'applique à **la lecture, le métronome et l'export MIDI**, tous les trois sur la même
+grille de temps — l'utilisateur compare ce qu'il entend dans TabHub à ce que joue son DAW, et deux
+grilles calculées séparément finiraient par diverger. La **tête de lecture** repasse par la
+transformation inverse, sans quoi l'image dériverait du son d'un sixième de temps à chaque
+contretemps. Le `.json`, lui, garde l'**écriture droite** : seules les sorties sont ternarisées.
+
+Une **mesure composée** (6/8, 9/8, 12/8) ne swingue pas : son temps s'écrit déjà en trois croches,
+elle est ternaire par son chiffrage. Au milieu d'un morceau swingué elle se joue droite — exactement
+ce que ferait un musicien devant la même partition.
 
 Un **métronome** optionnel (deux boutons du transport) suit la signature en vigueur — binaire ou
 ternaire, jamais un simple clic uniforme — avec une option « croche » pour une subdivision en plus.
@@ -296,7 +339,11 @@ un nom qu'on reconnaît.
   note hors de portée du manche est abandonnée (jamais une case inventée), et le résultat est compté
   dans le message de fin d'import. Vient-il REMPLACER le morceau en cours, ou s'AJOUTER à sa suite
   comme une nouvelle section (annotée d'après le nom du fichier, sans toucher à ce qui existe déjà) ?
-  TabHub le demande à chaque import plutôt que de deviner.
+  TabHub le demande à chaque import plutôt que de deviner. Deux notes de **même hauteur qui se
+  chevauchent** (ce que produit tout séquenceur laissant deux notes legato se recouvrir d'un cheveu)
+  ressortent bien à deux, chacune à sa place : le lecteur d'octets tient une file d'attaques ouvertes
+  par hauteur, et un « note off » ne referme que la plus ancienne. Une note restée sans « note off »
+  est refermée en fin de piste plutôt que jetée.
 - Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Il ne
   se règle pas et ne se pilote pas — il n'y a rien à activer, rien à vider, comme dans HarmoHub. Un
   seul brouillon à la fois, jamais un gestionnaire multi-fichiers : Fichiers > Nouveau l'écrase,
@@ -362,9 +409,10 @@ vendor/               Tone.js et jsPDF, vendorés (MIT), mêmes versions que Har
 src/
   model/              LE MODÈLE — aucune dépendance, aucune connaissance du DOM
     theory.js           hauteurs MIDI, armures, orthographe des altérations
-    duration.js         durées ramenées à la noire, groupement des ligatures
+    duration.js         durées ramenées à la noire, groupement des ligatures, lecture ternaire
     instruments.js      instruments, accordages, capodastre
-    score.js            partition > mesures > évènements > notes ; format du .json
+    score.js            partition > mesures > évènements > notes ; format du .json ;
+                          grille des temps pour la lecture ternaire (audio ET MIDI)
   engine/             LA GRAVURE — modèle → liste d'affichage
     glyphes-bravura.js  GÉNÉRÉ — contours extraits de Bravura (ne pas modifier à la main)
     glyphs.js           API des glyphes + épaisseurs de trait de la gravure
@@ -379,7 +427,8 @@ src/
   audio/player.js     Tone.js, transport, tête de lecture
   io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter),
                         midi.js, versions.js (historique local, borné)
-  ui/                 icons.js, toolbar.js, dialogue.js (fenêtres de l'app, pas du navigateur)
+  ui/                 icons.js, toolbar.js, dialogue.js (fenêtres de l'app, pas du navigateur),
+                        rythme.js (aide rythmique : grille, conversion en figures, aperçu gravé)
   main.js             LE SEUL module qui touche au DOM et connaît tous les autres
 outils/
   generer-glyphes.py  extrait les contours de Bravura vers src/engine/glyphes-bravura.js
@@ -406,6 +455,13 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
+- **L'import MIDI aplatit le rythme.** Les durées sont ramenées à la grille de la double-croche :
+  un **triolet** venu d'un DAW s'y approche, il ne s'y retrouve pas. Le **swing** non plus n'est pas
+  reconnu comme tel — un fichier joué ternaire se relit en positions décalées, pas en croches droites
+  plus l'indication `Ternaire`. Et tout ce qui sonne ensemble arrive dans **une seule voix** : deux
+  lignes indépendantes se fondent en une suite d'accords. L'export, lui, ne perd rien de tout cela.
+- **La bande de boucle se repère par NUMÉRO de mesure.** Insérer une mesure avant elle laisse donc la
+  bande sur les mêmes numéros pendant que la musique glisse dessous : il faut la reposer.
 - **Le bend est joué par un synthétiseur à part.** La hauteur se courbe bien pendant la lecture,
   amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
   simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en

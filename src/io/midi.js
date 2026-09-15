@@ -316,7 +316,19 @@ export function analyserMidi(bytes) {
         const longueur = lireU32(v, i + 4);
         const fin = i + 8 + longueur;
         let p = i + 8, tic = 0, statutCourant = null;
-        const notesEnCours = new Map();   // hauteur -> tic de départ, une seule occurrence active à la fois
+        let ticDernierEvenement = 0;   // pour refermer, à la fin de la piste, ce qui n'a pas de « off »
+        // UNE FILE PAR HAUTEUR, et non un seul tic de départ. Une Map hauteur -> tic ne peut retenir
+        // qu'UNE occurrence active : un second « note on » sur la même hauteur avant le « note off »
+        // du premier ÉCRASAIT son départ, et la première note disparaissait sans un mot. Mesuré sur
+        // un fichier de trois notes superposées à la même hauteur : une seule ressortait, et pas au
+        // bon endroit. Le cas n'est pas exotique — c'est ce que produit tout séquenceur qui laisse
+        // deux notes legato se chevaucher d'un cheveu, donc la plupart des exports de DAW.
+        //
+        // APPARIEMENT DANS L'ORDRE D'ARRIVÉE (le plus ancien « on » ouvert pour un « off ») : c'est
+        // la convention MIDI usuelle, et sur deux notes qui se chevauchent elle rend deux notes de
+        // même longueur décalées — la lecture naturelle — là où l'ordre inverse en imbriquerait une
+        // courte dans une longue.
+        const notesEnCours = new Map();   // hauteur -> file des tics de départ encore ouverts
 
         while (p < fin) {
             const [delta, apresDelta] = lireVLQ(v, p);
@@ -343,14 +355,31 @@ export function analyserMidi(bytes) {
                 // Program change (0xC0) et aftertouch de canal (0xD0) n'ont qu'UN SEUL octet de donnée.
                 const d2 = (type !== 0xc0 && type !== 0xd0) ? v[p++] : 0;
                 if (type === 0x90 && d2 > 0) {
-                    notesEnCours.set(d1, tic);
+                    if (!notesEnCours.has(d1)) notesEnCours.set(d1, []);
+                    notesEnCours.get(d1).push(tic);
                 } else if (type === 0x80 || (type === 0x90 && d2 === 0)) {
-                    const debutTic = notesEnCours.get(d1);
-                    if (debutTic != null && tic > debutTic) notesBrutes.push({ pitch: d1, debutTic, finTic: tic });
-                    notesEnCours.delete(d1);
+                    const file = notesEnCours.get(d1);
+                    if (file && file.length) {
+                        // UN « off » ne ferme QU'UNE note, celle ouverte depuis le plus longtemps :
+                        // les autres restent ouvertes et attendent le leur. L'ancien code vidait la
+                        // case entière, ce qui perdait tout ce qui était encore en cours.
+                        const debutTic = file.shift();
+                        if (tic > debutTic) notesBrutes.push({ pitch: d1, debutTic, finTic: tic });
+                        if (!file.length) notesEnCours.delete(d1);
+                    }
                 }
+                ticDernierEvenement = tic;
             } else {
                 break;   // aucun statut connu, rien de plus à lire proprement sur cette piste
+            }
+        }
+        // NOTES RESTÉES OUVERTES en fin de piste : on les referme au dernier évènement lu plutôt que
+        // de les jeter. Un fichier qui n'envoie qu'un « off » pour deux « on » de même hauteur est
+        // mal formé, mais il existe, et la seconde note y est parfaitement audible dans le DAW qui
+        // l'a produit — la perdre en silence serait le pire des deux comportements.
+        for (const [pitch, file] of notesEnCours) {
+            for (const debutTic of file) {
+                if (ticDernierEvenement > debutTic) notesBrutes.push({ pitch, debutTic, finTic: ticDernierEvenement });
             }
         }
         i = fin;
