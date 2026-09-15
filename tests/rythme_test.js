@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
 
 (async () => {
-    plan(26);
+    plan(35);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 1320, height: 950 } });
     try {
         const NOM = { 1: 'ronde', 2: 'blanche', 4: 'noire', 8: 'croche', 16: 'double', 32: 'triple' };
@@ -174,6 +174,64 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         await page.waitForTimeout(250);
         check((await page.evaluate(() => window.app.editeur.curseur.evenement)) === 1,
             'Tabulation saute à la case à remplir SUIVANTE — sans elle, remplir quatre mesures voudrait dire viser chaque case à la souris');
+
+        // --- 8. LE BOUTON DE LA BARRE D'OUTILS ---------------------------------------------------
+        // Retour utilisateur : « je ne vois pas le bouton de séquenceur pour indiquer le rythme,
+        // peux-tu me dire où il est ? » — il n'existait QUE dans le menu contextuel du clic droit,
+        // donc nulle part sur téléphone, et introuvable ailleurs. Il vit désormais dans le cadre
+        // « Durée », le cadre qui répond à la question « quelle durée ? ».
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+        const bouton = await page.evaluate(() => {
+            const b = document.querySelector('[data-action="aideRythme"]');
+            if (!b) return null;
+            return {
+                cadre: b.closest('.groupe-outils')?.dataset.groupe,
+                visible: b.getBoundingClientRect().width > 0,
+                // Un mot ET un dessin : le mot dit ce que c'est, le dessin le rend repérable parmi
+                // les figures de durée (voir edit/raccourcis.js pour le pourquoi).
+                mot: b.querySelector('.apercu-mot')?.textContent,
+                icone: !!b.querySelector('svg'),
+                avant: b.nextElementSibling?.className.includes('btn-effets-bascule'),
+            };
+        });
+        exiger(!!bouton, 'un bouton d\'aide rythmique existe dans la barre d\'outils');
+        check(bouton.cadre === 'duree' && bouton.visible,
+            `il est dans le cadre « Durée », visible sans rien déplier (reçu « ${bouton.cadre} »)`);
+        check(bouton.mot === 'Rythme' && bouton.icone,
+            `et il porte un MOT autant qu'un dessin : « ${bouton.mot} » — un pictogramme seul serait à apprendre`);
+        check(bouton.avant, 'posé juste avant « Effets » : le dernier recours des figures, avant les nuances de jeu');
+
+        // IL OUVRE VRAIMENT LA FENÊTRE, sur la mesure du curseur.
+        await page.evaluate(() => { window.app.editeur.placerCurseur(2, 0, 0, 0); });
+        await page.waitForTimeout(150);
+        await page.click('[data-action="aideRythme"]');
+        await page.waitForTimeout(400);
+        check(await page.locator('#fenetre-rythme').isVisible(),
+            'un clic dessus ouvre la fenêtre — plus besoin de connaître le clic droit');
+        check(/mesure 3/i.test(await page.textContent('#rythme-cible') || ''),
+            'et elle vise la mesure du CURSEUR, celle qu\'on regarde en cliquant');
+
+        // --- 9. LA GRILLE RESTE ATTEIGNABLE QUAND ELLE DÉBORDE ------------------------------------
+        // Les cellules portent `touch-action: none` (le glisser est leur geste principal) : un doigt
+        // posé dessus ne peut donc PAS faire défiler la grille. Sur un téléphone, une mesure de 4/4
+        // en doubles-croches est plus large que l'écran — sans flèches, ses dernières cases étaient
+        // tout bonnement inatteignables au doigt. Ici, sur un large écran, il n'y a rien à atteindre
+        // et les deux flèches doivent RESTER ÉTEINTES : une flèche allumée sur rien mentirait.
+        const fleches = await page.evaluate(() => {
+            const g = document.getElementById('grille-rythme');
+            const f = (sens) => {
+                const b = g.querySelector(`.fleche-outils-${sens}`);
+                return b ? (b.classList.contains('invisible') ? 'eteinte' : 'allumee') : 'absente';
+            };
+            return { gauche: f('gauche'), droite: f('droite'), deborde: g.scrollWidth - g.clientWidth,
+                     pile: !!g.querySelector('.mesures-rythme') };
+        });
+        check(fleches.pile, 'la grille est un défilé horizontal, ses mesures empilées dans un enfant');
+        check(fleches.gauche !== 'absente' && fleches.droite !== 'absente',
+            'elle porte ses deux flèches de défilement, les mêmes que la barre d\'outils');
+        check(fleches.deborde <= 1 && fleches.gauche === 'eteinte' && fleches.droite === 'eteinte',
+            `sur grand écran rien ne déborde (${fleches.deborde}px) et les deux flèches restent éteintes`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

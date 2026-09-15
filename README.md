@@ -151,9 +151,11 @@ un silence, pour y préparer une note) n'est en revanche jamais réécrit.
 
 #### L'aide rythmique
 
-« Des fois j'ai des difficultés à écrire la partition à cause du rythme. » L'aide rythmique
-(clic droit sur une mesure → **Aide rythmique à partir d'ici…**) sépare les deux décisions qu'on
-prenait jusque-là d'un seul geste : **quel rythme**, puis **quelles notes**.
+« Des fois j'ai des difficultés à écrire la partition à cause du rythme. » L'aide rythmique — bouton
+**Rythme** dans le cadre *Durée* de la barre d'outils, ou clic droit sur une mesure → **Aide
+rythmique à partir d'ici…** — sépare les deux décisions qu'on prenait jusque-là d'un seul geste :
+**quel rythme**, puis **quelles notes**. Le bouton ouvre l'aide sur la mesure du curseur ; le clic
+droit, sur celle qu'on désigne.
 
 On pose des barres dans une grille de **1 à 4 mesures consécutives** — un clic pose une attaque, un
 glissé l'étire, un clic sur l'en-tête d'un temps en change la subdivision (triolet, double, croche).
@@ -168,6 +170,12 @@ l'exercice impossible : la durée de la palette est collante, si bien qu'un ryth
 figures ressortait en six croches plates et la mesure à −1 temps.
 
 Les notes et les effets s'écrivent ensuite, par-dessus un rythme déjà juste.
+
+Une mesure en doubles-croches fait seize cases : plus large que n'importe quel téléphone. Comme le
+glisser sur une case y POSE une note (elle ne peut donc pas servir à faire défiler), la grille porte
+**les mêmes flèches de défilement que la barre d'outils** — chacune ne s'allumant que s'il reste
+vraiment quelque chose à atteindre de son côté. Rétrécir les cases n'était pas une issue : seize
+cases dans 320px les ramènent à dix pixels, sous le seuil du visable.
 
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
 table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire. **Chaque bouton d'effet
@@ -188,7 +196,9 @@ répétait en coûtant sa largeur de texte, dans la seule barre de l'application
 #### Rythme ternaire (swing)
 
 « Est-ce qu'on peut implémenter dans la portée un système classique, qui permet de dire
-croche = triolet ? » Le bouton **Ternaire** (popover *Repères*) pose la convention du jazz, du blues
+croche = triolet ? » Le bouton **Ternaire** (cadre *Écriture* de la barre d'outils, auprès de la signature et de la
+tonalité — ses deux voisins naturels, les trois disant ensemble comment le morceau se lit) pose la
+convention du jazz, du blues
 et de la variété : on **écrit des croches droites** — bien plus lisibles, et c'est tout l'intérêt —
 et une indication gravée en tête de partition, `♫ = ♩♪` sous son crochet de triolet, dit qu'elles se
 **jouent longue-brève**, deux tiers du temps puis un tiers. L'autre voie, un triolet gravé sur chaque

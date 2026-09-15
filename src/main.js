@@ -271,6 +271,10 @@ class TabHubApp {
             // dessinée. La table dit maintenant ce qu'elle veut savoir, l'interface décide comment
             // le demander — ici la fenêtre maison (voir ui/dialogue.js#saisir).
             demanderTexte: (options) => saisir(options),
+            // OUVRIR L'AIDE RYTHMIQUE, du même esprit que `demanderTexte` juste au-dessus : la table
+            // des actions dit ce qu'elle veut (« ouvre l'aide, à partir de cette mesure »),
+            // l'interface décide comment. Voir edit/raccourcis.js, action `aideRythme`.
+            ouvrirAideRythme: (mesure) => this.ouvrirAideRythme(mesure),
         };
         this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, crochetsUi);
         // Le pavé tactile partage EXACTEMENT les mêmes crochets que la barre d'outils : les deux

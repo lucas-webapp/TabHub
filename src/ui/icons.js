@@ -75,6 +75,18 @@ const D = {
     // « ajouter du texte »), pas une bulle de dialogue — qui aurait évoqué un commentaire ou une
     // discussion, alors qu'une annotation de section s'imprime sur la partition elle-même.
     annotation: '<path d="M5 6h14"/><path d="M12 6v14"/><path d="M9 20h6"/>',
+    // AIDE RYTHMIQUE : quatre cases côte à côte, une sur deux REMPLIE — littéralement ce que le
+    // bouton ouvre, et ce qu'on y fait (allumer des cases pour poser un rythme). Un pictogramme
+    // abstrait aurait demandé d'apprendre la correspondance ; celui-ci se reconnaît une fois la
+    // fenêtre vue.
+    // QUATRE RECTANGLES SÉPARÉS, et non un cadre divisé par des traits : essayé d'abord, le cadre se
+    // lisait à la taille d'un bouton comme trois barres verticales — les séparations disparaissaient
+    // sous les cases pleines. Des cases détachées gardent leur grammaire « allumée / éteinte » même
+    // réduites à quatre pixels de large.
+    grilleRythme: '<rect x="1.6" y="5.5" width="4.2" height="13" rx=".9" fill="currentColor" stroke="none"/>'
+        + '<rect x="7.2" y="5.5" width="4.2" height="13" rx=".9"/>'
+        + '<rect x="12.8" y="5.5" width="4.2" height="13" rx=".9" fill="currentColor" stroke="none"/>'
+        + '<rect x="18.4" y="5.5" width="4.2" height="13" rx=".9"/>',
     // --- BARRES DE FIN ET REPÈRES DE NAVIGATION (popover « Repères », voir edit/raccourcis.js) ----
     // Les deux barres reprennent la grammaire de repriseDebut/repriseFin juste au-dessus : traits
     // verticaux pleine hauteur, le trait ÉPAIS dessiné en <rect> rempli plutôt qu'en <path> épaissi

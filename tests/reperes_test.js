@@ -30,7 +30,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('repères, mise en page, en-tête');
 
 (async () => {
-    plan(23);
+    plan(24);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 1320, height: 880 } });
     try {
         // --- 1. LA TONALITÉ à côté du tempo ---------------------------------------------------------
@@ -144,9 +144,16 @@ const { check, exiger, plan, bilan } = creerHarnais('repères, mise en page, en-
             };
         });
         exiger(popover.visible && popover.dansLEcran, 'le clic les déplie dans un popover qui tient dans la fenêtre');
-        check(popover.actions.join(',') === 'repriseDebut,repriseFin,barreDouble,barreFinale,ternaire,'
+        check(popover.actions.join(',') === 'repriseDebut,repriseFin,barreDouble,barreFinale,'
             + 'repere-segno,repere-coda,repere-daCapo,repere-dalSegno,repere-alCoda,repere-fine',
-            'et il réunit les deux reprises, les deux barres, le rythme ternaire et les six repères de navigation — onze marques, un seul bouton');
+            'et il réunit les deux reprises, les deux barres et les six repères de navigation — dix marques, un seul bouton');
+        // LE TERNAIRE N'EST PLUS ICI (retour utilisateur : « il faut sortir le bouton ternaire du
+        // bouton "Repère", et le placer à un endroit plus stratégique »). Un repère se pose SUR UNE
+        // MESURE et dit où aller ; le ternaire se pose sur LE MORCEAU et dit comment le lire. Il a
+        // rejoint le cadre « Écriture », auprès de la signature et de la tonalité — voir
+        // ternaire_test.js, qui vérifie qu'il y est bien.
+        check(!popover.actions.includes('ternaire'),
+            'et le rythme ternaire n\'y figure PLUS : ce n\'est pas une marque de mesure');
         await page.keyboard.press('Escape');
         await page.waitForTimeout(150);
 

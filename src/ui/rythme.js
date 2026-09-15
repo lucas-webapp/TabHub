@@ -28,6 +28,7 @@
 export * from '../model/rythme.js';
 
 import { mettreEnPage } from '../engine/layout.js';
+import { flecheOutilsSvg, ajusterFleches } from './toolbar.js';
 import { rendreSvg } from '../render/svg.js';
 import { partitionApercu, aplatirCellules, SUBDIVISIONS, VIDE, ATTAQUE, TENUE, changerSubdivision,
          basculerCellule, etirerCellule } from '../model/rythme.js';
@@ -80,6 +81,55 @@ export function dessinerApercu(hote, etat, instrumentId, ternaire, largeur) {
 export function construireGrille(hote, etat, { surChangement } = {}) {
     let geste = null;   // { iTemps, iCell, indexPlat } pendant un glisser
 
+    // DEUX FLÈCHES DE DÉFILEMENT, et c'est le `touch-action: none` des cellules qui les impose : un
+    // doigt posé sur une case y pose une note, il ne peut donc pas faire glisser la grille. Sur un
+    // téléphone, une mesure de 4/4 en doubles-croches (seize cases de 26px) est plus large que
+    // l'écran : sans ces flèches, ses dernières cases étaient tout simplement inatteignables.
+    //
+    // LES MÊMES FLÈCHES QUE LA BARRE D'OUTILS, jusqu'à la fonction qui décide de les montrer
+    // (ajusterFleches, importée de ui/toolbar.js) : elle porte un correctif qu'on ne veut surtout pas
+    // réécrire ici — une flèche `sticky` est EN FLUX, donc ses 26px comptent dans `scrollWidth`, et
+    // le test naïf « ça déborde » se mesurait lui-même (voir là-bas, le fil qui se tient par ses
+    // propres 7px). Deux copies de ce raisonnement finiraient par ne plus dire la même chose.
+    const PAS = 120;   // un peu moins d'un temps en doubles-croches : on ne saute pas une mesure entière
+    const fleche = (sens) => {
+        const b = document.createElement('button');
+        b.type = 'button';
+        b.className = `fleche-outils fleche-outils-${sens}`;
+        b.innerHTML = flecheOutilsSvg(sens);
+        b.title = sens === 'gauche' ? 'Défiler la grille vers la gauche' : 'Défiler la grille vers la droite';
+        b.setAttribute('aria-label', b.title);
+        b.addEventListener('click', () => hote.scrollBy({ left: sens === 'gauche' ? -PAS : PAS, behavior: 'smooth' }));
+        return b;
+    };
+    const flecheGauche = fleche('gauche');
+    const flecheDroite = fleche('droite');
+    // LES MESURES DANS UN ENFANT : l'hôte devient une rangée (les deux flèches et ce bloc), le bloc
+    // garde l'empilement vertical des mesures. Sans cet enfant, les flèches se rangeraient au-dessus
+    // et en dessous des mesures au lieu de les encadrer.
+    const pile = document.createElement('div');
+    pile.className = 'mesures-rythme';
+    hote.innerHTML = '';
+    hote.append(flecheGauche, pile, flecheDroite);
+    const rafraichirFleches = () => ajusterFleches(hote, flecheGauche, flecheDroite);
+    hote.addEventListener('scroll', rafraichirFleches, { passive: true });
+    // REMESURER QUAND LA TAILLE CHANGE, et pas seulement au défilement. La grille est CONSTRUITE
+    // pendant que la fenêtre est encore masquée : toutes ses largeurs valent alors zéro, « rien ne
+    // déborde », et les flèches restaient éteintes devant une grille qui débordait pourtant dès
+    // l'ouverture (mesuré : 184px hors écran sur un téléphone de 390px, aucune flèche). Un
+    // observateur de taille couvre l'ouverture, la rotation de l'écran et le redimensionnement de la
+    // fenêtre d'un seul mécanisme — plutôt qu'un appel à ne pas oublier chez l'appelant.
+    // Pas de boucle à craindre : montrer une flèche change le `scrollWidth` du défilé, jamais la
+    // boîte de l'hôte, seule chose que cet observateur regarde.
+    if (typeof ResizeObserver === 'function') new ResizeObserver(rafraichirFleches).observe(hote);
+    // Molette verticale -> défilement horizontal, comme dans la barre d'outils : une molette
+    // ordinaire ne connaît que le vertical, et la grille n'a rien à défiler verticalement.
+    hote.addEventListener('wheel', (e) => {
+        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
+        hote.scrollLeft += e.deltaY;
+        e.preventDefault();
+    }, { passive: false });
+
     const indexPlat = (iTemps, iCell) => {
         let n = 0;
         for (let t = 0; t < iTemps; t++) n += etat.temps[t].cellules.length;
@@ -87,21 +137,21 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
     };
 
     const rafraichir = () => {
-        for (const bouton of hote.querySelectorAll('[data-cell]')) {
+        for (const bouton of pile.querySelectorAll('[data-cell]')) {
             const t = Number(bouton.dataset.temps), c = Number(bouton.dataset.cell);
             const e = etat.temps[t]?.cellules[c];
             bouton.classList.toggle('attaque', e === ATTAQUE);
             bouton.classList.toggle('tenue', e === TENUE);
             bouton.setAttribute('aria-pressed', String(e !== VIDE));
         }
-        for (const entete of hote.querySelectorAll('[data-sub]')) {
+        for (const entete of pile.querySelectorAll('[data-sub]')) {
             const t = Number(entete.dataset.sub);
             entete.textContent = String(etat.temps[t]?.sub ?? 4);
         }
     };
 
     const construire = () => {
-        hote.innerHTML = '';
+        pile.innerHTML = '';
         for (let m = 0; m < etat.nMesures; m++) {
             const ligne = document.createElement('div');
             ligne.className = 'mesure-rythme';
@@ -140,9 +190,13 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
                 bloc.appendChild(rangee);
                 ligne.appendChild(bloc);
             });
-            hote.appendChild(ligne);
+            pile.appendChild(ligne);
         }
         rafraichir();
+        // Après reconstruction, la largeur a changé (une subdivision qui passe de 2 à 4 double les
+        // cases d'un temps) : les flèches se remesurent, sinon elles resteraient éteintes devant une
+        // grille qui vient de déborder.
+        rafraichirFleches();
     };
 
     // UN SEUL BRANCHEMENT, PAR DÉLÉGATION sur l'hôte : la grille se reconstruit à chaque changement

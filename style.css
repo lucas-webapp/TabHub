@@ -428,6 +428,10 @@ body.outils-gauche .groupe-outils { flex-wrap: wrap; justify-content: flex-start
 /* Nom d'accord : même principe, à l'inverse — GRAS, comme il apparaîtra au-dessus de la portée
    (voir engine/layout.js#poserAccords), pas une icône qui a échoué à rester lisible en si petit. */
 .apercu-texte-gras { font-weight: 800; font-size: .82rem; }
+/* Le mot d'un bouton « icône + mot » (voir rendreApercu, type iconeEtTexte) : posé À CÔTÉ du dessin,
+   un peu plus petit que le texte courant — le dessin porte le repérage, le mot lève l'ambiguïté. */
+.btn-outil:has(.apercu-mot) { display: inline-flex; align-items: center; gap: 5px; }
+.apercu-mot { font-weight: 700; font-size: .78rem; }
 
 select.champ, input.champ {
     height: var(--h-bouton); padding: 0 8px;
@@ -1510,7 +1514,21 @@ body.avec-pave .dpad-flottant { display: grid; }
    grille plutôt qu'un rétrécissement à l'infini. */
 .fenetre-rythme { width: min(980px, 100%); }
 
-.grille-rythme { display: flex; flex-direction: column; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+/* LA GRILLE DÉFILE, AVEC SES DEUX FLÈCHES — et c'est le `touch-action: none` des cellules qui
+   l'exige (voir .cellule-rythme) : le doigt posé sur une case pose une note, il ne peut donc pas
+   faire glisser la grille, et une mesure plus large que la fenêtre y aurait des cases hors
+   d'atteinte. Un téléphone de 320px ne peut pas montrer seize cases visables d'un coup : plutôt que
+   de les réduire à dix pixels, on les garde et on se déplace.
+   MÊME MONTAGE QUE LA BARRE D'OUTILS (voir ui/toolbar.js) : conteneur de défilement en RANGÉE, deux
+   flèches `position: sticky` EN FLUX, et la même fonction partagée pour décider de les montrer
+   (ajusterFleches, qui porte le correctif du débordement qui se mesurait lui-même). Les mesures
+   elles-mêmes s'empilent dans un enfant, `.mesures-rythme`. */
+.grille-rythme { display: flex; align-items: stretch; overflow-x: auto; padding-bottom: 4px; }
+.mesures-rythme { display: flex; flex-direction: column; gap: 8px; }
+/* Les flèches de la grille sont centrées sur sa hauteur, là où celles de la barre d'outils épousent
+   la rangée entière : ici il y a plusieurs mesures empilées, et une flèche haute de tout le bloc
+   serait un mur. */
+.grille-rythme .fleche-outils { align-self: center; }
 
 .mesure-rythme {
     display: flex; align-items: flex-end; gap: 10px;
@@ -1542,9 +1560,15 @@ body.avec-pave .dpad-flottant { display: grid; }
 .entete-temps:hover { color: var(--text-main); border-color: var(--btn-neutral-border-hover); }
 
 .cellules-temps { display: flex; gap: 2px; }
-/* 26px de côté : au-dessus de ce que l'œil distingue sans effort, et assez pour qu'un doigt en vise
-   une sans toucher la voisine. `touch-action: none` parce que le GLISSER est le geste principal —
-   sans lui, le navigateur le prendrait pour un défilement et la note ne s'allongerait jamais. */
+/* 26px de côté quand il y a la place : au-dessus de ce que l'œil distingue sans effort, et assez pour
+   qu'un doigt en vise une sans toucher la voisine. `touch-action: none` parce que le GLISSER est le
+   geste principal — sans lui, le navigateur le prendrait pour un défilement et la note ne
+   s'allongerait jamais.
+   ET C'EST CE `touch-action` QUI A RENDU NÉCESSAIRES LES FLÈCHES DE DÉFILEMENT (voir
+   .grille-rythme) : puisque le doigt posé sur une cellule ne peut PAS faire défiler la grille, une
+   mesure plus large que la fenêtre avait des cases inatteignables au doigt. Les cases gardent donc
+   leur taille — la rétrécir assez pour faire tenir seize cases dans 320px les ramenait à 10px, sous
+   le seuil du visable — et c'est la grille qui se déplace. */
 .cellule-rythme {
     width: 26px; height: 30px;
     border: 1px solid var(--btn-neutral-border); border-radius: 4px;
@@ -1573,8 +1597,12 @@ body.avec-pave .dpad-flottant { display: grid; }
 .apercu-rythme svg { display: block; }
 
 @media (max-width: 720px) {
-    /* Au doigt, les cellules gagnent en hauteur (la largeur, elle, est déjà au minimum utile) : c'est
-       la dimension qu'on peut offrir sans réduire le nombre de cases visibles d'un coup. */
+    /* Au doigt, les cellules gagnent en HAUTEUR : la largeur, elle, est déjà au minimum utile, et
+       c'est la seule dimension qu'on puisse offrir sans réduire le nombre de cases visibles. */
     .cellule-rythme { height: 36px; }
+    /* Les ÉCARTS se resserrent : chaque pixel rendu ici est un pixel de moins à faire défiler, et
+       sur seize cases un écart de 10px entre temps en coûte 30. */
+    .mesure-rythme { gap: 5px; padding: 6px 5px; }
+    .temps-rythme { padding: 3px 2px; }
     .apercu-rythme { max-height: 28vh; }
 }

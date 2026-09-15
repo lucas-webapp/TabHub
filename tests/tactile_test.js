@@ -31,7 +31,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(34);
+    plan(40);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -317,6 +317,45 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
             'sur un appareil tactile, le réglage du pavé est bien montré dans les Réglages');
         check((await page.evaluate(() => document.getElementById('champ-pave').getAttribute('aria-checked'))) === 'false',
             'et l\'interrupteur y montre bien « éteint »');
+
+        // --- L'AIDE RYTHMIQUE AU DOIGT : la grille déborde, donc elle doit se déplacer ---------------
+        // LE DÉFAUT QUE CE CAS A DÉBUSQUÉ, en donnant à l'aide un bouton visible (elle n'était avant
+        // atteignable qu'au clic droit, donc jamais ici) : une mesure de 4/4 en doubles-croches fait
+        // seize cases de 26px, plus large que n'importe quel téléphone. Et les cellules portent
+        // `touch-action: none` — le GLISSER y pose une note — si bien qu'un doigt posé dessus ne
+        // pouvait pas faire défiler la grille : ses dernières cases étaient tout simplement
+        // inatteignables. Mesuré : 210px hors écran à 390px de large, et aucune flèche.
+        //
+        // Rétrécir les cases n'était pas une issue : faire tenir seize cases dans 320px les ramène à
+        // dix pixels, sous le seuil du visable. Ce sont donc les MÊMES flèches que la barre d'outils
+        // qui déplacent la grille — jusqu'à la fonction qui décide de les montrer.
+        await page.evaluate(() => { document.querySelector('[data-action="aideRythme"]').click(); });
+        await page.waitForTimeout(500);
+        exiger(await page.locator('#fenetre-rythme').isVisible(),
+            'le bouton « Rythme » de la barre d\'outils ouvre l\'aide au doigt aussi');
+        const etatGrille = () => page.evaluate(() => {
+            const g = document.getElementById('grille-rythme');
+            const f = (sens) => g.querySelector(`.fleche-outils-${sens}`)?.classList.contains('invisible') ? 'eteinte' : 'allumee';
+            return { deborde: g.scrollWidth - g.clientWidth, gauche: f('gauche'), droite: f('droite'), defile: g.scrollLeft };
+        });
+        const g1 = await etatGrille();
+        exiger(g1.deborde > 20, `une mesure en doubles-croches déborde bien de l'écran ici (${g1.deborde}px)`);
+        check(g1.droite === 'allumee' && g1.gauche === 'eteinte',
+            'la flèche DROITE s\'allume dès l\'ouverture, la gauche reste éteinte — on est tout à gauche');
+        // Elle doit VRAIMENT déplacer la grille : une flèche qui ne fait rien serait pire qu'absente.
+        await page.evaluate(() => document.querySelector('#grille-rythme .fleche-outils-droite').click());
+        await page.waitForTimeout(500);
+        const g2 = await etatGrille();
+        check(g2.defile > 0, `un appui la déplace pour de bon (défilé à ${Math.round(g2.defile)}px)`);
+        check(g2.gauche === 'allumee', 'et la flèche gauche s\'allume alors, puisqu\'il y a de nouveau quelque chose à gauche');
+        // Tout au bout : la droite s'éteint, il n'y a plus rien à atteindre de ce côté.
+        await page.evaluate(() => { const g = document.getElementById('grille-rythme'); g.scrollLeft = g.scrollWidth; });
+        await page.waitForTimeout(300);
+        const g3 = await etatGrille();
+        check(g3.droite === 'eteinte' && g3.gauche === 'allumee',
+            'arrivé au bout, la droite s\'éteint et la gauche reste : chaque flèche ne promet que ce qui existe');
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

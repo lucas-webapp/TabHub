@@ -94,6 +94,24 @@ export const ACTIONS = [
       actif: ed => !!ed.evenementCourant().duree.nolet, faire: ed => ed.basculerTriolet() },
     { id: 'silence', touches: ['r'], libelle: 'Silence', groupe: 'duree', apercu: { type: 'silence', valeur: 4 },
       actif: ed => ed.evenementCourant().silence, faire: ed => ed.basculerSilence() },
+    // L'AIDE RYTHMIQUE, DANS LE CADRE « DURÉE » et pas ailleurs (retour utilisateur : « je ne vois pas
+    // le bouton de séquenceur pour indiquer le rythme, peux-tu me dire où il est ? » — il n'existait
+    // QUE dans le menu contextuel du clic droit, donc nulle part sur téléphone, et introuvable
+    // ailleurs). Sa place est ici : ce cadre répond à la question « quelle durée ? », et l'aide est
+    // exactement ce qu'on ouvre quand on ne sait pas y répondre. Juste après le silence, avant
+    // « Effets » — le dernier recours des figures, avant qu'on passe aux nuances de jeu.
+    //
+    // ELLE OUVRE UNE FENÊTRE, donc elle passe par les crochets de l'interface (`ui`) comme
+    // l'annotation et le nom d'accord plus bas : la table des actions ne connaît pas le DOM.
+    //
+    // ICÔNE **ET** MOT. Un premier essai n'avait que l'icône (quatre cases, une sur deux allumée) :
+    // repérable, mais pas devinable — or c'est précisément « je ne le trouve pas » qu'on corrige ici,
+    // et ce projet a déjà dû revenir deux fois sur des pictogrammes qu'il fallait apprendre. Le mot
+    // tranche, le dessin fait la cible. « Effets », juste à côté, est déjà un bouton-mot : ce n'est
+    // pas une exception dans ce cadre.
+    { id: 'aideRythme', touches: [], libelle: 'Aide rythmique — poser un rythme dans une grille, sur 1 à 4 mesures',
+      groupe: 'duree', apercu: { type: 'iconeEtTexte', nom: 'grilleRythme', texte: 'Rythme' },
+      faire: (ed, ui) => { ui?.ouvrirAideRythme?.(ed.curseur.mesure); } },
 
     // --- Effets (palette : groupe « Effets ») ----------------------------------------------------
     { id: 'hammer', touches: ['h'], libelle: 'Hammer-on', groupe: 'effet', apercu: { type: 'icone', nom: 'hammerOn' },
@@ -163,8 +181,24 @@ export const ACTIONS = [
     // Coda) : comme elles, cette indication se pose une fois et se lit en tête de partition. Elle vit
     // dans `meta` et non dans une mesure — c'est une convention de lecture du morceau (voir
     // model/score.js, `meta.ternaire`).
+    // LE TERNAIRE N'EST PAS UN REPÈRE, et il a quitté leur popover (retour utilisateur : « il faut
+    // sortir le bouton ternaire du bouton "Repère", et le placer à un endroit plus stratégique »).
+    //
+    // POURQUOI « ÉCRITURE ». Un repère se pose SUR UNE MESURE et dit où aller ; le ternaire se pose
+    // sur LE MORCEAU et dit comment le lire — au même titre que la signature rythmique et la
+    // tonalité, ses deux voisins dans ce cadre. C'est aussi, et ce n'est pas un hasard, l'endroit où
+    // l'indication se GRAVE sur la page : à côté du tempo et de la tonalité (voir
+    // engine/layout.js#poserIndicationTernaire). Le bouton se trouve donc là où se lit son effet.
+    //
+    // Et il était mal placé pour une seconde raison : replié dans un popover, il fallait l'ouvrir
+    // pour savoir si le morceau était swingué — une information qui vaut pour tout le morceau et
+    // qu'on veut voir sans cliquer.
     { id: 'ternaire', touches: [], libelle: 'Rythme ternaire — les croches se jouent longue-brève (swing)',
-      groupe: 'repere', apercu: { type: 'texteLeger', texte: 'Ternaire' },
+      // `texteGras` et non l'italique léger du palm mute : celui-là imite un signe ITALIQUE de
+      // partition, alors que « Ternaire » n'est pas une marque gravée mais l'état d'un réglage. En
+      // italique grisé, au milieu de « 4/4 » et « CM » bien nets, le bouton se lisait comme
+      // DÉSACTIVÉ. Gras dans les deux états — gris éteint, vert allumé — il dit ce qu'il est.
+      groupe: 'ecriture', apercu: { type: 'texteGras', texte: 'Ternaire' },
       actif: ed => !!ed.partition.meta.ternaire, faire: ed => ed.basculerTernaire() },
     // Les six repères de navigation, dérivés de la MÊME table que le modèle et le moteur de rendu
     // (voir model/score.js, REPERES) : un repère ajouté là apparaît ici sans qu'on y touche, et ne

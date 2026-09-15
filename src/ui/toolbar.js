@@ -100,6 +100,12 @@ function rendreApercu(action) {
         // alors qu'un exemple de nom, posé GRAS comme il le sera sur la partition, se lit d'un coup
         // d'œil et montre exactement ce que fait le bouton.
         case 'texteGras': return `<span class="apercu-texte-gras">${a.texte}</span>`;
+        // ICÔNE **ET** MOT, pour un bouton dont le mot seul serait long et l'icône seule énigmatique
+        // (voir l'action `aideRythme`) : le dessin le rend repérable d'un coup d'œil parmi les figures
+        // de durée, le mot dit ce qu'il ouvre. C'est la leçon que ce projet a déjà tirée deux fois —
+        // un pictogramme qui demande à être appris ne vaut pas le mot qu'il remplace (voir les icônes
+        // d'effets, revenues aux lettres gravées).
+        case 'iconeEtTexte': return icone(a.nom) + `<span class="apercu-mot">${a.texte}</span>`;
         case 'voix': return '<span data-role="voix">Voix</span>';   // rempli dynamiquement, voir aRafraichir
         default: return `<span>${action.texte || action.libelle}</span>`;
     }
@@ -460,6 +466,16 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         editeur.definirTonalite(parseInt(armure, 10), mode);
         actionsFichier.rendreLeFocus?.();
     });
+
+    // LES ACTIONS DE CE CADRE (voir edit/raccourcis.js, groupe 'ecriture') — aujourd'hui le seul
+    // « Ternaire ». Posées ICI, entre les deux listes et la transposition, et l'ordre porte le sens :
+    // signature, tonalité et ternaire DÉCLARENT comment le morceau se lit ; ♭ et ♯, juste après,
+    // OPÈRENT sur ses notes. Le cadre se lit donc « ce qu'est ce morceau », puis « ce qu'on lui fait ».
+    //
+    // Construites par `boutonAction` comme partout ailleurs, et non à la main : elles héritent du
+    // coup de l'aperçu, du résumé d'état (`.actif`, ici « ce morceau est swingué », visible SANS
+    // ouvrir quoi que ce soit) et du renvoi du focus à la partition.
+    for (const a of ACTIONS.filter(x => x.groupe === 'ecriture' && x.palette !== false)) boutonAction(gMesure, a);
 
     // TRANSPOSER LE MORCEAU ENTIER, demi-ton par demi-ton. Deux boutons plutôt qu'un champ : on
     // transpose en tâtonnant à l'oreille (« encore un demi-ton »), pas en calculant un nombre à
