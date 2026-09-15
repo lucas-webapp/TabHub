@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609151439">
+    <link rel="stylesheet" href="style.css?v=202609151623">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -526,6 +526,42 @@
     </div>
 </div>
 
+<!-- L'AIDE RYTHMIQUE (retour utilisateur : « des fois j'ai des difficultés à écrire la partition à
+     cause du rythme »). On place des barres sur une grille, et la VRAIE écriture s'affiche à côté —
+     figures, silences, ligatures, chiffre de triolet. C'est un ORACLE : la fenêtre ne connaît ni
+     hauteurs, ni effets, ni voix ; elle produit des durées, que « Insérer » pose dans la partition
+     en cases à remplir (voir ui/rythme.js et model/score.js `Évènement#aRemplir`).
+     La grille elle-même est construite par ui/rythme.js#construireGrille : son contenu dépend de la
+     signature du morceau et du nombre de mesures choisi, il n'a rien à faire dans un balisage fixe. -->
+<div class="voile" id="fenetre-rythme" hidden>
+    <div class="fenetre fenetre-rythme" role="dialog" aria-modal="true" aria-labelledby="titre-rythme">
+        <div class="fenetre-tete">
+            <h2 id="titre-rythme">Aide rythmique</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <p class="note-fenetre">Posez une barre d'un clic, faites-la GLISSER pour l'allonger. Le
+               chiffre au-dessus de chaque temps donne sa subdivision : 2 (croches), 3 (triolet),
+               4 (doubles-croches) — cliquez-le pour le changer. L'écriture juste s'affiche en dessous.</p>
+            <div class="ligne-champ">
+                <label id="etiquette-rythme-mesures">Mesures</label>
+                <div class="groupe-compte" id="rythme-nb-mesures" role="group" aria-labelledby="etiquette-rythme-mesures"></div>
+                <span class="valeur-etat" id="rythme-cible" aria-live="polite">—</span>
+            </div>
+            <div class="grille-rythme" id="grille-rythme"></div>
+            <div class="apercu-rythme" id="apercu-rythme" aria-label="Écriture proposée"></div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-neutre" id="btn-rythme-effacer">Tout effacer</button>
+            <button type="button" class="btn-neutre" id="btn-rythme-lecture">Écouter</button>
+            <span class="pousse"></span>
+            <button type="button" class="btn-neutre" data-fermer>Annuler</button>
+            <button type="button" class="btn-plein" id="btn-rythme-inserer">Insérer dans la partition</button>
+        </div>
+    </div>
+</div>
+
 <!-- LA FENÊTRE DES VERSIONS. Même châssis que les Réglages et l'aperçu PDF (voile + fenêtre + tête
      + corps + pied) : rien de neuf à styler, donc rien qui puisse divorcer du reste au premier
      changement de palette. La liste elle-même est construite par main.js#remplirListeVersions — son
@@ -729,6 +765,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609151439"></script>
+<script type="module" src="src/main.js?v=202609151623"></script>
 </body>
 </html>

@@ -145,7 +145,10 @@ const { check, exiger, plan, bilan } = creerHarnais('popover Effets');
         // LE POPOVER, LUI, N'A PAS BOUGÉ : il est mesuré au clic depuis le bouton et posé en
         // `position: fixed` — changer le cadre qui héberge le bouton ne devait donc rien y changer,
         // et c'est ce qu'on vérifie plutôt que de le supposer.
-        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 10]]) {
+        // 11 pour « repere » depuis que le RYTHME TERNAIRE y a rejoint les reprises, les barres et les
+        // repères de navigation : comme eux, c'est une indication qui MARQUE la portée et se lit en
+        // tête de partition (voir edit/raccourcis.js, action `ternaire`).
+        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 11]]) {
             await page.click(bouton);
             await page.waitForTimeout(250);
             const etat = await page.evaluate((g) => {

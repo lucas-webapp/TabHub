@@ -80,6 +80,13 @@
     /* Teinte à part pour la sélection multiple (lasso) : ni le vert du curseur d'édition, ni
        l'orange de la lecture — une troisième marque à l'écran doit se distinguer des deux autres. */
     --selection: #4a9eff;
+    /* CASE À CHOISIR — un rythme inséré par l'aide rythmique, en attente de sa hauteur (voir
+       main.js#marquesARemplir). Un VIOLET pâle, quatrième teinte : le vert dit « votre curseur est
+       ici », l'ambre « la lecture est ici », le bleu « ceci est sélectionné » ; celle-ci dit « il
+       reste quelque chose à faire ici ». Volontairement la plus DISCRÈTE des quatre — elle peut
+       couvrir quatre mesures d'un coup, là où les autres ne marquent qu'un point ou une plage
+       choisie, et un aplat soutenu sur quatre mesures rendrait la partition illisible. */
+    --a-remplir: rgba(150, 120, 255, 0.17);
     --selection-halo: rgba(74, 158, 255, 0.2);
 
     /* HAUTEUR DE BOUTON UNIQUE (retour utilisateur : « limiter le nombre de hauteurs différentes ») —
@@ -1477,3 +1484,81 @@ body.avec-pave .dpad-flottant { display: grid; }
    de style n'a plus rien à en dire. `.separateur-pave` et `.texte-discret` ne sont posées par aucun
    balisage ni aucun module.
    --------------------------------------------------------------------------------------------- */
+
+/* ---------------------------------------------------------------------------------------------
+   AIDE RYTHMIQUE (voir ui/rythme.js)
+   --------------------------------------------------------------------------------------------- */
+
+/* Large : quatre mesures de quatre temps de quatre cases font soixante-quatre cellules côte à côte.
+   En dessous, elles deviennent trop fines pour être visées — d'où le défilement horizontal de la
+   grille plutôt qu'un rétrécissement à l'infini. */
+.fenetre-rythme { width: min(980px, 100%); }
+
+.grille-rythme { display: flex; flex-direction: column; gap: 8px; overflow-x: auto; padding-bottom: 4px; }
+
+.mesure-rythme {
+    display: flex; align-items: flex-end; gap: 10px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-groupe);
+    border-radius: 10px;
+    background: var(--fond-bouton-sombre);
+    width: max-content;
+}
+.numero-mesure-rythme { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); min-width: 12px; }
+
+/* Un temps : son chiffre de subdivision au-dessus, ses cellules en dessous. Le cadre léger dit « ces
+   cases-là forment un temps » — sans lui, seize cellules d'affilée ne laisseraient plus voir la
+   pulsation, qui est justement ce qu'on vient travailler. */
+.temps-rythme {
+    display: flex; flex-direction: column; align-items: center; gap: 3px;
+    padding: 3px 4px;
+    border-radius: 7px;
+    background: rgba(255, 255, 255, .03);
+}
+.entete-temps {
+    min-width: 20px; height: 18px; padding: 0 4px;
+    display: inline-flex; align-items: center; justify-content: center;
+    border: 1px solid var(--btn-neutral-border); border-radius: 5px;
+    background: transparent; color: var(--text-muted);
+    font-size: var(--fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
+    cursor: pointer;
+}
+.entete-temps:hover { color: var(--text-main); border-color: var(--btn-neutral-border-hover); }
+
+.cellules-temps { display: flex; gap: 2px; }
+/* 26px de côté : au-dessus de ce que l'œil distingue sans effort, et assez pour qu'un doigt en vise
+   une sans toucher la voisine. `touch-action: none` parce que le GLISSER est le geste principal —
+   sans lui, le navigateur le prendrait pour un défilement et la note ne s'allongerait jamais. */
+.cellule-rythme {
+    width: 26px; height: 30px;
+    border: 1px solid var(--btn-neutral-border); border-radius: 4px;
+    background: var(--fond-bouton-sombre);
+    cursor: pointer;
+    touch-action: none;
+    transition: background .1s, border-color .1s;
+}
+.cellule-rythme:hover { border-color: var(--btn-neutral-border-hover); }
+/* L'ATTAQUE est franche, la TENUE plus pâle et sans bord à gauche : ensemble elles dessinent UNE
+   barre qui commence là et se prolonge — la forme qu'on est venu poser. */
+.cellule-rythme.attaque { background: var(--btn-green-1); border-color: var(--btn-green-border); }
+.cellule-rythme.tenue {
+    background: color-mix(in srgb, var(--btn-green-1) 45%, transparent);
+    border-color: var(--btn-green-border);
+    border-left-color: transparent;
+    border-radius: 0 4px 4px 0;
+}
+
+/* L'aperçu : le panneau « papier » au milieu d'une fenêtre sombre se lit comme une partition. */
+.apercu-rythme {
+    border: 1px solid var(--border); border-radius: 10px;
+    background: var(--papier, #FDFBF7);
+    overflow: auto; max-height: 34vh; padding: 4px;
+}
+.apercu-rythme svg { display: block; }
+
+@media (max-width: 720px) {
+    /* Au doigt, les cellules gagnent en hauteur (la largeur, elle, est déjà au minimum utile) : c'est
+       la dimension qu'on peut offrir sans réduire le nombre de cases visibles d'un coup. */
+    .cellule-rythme { height: 36px; }
+    .apercu-rythme { max-height: 28vh; }
+}

@@ -30,7 +30,7 @@
 // armure et barres de reprise restent des propriétés de la MESURE, partagées par toutes ses voix —
 // deux voix de la même mesure ne peuvent pas être en 3/4 et 6/8 à la fois, ce serait deux mesures.
 
-import { dureeEnNoires, noiresParMesure } from './duration.js';
+import { dureeEnNoires, noiresParMesure, uniteDeGroupement, positionTernaire, positionDepuisTernaire } from './duration.js';
 import { INSTRUMENTS, accordageParDefaut, hauteurDeCase } from './instruments.js';
 
 export const FORMAT = 'tabhub-partition';
@@ -98,6 +98,20 @@ export function creerEvenement(duree = { valeur: 4, points: 0, nolet: null }, no
         // `null` : rien à afficher (voir engine/layout.js, qui ne réserve de bande au-dessus d'un
         // système que si l'un de ses évènements en porte un).
         accord: null,
+        // RYTHME IMPOSÉ, EN ATTENTE D'UNE CASE (voir ui/rythme.js). Posé par l'aide rythmique sur les
+        // évènements qu'elle insère : leur DURÉE fait loi, il ne manque plus que la hauteur.
+        //
+        // À QUOI IL SERT, ET C'EST DEUX CHOSES À LA FOIS — la raison pour laquelle ce champ existe
+        // plutôt qu'une règle globale :
+        //   1. `saisirChiffre` ne redimensionne PAS un évènement marqué. Sans cela, la « durée
+        //      collante » de la palette écrase le rythme qu'on vient d'insérer : mesuré, un
+        //      « croche pointée + double + triolet » se retrouvait en six croches plates dès qu'on
+        //      donnait une case à chaque évènement (voir commands.js#saisirChiffre).
+        //   2. La tablature met ces cases EN SURBRILLANCE (voir engine/layout.js) : on voit ce qui
+        //      reste à choisir, et la marque s'éteint case par case.
+        // Le marqueur tombe au premier chiffre tapé — il décrit une attente, pas une propriété du
+        // rythme, et n'a donc aucune raison de survivre à sa satisfaction.
+        aRemplir: false,
         ...extra,
     };
 }
@@ -277,6 +291,20 @@ export function creerPartition(instrumentId = 'guitare') {
             sousTitre: '',
             artiste: '',
             tempo: 120,
+            // LECTURE TERNAIRE (« swing ») — la convention classique des partitions : on écrit des
+            // croches DROITES et l'on prévient, en tête, qu'elles se lisent longue-brève. L'autre
+            // voie serait un triolet sur chaque temps, illisible sur un morceau entier.
+            //
+            // CE CHAMP NE CHANGE PAS CE QU'ON ÉCRIT, seulement ce qu'on ENTEND et ce qu'on exporte
+            // (voir audio/player.js et io/midi.js) — plus l'indication gravée près du tempo (voir
+            // engine/layout.js). C'est pourquoi il vit dans `meta` et non dans une mesure : c'est
+            // une convention de lecture du morceau, pas un contenu musical.
+            //
+            // À DISTINGUER DU VRAI TRIOLET (`duree.nolet`), qui reste disponible et exact : celui-ci
+            // dit « ces trois notes valent deux », là où `ternaire` dit « toutes les paires de
+            // croches se lisent ainsi ». Un triolet dans un morceau binaire, c'est le premier ; un
+            // morceau de jazz entier, c'est le second.
+            ternaire: false,
             creeLe: maintenant,
             modifieLe: maintenant,
         },
@@ -509,6 +537,10 @@ function normaliserEvenement(eb, cordes, fiche) {
         // survivrait à la session en cours mais disparaîtrait silencieusement à la réouverture du
         // fichier — exactement le piège que le commentaire au-dessus (horsManche/hauteurVoulue) décrit.
         accord: typeof eb?.accord === 'string' ? eb.accord.trim().slice(0, 12) || null : null,
+        // Même piège que les deux blocs ci-dessus : sans cette ligne, un rythme inséré puis
+        // enregistré rouvrirait SANS sa surbrillance ni sa protection de durée — on croirait le
+        // remplir et on l'écraserait.
+        aRemplir: !!eb?.aRemplir,
     });
 }
 
@@ -546,6 +578,9 @@ export function normaliser(brut) {
             sousTitre: String(brut.meta?.sousTitre ?? '').slice(0, 200),
             artiste: String(brut.meta?.artiste ?? '').slice(0, 200),
             tempo: borne(brut.meta?.tempo, 20, 400, 120),
+            // Absent d'un fichier antérieur = BINAIRE, l'interprétation d'usage d'une partition qui
+            // ne dit rien : `!!undefined` donne bien `false`, aucune migration à écrire.
+            ternaire: !!brut.meta?.ternaire,
             creeLe: typeof brut.meta?.creeLe === 'string' ? brut.meta.creeLe : new Date().toISOString(),
             modifieLe: new Date().toISOString(),
         },
@@ -612,6 +647,84 @@ export function normaliser(brut) {
     if (partition.mesures[0].mode !== 'majeur' && partition.mesures[0].mode !== 'mineur') partition.mesures[0].mode = 'majeur';
 
     return partition;
+}
+
+// ---------------------------------------------------------------------------------------------
+// GRILLE TERNAIRE — où sont les temps, quand `meta.ternaire` est posé
+//
+// La transformation elle-même vit dans model/duration.js (positionTernaire et sa réciproque) : c'est
+// de l'arithmétique sur un temps. Ce qui vit ICI, c'est la question « où commencent les temps, et
+// combien vaut un temps » — elle ne se répond qu'avec les mesures sous les yeux.
+//
+// DEUX CONSOMMATEURS, UNE SEULE GRILLE : la lecture audio (audio/player.js) et l'export MIDI
+// (io/midi.js). C'est délibéré — l'utilisateur va comparer ce qu'il entend dans TabHub à ce que joue
+// son DAW, et deux grilles calculées séparément finiraient par diverger sur un détail (une mesure
+// composée, un changement de signature) qu'aucun des deux côtés ne surveille.
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * La grille des temps pour la lecture ternaire, une entrée par mesure — ou `null` si le morceau est
+ * binaire, ce qui fait disparaître tout le mécanisme sans un calcul de plus.
+ *
+ * `unite: 0` MARQUE UNE MESURE QUI NE SWINGUE PAS, et `positionTernaire` rend alors la position
+ * inchangée (elle exige `unite > 0`) : aucun cas particulier à écrire chez les appelants. Ne swingue
+ * que la mesure dont le TEMPS SE DIVISE EN DEUX à l'écrit, c'est-à-dire `uniteDeGroupement === 1` —
+ * la noire des mesures simples (4/4, 3/4, 2/2). Les deux autres familles en sont exclues, et pour la
+ * même raison de fond : la convention « croche = triolet » suppose qu'on écrit DEUX croches par
+ * temps, et qu'on les joue trois.
+ *   - MESURE COMPOSÉE (6/8, 9/8, 12/8) : le temps y vaut une noire pointée et s'écrit DÉJÀ en trois
+ *     croches. Elle est ternaire par son chiffrage, pas par convention — swinguer par-dessus
+ *     découperait un temps à trois en deux moitiés inégales, ce qui n'a aucun sens musical.
+ *   - MESURE EN x/8 NON COMPOSÉE (5/8, 7/8) : le temps y EST la croche (voir uniteDeGroupement), donc
+ *     la division en deux porterait sur les doubles. Personne n'écrit « croche = triolet » pour dire
+ *     ça, et la notation ne le dit pas non plus.
+ * Une mesure de ces familles se joue donc droite, au milieu d'un morceau swingué — exactement ce que
+ * ferait un musicien devant la même partition.
+ */
+export function grilleTernaire(partition) {
+    if (!partition?.meta?.ternaire || !partition.mesures?.length) return null;
+    const grille = [];
+    let debut = 0;
+    for (let i = 0; i < partition.mesures.length; i++) {
+        const capacite = capaciteMesure(partition, i);
+        const unite = uniteDeGroupement(signatureEffective(partition, i));
+        grille.push({ debut, fin: debut + capacite, unite: unite === 1 ? unite : 0 });
+        debut += capacite;
+    }
+    return grille;
+}
+
+/**
+ * La case de grille qui contient `position` — la dernière au-delà de la fin du morceau (une note
+ * tenue par-dessus la double barre garde la grille de sa mesure, plutôt que de retomber à zéro).
+ *
+ * LES BORNES DE MESURE SONT DES POINTS FIXES de la transformation (voir positionTernaire : une
+ * position à un nombre entier de temps du début de sa mesure ne bouge pas), donc une même position
+ * tombe dans la MÊME case qu'on la lise écrite ou sonnée. C'est ce qui permet aux deux sens de
+ * partager cette recherche, et aux bornes de boucle, au point d'arrêt final et au découpage en
+ * mesures de rester valides sans être convertis.
+ */
+function caseTernaire(grille, position) {
+    for (let i = 0; i < grille.length; i++) if (position < grille[i].fin - 1e-9) return grille[i];
+    return grille[grille.length - 1];
+}
+
+/** Position SONNÉE d'une position écrite. `grille` nulle (morceau binaire) : rien ne change. */
+export function sonneDepuisEcrit(grille, position) {
+    if (!grille || !Number.isFinite(position)) return position;
+    const c = caseTernaire(grille, position);
+    return c.debut + positionTernaire(position - c.debut, c.unite);
+}
+
+/**
+ * La réciproque : position ÉCRITE d'une position sonnée. C'est elle qui garde la tête de lecture sur
+ * la bonne colonne pendant un morceau swingué — sans elle, l'image dériverait du son, ce qui est
+ * pire que pas de ternaire du tout.
+ */
+export function ecritDepuisSonne(grille, position) {
+    if (!grille || !Number.isFinite(position)) return position;
+    const c = caseTernaire(grille, position);
+    return c.debut + positionDepuisTernaire(position - c.debut, c.unite);
 }
 
 /** Copie profonde — base de l'historique undo/redo. */

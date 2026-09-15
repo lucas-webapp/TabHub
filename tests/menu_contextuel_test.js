@@ -60,10 +60,15 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         //
         // « Coller » n'y figure PAS ici : le presse-papier est vide à l'ouverture du banc, et une
         // entrée qu'on ne peut pas utiliser n'apprend rien — elle apparaît plus bas, une fois copié.
+        //
+        // « AIDE RYTHMIQUE À PARTIR D'ICI… » s'est ajoutée depuis, entre le saut de ligne et la copie
+        // (retour utilisateur : « je dois pouvoir choisir où l'insérer [...] le placer à la souris ou
+        // au doigt »). C'est ce menu qui donne l'endroit : il s'ouvre déjà SUR la mesure visée, donc
+        // le geste qui appelle la fenêtre choisit aussi où elle écrira — voir main.js#ouvrirAideRythme.
         check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite'
             + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure'
-            + '|Commencer une nouvelle ligne ici|Copier cette mesure',
-            'les neuf actions attendues, dans cet ordre, et aucun « Coller » tant que rien n\'est copié');
+            + '|Commencer une nouvelle ligne ici|Aide rythmique à partir d\'ici…|Copier cette mesure',
+            'les dix actions attendues, dans cet ordre, et aucun « Coller » tant que rien n\'est copié');
         const boiteMenu = await menu.boundingBox();
         check(Math.abs(boiteMenu.x - p.x) < 20 && Math.abs(boiteMenu.y - p.y) < 20, 'le menu s\'ouvre AU POINT du clic, pas ailleurs');
 

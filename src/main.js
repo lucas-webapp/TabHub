@@ -25,6 +25,7 @@ import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils, flecheOutilsSvg, ajusterFleches } from './ui/toolbar.js';
 import { construirePave, construireDpadFlottant } from './ui/pave.js';
 import { demander, saisir } from './ui/dialogue.js';
+import * as Rythme from './ui/rythme.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
@@ -34,7 +35,7 @@ import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, 
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective, signatureEffective } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
 import { VALEURS_FIGURES } from './model/duration.js';
 
@@ -351,7 +352,7 @@ class TabHubApp {
             return;
         }
 
-        const calques = [...this.marquesLecture(), ...this.marquesCurseur(), ...this.marquesSelection(), ...this.marquesBoucle()];
+        const calques = [...this.marquesLecture(), ...this.marquesARemplir(), ...this.marquesCurseur(), ...this.marquesSelection(), ...this.marquesBoucle()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
         this.el.feuille.style.height = `${this.page.hauteur}px`;
         this.el.feuille.innerHTML = rendreSvg(this.page, {
@@ -403,6 +404,35 @@ class TabHubApp {
     ancrageCurseur() {
         const c = this.editeur.curseur;
         return this.page?.ancrages.evenements.find(a => a.mesure === c.mesure && a.voix === c.voix && a.evenement === c.evenement) || null;
+    }
+
+    /**
+     * SURBRILLANCE DES CASES À CHOISIR — les évènements qu'une insertion de rythme a laissés en
+     * attente d'une hauteur (voir model/score.js, `Évènement#aRemplir`, et ui/rythme.js).
+     *
+     * UN CALQUE, PAS DE LA GRAVURE, et c'est le point : ces bandes sont une aide à l'ÉDITION, comme
+     * le curseur, la sélection et la bande de boucle qui l'entourent dans `calques`. Les poser dans
+     * engine/layout.js les aurait fait sortir sur le PDF — la couleur translucide n'y serait de toute
+     * façon pas portable (c'est déjà la raison de l'option `avertirErreurs: false` à l'export), et
+     * surtout une partition imprimée n'a aucune raison de montrer un chantier.
+     *
+     * TOUTE LA HAUTEUR DE LA TAB, et non une corde en particulier : l'évènement n'a pas encore de
+     * note, donc aucune corde à désigner. La bande dit « ici, sur ce temps, choisis une case » —
+     * c'est exactement l'information disponible, ni plus ni moins.
+     */
+    marquesARemplir() {
+        if (!this.page) return [];
+        const S = this.page.geo.S;
+        const marques = [];
+        for (const a of this.page.ancrages.evenements) {
+            if (!a.ref?.aRemplir) continue;
+            // Sans TAB (mode « TAB seule » inversé, ou piano), la bande couvre la portée : il n'y a
+            // pas de tablature où poser la case, mais l'attente reste vraie et doit se voir.
+            const y = a.yTab != null ? a.yTab - 0.3 * S : a.yPortee - 0.3 * S;
+            const bas = a.yBas + 0.3 * S;
+            marques.push({ t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: Math.max(2, bas - y), couleur: 'var(--a-remplir)' });
+        }
+        return marques;
     }
 
     /**
@@ -844,6 +874,116 @@ class TabHubApp {
         // muette — c'est un confort (voir io/versions.js), le brouillon est la vraie sauvegarde.
         if (!err) this._archiverVersion();
         this.message(err ? 'Échec de l\'enregistrement local : ' + err.message : 'Enregistré');
+    }
+
+    // ==========================================================================================
+    // Aide rythmique (voir ui/rythme.js)
+    // ==========================================================================================
+
+    /**
+     * Ouvre l'aide rythmique, réglée pour insérer À PARTIR de `mesureDepart`.
+     *
+     * L'ENDROIT EST DÉJÀ CHOISI quand on arrive ici : la fenêtre s'ouvre depuis le menu contextuel,
+     * donc d'un clic droit ou d'un appui long sur la mesure visée (retour utilisateur : « je dois
+     * pouvoir choisir où l'insérer [...] le placer à la souris ou au doigt »). Rien à régler dans la
+     * fenêtre pour cela — elle rappelle seulement où elle va écrire.
+     *
+     * LA SIGNATURE VIENT DU MORCEAU, jamais de la fenêtre : un rythme dessiné dans une autre mesure
+     * que celle qui l'accueillera ne voudrait rien dire.
+     */
+    ouvrirAideRythme(mesureDepart = this.editeur.curseur.mesure) {
+        const partition = this.editeur.partition;
+        this._rythme = {
+            depart: Math.max(0, Math.min(partition.mesures.length - 1, mesureDepart)),
+            signature: { ...signatureEffective(partition, mesureDepart) },
+            nMesures: 1,
+        };
+        this._rythme.etat = Rythme.etatInitial(1, this._rythme.signature);
+        this.construireBoutonsNbMesuresRythme();
+        this._rythme.grille = Rythme.construireGrille(
+            document.getElementById('grille-rythme'), this._rythme.etat,
+            { surChangement: () => this.rafraichirApercuRythme() });
+        this.rafraichirApercuRythme();
+        this.ouvrirFenetre('fenetre-rythme');
+    }
+
+    /** Les boutons « 1 2 3 4 » du nombre de mesures. Quatre au plus, comme demandé : au-delà, la
+     *  grille ne tient plus à l'écran et l'aide cesse d'aider. */
+    construireBoutonsNbMesuresRythme() {
+        const hote = document.getElementById('rythme-nb-mesures');
+        if (!hote) return;
+        hote.innerHTML = '';
+        for (let n = 1; n <= 4; n++) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn-mesures-ligne' + (n === this._rythme.nMesures ? ' actif' : '');
+            b.textContent = String(n);
+            b.title = `${n} mesure${n > 1 ? 's' : ''} de rythme`;
+            b.setAttribute('aria-label', b.title);
+            b.addEventListener('click', () => {
+                if (n === this._rythme.nMesures) return;
+                // ON REPART D'UNE GRILLE NEUVE : étendre une grille existante demanderait de décider
+                // ce que deviennent les temps déjà remplis, et toute réponse serait une surprise.
+                this._rythme.nMesures = n;
+                this._rythme.etat = Rythme.etatInitial(n, this._rythme.signature);
+                this.construireBoutonsNbMesuresRythme();
+                this._rythme.grille = Rythme.construireGrille(
+                    document.getElementById('grille-rythme'), this._rythme.etat,
+                    { surChangement: () => this.rafraichirApercuRythme() });
+                this.rafraichirApercuRythme();
+            });
+            hote.appendChild(b);
+        }
+    }
+
+    /** Redessine l'écriture proposée, et rappelle où l'insertion ira. */
+    rafraichirApercuRythme() {
+        if (!this._rythme) return;
+        const hote = document.getElementById('apercu-rythme');
+        const largeur = Math.max(320, (hote?.clientWidth || 640) - 12);
+        this._rythme.page = Rythme.dessinerApercu(
+            hote, this._rythme.etat, this.editeur.partition.piste.instrument,
+            this.editeur.partition.meta.ternaire, largeur);
+        const cible = document.getElementById('rythme-cible');
+        if (cible) {
+            const d = this._rythme.depart + 1;
+            const f = this._rythme.depart + this._rythme.nMesures;
+            cible.textContent = d === f ? `remplacera la mesure ${d}` : `remplacera les mesures ${d} à ${f}`;
+        }
+        const inserer = document.getElementById('btn-rythme-inserer');
+        // Un rythme vide n'a rien à insérer : le bouton le dit avant d'être cliqué, plutôt que de
+        // poser quatre mesures de silence à qui a cliqué sans le vouloir.
+        if (inserer) inserer.disabled = Rythme.estVide(this._rythme.etat);
+    }
+
+    /** Écoute le rythme dessiné — la seule façon de savoir que c'est bien celui qu'on avait en tête.
+     *  La partition d'aperçu EST une partition : le lecteur en prend une, sans rien de spécial. */
+    async ecouterRythme() {
+        if (!this._rythme) return;
+        try {
+            this.lecteur.arreter();
+            await this.lecteur.jouer(Rythme.partitionApercu(
+                this._rythme.etat, this.editeur.partition.piste.instrument,
+                this.editeur.partition.meta.ternaire));
+        } catch (err) {
+            this.message(err.message || 'Impossible de démarrer l\'audio');
+        }
+    }
+
+    /** Insère le rythme dessiné dans la partition, en cases à remplir. */
+    insererRythme() {
+        if (!this._rythme || Rythme.estVide(this._rythme.etat)) return;
+        const parMesure = Rythme.evenementsParMesure(this._rythme.etat, { aRemplir: true, avecNotes: false });
+        const ok = this.editeur.remplacerMesuresPar(this._rythme.depart, parMesure, this._rythme.signature);
+        if (!ok) {
+            this.message(this.editeur.derniereErreur || 'Insertion impossible');
+            this.editeur.derniereErreur = null;
+            return;
+        }
+        this.lecteur.arreter();
+        this.fermerFenetres();
+        const n = parMesure.length;
+        this.message(`Rythme inséré sur ${n} mesure${n > 1 ? 's' : ''} — choisissez les cases en surbrillance`, 5000);
     }
 
     /**
@@ -1585,6 +1725,18 @@ class TabHubApp {
             this.fermerPopoverFichiers();
             actionsFichiers[b.dataset.action]?.();
         });
+        // L'aide rythmique : ses trois boutons de pied. La fenêtre s'ouvre, elle, depuis le menu
+        // contextuel — c'est le geste qui choisit AUSSI l'endroit d'insertion (voir ouvrirAideRythme).
+        surClic('btn-rythme-lecture', () => this.ecouterRythme());
+        surClic('btn-rythme-inserer', () => this.insererRythme());
+        surClic('btn-rythme-effacer', () => {
+            if (!this._rythme) return;
+            this._rythme.etat = Rythme.etatInitial(this._rythme.nMesures, this._rythme.signature);
+            this._rythme.grille = Rythme.construireGrille(
+                document.getElementById('grille-rythme'), this._rythme.etat,
+                { surChangement: () => this.rafraichirApercuRythme() });
+            this.rafraichirApercuRythme();
+        });
         surClic('btn-reglages', () => { this.remplirReglages(); this.ouvrirFenetre('fenetre-reglages'); });
         surClic('btn-aide', () => { this.remplirAide(); this.ouvrirFenetre('fenetre-aide'); });
         surClic('btn-jouer', () => this.lectureAlternee());
@@ -1967,6 +2119,15 @@ class TabHubApp {
             // deux choses sans objet pour un geste qui ne touche pas au document. Un message confirme
             // à la place — sans quoi le clic n'aurait AUCUN retour visible, et on ne saurait pas si la
             // copie a pris.
+            // AIDE RYTHMIQUE (retour utilisateur : « je dois pouvoir choisir où l'insérer [...] le
+            // placer à la souris ou au doigt »). ICI, et c'est tout l'intérêt : le menu contextuel
+            // s'ouvre déjà d'un clic droit ou d'un appui long SUR la mesure visée — l'endroit
+            // d'insertion est donc choisi par le geste même qui ouvre la fenêtre, sans rien à régler.
+            { texte: 'Aide rythmique à partir d\'ici…', faire: () => {
+                this.fermerMenuContextuel();
+                this.ouvrirAideRythme(this.editeur.curseur.mesure);
+            } },
+            null,
             { texte: 'Copier cette mesure', faire: () => {
                 this.fermerMenuContextuel();
                 this.editeur.copierMesure();

@@ -144,9 +144,9 @@ const { check, exiger, plan, bilan } = creerHarnais('repères, mise en page, en-
             };
         });
         exiger(popover.visible && popover.dansLEcran, 'le clic les déplie dans un popover qui tient dans la fenêtre');
-        check(popover.actions.join(',') === 'repriseDebut,repriseFin,barreDouble,barreFinale,'
+        check(popover.actions.join(',') === 'repriseDebut,repriseFin,barreDouble,barreFinale,ternaire,'
             + 'repere-segno,repere-coda,repere-daCapo,repere-dalSegno,repere-alCoda,repere-fine',
-            'et il réunit les deux reprises, les deux barres et les six repères de navigation — dix marques, un seul bouton');
+            'et il réunit les deux reprises, les deux barres, le rythme ternaire et les six repères de navigation — onze marques, un seul bouton');
         await page.keyboard.press('Escape');
         await page.waitForTimeout(150);
 

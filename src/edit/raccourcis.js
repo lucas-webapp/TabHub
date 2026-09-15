@@ -61,6 +61,12 @@ export const ACTIONS = [
     { id: 'effacer', touches: ['backspace'], libelle: 'Effacer la note', palette: false, faire: ed => ed.effacerOuReculer() },
     { id: 'supprimer', touches: ['delete'], libelle: 'Effacer la note', palette: false, faire: ed => ed.effacerNote() },
     { id: 'inserer', touches: ['enter', 'insert'], libelle: 'Insérer un évènement', palette: false, faire: ed => ed.insererEvenement() },
+    // LA PROCHAINE CASE À REMPLIR d'un rythme inséré (voir commands.js#allerCaseSuivanteARemplir et
+    // ui/rythme.js). Tabulation : la touche du « champ suivant » dans tous les formulaires, et c'est
+    // exactement ce qu'on fait — parcourir des cases en attente d'une valeur. Sans elle, remplir
+    // quatre mesures voudrait dire viser chaque case à la souris.
+    { id: 'caseARemplir', touches: ['tab'], libelle: 'Aller à la prochaine case à remplir', palette: false,
+      faire: ed => ed.allerCaseSuivanteARemplir() },
     { id: 'supprEvenement', touches: ['ctrl+delete'], libelle: 'Supprimer et décaler ce qui suit (garde la mesure à sa capacité)', palette: false, faire: ed => ed.supprimerEvenement() },
     { id: 'transposeHaut', touches: ['ctrl+arrowup'], libelle: 'Case +1', palette: false, faire: ed => ed.transposerNote(1) },
     { id: 'transposeBas', touches: ['ctrl+arrowdown'], libelle: 'Case −1', palette: false, faire: ed => ed.transposerNote(-1) },
@@ -146,6 +152,20 @@ export const ACTIONS = [
       actif: ed => ed.mesureCourante().barre === 'double', faire: ed => ed.definirBarre('double') },
     { id: 'barreFinale', touches: [], libelle: 'Barre finale (fin du morceau)', groupe: 'repere', apercu: { type: 'icone', nom: 'barreFinale' },
       actif: ed => ed.mesureCourante().barre === 'finale', faire: ed => ed.definirBarre('finale') },
+
+    // RYTHME TERNAIRE (retour utilisateur : « est-ce qu'on peut implémenter dans la portée un système
+    // classique, qui permet de dire "croche=triolet", et ainsi écrire de façon ternaire ? Les portées
+    // classiques le font »). C'est la convention du jazz et de la variété : on écrit des croches
+    // DROITES et l'on prévient, en tête, qu'elles se lisent longue-brève. L'alternative — un triolet
+    // sur chaque temps — est illisible sur un morceau entier.
+    //
+    // DANS LE GROUPE « REPÈRES », avec tout ce qui MARQUE la portée (reprises, double barre, Segno,
+    // Coda) : comme elles, cette indication se pose une fois et se lit en tête de partition. Elle vit
+    // dans `meta` et non dans une mesure — c'est une convention de lecture du morceau (voir
+    // model/score.js, `meta.ternaire`).
+    { id: 'ternaire', touches: [], libelle: 'Rythme ternaire — les croches se jouent longue-brève (swing)',
+      groupe: 'repere', apercu: { type: 'texteLeger', texte: 'Ternaire' },
+      actif: ed => !!ed.partition.meta.ternaire, faire: ed => ed.basculerTernaire() },
     // Les six repères de navigation, dérivés de la MÊME table que le modèle et le moteur de rendu
     // (voir model/score.js, REPERES) : un repère ajouté là apparaît ici sans qu'on y touche, et ne
     // peut pas s'y décrire autrement. Segno et Coda se montrent par leur SIGNE (le même tracé que

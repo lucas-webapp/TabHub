@@ -324,9 +324,22 @@ export class Editeur {
         // fantôme (voir model/score.js, EFFETS.ghost, « hauteur indéterminée »).
         if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; delete existante.ghost; }
         else evenement.notes.push(creerNote(c.corde, frette));
+        // RYTHME IMPOSÉ : LA DURÉE COLLANTE NE S'APPLIQUE PAS (voir model/score.js,
+        // `Évènement#aRemplir`, et ui/rythme.js). L'aide rythmique a posé ce rythme exprès ; le
+        // remplir doit lui donner des hauteurs, pas le réécrire.
+        //
+        // SANS CETTE LIGNE, L'AIDE NE SERVIRAIT À RIEN, et c'est mesuré : un « croche pointée +
+        // double + triolet de croches + noire » inséré puis rempli case par case ressortait en SIX
+        // CROCHES PLATES, la mesure à un temps de moins. On croyait remplir, on écrasait.
+        //
+        // LE MARQUEUR TOMBE ICI, au premier chiffre : il décrivait une attente, elle est satisfaite.
+        // C'est aussi ce qui éteint la surbrillance de cette case (voir main.js#marquesARemplir) —
+        // une seule vérité pour les deux, donc jamais l'une sans l'autre.
+        const rythmeImpose = !!evenement.aRemplir;
+        if (rythmeImpose) evenement.aRemplir = false;
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
-        if (evenement.notes.length === 1 && !enchaine) {
+        if (evenement.notes.length === 1 && !enchaine && !rythmeImpose) {
             // REDIMENSIONNE à la durée courante plutôt que d'écraser le champ tel quel : un silence
             // vierge n'a AUCUNE raison de faire déjà la bonne taille (une mesure neuve, par exemple,
             // n'est qu'UN silence couvrant toute la mesure — bien plus grand qu'une croche). Écraser
@@ -1079,6 +1092,96 @@ export class Editeur {
     }
 
     /**
+     * REMPLACE `evenementsParMesure.length` mesures À PARTIR DE `depart` par les rythmes donnés —
+     * l'insertion de l'aide rythmique (voir ui/rythme.js et main.js#insererRythme).
+     *
+     * REMPLACER ET NON INSÉRER, et c'est un choix. Insérer AJOUTERAIT des mesures, décalant tout ce
+     * qui suit : sur un morceau de trente mesures, poser un rythme à la quatrième en repousserait
+     * vingt-six, y compris les repères et la bande de boucle qui se lisent par NUMÉRO de mesure. On
+     * remplace donc la place qu'on désigne — c'est ce que dit la fenêtre (« remplacera les mesures 3
+     * à 5 ») avant de cliquer, et c'est ce qu'on attend en visant un endroit précis.
+     *
+     * LE MORCEAU S'ALLONGE SI BESOIN : viser les deux dernières mesures d'un morceau qui n'en a plus
+     * qu'une doit marcher — on ajoute alors ce qui manque, plutôt que de refuser ou de tronquer le
+     * rythme dessiné.
+     *
+     * LA SIGNATURE N'EST POSÉE QUE SI ELLE CHANGE, comme partout ailleurs dans ce modèle (un champ
+     * non nul signifie « cette mesure CHANGE la signature ») : la réécrire sur chaque mesure
+     * insérée ferait apparaître un chiffrage de mesure en plein milieu du morceau.
+     *
+     * UN SEUL PAS D'ANNULATION pour toute l'insertion : `memoriser` une fois, avant la boucle. Quatre
+     * mesures posées d'un geste doivent se défaire d'un seul Ctrl+Z.
+     *
+     * @param {number} depart index de la première mesure visée.
+     * @param {Array<Array<object>>} evenementsParMesure un tableau d'évènements par mesure.
+     * @param {{battements:number, unite:number}} signature celle du morceau à cet endroit.
+     * @returns {boolean} faux et `derniereErreur` renseignée si rien n'a pu être fait.
+     */
+    remplacerMesuresPar(depart, evenementsParMesure, signature) {
+        this.derniereErreur = null;
+        if (!Array.isArray(evenementsParMesure) || !evenementsParMesure.length) {
+            this.derniereErreur = 'Aucun rythme à insérer.';
+            return false;
+        }
+        const at = Math.max(0, Math.min(this.partition.mesures.length, depart));
+        this.memoriser();
+        evenementsParMesure.forEach((evenements, k) => {
+            const index = at + k;
+            const ancienne = this.partition.mesures[index];
+            const neuve = creerMesure({ voix: [{ evenements }] });
+            // CE QUI APPARTIENT À LA MESURE, PAS AU RYTHME, est conservé : annotation de section,
+            // saut de ligne, barres de reprise, repère. L'aide rythmique ne parle que de durées ;
+            // écraser une annotation « Refrain » au passage serait une perte silencieuse.
+            if (ancienne) {
+                neuve.annotation = ancienne.annotation;
+                neuve.sautAvant = ancienne.sautAvant;
+                neuve.repriseDebut = ancienne.repriseDebut;
+                neuve.repriseFin = ancienne.repriseFin;
+                neuve.barre = ancienne.barre;
+                neuve.repere = ancienne.repere;
+                neuve.signature = ancienne.signature;
+                neuve.armure = ancienne.armure;
+                neuve.mode = ancienne.mode;
+            } else if (k === 0 && signature) {
+                // Mesure ajoutée au-delà de la fin : elle hérite du morceau, donc rien à poser — sauf
+                // si le morceau était vide, cas où la signature doit bien s'écrire quelque part.
+                if (!this.partition.mesures.length) neuve.signature = { ...signature };
+            }
+            if (index < this.partition.mesures.length) this.partition.mesures[index] = neuve;
+            else this.partition.mesures.push(neuve);
+        });
+        this.curseur.mesure = at;
+        this.curseur.voix = 0;
+        this.curseur.evenement = 0;
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * LA PROCHAINE CASE À REMPLIR — le parcours d'un rythme inséré (voir `Évènement#aRemplir`).
+     *
+     * Sans elle, remplir quatre mesures demanderait de viser chaque case à la souris. On cherche à
+     * partir de la position courante, puis on reprend au début : arrivé au bout, le geste ramène au
+     * premier trou resté vide, ce qui est exactement ce qu'on veut en fin de passage.
+     *
+     * @returns {boolean} vrai si le curseur a bougé ; faux s'il ne reste plus rien à remplir.
+     */
+    allerCaseSuivanteARemplir() {
+        const plat = [];
+        this.partition.mesures.forEach((m, iM) => m.voix.forEach((v, iV) => v.evenements.forEach((e, iE) => {
+            if (e.aRemplir) plat.push({ mesure: iM, voix: iV, evenement: iE });
+        })));
+        if (!plat.length) return false;
+        const c = this.curseur;
+        const apres = plat.find(p => p.mesure > c.mesure
+            || (p.mesure === c.mesure && (p.voix > c.voix || (p.voix === c.voix && p.evenement > c.evenement))));
+        const cible = apres || plat[0];
+        this.placerCurseur(cible.mesure, cible.evenement, c.corde, cible.voix);
+        return true;
+    }
+
+    /**
      * Ajoute une SUITE de mesures toutes faites À LA FIN du morceau — l'import MIDI « à la suite »
      * (voir main.js#chargerFichierMidi), qui n'écrase rien de ce qui existe déjà, contrairement à
      * remplacer(). Contrairement à ajouterMesure ci-dessus (une mesure vide, insérée au curseur),
@@ -1589,6 +1692,23 @@ export class Editeur {
     definirMeta(champ, valeur) {
         this.memoriser('meta-' + champ);
         this.partition.meta[champ] = valeur;
+        this.prevenir('meta');
+    }
+
+    /**
+     * Allume ou éteint la LECTURE TERNAIRE du morceau (voir model/score.js, `meta.ternaire`).
+     *
+     * CE QUE ÇA NE CHANGE PAS : ce qui est écrit. Les croches restent des croches sur la partition —
+     * c'est tout l'intérêt de la convention. Ce qui change, c'est ce qu'on ENTEND (voir
+     * audio/player.js) et ce qu'on EXPORTE (voir io/midi.js), plus l'indication gravée en tête
+     * (voir engine/layout.js).
+     *
+     * `memoriser` comme toute autre édition : c'est une propriété du document, pas une préférence
+     * d'affichage, et Ctrl+Z doit pouvoir la défaire.
+     */
+    basculerTernaire() {
+        this.memoriser('ternaire');
+        this.partition.meta.ternaire = !this.partition.meta.ternaire;
         this.prevenir('meta');
     }
 

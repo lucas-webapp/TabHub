@@ -533,21 +533,36 @@ export function mettreEnPage(partition, options = {}) {
     if (INSTRUMENTS[partition.piste.instrument]?.clef === 'grandPortee') return mettreEnPagePiano(partition, geo);
     const S = geo.S;
     const ST = S * geo.ratioTab;                        // interligne de la tablature
-    const cordes = nbCordes(partition);
     const clef = CLEFS[INSTRUMENTS[partition.piste.instrument]?.clef || 'sol8vb'];
     // MODE « TAB SEULE » (retour utilisateur, voir HAUTEUR_ZONE_HAMPE_TAB) : `false` seulement sur
     // demande explicite — absent (undefined), l'option retombe sur le comportement historique.
-    const avecPortee = geo.avecPortee !== false;
+    //
+    // ET SON MIROIR, « PORTÉE SEULE » (`avecTab: false`), pour l'aide rythmique (voir ui/rythme.js) :
+    // elle montre la VRAIE écriture d'un rythme, or une tablature n'y dirait rien — toutes ses notes
+    // étant à la même hauteur, elle afficherait « 5 — 5 — 5 » sous la portée, du bruit pur.
+    //
+    // LES DEUX À LA FOIS NE DESSINERAIENT RIEN : `avecPortee` est donc forcé quand la TAB s'absente.
+    // Mieux vaut une portée qu'on n'a pas demandée qu'une page blanche.
+    //
+    // CORDES = 0, ET C'EST LA MÉCANIQUE DÉJÀ ÉPROUVÉE : c'est exactement ce que vaut `ctx.cordes` au
+    // piano (voir poserMesurePiano), et tout le tracé de tablature est déjà gardé par `cordes > 0`
+    // (chiffres de case, masque de ligne, bends). Passer par ce chemin plutôt que par un nouveau
+    // drapeau enfilé dans dix fonctions évite d'en oublier une.
+    const avecTab = geo.avecTab !== false;
+    const avecPortee = avecTab ? geo.avecPortee !== false : true;
+    const cordes = avecTab ? nbCordes(partition) : 0;
     // Voir ecartPorteeTabRequis : agrandi seulement si une seconde voix descend assez bas pour que
     // sa hampe (systématiquement vers le bas) risquerait de traverser la tablature. Sans portée,
     // c'est un simple forfait (voir ECART_ZONE_HAMPE_TAB) : aucun registre à mesurer, toutes les
     // hampes y ont la même longueur nominale quelle que soit la hauteur jouée.
-    const ecartPorteeTab = avecPortee ? ecartPorteeTabRequis(partition, clef, S, geo.ecartPorteeTab) : ECART_ZONE_HAMPE_TAB;
+    // Sans TAB, aucun écart à ménager entre deux portées dont une seule existe.
+    const ecartPorteeTab = !avecTab ? 0
+        : avecPortee ? ecartPorteeTabRequis(partition, clef, S, geo.ecartPorteeTab) : ECART_ZONE_HAMPE_TAB;
     // Idem sous la TAB (voir margeBasRequise) : n'agrandit que si une seconde voix existe VRAIMENT.
     const margeBas = avecPortee ? geo.margeBas : margeBasRequise(partition, geo.margeBas);
 
     const hauteurPortee = avecPortee ? 4 * S : HAUTEUR_ZONE_HAMPE_TAB * S;
-    const hauteurTab = (cordes - 1) * ST;
+    const hauteurTab = avecTab ? (cordes - 1) * ST : 0;
     const hauteurSysteme = geo.margeHaut * S + hauteurPortee + ecartPorteeTab * S + hauteurTab + margeBas * S;
     const largeurUtile = geo.largeurPage - geo.margeGauche - geo.margeDroite;
 
@@ -659,8 +674,11 @@ export function mettreEnPage(partition, options = {}) {
         poserLignesSysteme(primitives, xDebut, xFin, yPortee, yTab, S, ST, cordes, avecPortee);
         // L'accolade dit « lisez ces deux portées ensemble » — sans portée de notation, il n'y a
         // plus qu'UNE portée (la TAB), rien à relier.
-        if (avecPortee) poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
-        poserCleTab(primitives, xDebut, yTab, ST, cordes);
+        // L'accolade relie DEUX portées : il en faut donc deux. Et la clé de TAB n'a pas de TAB à
+        // coiffer quand celle-ci s'absente — sans ce garde-fou, son glyphe serait étiré sur une
+        // hauteur nulle.
+        if (avecPortee && avecTab) poserAccolade(primitives, xDebut, yPortee, yTab + hauteurTab, S);
+        if (avecTab) poserCleTab(primitives, xDebut, yTab, ST, cordes);
 
         let x = xDebut;
         sys.mesures.forEach((m, iDansSys) => {
@@ -1186,6 +1204,11 @@ function poserEnTete(out, partition, geo, y) {
         out.push(texte(apresFigure, yt + S * 0.3, battement, {
             taille: S * 1.7, police: 'serif', poids: '700', ancre: 'debut',
         }));
+        // Où la ligne d'indications peut continuer. La largeur du texte est APPROCHÉE (0,52 em par
+        // caractère en Times gras) : le moteur ne mesure pas de texte — il n'a ni canvas ni DOM, et
+        // c'est ce qui lui permet de servir l'écran ET le PDF sans les départager. Une approximation
+        // généreuse suffit : elle ne sert qu'à espacer des mentions, pas à aligner quoi que ce soit.
+        let xSuite = apresFigure + battement.length * S * 1.7 * 0.52;
         // LA TONALITÉ, à côté du tempo (retour utilisateur : « j'aimerais voir la tonalité du morceau
         // à côté de l'indication de tempo au-dessus de la portée »). Elle est DÉJÀ sur la portée, en
         // altérations à la clé — mais une armure ne dit pas si le morceau est en do majeur ou en la
@@ -1199,19 +1222,108 @@ function poserEnTete(out, partition, geo, y) {
         // s'héritent de mesure en mesure, seules armureEffective/modeEffectif savent les résoudre.
         if (partition.mesures?.length) {
             const t = tonaliteDe(armureEffective(partition, 0), modeEffectif(partition, 0));
-            // Une mesure APPROCHÉE de la largeur du texte de tempo (0,52 em par caractère en Times
-            // gras) : le moteur ne mesure pas de texte — il n'a ni canvas ni DOM, et c'est ce qui lui
-            // permet de servir l'écran ET le PDF sans les départager. Une approximation généreuse
-            // suffit : elle ne sert qu'à espacer deux mentions, pas à aligner quoi que ce soit.
-            const largeurBattement = battement.length * S * 1.7 * 0.52;
             // `nomLong` (« C majeur ») et non `nom` (« CM ») : voir TONALITES dans model/theory.js.
-            out.push(texte(apresFigure + largeurBattement + S * 1.1, yt + S * 0.3, t.nomLong, {
+            const xTonalite = xSuite + S * 1.1;
+            out.push(texte(xTonalite, yt + S * 0.3, t.nomLong, {
                 taille: S * 1.7, police: 'serif', poids: '500', ancre: 'debut',
             }));
+            xSuite = xTonalite + t.nomLong.length * S * 1.7 * 0.52;
         }
+        // LE TERNAIRE SE DÉCLARE LÀ, au bout de la ligne des indications : tempo, tonalité, puis
+        // la façon de lire les croches. Les trois disent comment jouer ce qui suit, et se lisent
+        // d'un seul balayage — un signe posé ailleurs demanderait de le chercher.
+        if (meta.ternaire) poserIndicationTernaire(out, xSuite + S * 1.4, yt - S * 0.15, S);
+        yy += S * 3.2;
+    } else if (meta.ternaire) {
+        // SANS TEMPO, l'indication tient sa ligne seule : le ternaire ne dépend pas d'un battement
+        // chiffré, et une partition sans tempo se lit tout aussi ternaire.
+        poserIndicationTernaire(out, geo.margeGauche + S * 0.7, yy + S * 2.25, S);
         yy += S * 3.2;
     }
     return yy + S * 0.4;
+}
+
+/**
+ * Indication de RYTHME TERNAIRE : deux croches ligaturées « = » un triolet noire + croche.
+ *
+ * C'est la convention universelle du jazz, du blues et de la plupart des musiques populaires : on
+ * ÉCRIT des croches droites — bien plus lisibles, et c'est tout l'intérêt — et cette indication dit
+ * une fois pour toutes qu'elles se JOUENT longue-brève, deux tiers du temps puis un tiers. Sans
+ * elle, il faudrait porter un triolet sur chaque temps : la partition devient illisible, et le
+ * moindre remaniement oblige à recompter toutes les divisions à la main.
+ *
+ * Elle est GRAVÉE — têtes, hampes, ligature, crochet et chiffre de n-olet, les mêmes signes que la
+ * musique en dessous — et non écrite en caractères Unicode. Trois raisons, dans cet ordre :
+ *   1. le signe n'existe pas en un caractère : ni « deux croches ligaturées », ni « triolet » ;
+ *   2. aucune police de texte ne dessine de ligature ni de crochet de n-olet ;
+ *   3. le PDF reçoit exactement le même tracé que l'écran, sans police à embarquer — c'est la raison
+ *      d'être de l'extraction des contours (voir outils/generer-glyphes.py).
+ *
+ * L'ÉCHELLE est celle d'une mention secondaire de gravure imprimée : un peu plus de la moitié de
+ * l'interligne de la portée. Le repère `yBase` est le CENTRE des têtes de note, comme l'origine du
+ * glyphe de tête (voir glyphs.js) — la hampe sort du flanc de la tête, à mi-hauteur, et tout le
+ * reste du signe se mesure depuis là. Renvoie la largeur occupée, pour que l'appelant sache où
+ * continuer sa ligne d'indications.
+ */
+function poserIndicationTernaire(out, x, yBase, S) {
+    const ech = S * 0.58;
+    const demi = G.largeurDe(G.TETE_NOIRE) / 2;              // demi-largeur d'une tête, en interlignes
+    const epHampe = G.EPAISSEURS.hampe * ech;
+    const xHampe = (xc) => xc + (demi - G.EPAISSEURS.hampe / 2) * ech;   // hampe montante : flanc droit
+    const HAMPE = 3.0;                                        // longueur de hampe, en interlignes
+    const yBout = yBase - HAMPE * ech;
+    // Les deux paires n'ont pas le même écartement : celle de droite doit loger le crochet de n-olet
+    // ET son chiffre entre ses deux hampes, là où celle de gauche n'a qu'une ligature à porter.
+    const ECART_PAIRE = 1.75, ECART_NOLET = 2.7;
+
+    const tete = (xc) => out.push(glyphe(G.TETE_NOIRE, xc, yBase, ech));
+    const hampe = (xc) => {
+        const xh = xHampe(xc);
+        out.push(ligne(xh, yBase, xh, yBout, epHampe));
+        return xh;
+    };
+
+    // --- Membre de gauche : deux croches ligaturées ------------------------------------------------
+    const g1 = x + demi * ech;
+    const g2 = g1 + ECART_PAIRE * ech;
+    tete(g1); tete(g2);
+    const xg1 = hampe(g1), xg2 = hampe(g2);
+    // La ligature descend depuis le bout des hampes, comme dans poserHampes (hampe montante : le
+    // rectangle s'épaissit vers le BAS, jamais au-delà du bout de la hampe).
+    const epLigature = G.EPAISSEURS.ligature * ech;
+    out.push(poly([[xg1, yBout], [xg2, yBout], [xg2, yBout + epLigature], [xg1, yBout + epLigature]]));
+
+    // --- Le signe « égale » ------------------------------------------------------------------------
+    // Le seul caractère de texte du signe, et le seul qui puisse l'être : « = » se dessine
+    // identiquement dans toutes les polices à empattements, contrairement aux figures de note.
+    const xEgal = g2 + (demi + 1.15) * ech;
+    out.push(texte(xEgal, yBase + 0.52 * ech, '=', {
+        taille: ech * 2.3, police: 'serif', poids: '700', ancre: 'milieu',
+    }));
+
+    // --- Membre de droite : triolet noire + croche -------------------------------------------------
+    const d1 = xEgal + (1.15 + demi) * ech;
+    const d2 = d1 + ECART_NOLET * ech;
+    tete(d1); tete(d2);
+    const xd1 = hampe(d1), xd2 = hampe(d2);
+    // Le crochet de croche s'ancre par le HAUT de son dessin, au bout de la hampe (voir poserHampes) :
+    // c'est l'ancrage SMuFL, et il fait tomber la courbe du bon côté sans calcul.
+    out.push(glyphe(G.crochet(1, -1), xd2 - (G.EPAISSEURS.hampe / 2) * ech, yBout, ech));
+
+    // Le crochet de n-olet ET son chiffre : ici le groupe n'est PAS ligaturé (une noire n'a pas de
+    // ligature), donc le crochet est indispensable — c'est lui seul qui dit sur quoi porte le « 3 ».
+    // Mêmes proportions que poserNolets, à l'échelle de l'indication.
+    const yNolet = yBout - 0.95 * ech;
+    const trois = G.CHIFFRES_NOLET[3];
+    out.push(glyphe(trois, (xd1 + xd2) / 2, yNolet, ech));
+    const patte = 0.55 * ech, marge = 0.78 * ech, epTrait = G.EPAISSEURS.liaison * ech;
+    const milieu = (xd1 + xd2) / 2;
+    out.push(ligne(xd1, yNolet + patte, xd1, yNolet, epTrait));
+    out.push(ligne(xd1, yNolet, milieu - marge, yNolet, epTrait));
+    out.push(ligne(milieu + marge, yNolet, xd2, yNolet, epTrait));
+    out.push(ligne(xd2, yNolet, xd2, yNolet + patte, epTrait));
+
+    return (d2 + demi * ech) - x;
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1438,7 +1550,14 @@ function poserMesure(out, ancrages, partition, m, ctx) {
             poses.push(pose);
             ancrages.evenements.push({
                 mesure: m.index, voix: iVoix, evenement: iEvenement, ref,
-                x: xNote, xDebut: xDebutEvt, xFin: xFinEvt, yPortee, yTab, hauteurTab,
+                x: xNote, xDebut: xDebutEvt, xFin: xFinEvt, yPortee, hauteurTab,
+                // `yTab` ABSENT quand il n'y a pas de tablature (`avecTab: false`, voir mettreEnPage) —
+                // exactement comme le fait le piano (voir poserMesurePiano, `yTab: undefined`). C'est
+                // ce champ que main.js#marquesCurseur interroge pour décider de tracer le trait « sur
+                // quelle corde » : le laisser renseigné dessinerait ce trait dans le vide, sous une
+                // portée qui n'a pas de corde. `cordes` vaut 0 dans ce cas précis, et seulement
+                // celui-là — on s'appuie sur le signal qui existe déjà plutôt que d'en ajouter un.
+                ...(cordes > 0 ? { yTab } : {}),
                 // Générique entre les deux mises en page (voir son pendant piano dans
                 // poserMesurePiano) : bas de la grille de notation, que main.js peut lire pour le
                 // curseur/la tête de lecture SANS savoir s'il existe une TAB sous cette portée.
@@ -2029,7 +2148,15 @@ function poserLiaisons(out, poses, S, ST) {
                 ? nb.yPortee < na.yPortee
                 : (nb.note.frette ?? 0) > (na.note.frette ?? 0);
 
-            if (ST != null) {
+            // LA CONDITION PORTE SUR `yTab`, ET NON SUR `ST` — corrigé après un banc rouge. `ST`
+            // (l'interligne de tablature) est TOUJOURS défini sur le chemin guitare/basse, même quand
+            // il n'y a pas de tablature à dessiner (`avecTab: false`, voir mettreEnPage) ; il ne dit
+            // donc rien de l'existence d'une TAB. Ce qui la dit, c'est l'ordonnée des notes dessus :
+            // sans tablature, `poserEvenement` range ses notes SANS `yTab` (voir le garde
+            // `ctx.cordes > 0`), et le calcul sortait « M NaN NaN C NaN… » — un chemin SVG invalide,
+            // que le navigateur refusait en console. Le piano passait, lui, parce que son appelant met
+            // `ST` à `undefined` ; l'aide rythmique, non.
+            if (na.yTab != null && nb.yTab != null && ST != null) {
                 const x1 = a.x + na.demiLargeurTab, x2 = b.x - nb.demiLargeurTab;
                 if (glisse) {
                     // LE TRAIT OBLIQUE, entre les deux chiffres, montant ou descendant selon le sens

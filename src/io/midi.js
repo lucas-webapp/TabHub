@@ -11,7 +11,8 @@
 // FORMAT 0 (une seule piste) : TabHub ne connaît qu'un instrument par fichier — inutile d'écrire
 // plusieurs pistes que rien, ici, ne distingue.
 
-import { aplatir, hauteurDeNote, positionDebutMesure, signatureEffective, sectionsDe, creerPartition, creerMesure, creerEvenement, creerNote, figuresPour, normaliser } from '../model/score.js';
+import { aplatir, hauteurDeNote, positionDebutMesure, signatureEffective, sectionsDe, creerPartition, creerMesure, creerEvenement, creerNote, figuresPour, normaliser,
+         grilleTernaire, sonneDepuisEcrit } from '../model/score.js';
 import { noiresParMesure } from '../model/duration.js';
 import { INSTRUMENTS, hauteurDeCase, accordageParDefaut } from '../model/instruments.js';
 import { nomDeFichierSur, nomDuMorceau, telecharger } from './json.js';
@@ -91,6 +92,15 @@ export function genererMidi(partition, options = {}) {
         for (let k = 0; k + 1 < liste.length; k++) suivantMemeVoix.set(liste[k], liste[k + 1]);
     }
 
+    // LE TERNAIRE : une convention de lecture du morceau (voir model/score.js, `meta.ternaire`), pas
+    // une propriété d'une mesure — mais l'unité de temps, elle, se prend MESURE PAR MESURE, et c'est
+    // `grilleTernaire` qui s'en charge. La grille est celle de la partition ENTIÈRE, pas du seul
+    // extrait exporté : ses positions sont les positions écrites globales, exactement celles que
+    // porte `entree.debut` (voir aplatir), et `decalageTic` ci-dessous ramène ensuite l'extrait à
+    // zéro. La MÊME grille que la lecture audio (audio/player.js) : ce que l'utilisateur entend dans
+    // TabHub et ce que joue son DAW doivent être le même rythme, au tic près.
+    const grille = grilleTernaire(partition);
+
     // --- Évènements de note, en tics ABSOLUS (triés puis convertis en delta plus bas) ------------
     const evenements = [];   // { tic, estDebut, canal: 0, hauteur, vitesse }
     const consommees = new Set();
@@ -123,8 +133,18 @@ export function genererMidi(partition, options = {}) {
             let vitesse = evt.accent ? 116 : 88;
             if (note.ghost) vitesse = 32;
 
-            const debutTic = Math.round(entree.debut * PPQ) - decalageTic;
-            const finTic = Math.max(debutTic + 1, Math.round((entree.debut + sonnante) * PPQ) - decalageTic);
+            // LECTURE TERNAIRE : le temps ÉCRIT n'est plus le temps SONNÉ (voir
+            // model/duration.js#positionTernaire et model/score.js `meta.ternaire`). On transforme la
+            // POSITION de début et celle de fin — jamais la durée seule : une croche ne vaut pas une
+            // durée fixe en ternaire, elle vaut deux tiers de temps sur le temps et un tiers entre
+            // deux. C'est sa place qui décide.
+            //
+            // ET C'EST BIEN ICI QUE ÇA SE FAIT, pas dans le modèle : le .json garde l'écriture droite,
+            // c'est tout l'intérêt de la convention. Seule la sortie est ternarisée.
+            const debutSonne = sonneDepuisEcrit(grille, entree.debut);
+            const finSonnee = sonneDepuisEcrit(grille, entree.debut + sonnante);
+            const debutTic = Math.round(debutSonne * PPQ) - decalageTic;
+            const finTic = Math.max(debutTic + 1, Math.round(finSonnee * PPQ) - decalageTic);
             evenements.push({ tic: debutTic, estDebut: true, hauteur: midi, vitesse });
             evenements.push({ tic: finTic, estDebut: false, hauteur: midi, vitesse: 0 });
         }

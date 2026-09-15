@@ -72,3 +72,68 @@ export function uniteDeGroupement(signature) {
 // PLUS DE `nomDeDuree` ICI (audit) : personne ne l'appelait. Les libellés de figures que voit
 // l'utilisateur (« Ronde », « Blanche »…) sont posés par edit/raccourcis.js, là où chaque durée a
 // déjà son bouton et sa touche.
+
+// ---------------------------------------------------------------------------------------------
+// LECTURE TERNAIRE (« swing ») — voir model/score.js, `meta.ternaire` et `grilleTernaire`
+//
+// LA CONVENTION. Une partition de jazz ou de variété écrit des croches DROITES et prévient en tête
+// que deux croches se lisent longue-brève : la première prend les deux tiers du temps, la seconde le
+// tiers restant. C'est ce que demandait l'utilisateur (« un système classique, qui permet de dire
+// croche=triolet, et ainsi écrire de façon ternaire ? Les portées classiques le font »). L'autre voie
+// — un triolet gravé sur chaque temps — est illisible sur un morceau entier, et fausse le comptage à
+// la moindre correction.
+//
+// CE QUE ÇA IMPLIQUE, ET C'EST LE POINT DÉLICAT : le temps ÉCRIT cesse d'égaler le temps SONNÉ. Tout
+// ce qui convertit l'un en l'autre doit passer par ici — l'audio (audio/player.js) et l'export MIDI
+// (io/midi.js) — et tout ce qui fait le chemin INVERSE, c'est-à-dire situer sur la partition un
+// instant entendu (la tête de lecture), doit passer par la fonction réciproque.
+//
+// CES DEUX FONCTIONS NE CONNAISSENT QU'UN TEMPS ET SA DURÉE : « où sont les temps dans ce morceau »
+// est une autre question, qui a besoin des mesures sous les yeux, et c'est score.js#grilleTernaire
+// qui y répond. La séparation est volontaire — l'arithmétique d'un côté, la partition de l'autre.
+//
+// UNE APPLICATION LINÉAIRE PAR MORCEAUX, continue et strictement croissante : c'est ce qui garantit
+// que la réciproque existe et qu'aucune note ne peut se retrouver derrière celle qui la précède.
+// ---------------------------------------------------------------------------------------------
+
+/** La part du temps qu'occupe la PREMIÈRE des deux croches écrites. Deux tiers : le swing « triolet »,
+ *  celui que note « ♪♪ = ♪ ♪ » et que joue la quasi-totalité du répertoire. */
+const PART_LONGUE = 2 / 3;
+
+/**
+ * Position SONNÉE d'une position ÉCRITE, comptée depuis le début du TEMPS où elle se trouve.
+ * @param {number} noires position écrite, en noires.
+ * @param {number} unite durée d'un temps en noires (voir uniteDeGroupement). Zéro ou absente : la
+ *   position revient inchangée — c'est ainsi qu'une mesure qui ne swingue pas traverse la conversion
+ *   sans qu'aucun appelant ait de cas particulier à écrire (voir score.js#grilleTernaire).
+ */
+export function positionTernaire(noires, unite) {
+    if (!(unite > 0) || !Number.isFinite(noires)) return noires;
+    const temps = Math.floor(noires / unite + 1e-9);
+    const dans = noires - temps * unite;             // 0 .. unite
+    const demi = unite / 2;
+    const r = dans / demi;                            // 0 .. 2, en demi-temps écrits
+    // Première moitié écrite -> elle s'étire jusqu'à PART_LONGUE du temps ; seconde moitié -> le reste.
+    const etire = r <= 1
+        ? r * (PART_LONGUE * 2)
+        : (PART_LONGUE * 2) + (r - 1) * ((1 - PART_LONGUE) * 2);
+    return temps * unite + etire * demi;
+}
+
+/**
+ * La RÉCIPROQUE : position écrite d'une position sonnée. C'est elle qui permet à la tête de lecture
+ * de rester sur la bonne colonne quand le morceau est joué ternaire — sans elle, l'image dériverait
+ * du son d'un sixième de temps à chaque contretemps, ce qui est pire que pas de ternaire du tout.
+ */
+export function positionDepuisTernaire(sonne, unite) {
+    if (!(unite > 0) || !Number.isFinite(sonne)) return sonne;
+    const temps = Math.floor(sonne / unite + 1e-9);
+    const dans = sonne - temps * unite;
+    const demi = unite / 2;
+    const r = dans / demi;                            // 0 .. 2, en demi-temps SONNÉS
+    const seuil = PART_LONGUE * 2;                    // où tombe la seconde croche écrite
+    const ecrit = r <= seuil
+        ? r / (PART_LONGUE * 2)
+        : 1 + (r - seuil) / ((1 - PART_LONGUE) * 2);
+    return temps * unite + ecrit * demi;
+}

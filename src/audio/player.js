@@ -10,7 +10,8 @@
 // minuterie parallèle, il lit la position réelle du transport audio. Les deux ne peuvent pas diverger.
 
 import { midiVersNomTone } from '../model/theory.js';
-import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, positionDebutMesure } from '../model/score.js';
+import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, positionDebutMesure,
+         grilleTernaire, sonneDepuisEcrit, ecritDepuisSonne } from '../model/score.js';
 import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
 
 /** Réduction du volume par rapport au 0 dB de Tone.js : une polyphonie à six voix sature vite. */
@@ -60,6 +61,10 @@ export class Lecteur {
         this.auditeurs = new Set();
         this._boucleAnim = null;
         this._evenements = [];
+        // Grille des temps pour la lecture ternaire, posée par `programmer` (voir là-bas) et lue par
+        // la tête de lecture à chaque image. `null` = morceau binaire, et les conversions sont alors
+        // l'identité : c'est l'état de départ, celui d'une partition qu'on n'a pas encore programmée.
+        this._grilleTernaire = null;
         // Métronome pendant la lecture — voir HarmoHub (METRONOME_KEY/METRONOME_SUBDIVISION_KEY) :
         // désactivé par défaut dans les deux cas, une préférence explicite, pas un bruit permanent
         // qu'il faudrait couper à chaque lancement. La persistance (localStorage) est du ressort de
@@ -259,6 +264,13 @@ export class Lecteur {
 
         const plat = aplatir(partition);
         this.duree = dureeTotale(partition);
+        // LA GRILLE TERNAIRE (voir model/score.js#grilleTernaire) : `null` sur un morceau binaire, et
+        // les deux conversions ci-dessous deviennent alors l'identité. Reconstruite à CHAQUE
+        // programmation, jamais retenue : cocher « ternaire » ou changer une signature passe par
+        // `reprogrammerSiEnCours`, donc par ici — une grille mise en cache se serait tue.
+        // Elle survit à la programmation parce que la TÊTE DE LECTURE en a besoin à chaque image
+        // (voir _suivre), bien après que programmer() a rendu la main.
+        this._grilleTernaire = grilleTernaire(partition);
         const consommees = new Set();
         this._evenements = [];
 
@@ -378,7 +390,15 @@ export class Lecteur {
         // tout — la partition et ce qu'on entend — sans qu'il y ait rien à reprogrammer.
         const PPQ = Tone.Transport.PPQ;
         for (const e of this._evenements) {
-            const ticksDuree = Math.max(1, Math.round(e.duree * PPQ));
+            // LECTURE TERNAIRE : le temps ÉCRIT n'est plus le temps SONNÉ. On transforme la POSITION
+            // de début ET celle de fin, jamais la durée seule — une croche ne vaut pas une durée fixe
+            // en ternaire : deux tiers de temps si elle tombe sur le temps, un tiers si elle tombe
+            // entre deux. C'est sa place qui décide, d'où ce calcul par différence. Rigoureusement le
+            // même calcul qu'à l'export MIDI (io/midi.js), sur la même grille : ce que l'utilisateur
+            // entend ici et ce que joue son DAW doivent être le même rythme.
+            const debutSonne = sonneDepuisEcrit(this._grilleTernaire, e.debut);
+            const finSonnee = sonneDepuisEcrit(this._grilleTernaire, e.debut + e.duree);
+            const ticksDuree = Math.max(1, Math.round((finSonnee - debutSonne) * PPQ));
             Tone.Transport.schedule((temps) => {
                 // La DURÉE, elle, doit bien être en secondes au moment du déclenchement : on la
                 // convertit ici, donc au tempo courant, et non à celui d'il y a une minute.
@@ -386,7 +406,7 @@ export class Lecteur {
                 if (e.bend) this._jouerBend(e, secondes, temps);
                 else if (e.glisse) this._jouerSlide(e, ticksDuree, temps);
                 else this.synthe.triggerAttackRelease(e.note, secondes, temps, e.velocite);
-            }, `${Math.round(e.debut * PPQ)}i`);
+            }, `${Math.round(debutSonne * PPQ)}i`);
         }
 
         if (this.metronomeActif) this._programmerMetronome(partition, PPQ);
@@ -515,7 +535,11 @@ export class Lecteur {
                     const instant = debutMesure + t * unite + s * (unite / parTemps);
                     const accent = t === 0 && s === 0;
                     const sub = s > 0;
-                    const ticks = Math.round(instant * PPQ);
+                    // LE MÉTRONOME SWINGUE AVEC LA MUSIQUE, sinon son clic de contretemps taperait
+                    // au milieu du temps quand la musique joue aux deux tiers — deux pulsations
+                    // concurrentes, et le repère devient un piège. Les clics de TEMPS, eux, ne
+                    // bougent pas : une borne de temps est un point fixe de la transformation.
+                    const ticks = Math.round(sonneDepuisEcrit(this._grilleTernaire, instant) * PPQ);
                     Tone.Transport.schedule((temps) => {
                         try { this._clicMetronome(accent, temps, sub); } catch (e) { /* ignoré, comme une note manquée */ }
                     }, `${ticks}i`);
@@ -676,7 +700,11 @@ export class Lecteur {
         const vraiDepart = this.etat === 'arret' || depuis !== null;
         if (vraiDepart) {
             this.programmer(partition);
-            Tone.Transport.ticks = Math.round((depuis ?? 0) * Tone.Transport.PPQ);
+            // `depuis` est une position ÉCRITE (un début de mesure, voir main.js) : l'horloge, elle,
+            // compte le temps sonné. La conversion est l'identité sur une borne de mesure — mais
+            // c'est elle qui fait qu'un départ posé AILLEURS (au milieu d'un temps) tombe au bon
+            // endroit du son, plutôt qu'un tiers de temps trop tôt.
+            Tone.Transport.ticks = Math.round(sonneDepuisEcrit(this._grilleTernaire, depuis ?? 0) * Tone.Transport.PPQ);
         }
         // `start(quand)` diffère le départ du transport à cet instant de l'horloge audio, sans rien
         // changer à ce qui y est programmé : pendant le décompte, les tics restent à leur place et la
@@ -737,7 +765,13 @@ export class Lecteur {
             if (this.etat !== 'lecture') return;
             // Position lue en TICS puis convertie en noires : exacte quel que soit le tempo, et
             // insensible à un changement de tempo en cours de route.
-            this.position = Tone.Transport.ticks / Tone.Transport.PPQ;
+            //
+            // PUIS RAMENÉE AU TEMPS ÉCRIT : l'horloge compte le temps SONNÉ, la partition affiche le
+            // temps ÉCRIT, et sur un morceau swingué les deux ne coïncident plus qu'aux bornes de
+            // temps. Sans cette réciproque, la tête de lecture avancerait en retard d'un tiers de
+            // temps sur chaque contretemps — visible à l'œil nu, et pire que pas de ternaire du tout.
+            const sonne = Tone.Transport.ticks / Tone.Transport.PPQ;
+            this.position = ecritDepuisSonne(this._grilleTernaire, sonne);
             this._prevenir();
             this._boucleAnim = requestAnimationFrame(tic);
         };
