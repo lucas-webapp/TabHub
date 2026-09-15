@@ -564,10 +564,6 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 /* Curseur d'édition : un bandeau vertical translucide sur toute la hauteur du système, plus un
    soulignement franc sur la corde visée. Le bandeau dit « où dans le temps », le soulignement
    « sur quelle corde » — deux informations distinctes, deux marques distinctes. */
-.marque-curseur { fill: var(--curseur-halo); }
-.marque-curseur-corde { fill: var(--curseur); }
-.marque-lecture { fill: var(--lecture-halo); }
-.trait-lecture { stroke: var(--lecture); }
 
 /* ============================================================
    TRANSPORT
@@ -797,7 +793,6 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    tactile où le réglage ne voudrait rien dire. */
 .ligne-champ[hidden] { display: none; }
 
-.texte-discret { margin: 0 0 8px; font-size: var(--fs-sm); color: var(--text-muted); }
 
 /* Curseur de volume (Réglages > Son) : étiquette + valeur au-dessus, glissière en dessous — comme
    HarmoHub, dont ce panneau reprend le principe. */
@@ -1059,7 +1054,6 @@ body.avec-pave .dpad-flottant { display: grid; }
     border-color: var(--btn-green-border); color: var(--btn-text);
 }
 .btn-pave-large { flex: 0 0 auto; font-size: var(--fs-sm); font-weight: 600; }
-.separateur-pave { width: 1px; align-self: stretch; background: var(--border); margin: 4px 4px; }
 .etat-pave {
     margin-left: auto; padding-right: 4px;
     font-size: var(--fs-xs); font-weight: 600; color: var(--text-muted);
@@ -1125,8 +1119,10 @@ body.avec-pave .dpad-flottant { display: grid; }
        « San » et la moitié du « s » suivant, ce qui se lit comme un sigle sans le moindre sens. Un
        champ de saisie qui ne peut afficher que trois lettres coupées n'informe pas : il inquiète.
        Il reste dans la barre dès 721px, où il a la place de dire le titre en entier ; sur téléphone,
-       il se nomme désormais dans Réglages > Morceau (voir index.html, #champ-titre-morceau), avec le
-       sous-titre et l'artiste — l'endroit où l'on décrit son morceau, plutôt qu'un coin d'écran. */
+       on le nomme en touchant le titre GRAVÉ au-dessus de la portée, ce qui ouvre le panneau d'en-tête
+       (titre, sous-titre, artiste — voir main.js#ouvrirEditeurEnTete). Ce commentaire renvoyait
+       auparavant à Réglages > Morceau ; cette rubrique a été retirée à l'audit, elle faisait doublon
+       avec ce panneau-là, vérifié atteignable au doigt jusqu'à 320px. */
     .titre-morceau { display: none; }
     .barre-haut { gap: 4px; padding: 0 8px; }
     .zone-partition { padding: 10px 8px 40px; }
@@ -1459,3 +1455,25 @@ body.avec-pave .dpad-flottant { display: grid; }
     .version-texte { flex: 1 1 100%; }
     .ligne-version > .btn-neutre { flex: 1 1 auto; }
 }
+
+/* AIDE : SANS OBJET AU DOIGT (retour utilisateur, après audit). Cette fenêtre ne contient QUE des
+   raccourcis CLAVIER — mesuré : 46 lignes, « 0…9 Poser une case », « Espace Lecture / pause »,
+   « Échap Arrêter ». Sur un téléphone, rien là-dedans n'est actionnable : c'est une fenêtre qu'on
+   ouvre, qu'on lit, et qu'on referme sans avoir rien pu faire.
+   `(pointer: coarse)` ET NON une largeur : la question est « ce doigt a-t-il un clavier ? », pas
+   « cet écran est-il étroit ». Une fenêtre de navigateur rétrécie sur un ordinateur garde son
+   clavier, et doit garder son aide — c'est la même distinction que main.js#appareilTactile, posée par
+   la même media query. Un ordinateur à écran tactile perdrait le bouton à tort ; le raccourci `?`
+   continue d'ouvrir la fenêtre, et c'est justement un clavier qui le tape. */
+@media (pointer: coarse) {
+    #btn-aide { display: none; }
+}
+
+/* ---------------------------------------------------------------------------------------------
+   Rien à voir ci-dessous : les règles qui ne s'appliquaient plus à rien ont été retirées (audit) —
+   `.marque-curseur`, `.marque-curseur-corde`, `.marque-lecture` et `.trait-lecture` datent d'une
+   époque où le curseur et la tête de lecture étaient stylés PAR CLASSE ; ils le sont depuis par
+   couleur directe dans la primitive (voir main.js, `couleur: 'var(--curseur-halo)'`), et la feuille
+   de style n'a plus rien à en dire. `.separateur-pave` et `.texte-discret` ne sont posées par aucun
+   balisage ni aucun module.
+   --------------------------------------------------------------------------------------------- */

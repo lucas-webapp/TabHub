@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609151032">
+    <link rel="stylesheet" href="style.css?v=202609151439">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -268,16 +268,20 @@
             <span class="pousse"></span>
             <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
         </div>
-        <!-- LES RÉGLAGES, TRIÉS EN CINQ GROUPES, dans cet ordre : Morceau, Instrument, Son, Affichage,
+        <!-- LES RÉGLAGES, TRIÉS EN QUATRE GROUPES, dans cet ordre : Instrument, Son, Affichage,
              Fichiers (retour utilisateur : « comme pour HarmoHub, les paramètres vont petit à petit
              être renforcés. Il faut bien trier les paramètres liés au son, à la gestion des fichiers,
              et à l'affichage de la façon la plus cohérente possible »).
 
-             L'ORDRE VA DU MORCEAU VERS L'APPLI : ce qu'on écrit (Morceau), avec quoi (Instrument),
-             comment ça sonne (Son), comment ça s'affiche (Affichage), comment ça se garde (Fichiers).
-             Morceau passe donc en tête, où vivait Instrument — c'est l'ordre de HarmoHub, et c'est
-             aussi la question qu'on se pose en premier en ouvrant un panneau de réglages : « de quel
-             morceau parle-t-on ? ».
+             L'ORDRE VA DU MORCEAU VERS L'APPLI : avec quoi on joue (Instrument), comment ça sonne
+             (Son), comment ça s'affiche (Affichage), comment ça se garde (Fichiers).
+
+             IL Y AVAIT UN CINQUIÈME GROUPE, « Morceau » (titre, sous-titre, artiste), placé en tête
+             parce que « de quel morceau parle-t-on ? » est la première question qu'on se pose en
+             ouvrant un panneau de réglages. Il est parti à l'audit : ces trois champs faisaient
+             DOUBLON avec l'éditeur d'en-tête de la partition, où l'utilisateur avait demandé à les
+             trouver. La première question garde donc sa réponse — mais sur la partition, là où le
+             titre se lit, et non dans un panneau où il fallait aller le chercher.
 
              PAS D'ONGLETS, une seule colonne qui défile — la leçon déjà tirée dans HarmoHub (retour
              utilisateur là-bas : « j'aime bien la présentation en onglets, mais vu qu'il y a peu de
@@ -294,40 +298,27 @@
              options se recroisent »). Le groupe Fichiers ci-dessous ne dit donc que ce qui PERSISTE
              entre deux exports. -->
         <div class="fenetre-corps">
-<div class="rubrique">
-                <h3>Morceau</h3>
-                <!-- LE TITRE VIT ICI, et non plus dans la barre du haut (retour utilisateur : « peux-tu
-                     enlever l'écriture SAR en haut à droite de l'appli ? ») — sur un téléphone, ce
-                     champ y était réduit à 49px et n'affichait que les trois premières lettres du
-                     titre, coupées en plein milieu d'un mot : un bout de texte incompréhensible plutôt
-                     qu'une information. Il reste dans la barre sur grand écran, où il a la place de
-                     dire le titre en entier (voir style.css, .titre-morceau).
-                     AUCUN EXEMPLE en filigrane (retour : « peux-tu enlever les exemples pour le titre
-                     et l'artiste ») : « ex. Fernando Sor » se lisait comme une valeur déjà saisie le
-                     temps de comprendre que non, et n'apprenait rien que l'étiquette ne dise déjà. -->
-                <div class="ligne-champ">
-                    <label for="champ-titre-morceau">Titre</label>
-                    <input type="text" id="champ-titre-morceau" class="champ">
-                </div>
-                <!-- Sous-titre LIBRE (retour : « peux-tu ajouter un sous-titre libre pour alimenter en
-                     informations le morceau ») : arrangement, tonalité d'origine, source, capo, niveau…
-                     La partition l'affiche sous le titre (voir engine/layout.js), en plus petit. -->
-                <div class="ligne-champ">
-                    <label for="champ-sous-titre">Sous-titre</label>
-                    <input type="text" id="champ-sous-titre" class="champ">
-                </div>
-                <div class="ligne-champ">
-                    <label for="champ-artiste">Artiste</label>
-                    <input type="text" id="champ-artiste" class="champ">
-                </div>
-            </div>
+<!-- PLUS DE RUBRIQUE « MORCEAU » ICI (retour utilisateur, après audit : titre, sous-titre et artiste
+     y faisaient DOUBLON avec l'éditeur d'en-tête de la partition). Ces trois champs se modifient là
+     où ils se LISENT : on touche le titre gravé au-dessus de la portée et le panneau s'ouvre (voir
+     main.js#ouvrirEditeurEnTete) — ce que l'utilisateur avait lui-même demandé (« permets-moi de
+     modifier titre / sous-titre / artiste au niveau du titre au-dessus de la portée directement »).
+     Un commentaire d'époque justifiait le doublon par le téléphone : le champ titre de la BARRE DU
+     HAUT y étant masqué faute de place, celui des Réglages restait « le seul moyen de nommer son
+     morceau ». Cette raison a disparu deux fois — le champ de la barre du haut a été retiré depuis
+     (voir plus haut), et l'éditeur d'en-tête a été VÉRIFIÉ au doigt : à 390px comme à 320px, une
+     frappe sur le titre ouvre le panneau et ses trois champs, entièrement dans l'écran. -->
 <div class="rubrique">
                 <h3>Instrument</h3>
                 <div class="ligne-champ">
                     <label for="champ-instrument">Instrument</label>
                     <select id="champ-instrument" class="champ"></select>
                 </div>
-                <div class="ligne-champ">
+                <!-- MASQUÉE AU PIANO (voir main.js#remplirReglages) : un clavier n'a pas de cordes,
+                     donc pas d'accordage. La règle existait déjà pour « TAB seule » et le pavé
+                     tactile ; ces deux lignes-ci y avaient échappé — trouvé à l'audit, en mesurant
+                     ce que les Réglages montrent vraiment quand l'instrument est un piano. -->
+                <div class="ligne-champ" id="ligne-accordage">
                     <label for="champ-accordage">Accordage</label>
                     <select id="champ-accordage" class="champ"></select>
                 </div>
@@ -336,7 +327,7 @@
                      réfléchir à chaque ouverture, sans les rendre plus difficiles à atteindre qu'un
                      clic. Un <details> natif : aucun état à mémoriser, toujours refermé à l'ouverture
                      suivante des Réglages. -->
-                <details class="repli-avance">
+                <details class="repli-avance" id="repli-instrument-avance">
                     <summary>Options avancées</summary>
                     <div class="repli-avance-corps">
                         <div class="ligne-champ">
@@ -738,6 +729,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609151032"></script>
+<script type="module" src="src/main.js?v=202609151439"></script>
 </body>
 </html>

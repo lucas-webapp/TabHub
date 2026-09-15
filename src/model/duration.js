@@ -69,13 +69,6 @@ export function uniteDeGroupement(signature) {
     return 1;
 }
 
-/** Libellé court pour l'interface et les infobulles. */
-export function nomDeDuree(duree) {
-    const f = FIGURES.find(f => f.valeur === (duree?.valeur ?? 4));
-    let nom = f ? f.nom : '?';
-    const points = duree?.points || 0;
-    if (points === 1) nom += ' pointée';
-    else if (points > 1) nom += ` ${points} points`;
-    if (duree?.nolet) nom += duree.nolet.dans === 3 && duree.nolet.valent === 2 ? ' (triolet)' : ` (${duree.nolet.dans}:${duree.nolet.valent})`;
-    return nom;
-}
+// PLUS DE `nomDeDuree` ICI (audit) : personne ne l'appelait. Les libellés de figures que voit
+// l'utilisateur (« Ronde », « Blanche »…) sont posés par edit/raccourcis.js, là où chaque durée a
+// déjà son bouton et sa touche.

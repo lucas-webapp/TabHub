@@ -2802,20 +2802,10 @@ class TabHubApp {
             sel.onchange = () => this.editeur.definirCorde(parseInt(sel.dataset.corde, 10), parseInt(sel.value, 10));
         }
 
-        // Le TITRE, ici comme dans la barre du haut : DEUX champs pour une seule valeur (meta.titre).
-        // Ils ne peuvent pas diverger — chacun écrit dans le modèle, et `surChangementEditeur` remet
-        // l'autre à jour au prochain rendu (voir dessiner, raison 'meta'). Sur téléphone, celui de la
-        // barre du haut est masqué faute de place : ce champ-ci est alors le SEUL moyen de nommer son
-        // morceau, d'où sa présence en tête de la rubrique plutôt qu'en appoint.
-        const titre = document.getElementById('champ-titre-morceau');
-        const sousTitre = document.getElementById('champ-sous-titre');
-        const artiste = document.getElementById('champ-artiste');
-        titre.value = this.editeur.partition.meta.titre || '';
-        sousTitre.value = this.editeur.partition.meta.sousTitre || '';
-        artiste.value = this.editeur.partition.meta.artiste || '';
-        titre.oninput = () => this.editeur.definirMeta('titre', titre.value);
-        sousTitre.oninput = () => this.editeur.definirMeta('sousTitre', sousTitre.value);
-        artiste.oninput = () => this.editeur.definirMeta('artiste', artiste.value);
+        // TITRE, SOUS-TITRE, ARTISTE NE SONT PLUS ICI : voir index.html, là où se trouvait la
+        // rubrique « Morceau ». Ils se modifient sur la partition, au panneau d'en-tête
+        // (ouvrirEditeurEnTete) — un seul chemin, donc plus de valeur à tenir synchronisée en deux
+        // endroits.
 
         // Préférence d'AFFICHAGE, pas de contenu musical (voir `positionnerOutils`) : ne dépend pas
         // de la partition, mais se remet à jour ici comme le reste du panneau, par simplicité.
@@ -2854,9 +2844,20 @@ class TabHubApp {
         }
         this.rafraichirEtatVersions();
 
+        // ACCORDAGE ET OPTIONS AVANCÉES : SANS OBJET AU PIANO. Un clavier n'a ni corde à accorder,
+        // ni case où poser un capodastre — et la grille corde par corde, dans le repli, n'a rien à
+        // montrer. Le même traitement que « TAB seule » et le pavé tactile juste en dessous : on
+        // masque plutôt que d'exposer des commandes qui ne feraient jamais rien. (Trouvé à l'audit :
+        // ces deux-là étaient restées visibles, alors que les deux autres se masquaient déjà.)
+        const clavier = piste.instrument === 'piano';
+        const ligneAccordage = document.getElementById('ligne-accordage');
+        const repliAvance = document.getElementById('repli-instrument-avance');
+        if (ligneAccordage) ligneAccordage.hidden = clavier;
+        if (repliAvance) repliAvance.hidden = clavier;
+
         const ligneTabSeule = document.getElementById('ligne-tab-seule');
         const btnTabSeule = document.getElementById('champ-tab-seule');
-        ligneTabSeule.hidden = piste.instrument === 'piano';
+        ligneTabSeule.hidden = clavier;   // `clavier`, calculé juste au-dessus : une seule expression de l'idée
         if (!ligneTabSeule.hidden) {
             btnTabSeule.setAttribute('aria-checked', String(this.tabSeule));
             btnTabSeule.onclick = () => {

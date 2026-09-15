@@ -227,6 +227,12 @@ Sur téléphone, les deux se replient derrière le même bouton « Affichage » 
 gabarit tactile réclament 88 px là où la barre en a 47 de libre. Le popover reste ouvert d'un cran au
 suivant, ce qu'un bouton de barre n'aurait pas permis.
 
+**Titre, sous-titre et artiste se modifient sur la partition**, là où ils se lisent : on touche le
+titre gravé au-dessus de la portée et un panneau propose les trois champs. Un seul chemin — les
+Réglages en portaient une seconde copie, retirée à l'audit. Deux champs pour une même valeur, c'est
+une vérité de trop, et le chemin qui reste a été vérifié au doigt (à 390 px comme à 320 px, le
+panneau et ses trois champs tiennent entièrement dans l'écran).
+
 ### Instruments et accordages
 
 Guitare 6 cordes, basse 4 cordes, basse 5 cordes. Accordage standard par instrument, accordages

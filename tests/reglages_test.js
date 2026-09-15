@@ -21,7 +21,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('réglages');
 
 (async () => {
-    plan(28);
+    plan(40);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('#btn-reglages');
@@ -177,31 +177,61 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
         await page.click('[data-fermer]');
         await page.waitForTimeout(100);
 
-        // --- 7. Morceau : Titre, Sous-titre libre, Artiste — et aucun exemple en filigrane ----------
-        // Retours utilisateur : « enlever les exemples pour le titre et l'artiste », « remplacer
-        // sous-titre par titre », « ajouter un sous-titre libre pour alimenter en informations le
-        // morceau ». Un exemple grisé (« ex. Fernando Sor ») se lit comme une valeur DÉJÀ saisie le
-        // temps de comprendre que non, et n'apprend rien que l'étiquette ne dise déjà.
+        // --- 7. « MORCEAU » A QUITTÉ LES RÉGLAGES : un seul chemin pour nommer le morceau ----------
+        // Retour utilisateur, après audit : titre, sous-titre et artiste y faisaient DOUBLON avec
+        // l'éditeur d'en-tête de la partition — ce que l'utilisateur avait lui-même demandé
+        // (« permets-moi de modifier titre / sous-titre / artiste au niveau du titre au-dessus de la
+        // portée directement »). Ce banc protège les deux moitiés du ménage : la rubrique est partie,
+        // ET le chemin qui reste fonctionne à la largeur d'un téléphone.
+        //
+        // UN COMMENTAIRE D'ÉPOQUE DÉFENDAIT LE DOUBLON, et c'est pourquoi la vérification suivante
+        // existe : le champ des Réglages était, disait-il, « le SEUL moyen de nommer son morceau » sur
+        // téléphone, celui de la barre du haut y étant masqué faute de place. La raison a disparu deux
+        // fois — ce champ de la barre du haut a été retiré depuis (voir le point 8), et l'éditeur
+        // d'en-tête répond au doigt. On le MESURE plutôt que de le supposer.
         await page.setViewportSize({ width: 390, height: 844 });
         await page.waitForTimeout(150);
         await page.click('#btn-reglages');
-        await page.waitForTimeout(200);
-        const morceau = await page.evaluate(() => {
-            const r = [...document.querySelectorAll('.rubrique')].find(x => x.querySelector('h3')?.textContent === 'Morceau');
-            return [...r.querySelectorAll('.ligne-champ')].map(l => ({
-                etiquette: l.querySelector('label').textContent,
-                id: l.querySelector('input').id,
-                exemple: l.querySelector('input').placeholder,
-            }));
-        });
-        exiger(morceau.map(c => c.etiquette).join(',') === 'Titre,Sous-titre,Artiste',
-            'Réglages > Morceau propose Titre, Sous-titre et Artiste, dans cet ordre');
-        check(morceau.every(c => !c.exemple), 'et AUCUN exemple en filigrane dans ces champs');
+        await page.waitForTimeout(250);
+        const rubriques = await page.evaluate(() =>
+            [...document.querySelectorAll('#fenetre-reglages h3')].map(h => h.textContent));
+        check(!rubriques.includes('Morceau'),
+            `les Réglages ne portent plus de rubrique « Morceau » (${rubriques.join(' / ')})`);
+        check(await page.evaluate(() => !document.getElementById('champ-titre-morceau')
+              && !document.getElementById('champ-sous-titre') && !document.getElementById('champ-artiste')),
+            'et les trois champs ont bien DISPARU du document — pas seulement été masqués, ce qui aurait laissé deux vérités pour une valeur');
+        await page.click('#fenetre-reglages [data-fermer]');
+        await page.waitForTimeout(150);
 
-        // Le titre saisi ici arrive vraiment sur la partition — c'est le SEUL endroit où le nommer
-        // sur téléphone (voir le point 8 juste en dessous).
-        await page.fill('#champ-titre-morceau', 'Astérie');
-        await page.fill('#champ-sous-titre', 'arrangement, capo II');
+        // LE CHEMIN QUI RESTE, à 390px : une frappe sur le titre gravé ouvre le panneau d'en-tête.
+        const titreGrave = await page.evaluate(() => {
+            const t = [...document.querySelectorAll('#feuille svg text')]
+                .find(e => /Titre|Sans titre/.test(e.textContent || ''));
+            if (!t) return null;
+            const r = t.getBoundingClientRect();
+            return { x: Math.round(r.x + r.width / 2), y: Math.round(r.y + r.height / 2) };
+        });
+        exiger(!!titreGrave, 'préalable : le titre est bien gravé sur la partition, donc visable');
+        await page.mouse.click(titreGrave.x, titreGrave.y);
+        await page.waitForTimeout(400);
+        const enTete = await page.evaluate(() => {
+            const pan = document.getElementById('panneau-en-tete');
+            const dansEcran = (id) => {
+                const e = document.getElementById(id);
+                if (!e || e.offsetParent === null) return false;
+                const r = e.getBoundingClientRect();
+                return r.top >= 0 && r.bottom <= innerHeight && r.left >= 0 && r.right <= innerWidth;
+            };
+            return {
+                ouvert: pan ? !pan.hidden : false,
+                champs: ['champ-en-tete-titre', 'champ-en-tete-sous-titre', 'champ-en-tete-artiste'].map(dansEcran),
+            };
+        });
+        exiger(enTete.ouvert, 'toucher le titre ouvre le panneau d\'en-tête, à 390px comme ailleurs');
+        check(enTete.champs.every(Boolean),
+            'et ses TROIS champs sont entièrement dans l\'écran — pas à moitié sous le bord, là où on ne les atteindrait pas');
+        await page.fill('#champ-en-tete-titre', 'Astérie');
+        await page.fill('#champ-en-tete-sous-titre', 'arrangement, capo II');
         await page.waitForTimeout(400);
         const grave = await page.evaluate(() => ({
             meta: window.app.editeur.partition.meta,
@@ -211,8 +241,41 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
             'ce qu\'on y saisit va bien dans le morceau (meta.titre et meta.sousTitre)');
         check(grave.textes.includes('Astérie') && grave.textes.includes('arrangement, capo II'),
             'et se grave sur la partition, le sous-titre libre sous le titre');
-        await page.click('[data-fermer]');
-        await page.waitForTimeout(100);
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
+
+        // --- 7bis. ACCORDAGE ET CAPODASTRE : SANS OBJET AU PIANO ----------------------------------
+        // Un clavier n'a ni corde à accorder ni case où poser un capodastre. La règle existait déjà
+        // pour « TAB seule » et le pavé tactile ; ces deux lignes-ci y avaient échappé — trouvé en
+        // mesurant ce que les Réglages montrent VRAIMENT quand l'instrument est un piano.
+        await page.setViewportSize({ width: 1320, height: 880 });
+        await page.waitForTimeout(200);
+        const lignesInstrument = async () => {
+            await page.click('#btn-reglages');
+            await page.waitForTimeout(250);
+            const vu = await page.evaluate(() => {
+                const vis = (id) => { const e = document.getElementById(id); return e ? e.offsetParent !== null : null; };
+                return { accordage: vis('ligne-accordage'), avance: vis('repli-instrument-avance'), instrument: vis('champ-instrument') };
+            });
+            await page.click('#fenetre-reglages [data-fermer]');
+            await page.waitForTimeout(150);
+            return vu;
+        };
+        const enGuitare = await lignesInstrument();
+        exiger(enGuitare.accordage === true && enGuitare.avance === true,
+            'préalable : en guitare, Accordage et les options avancées sont bien là');
+        await page.evaluate(() => { window.app.editeur.definirInstrument('piano'); window.app.dessiner(); });
+        await page.waitForTimeout(400);
+        const auPiano = await lignesInstrument();
+        check(auPiano.accordage === false && auPiano.avance === false,
+            'au piano, Accordage et les options avancées (capodastre, corde par corde) sont MASQUÉS — des commandes qui ne feraient jamais rien');
+        check(auPiano.instrument === true,
+            'mais le choix d\'instrument reste, lui : c\'est par là qu\'on revient à la guitare');
+        await page.evaluate(() => { window.app.editeur.definirInstrument('guitare'); window.app.dessiner(); });
+        await page.waitForTimeout(400);
+        const deRetour = await lignesInstrument();
+        check(deRetour.accordage === true && deRetour.avance === true,
+            'et elles REVIENNENT en repassant à la guitare — masquées selon l\'instrument, pas retirées une fois pour toutes');
 
         // --- 8. Le titre a QUITTÉ la barre du haut, à TOUTES les largeurs ---------------------------
         // Deux retours successifs. D'abord « enlever l'écriture SAR en haut à droite de l'appli » — ce
@@ -231,11 +294,41 @@ const { check, exiger, plan, bilan } = creerHarnais('réglages');
             exiger(barre.champ === false && !/Ast/.test(barre.texte),
                 `à ${largeur}px, la barre du haut ne porte plus le titre du morceau, ni entier ni tronqué`);
         }
-        // Le titre saisi dans les Réglages reste bien celui du morceau, lui.
+        // Le titre saisi au panneau d'en-tête reste bien celui du morceau, lui.
         check((await page.evaluate(() => window.app.editeur.partition.meta.titre)) === 'Astérie',
-            'et le titre saisi dans les Réglages reste celui du morceau');
+            'et le titre saisi au panneau d\'en-tête reste celui du morceau');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
+
+    // --- 9. L'AIDE N'A RIEN À DIRE À UN DOIGT --------------------------------------------------
+    // Cette fenêtre ne contient QUE des raccourcis CLAVIER (mesuré : 46 lignes, « 0…9 Poser une
+    // case », « Espace Lecture / pause »). Sur un téléphone, c'est une fenêtre qu'on ouvre, qu'on lit
+    // et qu'on referme sans avoir rien pu faire.
+    // UN VRAI CONTEXTE TACTILE est indispensable ici : la règle tient à `(pointer: coarse)`, pas à la
+    // largeur — une fenêtre de navigateur rétrécie sur un ordinateur garde son clavier, et doit
+    // garder son aide. Sans `hasTouch`, ce banc mesurerait une souris dans une petite fenêtre et
+    // passerait quoi qu'il arrive.
+    const doigt = await ouvrirApp({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true });
+    try {
+        const vu = await doigt.page.evaluate(() => {
+            const vis = (id) => { const e = document.getElementById(id); return e ? e.offsetParent !== null : null; };
+            return { aide: vis('btn-aide'), reglages: vis('btn-reglages'), fichiers: vis('btn-fichiers'),
+                     grossier: matchMedia('(pointer: coarse)').matches };
+        });
+        exiger(vu.grossier === true, 'préalable : ce navigateur se décrit bien comme tactile');
+        check(vu.aide === false, 'au doigt, le bouton Aide n\'est plus là : ses 46 lignes de raccourcis clavier n\'ont pas de clavier à commander');
+        check(vu.reglages === true && vu.fichiers === true,
+            'Réglages et Fichiers, eux, restent : ce sont des commandes, pas une notice');
+        check(doigt.erreurs.length === 0, 'aucune erreur JavaScript au doigt' + (doigt.erreurs.length ? ' — ' + doigt.erreurs.join(' | ') : ''));
+    } finally { await doigt.fermer(); }
+
+    // ET SUR ORDINATEUR, IL RESTE : l'autre moitié de la règle, sans laquelle « masqué au doigt »
+    // pourrait vouloir dire « masqué partout » sans que rien ne le dise.
+    const souris = await ouvrirApp({ viewport: { width: 1320, height: 880 } });
+    try {
+        check(await souris.page.evaluate(() => document.getElementById('btn-aide')?.offsetParent !== null),
+            'à la souris, le bouton Aide est toujours là — c\'est bien le DOIGT qui le retire, pas la largeur');
+    } finally { await souris.fermer(); }
     bilan();
 })().catch(err => { console.error(err); process.exit(1); });

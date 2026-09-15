@@ -53,18 +53,11 @@ export const LIENS = {
     slide: { id: 'slide', nom: 'Slide (glissé)', abrege: '/', aide: 'Glissé du doigt jusqu\'à la note suivante' },
 };
 
-/** Effets portés par la note elle-même, indépendants de ce qui suit. */
-export const EFFETS_NOTE = {
-    bend: { id: 'bend', nom: 'Bend', aide: 'Tirer la corde pour monter la hauteur' },
-    ghost: { id: 'ghost', nom: 'Note fantôme', aide: 'Note étouffée, hauteur indéterminée' },
-};
-
-/** Effets portés par l'évènement entier — ils s'appliquent à toutes les cordes qui sonnent ensemble. */
-export const EFFETS_EVENEMENT = {
-    palmMute: { id: 'palmMute', nom: 'Palm mute', abrege: 'P.M.', aide: 'Étouffé de la paume près du chevalet' },
-    accent: { id: 'accent', nom: 'Accent', abrege: '>', aide: 'Note attaquée plus fort' },
-    staccato: { id: 'staccato', nom: 'Staccato', abrege: '·', aide: 'Note écourtée, détachée' },
-};
+// PLUS DE TABLES `EFFETS_NOTE` / `EFFETS_EVENEMENT` ICI (audit) : personne ne les importait, et
+// leur contenu vivait déjà en double. Les LIBELLÉS sont dans edit/raccourcis.js (« Palm mute »,
+// « Note fantôme »… avec leur touche et leur aperçu de palette), les ABRÉGÉS gravés dans
+// engine/layout.js (le « P.M. » suivi de son pointillé). Deux vérités pour un même vocabulaire
+// finissent toujours par diverger ; celle qui reste est celle que le code lit vraiment.
 
 export const NUANCES = ['ppp', 'pp', 'p', 'mp', 'mf', 'f', 'ff', 'fff'];
 

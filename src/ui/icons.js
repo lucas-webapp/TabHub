@@ -108,4 +108,5 @@ export function icone(nom, extra = '') {
     return `<svg class="icone ${extra}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${d}</svg>`;
 }
 
-export const NOMS_ICONES = Object.keys(D);
+// PLUS DE `NOMS_ICONES` ICI (audit) : personne ne l'importait. `D` reste la liste, et `icone(nom)`
+// rend une chaîne vide pour un nom inconnu — un appel fautif ne casse donc rien à l'écran.
