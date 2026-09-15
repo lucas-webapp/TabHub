@@ -54,11 +54,18 @@ const D = {
     // passage pourquoi il ne fait rien sur une note isolée.
     hammerOn: '<text x="12" y="10.8" font-family="Georgia, serif" font-size="12.5" font-weight="700" font-style="italic" text-anchor="middle" fill="currentColor" stroke="none">H</text><circle cx="6.6" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><circle cx="17.4" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><path d="M6.6 18.5q5.4 3.6 10.8 0" stroke-width="1.7"/>',
     pullOff: '<text x="12" y="10.8" font-family="Georgia, serif" font-size="12.5" font-weight="700" font-style="italic" text-anchor="middle" fill="currentColor" stroke="none">P</text><circle cx="6.6" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><circle cx="17.4" cy="16.2" r="1.7" fill="currentColor" stroke="none"/><path d="M6.6 18.5q5.4 3.6 10.8 0" stroke-width="1.7"/>',
-    // Slide : le trait oblique entre deux notes, le signe même du glissando — celui que la partition
-    // trace désormais (voir poserLiaisons). Deux pastilles à hauteurs DIFFÉRENTES, là où celles du
-    // hammer/pull sont à la même : c'est ce qu'un slide fait et qu'une liaison ne fait pas, changer
-    // de hauteur. Pas de lettre : la partition n'en écrit pas non plus.
-    slide: '<circle cx="5.8" cy="17.4" r="1.7" fill="currentColor" stroke="none"/><circle cx="18.2" cy="6.6" r="1.7" fill="currentColor" stroke="none"/><path d="M8 15.8 16 8.8" stroke-width="1.9"/>',
+    // Slide : EXACTEMENT ce que la partition écrit — deux pastilles à hauteurs DIFFÉRENTES (un slide
+    // change de hauteur, une liaison non), le trait oblique entre elles, l'arc qui les groupe, et
+    // « sl. » au-dessus. Le bouton montre le signe, comme le hammer-on montre son « H ».
+    //
+    // La lettre est ARRIVÉE AVEC LA NOTATION : le dessin n'en portait pas, parce que la partition
+    // n'en écrivait pas. L'utilisateur a apporté l'image d'une édition imprimée (« peux-tu modifier
+    // sa notation comme sur l'image ? [...] À modifier sur le bouton également avec le "sl." ») — le
+    // bouton suit le signe, jamais l'inverse.
+    slide: '<text x="12" y="8.4" font-family="Georgia, serif" font-size="9.5" font-weight="700" font-style="italic" text-anchor="middle" fill="currentColor" stroke="none">sl.</text>'
+        + '<path d="M5.6 14.2q6.4 -3.4 12.8 0" stroke-width="1.5"/>'
+        + '<circle cx="5.8" cy="19.4" r="1.7" fill="currentColor" stroke="none"/><circle cx="18.2" cy="16.2" r="1.7" fill="currentColor" stroke="none"/>'
+        + '<path d="M8 18.9 16 16.7" stroke-width="1.9"/>',
     // Liaison de prolongation : le même arc que celui posé sur la partition (voir arcLiaison dans
     // engine/layout.js), pas un caractère Unicode — celui-ci change de graisse et de courbure d'une
     // police à l'autre, et rendait ce bouton visuellement imprévisible.

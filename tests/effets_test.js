@@ -19,7 +19,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('effets');
 
 (async () => {
-    plan(31);
+    plan(37);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -209,7 +209,7 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
                     obliques: p.filter(x => x.t === 'ligne' && Math.abs(x.ep - ep) < 1e-9)
                         .map(x => ({ dx: +(x.x2 - x.x1).toFixed(2), dy: +(x.y2 - x.y1).toFixed(2) })),
                     arcs: p.filter(x => x.t === 'courbe').length,
-                    lettres: p.filter(x => x.t === 'texte' && ['H', 'P'].includes(x.s)).map(x => x.s),
+                    lettres: p.filter(x => x.t === 'texte' && ['H', 'P', 'sl.'].includes(x.s)).map(x => x.s),
                 };
             };
             return { slideHaut: tracer('slide', 6, 8), slideBas: tracer('slide', 8, 6),
@@ -217,8 +217,19 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
         });
         exiger(signe.slideHaut.obliques.length === 2,
             'un slide trace DEUX traits obliques — un sur la tablature, un entre les têtes de la portée');
-        check(signe.slideHaut.arcs === 0 && signe.tie.arcs > 0,
-            'et AUCUN arc, là où une liaison de tenue en trace : le slide ne se confond plus avec elle');
+        // DEUX ARCS, un par portée — l'arc est REVENU avec la notation de l'image, et sans rouvrir
+        // l'ambiguïté qui l'avait fait retirer : le trait oblique EXISTE désormais (les deux, vérifiés
+        // juste au-dessus), et c'est lui qui distingue le slide d'une liaison de tenue. L'arc ne fait
+        // plus que grouper les deux notes, et « sl. » nomme le geste. Un slide porte donc les TROIS
+        // signes, une liaison de tenue le seul arc — plus aucune confusion possible dans les deux sens.
+        check(signe.slideHaut.arcs === 2 && signe.slideHaut.obliques.length === 2,
+            `un slide porte arc ET trait oblique, sur les deux portées (${signe.slideHaut.arcs} arcs, ${signe.slideHaut.obliques.length} obliques)`);
+        check(signe.tie.arcs > 0 && signe.tie.obliques.length === 0 && signe.tie.lettres.length === 0,
+            'une liaison de tenue, elle, n\'a QUE son arc : ni trait oblique ni « sl. »');
+        // ET LE SLIDE DESCENDANT porte le même signe : le sens se lit sur l'obliquité du trait, pas
+        // sur la présence ou l'absence de quelque chose.
+        check(signe.slideBas.arcs === 2 && signe.slideBas.lettres.join('') === 'sl.sl.',
+            'un slide DESCENDANT porte exactement les mêmes arcs et les mêmes « sl. »');
         // `every` sur un tableau VIDE rend `true` : le compte fait partie de la vérification, sans quoi
         // les deux qui suivent passeraient alors qu'aucun trait ne serait tracé — constaté en
         // neutralisant le correctif, où seul l'`exiger` ci-dessus tombait.
@@ -230,8 +241,18 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
             'sa pente reste sous 45°, jamais un stub vertical confondable avec une barre de mesure');
         // Un seul « H », sur la TABLATURE : la portée, elle, dit le hammer-on par son arc de legato —
         // la lettre y serait redondante, et la gravure classique ne l'y met pas.
-        check(signe.slideHaut.lettres.length === 0 && signe.hammer.lettres.join('') === 'H',
-            'pas de lettre pour un slide (la gravure n\'en met pas), un « H » sur la tablature pour un hammer-on');
+        // LE SLIDE PORTE « sl. » DEPUIS, et c'est un RETOUR EN ARRIÈRE assumé sur ce banc : il
+        // vérifiait qu'un slide ne portait AUCUNE lettre, « comme la gravure ». L'utilisateur a
+        // apporté l'image d'une édition imprimée qui en porte une (« peux-tu modifier sa notation
+        // comme sur l'image ? C'est plus clair ») — arc au-dessus des deux notes, et « sl. » en
+        // italique au-dessus de l'arc, sur la portée COMME sur la tablature. C'est la convention la
+        // plus répandue, et elle lève l'ambiguïté que le trait oblique seul laissait : rien
+        // n'annonçait le geste avant de le lire.
+        // DEUX « sl. », un par portée — comme l'image en montre un au-dessus de la portée et un
+        // au-dessus de la tablature. Le hammer-on, lui, n'écrit son « H » que sur la TABLATURE : sur
+        // la portée, son arc de legato le dit déjà, et la gravure classique n'y met pas la lettre.
+        check(signe.slideHaut.lettres.join('') === 'sl.sl.' && signe.hammer.lettres.join('') === 'H',
+            `« sl. » sur LES DEUX portées pour un slide, un seul « H » (celui de la TAB) pour un hammer-on (reçu « ${signe.slideHaut.lettres.join('')} » et « ${signe.hammer.lettres.join('')} »)`);
 
         // --- LES BOUTONS MONTRENT CE QUE LA PARTITION ÉCRIT -----------------------------------------
         // Retour utilisateur : « les logos des effets ne sont pas forcément logiques ou adaptés,
@@ -241,16 +262,92 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
         const icones = await page.evaluate(async () => {
             const { icone } = await import('/src/ui/icons.js');
             const svg = (n) => icone(n);
-            const lettre = (n) => (svg(n).match(/>([A-Z])<\/text>/) || [])[1] || null;
+            // Trois caractères possibles (« sl. »), plus seulement une majuscule isolée.
+            const lettre = (n) => (svg(n).match(/>([A-Za-z.]{1,4})<\/text>/) || [])[1] || null;
             return { h: lettre('hammerOn'), p: lettre('pullOff'), slide: lettre('slide'),
                      distincts: new Set(['hammerOn', 'pullOff', 'slide', 'tie', 'bend'].map(svg)).size };
         });
         check(icones.h === 'H' && icones.p === 'P',
             'le bouton hammer-on porte le « H » que la partition imprime, le pull-off son « P »');
-        check(icones.slide === null,
-            'et le slide n\'en porte aucune, comme sur la partition — c\'est son trait oblique qui le dit');
+        check(icones.slide === 'sl.',
+            `et le bouton du slide porte « sl. », comme la partition (reçu « ${icones.slide} »)`);
         check(icones.distincts === 5,
             'les cinq icônes de liaison (hammer, pull, slide, tenue, bend) restent cinq dessins différents');
+
+        // --- LE SON DU SLIDE S'ENTEND VRAIMENT --------------------------------------------------
+        // LE DÉFAUT (retour utilisateur : « le son des slides ne fonctionne pas : son inaudible,
+        // testé sur plusieurs configurations — slide montant et descendant, en croches et
+        // doubles-croches »). Tout ce qui précède prouvait que le glissando était bien PROGRAMMÉ ;
+        // rien ne vérifiait qu'il s'ENTENDAIT.
+        //
+        // LA CAUSE, trouvée en mesurant la sortie audio réelle : la voix du slide portait une
+        // enveloppe de DOUBLURE (sustain 0,14) — celle d'un son qui n'a qu'à donner une hauteur nette
+        // à l'attaque. Or le glissement se produit vers la FIN de la note (voir _jouerSlide,
+        // PART_GLISSEE) : la hauteur glissait pendant que le son s'était déjà éteint à 14 %, et il ne
+        // restait à entendre que l'attaque, sur la note de DÉPART. Mesuré avant correction : au moment
+        // du glissement, il restait 16 % de la crête — soit exactement le niveau de traîne d'une note
+        // ordinaire au même instant, donc rien de distinguable. Après : 50 %.
+        //
+        // CE QU'ON MESURE ICI EST LA SORTIE AUDIO, pas la programmation : un Tone.Meter branché sur la
+        // destination, échantillonné pendant la lecture. C'est la seule façon de répondre à « je
+        // n'entends rien » — la liste d'évènements, elle, avait toujours l'air juste.
+        const audio = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur, l = window.app.lecteur;
+            await l.demarrer();
+            const Tone = globalThis.Tone;
+            const metre = new Tone.Meter({ normalRange: true, smoothing: 0 });
+            Tone.Destination.connect(metre);
+            // Chauffer le contexte : la toute première note d'un contexte audio neuf peut se perdre,
+            // et la mesure porterait alors sur un silence qui n'a rien à voir avec le sujet.
+            l.synthe.triggerAttackRelease('C3', 0.1, undefined, 0.5);
+            await new Promise(r => setTimeout(r, 400));
+
+            const profil = async (evenements) => {
+                l.arreter();
+                ed.nouveau('guitare');
+                ed.partition.mesures[0].voix[0].evenements = evenements;
+                ed.prevenir('document');
+                const echant = [];
+                await l.jouer(ed.partition, 0);
+                const t0 = performance.now();
+                for (let i = 0; i < 70; i++) {
+                    await new Promise(r => setTimeout(r, 10));
+                    echant.push({ ms: performance.now() - t0, v: metre.getValue() });
+                }
+                l.arreter();
+                await new Promise(r => setTimeout(r, 150));
+                const dans = (a, b) => Math.max(...echant.filter(e => e.ms >= a && e.ms < b).map(e => e.v), 0);
+                const crete = Math.max(...echant.map(e => e.v), 0);
+                // Le slide dure deux croches (500 ms à 120 BPM) : son glissement arrive dans le
+                // dernier quart, vers 380-520 ms.
+                return { crete, partAuGlissement: crete > 0 ? dans(380, 520) / crete : 0 };
+            };
+            const slide = (v1, v2, f1, f2) => [
+                m.creerEvenement({ valeur: v1 }, [{ ...m.creerNote(2, f1), lien: 'slide' }]),
+                m.creerEvenement({ valeur: v2 }, [m.creerNote(2, f2)]),
+                m.creerEvenement({ valeur: 2 }, [], { silence: true }),
+                m.creerEvenement({ valeur: 4 }, [], { silence: true }),
+            ];
+            return {
+                note: await profil([m.creerEvenement({ valeur: 2 }, [m.creerNote(2, 5)]),
+                                    m.creerEvenement({ valeur: 2 }, [], { silence: true })]),
+                monte: await profil(slide(8, 8, 5, 7)),
+                descend: await profil(slide(8, 8, 7, 5)),
+            };
+        });
+        exiger(audio.note.crete > 0.01,
+            `préalable : une note ordinaire sort bien du haut-parleur (crête ${audio.note.crete.toFixed(3)})`);
+        check(audio.monte.crete > 0.01 && audio.descend.crete > 0.01,
+            `un slide sonne, montant comme descendant (crêtes ${audio.monte.crete.toFixed(3)} et ${audio.descend.crete.toFixed(3)})`);
+        // LE CŒUR DU CORRECTIF : il reste du son LÀ OÙ LA HAUTEUR GLISSE. Le seuil est posé au-dessus
+        // de ce que laisse une note ordinaire au même instant (mesuré : 15 %) — sans quoi la
+        // vérification passerait sur la simple traîne d'un son éteint, ce qui était exactement l'état
+        // d'avant.
+        check(audio.monte.partAuGlissement > 0.3,
+            `et il reste du son au moment du glissement : ${Math.round(100 * audio.monte.partAuGlissement)} % de la crête (16 % avant correction, indiscernable d'une traîne)`);
+        check(audio.descend.partAuGlissement > 0.3,
+            `idem pour un slide descendant : ${Math.round(100 * audio.descend.partAuGlissement)} %`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

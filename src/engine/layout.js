@@ -2176,6 +2176,30 @@ function poserLiaisons(out, poses, S, ST) {
                         const y2 = nb.yTab + (monte ? -amp : amp);
                         out.push(ligne(xa, y1, xb, y2, G.EPAISSEURS.glisse * S));
                     }
+                    // ET L'ARC, ET « sl. » AU-DESSUS — la notation que l'utilisateur a apportée en
+                    // image (« peux-tu modifier sa notation comme sur l'image ? C'est plus clair »),
+                    // et celle des éditions imprimées : « 8⁄10 » sous un arc, « sl. » en italique
+                    // au-dessus de l'arc.
+                    //
+                    // CELA REVIENT SUR UN CHOIX ANTÉRIEUR, et c'est assumé : l'arc avait été RETIRÉ
+                    // parce qu'il rendait un slide indiscernable d'une liaison de tenue — le trait
+                    // oblique était alors le seul signe. Mais le trait oblique EXISTE maintenant, et
+                    // c'est lui qui porte la distinction ; l'arc ne fait plus que grouper les deux
+                    // chiffres, et « sl. » nomme le geste sans laisser place au doute. Les trois
+                    // ensemble, il n'y a plus d'ambiguïté possible — c'est bien plus lisible qu'un
+                    // trait oblique seul, que rien n'annonce.
+                    // L'ARC ENJAMBE LES DEUX CHIFFRES, il ne se glisse pas entre eux : il part du
+                    // bord GAUCHE du premier et arrive au bord DROIT du second (x1/x2, eux, sont les
+                    // bords INTÉRIEURS, ceux que le trait oblique relie). Un premier essai les
+                    // utilisait, et l'arc se réduisait à une petite bosse coincée entre « 8 » et
+                    // « 10 » — il ne groupait visiblement rien, ce qui est tout son rôle.
+                    const xArcA = a.x - na.demiLargeurTab, xArcB = b.x + nb.demiLargeurTab;
+                    const yArc = na.yTab - ST * 0.8;
+                    out.push(courbe(arcLiaison(xArcA, yArc, xArcB, nb.yTab - ST * 0.8, -1, 0.42 * S),
+                        G.EPAISSEURS.liaison * S));
+                    out.push(texte((xArcA + xArcB) / 2, yArc - ST * 0.95, 'sl.', {
+                        taille: S * 1.05, police: 'serif', poids: '600', italique: true,
+                    }));
                 } else {
                     // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
                     const yT = na.yTab + ST * 0.42;
@@ -2204,6 +2228,25 @@ function poserLiaisons(out, poses, S, ST) {
                         a.x + dA + ux * retrait, na.yPortee + uy * retrait,
                         b.x - dB - ux * retrait, nb.yPortee - uy * retrait,
                         G.EPAISSEURS.glisse * S));
+                    // L'ARC ET « sl. » AU-DESSUS, comme sur la tablature (voir là-haut le pourquoi).
+                    // TOUJOURS AU-DESSUS des têtes, et non du côté opposé aux hampes comme le fait un
+                    // arc de liaison : « sl. » est une indication de JEU, qui se lit au-dessus de la
+                    // portée avec les autres (P.M., les articulations) — pas un signe de liaison dont
+                    // la place dépend de la direction des hampes. C'est aussi ce que montre l'image.
+                    // AU-DESSUS DE TOUT CE QUI DÉPASSE, hampes comprises : quand elles montent, un
+                    // arc posé sur les seules têtes leur passerait au travers. `yHampe` (posé par la
+                    // passe des hampes, qui précède celle-ci) donne le bout réel de chacune ; on
+                    // prend le point le plus haut des deux notes, tête ou hampe selon le sens.
+                    const sommetDe = (p, n) => (p.sensHampe < 0 && p.yHampe != null
+                        ? Math.min(p.yHampe, n.yPortee) : n.yPortee);
+                    const hautArc = Math.min(sommetDe(a, na), sommetDe(b, nb)) - 0.7 * S;
+                    // Et l'arc enjambe les deux TÊTES, comme sur la tablature il enjambe les deux
+                    // chiffres : un arc pincé entre elles ne grouperait rien.
+                    out.push(courbe(arcLiaison(a.x - dA, hautArc, b.x + dB, hautArc, -1, 0.42 * S),
+                        G.EPAISSEURS.liaison * S));
+                    out.push(texte((a.x + b.x) / 2, hautArc - 1.05 * S, 'sl.', {
+                        taille: S * 1.05, police: 'serif', poids: '600', italique: true,
+                    }));
                 } else {
                     // Sur la portée : l'arc se place du côté opposé aux hampes.
                     const sens = a.sensHampe < 0 ? 1 : -1;

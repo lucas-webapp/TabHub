@@ -139,6 +139,11 @@ orthographe des altérations selon l'armure, hampes, ligatures, lignes suppléme
 | `Ctrl`+`S` `O` `P` | Enregistrer `.json`, ouvrir, exporter PDF |
 | `?` | Aide-mémoire des raccourcis |
 
+Un **slide** s'écrit comme dans les éditions imprimées, sur la portée *et* sur la tablature : le
+**trait oblique** entre les deux notes (c'est lui qui dit le geste, et qui le distingue d'une liaison
+de tenue), un **arc** qui les groupe, et **`sl.`** en italique au-dessus. Le trait oblique seul —
+l'état antérieur — n'annonçait rien : on le découvrait en le lisant.
+
 **Les silences ne se posent pas, ils se calculent.** Un silence n'est jamais une figure qu'on aurait
 écrite : c'est du temps vide, réécrit avec le moins de figures possible à chaque changement — comme
 dans MuseScore ou Guitar Pro. Effacer une note rend son temps aux silences voisins, et deux silences
@@ -180,7 +185,8 @@ cases dans 320px les ramènent à dix pixels, sous le seuil du visable.
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
 table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire. **Chaque bouton d'effet
 montre ce que la partition va écrire** — un « H » sur sa liaison pour le hammer-on, un « P » pour le
-pull-off, le trait oblique du glissando pour le slide, l'arc nu pour la liaison de prolongation. Les
+pull-off, le signe complet du glissando pour le slide (« sl. », l'arc et le trait oblique), l'arc nu
+pour la liaison de prolongation. Les
 pictogrammes « gestuels » qui les précédaient (quatre flèches courbes distinguées par leur seul sens)
 demandaient d'apprendre la correspondance ; celle-ci se lit.
 
@@ -516,7 +522,7 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Les triples-croches ne sont pas écrites**, ni à l'aide rythmique ni à l'import : la subdivision
   la plus fine d'un temps est la double-croche (décidé avec l'utilisateur). Un passage plus rapide
   s'approche à la double la plus proche.
-- **Le bend est joué par un synthétiseur à part.** La hauteur se courbe bien pendant la lecture,
+- **Le bend et le slide sont joués par un synthétiseur à part.** La hauteur se courbe bien pendant la lecture,
   amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
   simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en
   hauteur en continu.

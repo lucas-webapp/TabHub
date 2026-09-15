@@ -50,6 +50,29 @@ const PIANO_BASE_URL = 'https://tonejs.github.io/audio/salamander/';
 // recalage `TRIM_DB` déjà en place ci-dessus : c'est le même synthé qu'avant ce changement, au même
 // niveau déjà éprouvé, pas une valeur importée d'ailleurs pour une enveloppe qui n'est pas la sienne.
 const SAMPLER_TRIM_DB = 0;
+/**
+ * LA VOIX DE BEND ET DE SLIDE NE SE RECALE PRESQUE PAS — et c'était le défaut signalé (« le son des
+ * slides ne fonctionne pas : son inaudible, testé sur plusieurs configurations »).
+ *
+ * Elle portait `TRIM_DB` (-9 dB) par simple voisinage avec la doublure, dont elle reprend la recette
+ * d'oscillateur. Mais ce -9 dB existe pour une raison précise, écrite plus haut : « une polyphonie à
+ * six voix sature vite ». Or CETTE voix est MONOPHONIQUE — une seule note à la fois, jamais six — et
+ * elle ne joue pas À LA PLACE de l'échantillonneur mais À CÔTÉ de lui. Résultat une fois les
+ * échantillons chargés (le cas de l'utilisateur) : un piano réel à 0 dB, et le slide, seul, 9 dB en
+ * dessous — un tiers de l'amplitude, avec en plus le timbre le plus maigre des deux. Inaudible au
+ * milieu du morceau, exactement comme décrit.
+ *
+ * MAIS LE NIVEAU N'ÉTAIT PAS LE PRINCIPAL. Mesuré : le recalage ne déplace que la CRÊTE, c'est-à-dire
+ * l'attaque — or ce qu'on n'entendait pas, c'est le GLISSEMENT, qui se produit vers la fin de la note
+ * (voir _jouerSlide, PART_GLISSEE). Avec l'ancienne enveloppe (sustain 0,14), la hauteur glissait
+ * pendant que le son s'était déjà éteint à 14 % : il ne restait à entendre que l'attaque, sur la note
+ * de DÉPART. Le correctif tient donc aux deux : une enveloppe qui PORTE (voir plus bas) et un
+ * recalage rapproché.
+ *
+ * -6 dB, entre les -9 de la doublure et le 0 de l'échantillonneur : un slide est un GESTE
+ * expressif, un rien en avant lui va — pas au point de dominer le morceau.
+ */
+const TRIM_BEND_DB = -6;
 
 export class Lecteur {
     constructor() {
@@ -228,11 +251,19 @@ export class Lecteur {
         //
         // Monophonique parce qu'un bend simultané sur deux cordes est rare, et qu'une voix unique
         // évite d'allouer/détruire un synthé à chaque note bendée.
-        const filtreBend = new Tone.Filter({ type: 'lowpass', frequency: 3600, Q: 0.5 });
-        const volumeBend = new Tone.Volume(TRIM_DB);
+        // Filtre plus ouvert que celui de la doublure (3600 Hz) : ce qu'on cherche à ENTENDRE ici est
+        // le mouvement de hauteur, et couper les harmoniques hautes le rend précisément plus sourd.
+        const filtreBend = new Tone.Filter({ type: 'lowpass', frequency: 5200, Q: 0.5 });
+        const volumeBend = new Tone.Volume(TRIM_BEND_DB);
+        // ENVELOPPE QUI PORTE, contrairement à celle de la doublure (decay 0,42 / sustain 0,14) : une
+        // note de doublure n'a qu'à donner une hauteur nette à l'attaque, alors qu'un slide doit
+        // s'entendre BOUGER — et son glissement se produit vers la fin de la note (voir _jouerSlide,
+        // PART_GLISSEE). Avec 14 % de sustain, la hauteur glissait pendant que le son s'était déjà
+        // éteint : il ne restait à entendre que l'attaque, sur la note de DÉPART. D'où une extinction
+        // plus lente et un palier tenu bien plus haut.
         this.voixBend = new Tone.Synth({
             oscillator: { type: 'triangle' },
-            envelope: { attack: 0.006, decay: 0.42, sustain: 0.14, release: 1.1 },
+            envelope: { attack: 0.005, decay: 0.9, sustain: 0.42, release: 0.9 },
         });
         this.voixBend.chain(filtreBend, volumeBend, Tone.Destination);
 
