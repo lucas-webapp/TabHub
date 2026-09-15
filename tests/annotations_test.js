@@ -19,7 +19,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('annotations de section');
 
 (async () => {
-    plan(21);
+    plan(22);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : de la place réservée SEULEMENT si besoin -------------------
@@ -80,10 +80,31 @@ const { check, exiger, plan, bilan } = creerHarnais('annotations de section');
         check((await page.evaluate(() => document.querySelector('[data-action="annotation"]').classList.contains('actif'))) === false,
             'inactif par défaut (la mesure de départ n\'a aucune annotation)');
 
-        // Le clic ouvre window.prompt() : on l'intercepte pour répondre comme le ferait un utilisateur.
-        page.once('dialog', d => d.accept('Couplet 1'));
+        // LE CLIC OUVRE LE DIALOGUE MAISON, plus `window.prompt` (voir src/ui/dialogue.js). Ce banc le
+        // pilote comme un utilisateur : le focus arrive déjà dans le champ, on tape, on valide.
+        //
+        // ET IL FAUT LE REFERMER À CHAQUE FOIS. Une boîte native bloquait le fil d'exécution et
+        // disparaissait dès la réponse ; cette fenêtre-ci est un élément du DOM dont le voile
+        // intercepte les clics tant qu'elle est ouverte. Un banc qui l'oublierait ne verrait pas
+        // « la saisie n'a rien posé » mais un timeout au clic SUIVANT — c'est exactement ainsi que
+        // ce banc a signalé le passage au dialogue maison.
+        const dialogueOuvert = () => page.evaluate(() => {
+            const v = document.getElementById('fenetre-dialogue');
+            return !!v && !v.hidden && !v.querySelector('.dialogue-ligne-champ').hidden;
+        });
+        const valeurDuChamp = () => page.evaluate(() => document.querySelector('.dialogue-champ').value);
+        // Le champ est vidé d'abord : il arrive PRÉ-REMPLI, et `type()` écrirait à la suite.
+        const saisirEtValider = async (texte) => {
+            await page.evaluate(() => { document.querySelector('.dialogue-champ').value = ''; });
+            if (texte) await page.keyboard.type(texte);
+            await page.keyboard.press('Enter');
+            await page.waitForTimeout(250);
+        };
+
         await page.click('[data-action="annotation"]');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(250);
+        exiger(await dialogueOuvert(), 'préalable : le bouton ouvre bien une fenêtre de saisie');
+        await saisirEtValider('Couplet 1');
         const apresAjout = await page.evaluate(() => ({
             annotation: window.app.editeur.partition.mesures[0].annotation,
             actif: document.querySelector('[data-action="annotation"]').classList.contains('actif'),
@@ -94,18 +115,19 @@ const { check, exiger, plan, bilan } = creerHarnais('annotations de section');
         check(apresAjout.svg === true, 'le SVG affiche bien le texte saisi après redessin, sans action supplémentaire');
 
         // Rouvrir la même invite la PRÉ-REMPLIT avec le texte déjà en place ; Annuler ne change rien.
-        let preRempli = null;
-        page.once('dialog', d => { preRempli = d.defaultValue(); d.dismiss(); });
         await page.click('[data-action="annotation"]');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(250);
+        const preRempli = await valeurDuChamp();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
         check(preRempli === 'Couplet 1', 'rouvrir l\'invite la PRÉ-REMPLIT avec l\'annotation déjà en place');
         check((await page.evaluate(() => window.app.editeur.partition.mesures[0].annotation)) === 'Couplet 1',
             'Annuler l\'invite ne modifie RIEN (ni vidé, ni changé)');
 
         // Un texte vide (ou blanc) RETIRE l'annotation plutôt que de la garder telle quelle.
-        page.once('dialog', d => d.accept('   '));
         await page.click('[data-action="annotation"]');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(250);
+        await saisirEtValider('   ');
         const apresVidage = await page.evaluate(() => ({
             annotation: window.app.editeur.partition.mesures[0].annotation,
             actif: document.querySelector('[data-action="annotation"]').classList.contains('actif'),
@@ -114,9 +136,9 @@ const { check, exiger, plan, bilan } = creerHarnais('annotations de section');
         check(apresVidage.actif === false, 'et le bouton redevient inactif');
 
         // --- Ctrl+Z défait la pose d'une annotation, comme toute autre édition -----------------------
-        page.once('dialog', d => d.accept('Intro'));
         await page.click('[data-action="annotation"]');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(250);
+        await saisirEtValider('Intro');
         exiger((await page.evaluate(() => window.app.editeur.partition.mesures[0].annotation)) === 'Intro', 'préalable : la pose a bien réussi');
         await page.evaluate(() => document.getElementById('zone-partition').focus());
         await page.keyboard.press('Control+z');

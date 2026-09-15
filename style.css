@@ -858,6 +858,43 @@ input.champ[type="number"] { width: 54px; text-align: center; }
     background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
 }
 .btn-neutre:hover { border-color: var(--btn-neutral-border-hover); }
+/* BOUTON DESTRUCTEUR — « Continuer sans exporter », « Abandonner ». Les tokens rouges existaient
+   déjà (ils habillaient le bouton Stop du transport) ; il manquait la classe qui les porte sur un
+   bouton À LIBELLÉ. Rouge et non pas simplement neutre : dans une fenêtre qui propose d'exporter
+   d'abord, le bouton qui passe outre doit se distinguer de celui qui annule — sinon les deux se
+   ressemblent, et le clic qui perd le travail est aussi facile que celui qui le garde. */
+.btn-danger {
+    height: var(--h-bouton); padding: 0 14px; border-radius: 9px; cursor: pointer;
+    font-family: var(--font); font-size: var(--fs-sm); font-weight: 700;
+    border: 1px solid var(--btn-red-border); color: var(--btn-text);
+    background: linear-gradient(180deg, var(--btn-red-1) 0%, var(--btn-red-2) 100%);
+}
+.btn-danger:hover { border-color: var(--btn-red-border-hover); }
+
+/* DIALOGUE DE L'APPLICATION (voir src/ui/dialogue.js et #fenetre-dialogue dans index.html).
+   z-index AU-DESSUS des autres voiles. Par précaution, pas pour un cas constaté : aujourd'hui aucun
+   chemin n'ouvre ce dialogue alors qu'une autre fenêtre est déjà là (la palette et le menu Fichiers,
+   seuls déclencheurs, sont couverts par n'importe quel voile, et les deux actions qui demandent une
+   valeur n'ont pas de raccourci clavier). Mais une question posée DERRIÈRE ce qu'elle interroge est
+   invisible et bloque l'application, et une ligne de CSS coûte moins que ce risque le jour où un
+   nouveau chemin apparaîtra. */
+/* LA LARGEUR EST DICTÉE PAR LES BOUTONS, et j'ai dû la mesurer deux fois pour l'admettre. 440px
+   d'abord, en voulant la fenêtre la plus étroite de l'application — assez pour une phrase. Puis
+   520px, en estimant les boutons à 435px. Mesuré pour de bon : les trois du garde-fou pèsent
+   87 + 205 + 201 = 492px, plus deux écarts de 8, soit 508px pour 486px utiles — ils passaient encore
+   à la ligne, le bouton PRINCIPAL se retrouvant seul en dessous, ce qui a l'air d'un accident de mise
+   en page. 560px (la largeur des autres fenêtres) laisse 528px utiles : ils tiennent.
+   Ce qui garde le texte lisible n'est donc pas la largeur de la fenêtre mais le paragraphe lui-même,
+   qui ne fait jamais qu'une phrase ou deux. */
+.fenetre-dialogue { width: min(560px, 100%); }
+#fenetre-dialogue { z-index: 80; }
+.dialogue-texte { margin: 0; font-size: var(--fs-base); color: var(--text-main); line-height: 1.5; }
+/* Les boutons passent à la ligne plutôt que de déborder : sur un téléphone étroit, trois libellés en
+   clair ne tiennent pas côte à côte, et un pied de fenêtre qui défile horizontalement cacherait un
+   des choix. Sur grand écran, la largeur ci-dessus leur évite ce repli. */
+.dialogue-actions { flex-wrap: wrap; }
+.dialogue-ligne-champ { margin-bottom: 0; }
+.dialogue-ligne-champ input.champ { flex: 1 1 auto; min-width: 0; }
 
 /* Réglage corde par corde de l'accordage personnalisé */
 .grille-cordes { display: grid; grid-template-columns: repeat(auto-fit, minmax(96px, 1fr)); gap: 8px; }

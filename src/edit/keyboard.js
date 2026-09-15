@@ -69,10 +69,18 @@ export function brancherClavier(editeur, actions = {}) {
         const action = PAR_TOUCHE.get(sig);
         if (action) {
             e.preventDefault();
-            action.faire(editeur);
             // Voir Editeur.derniereErreur : une commande refusée (pas assez de place dans la
             // mesure, par exemple) le signale ici plutôt que dans l'éditeur, qui ne touche pas au DOM.
-            if (editeur.derniereErreur) { actions.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
+            const signaler = () => {
+                if (editeur.derniereErreur) { actions.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
+            };
+            // UN `faire()` PEUT RENDRE UNE PROMESSE (les deux actions qui demandent une valeur —
+            // annotation de section, nom d'accord — depuis qu'elles passent par une fenêtre maison
+            // plutôt que par `window.prompt`, qui bloquait le fil). On attend alors la fin avant de
+            // relever l'erreur, sinon on la lirait AVANT que la commande ait eu lieu. Les autres
+            // actions restent strictement synchrones : ce chemin-là ne change pas d'un iota.
+            const r = action.faire(editeur, actions);
+            if (r && typeof r.then === 'function') r.then(signaler); else signaler();
         }
     };
 

@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609141533">
+    <link rel="stylesheet" href="style.css?v=202609150941">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -434,6 +434,38 @@
      (de loin le levier le plus fort — mesuré, 2,1 -> 1,6 mm fait passer un morceau de 2 pages à 1),
      puis les mesures par ligne, l'espacement, les marges, le format, et enfin la taille des titres,
      qui ne joue que sur la première page. Chaque borne est motivée dans io/pdf.js#BORNES_PDF. -->
+<!-- DIALOGUE UNIQUE DE L'APPLICATION : questions et saisies — voir src/ui/dialogue.js, qui porte
+     le pourquoi. Il remplace les trois boîtes NATIVES qui subsistaient (retour utilisateur : « les
+     pop-ups ne sont pas stylées ») : deux `window.prompt` (annotation de section, nom d'accord) et le
+     `confirm()` de « Abandonner la tablature en cours ? ».
+
+     UN SEUL BALISAGE POUR LES DEUX USAGES, et le même châssis que les Réglages et l'aperçu PDF
+     (voile + fenetre + tête + corps + pied) : rien de neuf à styler, donc rien qui puisse divorcer du
+     reste au premier changement de palette. La ligne de champ se montre pour une saisie, se masque
+     pour une question ; les boutons sont fabriqués à la demande, puisque leur nombre et leurs
+     libellés changent d'un appel à l'autre — c'est précisément ce qu'une boîte native ne sait pas
+     faire, et pas seulement une question d'aspect.
+
+     PAS DE CROIX DE FERMETURE ici, à la différence des autres fenêtres : un dialogue de décision se
+     ferme par un bouton NOMMÉ (« Annuler »), jamais par une croix dont on ne sait pas ce qu'elle
+     choisit. Échap et le clic sur le fond restent des sorties, toutes deux équivalentes à Annuler
+     (voir dialogue.js#ouvrir). -->
+<div class="voile" id="fenetre-dialogue" hidden>
+    <div class="fenetre fenetre-dialogue" role="alertdialog" aria-modal="true" aria-labelledby="dialogue-titre">
+        <div class="fenetre-tete">
+            <h2 class="dialogue-titre" id="dialogue-titre"></h2>
+        </div>
+        <div class="fenetre-corps">
+            <p class="dialogue-texte" hidden></p>
+            <div class="ligne-champ dialogue-ligne-champ" hidden>
+                <label class="dialogue-etiquette" for="dialogue-champ"></label>
+                <input type="text" id="dialogue-champ" class="champ dialogue-champ" autocomplete="off">
+            </div>
+        </div>
+        <div class="fenetre-pied dialogue-actions"></div>
+    </div>
+</div>
+
 <div class="voile" id="fenetre-pdf" hidden>
     <div class="fenetre fenetre-pdf" role="dialog" aria-modal="true" aria-labelledby="titre-pdf">
         <div class="fenetre-tete">
@@ -609,6 +641,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609141533"></script>
+<script type="module" src="src/main.js?v=202609150941"></script>
 </body>
 </html>

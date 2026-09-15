@@ -20,7 +20,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('noms d\'accords');
 
 (async () => {
-    plan(24);
+    plan(25);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : de la place réservée SEULEMENT si besoin, un nom par
@@ -100,10 +100,32 @@ const { check, exiger, plan, bilan } = creerHarnais('noms d\'accords');
         check((await page.evaluate(() => document.querySelector('[data-action="accord"]').classList.contains('actif'))) === false,
             'inactif par défaut (l\'évènement de départ ne porte aucun accord)');
 
-        // Le clic ouvre window.prompt() : on l'intercepte pour répondre comme le ferait un utilisateur.
-        page.once('dialog', d => d.accept('A7'));
+        // LE CLIC OUVRE LE DIALOGUE MAISON, plus `window.prompt` (voir src/ui/dialogue.js : une boîte
+        // native ne sait porter que deux boutons aux libellés figés). Ce banc le pilote donc comme un
+        // utilisateur : le focus arrive déjà dans le champ, on tape, on valide avec Entrée.
+        //
+        // ET SURTOUT : IL FAUT LE REFERMER. Une boîte native bloquait le fil d'exécution et
+        // disparaissait dès la réponse ; cette fenêtre-ci est un élément du DOM, et son voile
+        // intercepte les clics tant qu'elle est ouverte. Un banc qui l'oublierait ne verrait pas
+        // « la saisie n'a rien posé » mais un timeout au clic SUIVANT — c'est exactement ainsi que
+        // ce banc a signalé le passage au dialogue maison.
+        const dialogueOuvert = () => page.evaluate(() => {
+            const v = document.getElementById('fenetre-dialogue');
+            return !!v && !v.hidden && !v.querySelector('.dialogue-ligne-champ').hidden;
+        });
+        const valeurDuChamp = () => page.evaluate(() => document.querySelector('.dialogue-champ').value);
+        // Le champ est vidé d'abord : il arrive PRÉ-REMPLI, et `type()` écrirait à la suite.
+        const saisirEtValider = async (texte) => {
+            await page.evaluate(() => { document.querySelector('.dialogue-champ').value = ''; });
+            if (texte) await page.keyboard.type(texte);
+            await page.keyboard.press('Enter');
+            await page.waitForTimeout(250);
+        };
+
         await page.click('[data-action="accord"]');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(250);
+        exiger(await dialogueOuvert(), 'préalable : le bouton ouvre bien une fenêtre de saisie');
+        await saisirEtValider('A7');
         const apresAjout = await page.evaluate(() => ({
             accord: window.app.editeur.evenementCourant().accord,
             actif: document.querySelector('[data-action="accord"]').classList.contains('actif'),
@@ -114,18 +136,19 @@ const { check, exiger, plan, bilan } = creerHarnais('noms d\'accords');
         check(apresAjout.svg === true, 'le SVG affiche bien le texte saisi après redessin, sans action supplémentaire');
 
         // Rouvrir la même invite la PRÉ-REMPLIT avec le texte déjà en place ; Annuler ne change rien.
-        let preRempli = null;
-        page.once('dialog', d => { preRempli = d.defaultValue(); d.dismiss(); });
         await page.click('[data-action="accord"]');
-        await page.waitForTimeout(100);
+        await page.waitForTimeout(250);
+        const preRempli = await valeurDuChamp();
+        await page.keyboard.press('Escape');
+        await page.waitForTimeout(200);
         check(preRempli === 'A7', 'rouvrir l\'invite la PRÉ-REMPLIT avec le nom d\'accord déjà en place');
         check((await page.evaluate(() => window.app.editeur.evenementCourant().accord)) === 'A7',
             'Annuler l\'invite ne modifie RIEN (ni vidé, ni changé)');
 
         // Un texte vide (ou blanc) RETIRE le nom d'accord plutôt que de le garder tel quel.
-        page.once('dialog', d => d.accept('   '));
         await page.click('[data-action="accord"]');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(250);
+        await saisirEtValider('   ');
         const apresVidage = await page.evaluate(() => ({
             accord: window.app.editeur.evenementCourant().accord,
             actif: document.querySelector('[data-action="accord"]').classList.contains('actif'),
@@ -134,9 +157,9 @@ const { check, exiger, plan, bilan } = creerHarnais('noms d\'accords');
         check(apresVidage.actif === false, 'et le bouton redevient inactif');
 
         // --- Ctrl+Z défait la pose d'un nom d'accord, comme toute autre édition -----------------------
-        page.once('dialog', d => d.accept('Cmaj7'));
         await page.click('[data-action="accord"]');
-        await page.waitForTimeout(150);
+        await page.waitForTimeout(250);
+        await saisirEtValider('Cmaj7');
         exiger((await page.evaluate(() => window.app.editeur.evenementCourant().accord)) === 'Cmaj7', 'préalable : la pose a bien réussi');
         await page.evaluate(() => document.getElementById('zone-partition').focus());
         await page.keyboard.press('Control+z');

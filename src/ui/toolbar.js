@@ -309,11 +309,17 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         b.setAttribute('aria-label', b.title);
         b.innerHTML = rendreApercu(action);
         b.addEventListener('click', () => {
-            action.faire(editeur);
             // Une commande refusée (ex. « pas assez de place dans la mesure ») laisse un message
             // dans l'éditeur plutôt que d'agir sur le DOM elle-même — voir Editeur.derniereErreur.
-            if (editeur.derniereErreur) { actionsFichier.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
-            actionsFichier.rendreLeFocus?.();
+            const apres = () => {
+                if (editeur.derniereErreur) { actionsFichier.signalerErreur?.(editeur.derniereErreur); editeur.derniereErreur = null; }
+                actionsFichier.rendreLeFocus?.();
+            };
+            // Un `faire()` peut rendre une promesse : voir edit/raccourcis.js (les deux actions qui
+            // demandent une valeur). Le focus ne doit surtout pas repartir à la partition AVANT que
+            // la fenêtre de saisie soit refermée — il lui serait retiré sous les doigts.
+            const r = action.faire(editeur, actionsFichier);
+            if (r && typeof r.then === 'function') r.then(apres); else apres();
         });
         parent.appendChild(b);
         if (action.actif) aRafraichir.push(() => b.classList.toggle('actif', !!action.actif(editeur)));

@@ -24,6 +24,7 @@ import { brancherClavier } from './edit/keyboard.js';
 import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils, flecheOutilsSvg, ajusterFleches } from './ui/toolbar.js';
 import { construirePave, construireDpadFlottant } from './ui/pave.js';
+import { demander, saisir } from './ui/dialogue.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
@@ -175,6 +176,16 @@ class TabHubApp {
         // touché par memoriser()/annuler() : sélectionner ne modifie pas la partition.
         this.selectionNotes = new Set();
         this._lasso = null;
+        /**
+         * LE TRAVAIL EN COURS A-T-IL ÉTÉ MIS À L'ABRI DANS UN FICHIER ? (voir peutEcraserLeMorceau).
+         *
+         * Vrai après un export .json, faux dès la modification suivante. Vrai AU DÉMARRAGE, et c'est
+         * délibéré : la partition qu'on retrouve à l'ouverture vient du brouillon, on n'y a encore
+         * rien fait, et demander « exporter d'abord ? » avant le premier geste avertirait d'un risque
+         * qui n'existe pas. `peutAnnuler()` seul ne suffirait pas à le dire — l'historique est vide au
+         * démarrage, mais il le redevient aussi après un Annuler jusqu'au bout.
+         */
+        this.travailExporte = true;
 
         this.el = {
             feuille: document.getElementById('feuille'),
@@ -208,6 +219,13 @@ class TabHubApp {
         const crochetsUi = {
             rendreLeFocus: () => this.el.zone.focus(),
             signalerErreur: (texte) => this.message(texte),
+            // COMMENT DEMANDER UNE VALEUR, fourni par l'interface à la table des actions (voir
+            // edit/raccourcis.js, les deux actions « annotation de section » et « nom d'accord »).
+            // Elles appelaient `window.prompt` elles-mêmes : la seule dépendance à l'interface dans
+            // une table qui n'en a aucune autre, et une boîte native au milieu d'une application
+            // dessinée. La table dit maintenant ce qu'elle veut savoir, l'interface décide comment
+            // le demander — ici la fenêtre maison (voir ui/dialogue.js#saisir).
+            demanderTexte: (options) => saisir(options),
         };
         this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, crochetsUi);
         // Le pavé tactile partage EXACTEMENT les mêmes crochets que la barre d'outils : les deux
@@ -494,6 +512,12 @@ class TabHubApp {
             }
         }
         this.planifierBrouillon();
+        // TOUTE MODIFICATION DU DOCUMENT REND L'EXPORT PÉRIMÉ (voir travailExporte et
+        // peutEcraserLeMorceau). Pas 'curseur' ni 'lecture', qui ne changent rien au contenu : sans
+        // cette exclusion, un simple déplacement de curseur ferait réapparaître l'avertissement sur
+        // un morceau qu'on vient d'exporter, et un avertissement qui se déclenche pour rien s'apprend
+        // à cliquer sans lire.
+        if (raison !== 'curseur' && raison !== 'lecture') this.travailExporte = false;
     }
 
     rafraichirBoutonsHistorique() {
@@ -776,6 +800,12 @@ class TabHubApp {
     exporterJson() {
         try {
             const nom = enregistrerPartition(this.editeur.partition);
+            // LE SEUL EXPORT QUI COMPTE COMME UNE MISE À L'ABRI, et il faut être précis là-dessus :
+            // le .json est le modèle tel quel, donc le seul fichier que TabHub sait ROUVRIR. Un PDF
+            // et un .mid sont des sorties — le premier ne se réimporte pas du tout, le second perd
+            // les doigtés, les effets et la tablature. Les compter ici donnerait une fausse
+            // assurance : « c'est exporté » alors que le travail n'est pas récupérable.
+            this.travailExporte = true;
             this.message(`Exporté → ${nom}`);
         } catch (err) {
             this.message('Échec de l\'export : ' + err.message);
@@ -788,6 +818,12 @@ class TabHubApp {
     async chargerFichier(fichier) {
         try {
             const partition = await lireFichierPartition(fichier);
+            // MÊME GARDE-FOU QUE « NOUVEAU », et pour la même raison : ouvrir un fichier REMPLACE le
+            // morceau en cours et écrase le brouillon du navigateur. Ce geste-là n'avertissait de
+            // rien du tout, alors que « Nouveau » posait au moins un confirm() — deux gestes aussi
+            // destructeurs l'un que l'autre, deux traitements différents. Voir peutEcraserLeMorceau.
+            // APRÈS la lecture du fichier : inutile de poser la question si le fichier est illisible.
+            if (!(await this.peutEcraserLeMorceau('Ouvrir un fichier'))) return;
             this.arreter();
             this.editeur.remplacer(partition);
             this.message(`Importé : ${partition.meta.titre}`);
@@ -1087,6 +1123,10 @@ class TabHubApp {
                 return bits.length ? ` (${bits.join(', ')} pour l'instrument)` : '';
             })();
 
+            // Seul le REMPLACEMENT écrase le morceau ; « à la suite » l'agrandit et ne perd rien,
+            // donc rien à demander dans ce cas — un garde-fou qui se déclenche quand il n'y a rien à
+            // perdre s'apprend à cliquer sans lire.
+            if (choix !== 'suite' && !(await this.peutEcraserLeMorceau('Importer un fichier MIDI'))) return;
             this.arreter();
             if (choix === 'suite') {
                 const tempoActuel = this.editeur.partition.meta.tempo;
@@ -1114,8 +1154,49 @@ class TabHubApp {
         }
     }
 
-    nouveau() {
-        if (this.editeur.peutAnnuler() && !confirm('Abandonner la tablature en cours ?')) return;
+    /**
+     * LE GARDE-FOU, EN UN SEUL ENDROIT — devant chaque geste qui ÉCRASE le morceau en cours.
+     *
+     * TROIS GESTES LE FONT, et aucun n'avertissait de la même façon : « Nouveau » posait un
+     * `confirm()` natif, « Ouvrir » un .json et « Importer » un .mid en remplacement ne posaient rien
+     * du tout. Retour utilisateur : « mise en place de pop-ups à la fermeture pour demander la
+     * sauvegarde ou pour confirmer la fermeture ».
+     *
+     * CE QUI PEUT VRAIMENT SE PERDRE, et c'est ce qui décide du texte affiché. Le brouillon s'écrit
+     * tout seul dans le navigateur (voir planifierBrouillon) : un rechargement accidentel ne coûte
+     * rien, et c'est déjà le cas. Mais il n'y a qu'UN brouillon, écrasé par le morceau suivant — donc
+     * le seul enregistrement qui SURVIVE à « Nouveau », à un changement de navigateur ou à un vidage
+     * des données du site, c'est le fichier .json exporté. La question posée est donc « exporter
+     * d'abord ? », pas « enregistrer ? » : l'enregistrement, lui, a déjà eu lieu.
+     *
+     * TROIS CHOIX, ce qu'aucun `confirm()` ne sait dire (deux boutons, libellés figés) — c'est
+     * l'autre raison d'avoir un dialogue maison, au-delà de son aspect.
+     *
+     * @returns {Promise<boolean>} vrai si l'appelant peut continuer.
+     */
+    async peutEcraserLeMorceau(intitule) {
+        // Rien à perdre : aucune modification depuis le dernier export (ou depuis l'ouverture).
+        if (!this.editeur.peutAnnuler() || this.travailExporte) return true;
+        const choix = await demander({
+            titre: intitule,
+            // LE FORMAT EST DIT DANS LE TEXTE, pas dans le libellé du bouton : « Exporter en JSON
+            // puis continuer » faisait passer les trois boutons à la ligne (mesuré), et le .json est
+            // de toute façon le seul export qui ROUVRE le morceau — la phrase est le bon endroit
+            // pour l'expliquer, le bouton celui pour agir.
+            texte: 'La tablature en cours n\'a pas été exportée. Le brouillon du navigateur sera '
+                 + 'remplacé par le nouveau morceau : sans un fichier .json, ce travail sera perdu.',
+            boutons: [
+                { cle: 'annuler', libelle: 'Annuler' },
+                { cle: 'sans', libelle: 'Continuer sans exporter', style: 'danger' },
+                { cle: 'exporter', libelle: 'Exporter puis continuer', style: 'plein' },
+            ],
+        });
+        if (choix === 'exporter') { this.exporterJson(); return true; }
+        return choix === 'sans';
+    }
+
+    async nouveau() {
+        if (!(await this.peutEcraserLeMorceau('Nouvelle tablature'))) return;
         this.arreter();
         this.editeur.nouveau(this.editeur.partition.piste.instrument);
         this.message('Nouvelle tablature');
@@ -1265,6 +1346,30 @@ class TabHubApp {
         for (const v of document.querySelectorAll('.voile')) {
             v.addEventListener('pointerdown', (e) => { if (e.target === v) this.fermerFenetres(); });
         }
+
+        /**
+         * AVERTISSEMENT À LA FERMETURE RÉELLE DE L'ONGLET (retour utilisateur : « des pop-ups à la
+         * fermeture pour demander la sauvegarde ou pour confirmer la fermeture »).
+         *
+         * CELLE-CI RESTE LA BOÎTE DU NAVIGATEUR, et ce n'est pas un oubli : aucun navigateur moderne
+         * n'autorise ni message personnalisé ni bouton maison sur `beforeunload` — ils affichent tous
+         * leur propre texte, précisément pour qu'une page ne puisse pas retenir quelqu'un par une
+         * fenêtre trompeuse. Poser `returnValue` déclenche bien la demande de confirmation ; c'est
+         * tout ce qu'une page peut faire, et HarmoHub note exactement la même limite. Les fenêtres
+         * MAISON, elles, gardent les gestes internes, où l'on peut offrir de vrais choix (voir
+         * peutEcraserLeMorceau, trois boutons nommés).
+         *
+         * ET SEULEMENT S'IL Y A QUELQUE CHOSE À PERDRE. Le brouillon se réécrit tout seul : recharger
+         * la page rouvre le morceau tel quel. Ce qui ne survit pas, c'est un changement de navigateur
+         * ou un vidage des données du site — donc la question ne se pose que si le travail n'a jamais
+         * été exporté en fichier. Un avertissement systématique à chaque fermeture s'apprendrait à
+         * cliquer sans lire, et ne protégerait plus rien le jour où il compte.
+         */
+        window.addEventListener('beforeunload', (e) => {
+            if (this.travailExporte || !this.editeur.peutAnnuler()) return;
+            e.preventDefault();
+            e.returnValue = '';
+        });
 
         // Une remise en page suit tout changement de largeur : le découpage en systèmes en dépend
         // directement, et une fenêtre réduite doit rendre des systèmes plus courts, pas une barre de

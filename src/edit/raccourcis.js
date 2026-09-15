@@ -161,29 +161,51 @@ export const ACTIONS = [
         faire: ed => ed.definirRepere(r.id),
     })),
     // Étiquette de section au-dessus de la mesure courante (« Couplet 1 », « Refrain », « Pont »…).
-    // Un simple window.prompt() plutôt qu'un dialogue maison : un seul champ de texte libre, sans
-    // équivalent clavier possible (aucune combinaison ne saisit du texte) — comme toute action de la
-    // palette qui a besoin d'une VALEUR plutôt que d'un simple déclenchement, elle reste déclarée ICI,
-    // avec les autres, plutôt qu'à part dans l'interface : la palette continue de dériver du même
-    // tableau, sans dérogation.
+    //
+    // DEUX ACTIONS DE CETTE TABLE DEMANDENT UNE VALEUR, celle-ci et le nom d'accord juste en dessous
+    // — les seules. Elles restent déclarées ICI, avec les autres, plutôt qu'à part dans l'interface :
+    // la palette continue de dériver du même tableau, sans dérogation.
+    //
+    // ELLES NE SAVENT PLUS COMMENT DEMANDER, et c'est le changement. Elles appelaient
+    // `window.prompt` directement : une dépendance à l'interface dans une table qui n'en a aucune
+    // autre, et surtout une boîte NATIVE au milieu d'une application dessinée (retour utilisateur :
+    // « les pop-ups ne sont pas stylées »). Le second argument `ui` apporte désormais un crochet
+    // `demanderTexte` — la table dit ce qu'elle veut savoir, l'interface décide comment le demander
+    // (voir ui/dialogue.js#saisir, et main.js qui fournit le crochet).
+    //
+    // ET ELLES RENVOIENT UNE PROMESSE. Une fenêtre maison ne bloque pas le fil d'exécution comme
+    // `prompt` le faisait : `faire` peut donc rendre un thenable, que les trois répartiteurs
+    // (edit/keyboard.js, ui/toolbar.js, ui/pave.js) savent attendre avant de rafraîchir. Les autres
+    // actions restent strictement synchrones — c'est ce qui permet à un banc d'essai de cliquer puis
+    // de vérifier sans attendre.
     { id: 'annotation', touches: [], libelle: 'Annotation de section (couplet, refrain, pont…)', groupe: 'mesure', apercu: { type: 'icone', nom: 'annotation' },
       actif: ed => !!ed.mesureCourante().annotation,
-      faire: ed => {
+      faire: (ed, ui) => {
           const actuelle = ed.mesureCourante().annotation || '';
-          const saisie = window.prompt('Annotation au-dessus de cette mesure (vide pour la retirer) :', actuelle);
-          if (saisie !== null) ed.definirAnnotation(saisie);
+          return Promise.resolve(ui?.demanderTexte?.({
+              titre: 'Annotation de section',
+              texte: 'Elle s\'affiche au-dessus de cette mesure. Laisser vide pour la retirer.',
+              etiquette: 'Texte',
+              valeur: actuelle,
+              placeholder: 'Couplet 1, Refrain, Pont…',
+          })).then(saisie => { if (saisie !== null && saisie !== undefined) ed.definirAnnotation(saisie); });
       } },
     // Nom d'accord au-dessus de l'évènement courant (« A7 », « E7 »…) — retour utilisateur (capture
     // d'une tablature trouvée en ligne à l'appui) : le modèle qu'on cherche à suivre en porte à
     // chaque changement d'accord, souvent plusieurs fois par mesure. Même geste que l'annotation
-    // (un window.prompt() sur la valeur déjà en place), mais sur l'ÉVÈNEMENT plutôt que la mesure —
+    // ci-dessus (une saisie sur la valeur déjà en place), mais sur l'ÉVÈNEMENT plutôt que la mesure —
     // voir Editeur.definirAccord.
     { id: 'accord', touches: [], libelle: 'Nom d\'accord au-dessus de cette note (A7, E7…)', groupe: 'mesure', apercu: { type: 'texteGras', texte: 'Am' },
       actif: ed => !!ed.evenementCourant().accord,
-      faire: ed => {
+      faire: (ed, ui) => {
           const actuelle = ed.evenementCourant().accord || '';
-          const saisie = window.prompt('Nom d\'accord au-dessus de cette note (vide pour le retirer) :', actuelle);
-          if (saisie !== null) ed.definirAccord(saisie);
+          return Promise.resolve(ui?.demanderTexte?.({
+              titre: 'Nom d\'accord',
+              texte: 'Il s\'affiche au-dessus de cette note. Laisser vide pour le retirer.',
+              etiquette: 'Accord',
+              valeur: actuelle,
+              placeholder: 'Am, E7, Cmaj7…',
+          })).then(saisie => { if (saisie !== null && saisie !== undefined) ed.definirAccord(saisie); });
       } },
 
     // --- Voix — voir edit/commands.js ------------------------------------------------------------

@@ -71,7 +71,11 @@ function fabriqueBouton(editeur, actions) {
     const boutonAction = (parent, id, contenu, classe = 'btn-pave', aRafraichir = null) => {
         const action = ACTIONS.find(a => a.id === id);
         if (!action) return null;   // filet : une action renommée ne doit pas casser le pavé entier
-        const b = bouton(parent, classe, contenu, action.libelle, () => action.faire(editeur));
+        // `actions` (les crochets de l'interface) transmis à `faire` comme dans les deux autres
+        // répartiteurs : c'est par là que passe `demanderTexte` (voir edit/raccourcis.js). Le pavé
+        // n'a rien à attendre en retour — `bouton` rend déjà le focus lui-même, et les deux actions
+        // asynchrones (annotation, nom d'accord) ne figurent pas sur le pavé tactile.
+        const b = bouton(parent, classe, contenu, action.libelle, () => action.faire(editeur, actions));
         // L'ÉTAT de l'action, quand elle en a un (voir raccourcis.js, `actif`) — la même bascule
         // visuelle que la palette (voir ui/toolbar.js#boutonAction). Sans elle, « ✕ » ne dirait pas si
         // la note sous le curseur est DÉJÀ fantôme, et le seul moyen de le savoir serait de taper

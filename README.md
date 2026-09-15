@@ -263,6 +263,26 @@ un nom qu'on reconnaît.
   seul brouillon à la fois, jamais un gestionnaire multi-fichiers : Fichiers > Nouveau l'écrase,
   Fichiers > Exporter reste la sauvegarde durable.
 
+**Les garde-fous.** Puisqu'il n'y a qu'un brouillon et que Nouveau l'écrase, deux gestes peuvent
+coûter un travail : remplacer le morceau en cours (Nouveau, Ouvrir, ou un import MIDI « remplacer »)
+et fermer l'onglet. Les deux demandent confirmation — mais **seulement s'il y a quelque chose à
+perdre** : TabHub retient si le morceau a été exporté depuis la dernière modification (déplacer le
+curseur ou lancer la lecture ne compte pas comme une modification), et ne demande rien sinon. Un
+avertissement qui apparaît pour rien s'apprend à cliquer sans lire, et ne protège plus le jour où il
+compte.
+
+La confirmation de remplacement offre **trois** choix — exporter puis continuer, continuer sans
+exporter, annuler — parce que deux ne suffisent pas : « Annuler » et « OK » obligent à renoncer au
+geste pour aller sauvegarder, puis à le refaire. C'est ce qui a rendu nécessaire un dialogue maison
+(`ui/dialogue.js`) : une boîte `confirm()` du navigateur ne porte que deux boutons, aux libellés
+figés et intraduisibles. Les saisies de texte (nom d'accord, annotation de section) passent par la
+même fenêtre, qui a le châssis des Réglages et de l'aperçu PDF.
+
+L'avertissement à la FERMETURE, lui, reste la boîte du navigateur, et c'est une limite assumée :
+aucun navigateur moderne n'autorise à styler `beforeunload` ni à en changer le texte — la même
+contrainte s'applique à HarmoHub, dont le code la documente. On choisit donc QUAND elle apparaît,
+jamais à quoi elle ressemble.
+
 ---
 
 ## Organisation du code
@@ -290,7 +310,7 @@ src/
     keyboard.js         branchement du clavier
   audio/player.js     Tone.js, transport, tête de lecture
   io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter)
-  ui/                 icons.js, toolbar.js
+  ui/                 icons.js, toolbar.js, dialogue.js (fenêtres de l'app, pas du navigateur)
   main.js             LE SEUL module qui touche au DOM et connaît tous les autres
 outils/
   generer-glyphes.py  extrait les contours de Bravura vers src/engine/glyphes-bravura.js
