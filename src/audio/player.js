@@ -66,6 +66,15 @@ export class Lecteur {
         // main.js, comme le tempo ou le zoom — ce module ne connaît que l'état courant.
         this.metronomeActif = false;
         this.metronomeSubdivision = false;
+        // DÉCOMPTE AVANT LECTURE (retour utilisateur : « ok pour un décompte d'une mesure »). UNE
+        // MESURE, pas un nombre à choisir : c'est le décompte de tous les studios et de tous les
+        // professeurs, et deux réglages (activer / combien) pour un geste aussi simple auraient coûté
+        // plus à comprendre qu'ils n'apportent.
+        //
+        // INDÉPENDANT DE `metronomeActif`, et c'est le point : le décompte sert à ARRIVER en place
+        // sur la première note, le métronome à RESTER en place ensuite. On veut couramment le premier
+        // sans le second — un décompte puis le silence de la musique seule.
+        this.decompteActif = false;
         // Boucle de lecture (barre orange glissée sous la TAB, voir main.js#marquesBoucle/
         // gesteBoucle*) : {debut, fin}, en INDEX DE MESURE, fin comprise — ou null, aucune boucle.
         // Un état de SESSION, comme metronomeActif juste au-dessus, jamais écrit dans le .json ni
@@ -516,6 +525,56 @@ export class Lecteur {
         });
     }
 
+    /** L'index de la mesure qui contient `position` (en noires depuis le début du morceau). */
+    _mesureALaPosition(partition, position) {
+        let debut = 0;
+        for (let i = 0; i < partition.mesures.length; i++) {
+            const capacite = capaciteMesure(partition, i);
+            if (position < debut + capacite - 1e-6) return i;
+            debut += capacite;
+        }
+        return Math.max(0, partition.mesures.length - 1);
+    }
+
+    /**
+     * Programme UNE MESURE de clics avant le départ, et rend l'instant (horloge audio) où la musique
+     * doit commencer. `null` si le décompte n'a pas lieu — à l'appelant de démarrer sans attendre.
+     *
+     * SUR L'HORLOGE AUDIO, PAS SUR LE TRANSPORT, et c'est tout le choix de conception. Décaler la
+     * musique d'une mesure sur le transport aurait voulu dire décaler TOUT ce qui y est programmé —
+     * les notes, le métronome, le point d'arrêt final, les bornes de boucle — et retrancher ce
+     * décalage partout où une position de transport se relit (la tête de lecture, `positionDebutMesure`,
+     * `reprogrammerSiEnCours`). Un décalage qu'une seule de ces lectures oublierait désynchroniserait
+     * l'affichage du son. Le décompte n'appartient pas au morceau : il n'a donc aucune raison
+     * d'exister dans son échelle de temps. Programmé sur l'horloge audio, la carte des tics reste
+     * INTOUCHÉE — aucune des mécaniques ci-dessus n'a rien à réapprendre.
+     *
+     * LA MESURE DU DÉPART, pas la première du morceau : on lance couramment depuis le curseur ou
+     * depuis une boucle (voir main.js#positionDeDepartLecture), et un décompte à 4 temps devant une
+     * mesure à 3 temps mettrait justement à contretemps ce qu'il est censé mettre en place.
+     *
+     * PAS DE DÉCOMPTE MUET : sans métronome construit (contexte audio pas encore prêt), on rend
+     * `null` plutôt que de faire attendre une mesure entière en silence — une attente sans raison
+     * apparente se lit comme un blocage.
+     */
+    _programmerDecompte(partition, position) {
+        const Tone = globalThis.Tone;
+        if (!this.metronome || !Tone?.Transport) return null;
+        const i = this._mesureALaPosition(partition, position);
+        const unite = uniteDeGroupement(signatureEffective(partition, i));
+        const nTemps = Math.max(1, Math.round(capaciteMesure(partition, i) / unite));
+        // EN SECONDES AU TEMPO COURANT : un décompte se compte à la vitesse de ce qui suit. Les tics
+        // ne servent à rien ici — on ne programme pas sur le transport, justement (voir ci-dessus).
+        const parTemps = Tone.Ticks(Math.round(unite * Tone.Transport.PPQ)).toSeconds();
+        // Une petite avance : un son posé exactement à `now()` arrive parfois déjà en retard, et le
+        // premier clic du décompte est celui qu'il ne faut surtout pas manquer.
+        const depart = Tone.now() + 0.08;
+        for (let t = 0; t < nTemps; t++) {
+            try { this._clicMetronome(t === 0, depart + t * parTemps, false); } catch (e) { /* ignoré, comme une note manquée */ }
+        }
+        return depart + nTemps * parTemps;
+    }
+
     /** Un seul point d'entrée pour faire cliquer le métronome — hauteur ACCENTUÉE sur le premier
      *  temps de chaque mesure, DISCRÈTE sur une subdivision, NORMALE sinon (repris de HarmoHub). */
     _clicMetronome(accent, temps, sub) {
@@ -610,11 +669,20 @@ export class Lecteur {
         await this.demarrer();
         const Tone = globalThis.Tone;
         if (this.etat === 'lecture') return;
-        if (this.etat === 'arret' || depuis !== null) {
+        // LE DÉCOMPTE SUR UN VRAI DÉPART, JAMAIS SUR UNE REPRISE. Reprendre après une pause, c'est
+        // repartir au milieu d'une phrase : compter quatre temps devant la seconde moitié d'une
+        // mesure tromperait l'oreille au lieu de la guider. La condition est exactement celle qui
+        // décide de reprogrammer le transport ci-dessous — un départ, par définition.
+        const vraiDepart = this.etat === 'arret' || depuis !== null;
+        if (vraiDepart) {
             this.programmer(partition);
             Tone.Transport.ticks = Math.round((depuis ?? 0) * Tone.Transport.PPQ);
         }
-        Tone.Transport.start();
+        // `start(quand)` diffère le départ du transport à cet instant de l'horloge audio, sans rien
+        // changer à ce qui y est programmé : pendant le décompte, les tics restent à leur place et la
+        // tête de lecture attend au point de départ, exactement comme il faut.
+        const quand = vraiDepart && this.decompteActif ? this._programmerDecompte(partition, depuis ?? 0) : null;
+        Tone.Transport.start(quand ?? undefined);
         this.etat = 'lecture';
         this._suivre();
         this._prevenir();

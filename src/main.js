@@ -30,6 +30,7 @@ import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
+import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, MAX_VERSIONS } from './io/versions.js';
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
@@ -100,6 +101,25 @@ const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
 const CLE_VOLUME_METRONOME = 'tabhub.volumeMetronome';
 const CLE_PDF = 'tabhub.pdf';   // les réglages de mise en page du PDF, voir ouvrirApercuPdf
+const CLE_ZOOM = 'tabhub.zoom';   // interligne de la portée À L'ÉCRAN, voir changerZoom
+const CLE_DECOMPTE = 'tabhub.decompte';   // une mesure de clics avant la lecture, voir Lecteur#_programmerDecompte
+const CLE_VERSIONS_ACTIVES = 'tabhub.versionsActives';   // l'historique existe-t-il ? voir io/versions.js
+
+// BORNES DU ZOOM À L'ÉCRAN, en pixels d'interligne — l'unité dont TOUTE la gravure découle (voir
+// engine/layout.js#GEO_DEFAUT : changer `S` change l'échelle entière sans toucher à une autre valeur).
+//
+// POURQUOI UN PAS DE 1px ET NON UN POURCENTAGE. Le pas doit se VOIR sans faire sauter la mise en
+// page : de 9 à 10, la partition grandit de 11 % — assez pour que le clic serve à quelque chose, pas
+// au point de rejeter la moitié des mesures à la ligne suivante. Et un entier de pixels tombe juste
+// sur la grille de l'écran, là où 9,4px rendrait les lignes de portée floues.
+//
+// LES DEUX BOUTS SONT MESURÉS, pas devinés. À 5px, les deux chiffres d'une case (« 12 ») se touchent
+// dans la tablature ; à 16px, quatre mesures ne tiennent plus sur la largeur d'un ordinateur, ce que
+// « mesures par ligne » fait déjà mieux. En dehors, la loupe se désactive plutôt que de continuer à
+// cliquer sans rien changer.
+const ZOOM_MIN = 6;
+const ZOOM_MAX = 15;
+const ZOOM_DEFAUT = 9;
 
 /**
  * Vrai si l'appareil désigne AU DOIGT plutôt qu'à la souris — la seule question qui compte pour
@@ -133,11 +153,20 @@ class TabHubApp {
         // l'application. Sans ce rattrapage, TabHub redevient définitivement muet au retour.
         this.lecteur.brancherReveilAudio();
         this.page = null;
-        // Le curseur de zoom a disparu (retour utilisateur : redondant avec le nombre de
-        // mesures par ligne, mis en avant juste après — voir construireBoutonsMesuresLigne) :
-        // l'interligne de la portée reste réglé une fois pour toutes, à une valeur qui a fait ses
-        // preuves comme défaut du curseur disparu.
-        this.interligne = 9;
+        // LE ZOOM DE LA PARTITION À L'ÉCRAN (retour utilisateur : « ajouter un zoom de la partition à
+        // l'écran. À placer à l'endroit idéal avec des boutons loupes + et -, pas dans les
+        // paramètres »). Un curseur de zoom avait existé ici, puis disparu comme REDONDANT avec le
+        // nombre de mesures par ligne ; ce retour le rétablit, et la redondance n'était qu'à moitié
+        // vraie. Les deux commandes ne font pas la même chose :
+        //   • « mesures par ligne » serre la musique HORIZONTALEMENT — même hauteur de portée, mêmes
+        //     chiffres, seulement plus de mesures côte à côte ;
+        //   • la loupe change l'ÉCHELLE ENTIÈRE — donc la hauteur de chaque système, le nombre de
+        //     lignes visibles d'un coup d'œil, et la taille des chiffres de tablature.
+        // L'aperçu PDF l'a démontré sur le papier (2,1 → 1,6 mm d'interligne fait passer un morceau
+        // de deux pages à une, là où aucun autre réglage n'y parvient) ; c'est le même levier ici.
+        // DEUX BOUTONS ET NON UN CURSEUR, cette fois : un curseur demande de viser, deux loupes se
+        // martèlent sans regarder — et c'est ce qu'on fait d'un zoom.
+        this.interligne = this._zoomRelu();
         // 0 = « Auto » (glouton). Une préférence d'AFFICHAGE, pas de contenu musical : elle
         // reste locale au navigateur et ne voyage jamais dans le .json — rouvrir le même
         // morceau sur un autre poste doit retomber sur l'agencement automatique.
@@ -146,6 +175,14 @@ class TabHubApp {
         // explicite, portée par le lecteur lui-même puisque c'est lui qui programme les clics.
         this.lecteur.metronomeActif = localStorage.getItem(CLE_METRONOME) === '1';
         this.lecteur.metronomeSubdivision = localStorage.getItem(CLE_METRONOME_SUBDIVISION) === '1';
+        // Le décompte se retient comme le métronome : c'est une commande qu'on actionne au moment de
+        // jouer, mais qui n'a aucune raison d'être oubliée entre deux sessions de travail.
+        this.lecteur.decompteActif = localStorage.getItem(CLE_DECOMPTE) === '1';
+        // L'HISTORIQUE DES VERSIONS : ALLUMÉ par défaut, à la différence du métronome et du décompte.
+        // Ce n'est pas un bruit qu'on subit mais un filet qui ne se remarque que le jour où il sert —
+        // et l'utilisateur l'a demandé, donc rien à découvrir pour en bénéficier. Le `!== '0'` (et
+        // non `=== '1'`) le dit : c'est l'EXTINCTION qui doit être explicite.
+        this.versionsActives = localStorage.getItem(CLE_VERSIONS_ACTIVES) !== '0';
         this.positionOutils = localStorage.getItem(CLE_POSITION_OUTILS) === 'gauche' ? 'gauche' : 'haut';
         document.body.classList.toggle('outils-gauche', this.positionOutils === 'gauche');
         // Pavé tactile : présent au doigt, absent à la souris — SANS réglage à comprendre sur
@@ -199,10 +236,17 @@ class TabHubApp {
             // lecture (voir #bloc-lecture dans index.html) — donc plus d'assignation différée.
             tempo: document.getElementById('champ-tempo'),
             metronome: document.getElementById('btn-metronome'),
+            decompte: document.getElementById('btn-decompte'),
             metronomeSubdivision: document.getElementById('champ-metronome-subdivision'),   // dans Réglages > Son, voir index.html
             blocLecture: document.getElementById('bloc-lecture'),
             groupeMesuresLigne: document.getElementById('groupe-mesures-ligne'),
+            // L'HÔTE DES CHIFFRES, distinct du groupe ci-dessus : celui-là est le contenant que le
+            // popover déplace sur téléphone, celui-ci le seul élément que construireBoutonsMesuresLigne
+            // a le droit de vider (les loupes sont ses voisines, pas ses filles — voir index.html).
+            boutonsMesuresLigneHote: document.getElementById('groupe-mesures-ligne-boutons'),
             btnMesuresLigneBascule: document.getElementById('btn-mesures-ligne-bascule'),
+            btnZoomMoins: document.getElementById('btn-zoom-moins'),
+            btnZoomPlus: document.getElementById('btn-zoom-plus'),
             position: document.getElementById('info-position'),
             selection: document.getElementById('info-selection'),
             entreeFichier: document.getElementById('entree-fichier'),
@@ -542,6 +586,11 @@ class TabHubApp {
         // noire » ou « deux croches » n'avaient de raison d'être que tant qu'une icône devait
         // annoncer elle-même son propre état.
         this.el.metronomeSubdivision.setAttribute('aria-checked', String(sub));
+        // Le décompte, dans la même fonction : les trois commandes partagent le son du métronome, et
+        // un seul rafraîchissement évite qu'un état s'affiche alors que l'autre ne l'est pas encore.
+        const dec = this.lecteur.decompteActif;
+        this.el.decompte?.classList.toggle('actif', dec);
+        this.el.decompte?.setAttribute('aria-pressed', String(dec));
     }
 
     /**
@@ -555,8 +604,49 @@ class TabHubApp {
      * Construit UNE FOIS (comme la barre d'outils, voir ui/toolbar.js) ; seule la classe « actif »
      * bouge ensuite, voir rafraichirInfos ci-dessous, appelé à chaque redessin.
      */
+    /** L'interligne retenu du navigateur, BORNÉ à la relecture : une valeur héritée d'une version
+     *  antérieure (ou tapée à la main dans localStorage) ne doit pas pouvoir rendre la partition
+     *  illisible ou invisible. Même principe qu'à l'ouverture d'un .json — tout champ relu est borné.
+     *  @returns {number} px d'interligne, dans [ZOOM_MIN, ZOOM_MAX] */
+    _zoomRelu() {
+        const brut = parseInt(localStorage.getItem(CLE_ZOOM), 10);
+        if (!Number.isFinite(brut)) return ZOOM_DEFAUT;
+        return Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, brut));
+    }
+
+    /**
+     * Un cran de loupe. `delta` vaut +1 ou −1 : c'est la commande, pas une valeur à viser.
+     *
+     * RIEN NE SE PASSE AUX BUTOIRS, et le bouton le dit avant d'être cliqué (voir rafraichirZoom, qui
+     * le désactive) : un bouton qui reste vif mais n'agit plus se lit comme une panne.
+     */
+    changerZoom(delta) {
+        const avant = this.interligne;
+        this.interligne = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, avant + delta));
+        if (this.interligne === avant) return;
+        localStorage.setItem(CLE_ZOOM, String(this.interligne));
+        this.rafraichirZoom();
+        this.dessiner();
+    }
+
+    /** Désactive la loupe arrivée au bout de sa course, et dit dans l'infobulle où l'on en est —
+     *  sans occuper la place d'un affichage chiffré, que la barre du bas n'a pas à donner. */
+    rafraichirZoom() {
+        const crans = ZOOM_MAX - ZOOM_MIN;
+        const cran = this.interligne - ZOOM_MIN;
+        for (const [bouton, borne, libelle] of [
+            [this.el.btnZoomMoins, ZOOM_MIN, 'Réduire la partition'],
+            [this.el.btnZoomPlus, ZOOM_MAX, 'Agrandir la partition'],
+        ]) {
+            if (!bouton) continue;
+            bouton.disabled = this.interligne === borne;
+            bouton.title = `${libelle} (${cran + 1} / ${crans + 1})`;
+            bouton.setAttribute('aria-label', bouton.title);
+        }
+    }
+
     construireBoutonsMesuresLigne() {
-        const hote = this.el.groupeMesuresLigne;
+        const hote = this.el.boutonsMesuresLigneHote;
         hote.innerHTML = '';
         const valeurs = [0, 2, 3, 4, 6, 8];   // 0 = Auto, comme l'ancien <select>
         this.boutonsMesuresLigne = valeurs.map((valeur) => {
@@ -749,7 +839,190 @@ class TabHubApp {
     enregistrer() {
         clearTimeout(this._minuterieBrouillon);
         const err = this._ecrireBrouillon();
+        // AVANT le message, et seulement si le brouillon a réussi : annoncer « Enregistré » alors que
+        // rien n'a pu s'écrire serait le pire des deux mondes. Une version qui échoue, elle, reste
+        // muette — c'est un confort (voir io/versions.js), le brouillon est la vraie sauvegarde.
+        if (!err) this._archiverVersion();
         this.message(err ? 'Échec de l\'enregistrement local : ' + err.message : 'Enregistré');
+    }
+
+    /**
+     * Ouvre la fenêtre des versions, liste remplie à l'ouverture — pas maintenue en direct : elle ne
+     * change qu'au moment où on la regarde, et une liste reconstruite à l'ouverture ne peut pas
+     * afficher un état périmé.
+     */
+    ouvrirVersions() {
+        this.remplirListeVersions();
+        this.ouvrirFenetre('fenetre-versions');
+    }
+
+    /**
+     * La liste des versions. UNE LIGNE = un état, avec sa date en clair, son titre et sa taille ; et
+     * DEUX gestes seulement — revenir dessus, ou la jeter.
+     *
+     * LA DATE EN LANGAGE ORDINAIRE (« hier à 14:05 », voir io/versions.js#daterVersion) : c'est le
+     * seul repère utile pour choisir une version, et un horodatage ISO obligerait à calculer.
+     *
+     * LA LISTE VIDE A SON PROPRE TEXTE plutôt qu'un cadre blanc : une fenêtre qui ne dit rien laisse
+     * croire à une panne, alors que « aucune version pour l'instant » est un état normal — c'est
+     * même l'état de départ.
+     */
+    remplirListeVersions() {
+        const hote = document.getElementById('liste-versions');
+        if (!hote) return;
+        hote.innerHTML = '';
+        if (!this.versionsActives) {
+            hote.innerHTML = '<p class="liste-vide">L\'historique des versions est éteint. '
+                + 'Réglages &gt; Fichiers permet de le rallumer.</p>';
+            return;
+        }
+        const versions = lireVersions();
+        if (versions.length === 0) {
+            hote.innerHTML = '<p class="liste-vide">Aucune version pour l\'instant. '
+                + 'La première sera posée au prochain enregistrement.</p>';
+            return;
+        }
+        versions.forEach((v, i) => {
+            const ligne = document.createElement('div');
+            ligne.className = 'ligne-version';
+            ligne.setAttribute('role', 'listitem');
+            ligne.dataset.version = v.id;
+
+            const texte = document.createElement('div');
+            texte.className = 'version-texte';
+            const quand = document.createElement('span');
+            quand.className = 'version-date';
+            // « (actuelle) » sur la plus récente : sans ce repère, la première ligne se confond avec
+            // le morceau ouvert, et on restaure ce qu'on a déjà sous les yeux.
+            quand.textContent = daterVersion(v.date) + (i === 0 ? ' — la plus récente' : '');
+            const quoi = document.createElement('span');
+            quoi.className = 'version-detail';
+            const titre = v.titre || 'Sans titre';
+            quoi.textContent = `${titre}${v.artiste ? ' — ' + v.artiste : ''} · ${v.mesures} mesure${v.mesures > 1 ? 's' : ''}`
+                + ` · ${v.notes} note${v.notes > 1 ? 's' : ''}`;
+            texte.append(quand, quoi);
+
+            const revenir = document.createElement('button');
+            revenir.type = 'button';
+            revenir.className = 'btn-neutre';
+            revenir.textContent = 'Revenir à cet état';
+            revenir.addEventListener('click', () => this.restaurerVersion(v.id));
+
+            const jeter = document.createElement('button');
+            jeter.type = 'button';
+            jeter.className = 'btn-icone';
+            jeter.title = 'Supprimer cette version';
+            jeter.setAttribute('aria-label', jeter.title);
+            jeter.innerHTML = icone('poubelle');
+            jeter.addEventListener('click', () => this.supprimerUneVersion(v.id));
+
+            ligne.append(texte, revenir, jeter);
+            hote.appendChild(ligne);
+        });
+    }
+
+    /**
+     * Revient à une version. C'EST UN REMPLACEMENT COMME UN AUTRE : le garde-fou s'applique donc (le
+     * morceau ouvert peut ne pas être exporté), et l'état qu'on quitte est lui-même archivé — sans
+     * quoi « revenir en arrière » serait un aller simple, et se tromper de ligne coûterait le travail
+     * en cours. Pas de question d'écrasement ici : ce n'est pas un import (voir
+     * _archiverAvantRemplacement).
+     *
+     * LE PASSAGE PAR `remplacer` (donc par `normaliser`) et non une assignation : une version écrite
+     * par une release antérieure peut manquer un champ ajouté depuis. C'est la même règle qu'à
+     * l'ouverture d'un .json ou d'un brouillon.
+     */
+    async restaurerVersion(id) {
+        const v = lireVersions().find(x => x.id === id);
+        if (!v) { this.message('Cette version n\'existe plus'); this.remplirListeVersions(); return; }
+        if (!(await this.peutEcraserLeMorceau('Revenir à une version précédente'))) return;
+        this.arreter();
+        this.editeur.remplacer(v.partition);
+        this.fermerFenetres();
+        this.message(`Revenu à la version de ${daterVersion(v.date)}`);
+    }
+
+    /** Jette une version, après confirmation : c'est le seul geste irréversible de cette fenêtre. */
+    async supprimerUneVersion(id) {
+        const v = lireVersions().find(x => x.id === id);
+        if (!v) { this.remplirListeVersions(); return; }
+        const choix = await demander({
+            titre: 'Supprimer cette version',
+            texte: `La version de ${daterVersion(v.date)}${v.titre ? ` (« ${v.titre} »)` : ''} sera `
+                 + 'définitivement effacée de ce navigateur. Le morceau ouvert n\'est pas touché.',
+            boutons: [
+                { cle: 'annuler', libelle: 'Annuler' },
+                { cle: 'supprimer', libelle: 'Supprimer', style: 'danger' },
+            ],
+        });
+        if (choix !== 'supprimer') return;
+        supprimerVersion(id);
+        this.rafraichirEtatVersions();
+        this.remplirListeVersions();
+    }
+
+    /**
+     * Allume ou éteint l'historique. ÉTEINDRE EFFACE VRAIMENT (voir io/versions.js) — d'où la
+     * confirmation, obligatoire dès qu'il y a quelque chose à perdre : c'est le seul réglage du
+     * panneau qui détruit des données.
+     * @returns {Promise<boolean>} l'état retenu à la sortie, pour que l'appelant recale l'interrupteur.
+     */
+    async basculerVersions(vers) {
+        if (!vers && lireVersions().length > 0) {
+            const n = lireVersions().length;
+            const choix = await demander({
+                titre: 'Éteindre l\'historique des versions',
+                texte: `${n} version${n > 1 ? 's' : ''} enregistrée${n > 1 ? 's' : ''} `
+                     + `${n > 1 ? 'seront' : 'sera'} effacée${n > 1 ? 's' : ''} de ce navigateur, et `
+                     + 'TabHub cessera d\'en garder. Le morceau ouvert n\'est pas touché.',
+                boutons: [
+                    { cle: 'annuler', libelle: 'Annuler' },
+                    { cle: 'eteindre', libelle: 'Éteindre et effacer', style: 'danger' },
+                ],
+            });
+            if (choix !== 'eteindre') return true;
+            viderVersions();
+        }
+        this.versionsActives = !!vers;
+        localStorage.setItem(CLE_VERSIONS_ACTIVES, this.versionsActives ? '1' : '0');
+        this.rafraichirEtatVersions();
+        return this.versionsActives;
+    }
+
+    /** L'entrée du menu Fichiers et la ligne d'état des Réglages, recalées ensemble : deux endroits
+     *  qui parlent du même historique ne doivent jamais en dire deux choses différentes. */
+    rafraichirEtatVersions() {
+        const entree = this.el.popoverFichiers?.querySelector('[data-action="versions"]');
+        if (entree) entree.hidden = !this.versionsActives;
+        const etat = document.getElementById('etat-versions');
+        if (!etat) return;
+        if (!this.versionsActives) { etat.textContent = 'éteint'; return; }
+        const n = lireVersions().length;
+        etat.textContent = n === 0 ? 'aucune version' : `${n} / ${MAX_VERSIONS}`;
+    }
+
+    /**
+     * MET LE MORCEAU EN COURS DE CÔTÉ — l'unique porte d'entrée de l'historique.
+     *
+     * DEUX MOMENTS L'APPELLENT, et ce sont les deux seuls qui méritent une version :
+     *   • un ENREGISTREMENT explicite (Ctrl+S / le bouton vert) — l'utilisateur dit « cet état
+     *     compte » ;
+     *   • juste avant un REMPLACEMENT (Nouveau, Ouvrir, import MIDI en remplacement, ou la
+     *     restauration d'une autre version) — l'état qui va disparaître est justement celui qu'on
+     *     regretterait.
+     * PAS À CHAQUE FRAPPE : c'est le rôle du brouillon, qui s'écrit tout seul en continu (voir
+     * _ecrireBrouillon). Dix versions pour dix frappes ne diraient rien de l'histoire du morceau.
+     *
+     * `archiver` refuse de lui-même une version identique à la plus récente : trois Ctrl+S d'affilée
+     * sans rien changer entre deux ne font pas trois versions.
+     *
+     * @param {{ecraserDerniere?: boolean}} options voir io/versions.js#archiver.
+     */
+    _archiverVersion(options = {}) {
+        if (!this.versionsActives) return false;
+        const range = archiver(this.editeur.partition, options);
+        if (range) this.rafraichirEtatVersions();
+        return range;
     }
 
     /**
@@ -823,7 +1096,7 @@ class TabHubApp {
             // rien du tout, alors que « Nouveau » posait au moins un confirm() — deux gestes aussi
             // destructeurs l'un que l'autre, deux traitements différents. Voir peutEcraserLeMorceau.
             // APRÈS la lecture du fichier : inutile de poser la question si le fichier est illisible.
-            if (!(await this.peutEcraserLeMorceau('Ouvrir un fichier'))) return;
+            if (!(await this.peutEcraserLeMorceau('Ouvrir un fichier', { demanderVersion: true }))) return;
             this.arreter();
             this.editeur.remplacer(partition);
             this.message(`Importé : ${partition.meta.titre}`);
@@ -1126,7 +1399,7 @@ class TabHubApp {
             // Seul le REMPLACEMENT écrase le morceau ; « à la suite » l'agrandit et ne perd rien,
             // donc rien à demander dans ce cas — un garde-fou qui se déclenche quand il n'y a rien à
             // perdre s'apprend à cliquer sans lire.
-            if (choix !== 'suite' && !(await this.peutEcraserLeMorceau('Importer un fichier MIDI'))) return;
+            if (choix !== 'suite' && !(await this.peutEcraserLeMorceau('Importer un fichier MIDI', { demanderVersion: true }))) return;
             this.arreter();
             if (choix === 'suite') {
                 const tempoActuel = this.editeur.partition.meta.tempo;
@@ -1174,9 +1447,14 @@ class TabHubApp {
      *
      * @returns {Promise<boolean>} vrai si l'appelant peut continuer.
      */
-    async peutEcraserLeMorceau(intitule) {
+    async peutEcraserLeMorceau(intitule, { demanderVersion = false } = {}) {
         // Rien à perdre : aucune modification depuis le dernier export (ou depuis l'ouverture).
-        if (!this.editeur.peutAnnuler() || this.travailExporte) return true;
+        // ON ARCHIVE QUAND MÊME au passage : « rien à perdre » veut dire « le fichier existe »,
+        // pas « ce morceau n'intéresse plus personne » — et retrouver un état dans la liste des
+        // versions coûte moins qu'aller rechercher le .json dans un dossier de téléchargements.
+        if (!this.editeur.peutAnnuler() || this.travailExporte) {
+            return this._archiverAvantRemplacement(demanderVersion);
+        }
         const choix = await demander({
             titre: intitule,
             // LE FORMAT EST DIT DANS LE TEXTE, pas dans le libellé du bouton : « Exporter en JSON
@@ -1191,8 +1469,46 @@ class TabHubApp {
                 { cle: 'exporter', libelle: 'Exporter puis continuer', style: 'plein' },
             ],
         });
-        if (choix === 'exporter') { this.exporterJson(); return true; }
-        return choix === 'sans';
+        if (choix === 'exporter') { this.exporterJson(); return this._archiverAvantRemplacement(demanderVersion); }
+        if (choix !== 'sans') return false;
+        return this._archiverAvantRemplacement(demanderVersion);
+    }
+
+    /**
+     * Range le morceau en cours dans l'historique juste avant qu'il soit remplacé, en posant au
+     * besoin LA question de l'utilisateur : « au moment d'un import, me demander si je veux écraser
+     * la version précédente. »
+     *
+     * POURQUOI LA QUESTION N'EST POSÉE QU'AUX IMPORTS (`demanderVersion`), et pas devant « Nouvelle
+     * tablature » ni devant la restauration d'une version : c'est littéralement ce qui a été demandé,
+     * et la friction doit rester proportionnée. Importer plusieurs fois de suite le même fichier
+     * retouché ailleurs est le cas où la liste gonfle pour rien — c'est là que le choix sert.
+     *
+     * ET SEULEMENT S'IL Y A DÉJÀ QUELQUE CHOSE À ÉCRASER : sans version enregistrée, la question
+     * n'aurait pas de réponse utile. Une question dont une seule réponse a du sens n'est pas une
+     * question, c'est une étape de plus.
+     *
+     * @returns {Promise<boolean>} faux seulement si l'utilisateur annule ICI — l'appelant renonce
+     *   alors au remplacement, comme s'il avait annulé le garde-fou précédent.
+     */
+    async _archiverAvantRemplacement(demanderVersion) {
+        if (!this.versionsActives) return true;
+        const versions = lireVersions();
+        if (!demanderVersion || versions.length === 0) { this._archiverVersion(); return true; }
+        const choix = await demander({
+            titre: 'Historique des versions',
+            texte: `Le morceau en cours va être mis de côté. La version la plus récente de `
+                 + `l'historique date de ${daterVersion(versions[0].date)}`
+                 + `${versions[0].titre ? ` (« ${versions[0].titre} »)` : ''}.`,
+            boutons: [
+                { cle: 'annuler', libelle: 'Annuler' },
+                { cle: 'ecraser', libelle: 'Écraser la précédente' },
+                { cle: 'garder', libelle: 'Garder les deux', style: 'plein' },
+            ],
+        });
+        if (choix === 'annuler' || choix === null) return false;
+        this._archiverVersion({ ecraserDerniere: choix === 'ecraser' });
+        return true;
     }
 
     async nouveau() {
@@ -1261,6 +1577,7 @@ class TabHubApp {
         const actionsFichiers = {
             nouveau: () => this.nouveau(), ouvrir: () => this.ouvrir(), 'exporter-json': () => this.exporterJson(),
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
+            versions: () => this.ouvrirVersions(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {
             const b = e.target.closest('[data-action]');
@@ -1310,6 +1627,13 @@ class TabHubApp {
 
         surClic('btn-mesures-ligne-bascule', () => this.basculerGroupeMesuresLigne());
         this.construireBoutonsMesuresLigne();
+        // Le zoom : deux crans, et un rafraîchissement d'entrée de jeu pour que la loupe déjà au
+        // butoir (préférence retenue à ZOOM_MIN/ZOOM_MAX) arrive désactivée, sans attendre un clic.
+        // Le popover reste OUVERT après un cran, à la différence d'un choix de mesures par ligne :
+        // on zoome par essais successifs, et le refermer obligerait à le rouvrir à chaque cran.
+        surClic('btn-zoom-moins', () => this.changerZoom(-1));
+        surClic('btn-zoom-plus', () => this.changerZoom(+1));
+        this.rafraichirZoom();
         this.rafraichirFlechesTransport = this.brancherFlechesTransport();
 
         // Métronome : ne touche à rien de la lecture EN COURS (voir Lecteur.jouer, qui ne
@@ -1320,12 +1644,23 @@ class TabHubApp {
             localStorage.setItem(CLE_METRONOME, this.lecteur.metronomeActif ? '1' : '0');
             this.rafraichirMetronome();
         });
+        // Le décompte : PAS d'effet sur une lecture en cours, comme le métronome juste au-dessus — il
+        // ne se joue qu'au départ, et rien ne se passerait à le basculer en plein morceau.
+        surClic('btn-decompte', () => {
+            this.lecteur.decompteActif = !this.lecteur.decompteActif;
+            localStorage.setItem(CLE_DECOMPTE, this.lecteur.decompteActif ? '1' : '0');
+            this.rafraichirMetronome();
+        });
         surClic('champ-metronome-subdivision', () => {
             this.lecteur.metronomeSubdivision = !this.lecteur.metronomeSubdivision;
             localStorage.setItem(CLE_METRONOME_SUBDIVISION, this.lecteur.metronomeSubdivision ? '1' : '0');
             this.rafraichirMetronome();
         });
         this.rafraichirMetronome();
+        // L'entrée « Versions précédentes… » n'existe dans le menu Fichiers que si l'historique est
+        // allumé : posée ici, au câblage, plutôt qu'à chaque ouverture du popover — la préférence ne
+        // change qu'à l'interrupteur des Réglages, qui rappelle cette même fonction.
+        this.rafraichirEtatVersions();
 
         // Clic dans la partition : place le curseur. Glisser : dessine un rectangle de sélection
         // multiple. Voir demarrerGeste — les deux commencent pareil, ne se distinguent qu'au premier
@@ -2504,6 +2839,21 @@ class TabHubApp {
 
         // TAB SEULE : n'a de sens que pour un instrument qui A une tablature (voir appliquerTabSeule) —
         // masqué au piano, même logique que le pavé tactile juste au-dessus.
+        // L'INTERRUPTEUR DE L'HISTORIQUE. Recalé à chaque ouverture des Réglages (comme les autres) :
+        // l'état peut avoir changé depuis, une confirmation refusée ayant pu le laisser où il était.
+        const btnVersions = document.getElementById('champ-versions');
+        if (btnVersions) {
+            btnVersions.setAttribute('aria-checked', String(this.versionsActives));
+            btnVersions.onclick = async () => {
+                // ON REPART DE L'ÉTAT RENDU, pas de celui qu'on visait : éteindre peut être ANNULÉ
+                // dans la confirmation, et l'interrupteur doit alors revenir où il était plutôt que
+                // de montrer un état qui n'a pas eu lieu.
+                const retenu = await this.basculerVersions(!this.versionsActives);
+                btnVersions.setAttribute('aria-checked', String(retenu));
+            };
+        }
+        this.rafraichirEtatVersions();
+
         const ligneTabSeule = document.getElementById('ligne-tab-seule');
         const btnTabSeule = document.getElementById('champ-tab-seule');
         ligneTabSeule.hidden = piste.instrument === 'piano';

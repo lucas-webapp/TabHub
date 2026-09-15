@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609150941">
+    <link rel="stylesheet" href="style.css?v=202609151032">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -180,6 +180,23 @@
                 <circle cx="12" cy="6" r="1" fill="currentColor" stroke="none"/>
             </svg>
         </button>
+        <!-- DÉCOMPTE : ICI, avec les commandes de lecture, et non dans les Réglages (retour
+             utilisateur : « mettre une option pour le prendre en compte ou non AU MOMENT DE LA
+             LECTURE »). C'est une décision d'essai — on compte pour se lancer sur un passage
+             difficile, pas pour les suivants — donc une commande, pas une préférence.
+             VOISIN DU MÉTRONOME parce qu'ils partagent le même son, et DISTINCT de lui parce qu'ils
+             ne font pas la même chose : l'un met en place AVANT la première note, l'autre tient la
+             pulsation PENDANT. On veut couramment l'un sans l'autre.
+             L'ICÔNE : trois clics, puis une note — ce que le bouton fait, dans l'ordre où il le fait. -->
+        <button type="button" id="btn-decompte" class="btn-icone" title="Décompte d'une mesure avant la lecture" aria-label="Décompte d'une mesure avant la lecture" aria-pressed="false">
+            <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                <circle cx="3.6" cy="13" r="1.3" fill="currentColor" stroke="none"/>
+                <circle cx="8.4" cy="13" r="1.3" fill="currentColor" stroke="none"/>
+                <circle cx="13.2" cy="13" r="1.3" fill="currentColor" stroke="none"/>
+                <circle cx="18.2" cy="16.4" r="2.5" fill="currentColor" stroke="none"/>
+                <path d="M20.7 16.4V7.2"/>
+            </svg>
+        </button>
     </div>
 
     <div class="transport-cote transport-droite">
@@ -206,7 +223,41 @@
         <span class="info-transport etiquette-affichage">Affichage</span>
         <button type="button" id="btn-mesures-ligne-bascule" class="btn-transport-texte btn-mesures-ligne-bascule"
             aria-haspopup="true" aria-expanded="false"></button>
-        <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Nombre de mesures par ligne"></div>
+        <!-- DEUX COMMANDES D'AFFICHAGE, UN SEUL CONTENANT. `#groupe-mesures-ligne` garde son id : c'est
+             lui qui reçoit `.ouvert` et que _positionnerPanneau déplace sur téléphone (voir
+             main.js#basculerGroupeMesuresLigne) — le popover n'a donc rien à réapprendre, seul son
+             CONTENU s'enrichit. Les chiffres, eux, vivent dans un sous-groupe propre : leur
+             constructeur vide son hôte (`innerHTML = ''`, voir construireBoutonsMesuresLigne), et les
+             loupes posées à côté d'eux dans le même élément auraient disparu au premier redessin. -->
+        <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Affichage de la partition">
+            <!-- ZOOM DE LA PARTITION À L'ÉCRAN (retour utilisateur : « ajouter un zoom de la partition
+                 à l'écran. À placer à l'endroit idéal avec des boutons loupes + et -, pas dans les
+                 paramètres »). ICI, ET PAS DANS LES RÉGLAGES : c'est un geste qu'on refait sans cesse
+                 en travaillant — voir large pour situer une section, serrer pour lire une case — pas
+                 une préférence qu'on pose une fois. Et ici PLUTÔT QU'AILLEURS : la zone porte déjà
+                 l'étiquette « Affichage » et l'autre commande qui décide de ce qu'on voit à l'écran
+                 (mesures par ligne). Les deux se complètent sans se répéter : les chiffres serrent la
+                 musique HORIZONTALEMENT, la loupe change l'ÉCHELLE ENTIÈRE — donc aussi le nombre de
+                 lignes visibles et la taille des chiffres de tablature. -->
+            <div class="groupe-zoom" role="group" aria-label="Taille de la partition à l'écran">
+                <button type="button" id="btn-zoom-moins" class="btn-icone" title="Réduire la partition" aria-label="Réduire la partition">
+                    <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="10.5" cy="10.5" r="6.5"/>
+                        <path d="M15.5 15.5 21 21"/>
+                        <path d="M7.5 10.5h6"/>
+                    </svg>
+                </button>
+                <button type="button" id="btn-zoom-plus" class="btn-icone" title="Agrandir la partition" aria-label="Agrandir la partition">
+                    <svg class="icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+                        <circle cx="10.5" cy="10.5" r="6.5"/>
+                        <path d="M15.5 15.5 21 21"/>
+                        <path d="M7.5 10.5h6"/>
+                        <path d="M10.5 7.5v6"/>
+                    </svg>
+                </button>
+            </div>
+            <div class="groupe-compte" id="groupe-mesures-ligne-boutons" role="group" aria-label="Nombre de mesures par ligne"></div>
+        </div>
     </div>
 </div>
 
@@ -383,6 +434,24 @@
                     <label id="etiquette-brouillon">Enregistrement automatique</label>
                     <span class="valeur-etat" id="etat-brouillon" aria-live="polite">—</span>
                 </div>
+                <!-- L'HISTORIQUE, EN UN SEUL INTERRUPTEUR (retour utilisateur : « je propose de
+                     pouvoir les afficher ou non »). Le reproche fait à HarmoHub est l'accumulation :
+                     ses imports forcés y laissent des copies nommées « Titre (import du 14/09/2025) »
+                     au milieu de la bibliothèque. Ici les versions vivent à part, en nombre borné, et
+                     cet interrupteur décide si elles existent du tout.
+                     ÉTEINDRE VIDE VRAIMENT : voir io/versions.js#viderVersions. Un interrupteur qui
+                     n'aurait masqué que la liste aurait continué à consommer le quota du navigateur,
+                     partagé avec le brouillon — et aurait fait croire à un effacement qui n'a pas eu
+                     lieu. C'est aussi pourquoi l'éteindre passe par une confirmation : c'est le seul
+                     réglage de ce panneau qui DÉTRUIT quelque chose. -->
+                <div class="ligne-champ">
+                    <label id="etiquette-versions">Historique des versions</label>
+                    <span class="valeur-etat" id="etat-versions" aria-live="polite">—</span>
+                    <button type="button" id="champ-versions" class="interrupteur" role="switch" aria-checked="true"
+                        title="Garder les dix derniers états enregistrés, pour pouvoir y revenir" aria-labelledby="etiquette-versions">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
+                </div>
                 <!-- LES RÉGLAGES DE MISE EN PAGE DU PDF NE SONT PAS ICI, et c'est délibéré : ils
                      vivent dans la fenêtre d'aperçu (voir #fenetre-pdf), là où l'on VOIT ce qu'ils
                      changent. Un « nombre de mesures par ligne » réglé à l'aveugle dans un panneau,
@@ -463,6 +532,29 @@
             </div>
         </div>
         <div class="fenetre-pied dialogue-actions"></div>
+    </div>
+</div>
+
+<!-- LA FENÊTRE DES VERSIONS. Même châssis que les Réglages et l'aperçu PDF (voile + fenêtre + tête
+     + corps + pied) : rien de neuf à styler, donc rien qui puisse divorcer du reste au premier
+     changement de palette. La liste elle-même est construite par main.js#remplirListeVersions — son
+     contenu change à chaque ouverture, il n'a rien à faire dans un balisage statique. -->
+<div class="voile" id="fenetre-versions" hidden>
+    <div class="fenetre fenetre-versions" role="dialog" aria-modal="true" aria-labelledby="titre-versions">
+        <div class="fenetre-tete">
+            <h2 id="titre-versions">Versions précédentes</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <p class="note-fenetre">Un état est mis de côté à chaque enregistrement, et avant tout
+               remplacement du morceau. Les dix derniers sont gardés ; le plus ancien s'efface de
+               lui-même. Ces versions vivent dans ce navigateur, pas dans le fichier .json.</p>
+            <div class="liste-versions" id="liste-versions" role="list"></div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-neutre" data-fermer>Fermer</button>
+        </div>
     </div>
 </div>
 
@@ -614,6 +706,11 @@
     <button type="button" data-action="ouvrir">Ouvrir un fichier .json…</button>
     <button type="button" data-action="exporter-json">Exporter en .json</button>
     <button type="button" data-action="pdf">Exporter en PDF</button>
+    <!-- LES VERSIONS SONT ICI, dans le menu Fichiers, et pas dans les Réglages : c'est un geste sur
+         le DOCUMENT (« reprendre où j'en étais avant-hier »), pas une préférence. L'entrée disparaît
+         quand l'historique est éteint (voir main.js#rafraichirEntreeVersions) plutôt que de rester là
+         en grisé : un menu ne doit pas faire la liste de ce qu'on a décidé de ne pas avoir. -->
+    <button type="button" data-action="versions">Versions précédentes…</button>
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
@@ -641,6 +738,6 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609150941"></script>
+<script type="module" src="src/main.js?v=202609151032"></script>
 </body>
 </html>

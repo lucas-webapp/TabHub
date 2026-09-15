@@ -460,7 +460,13 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    bascule juste au-dessus, pour exactement la même raison. Trouvé au test : sans ce doublement, le
    bouton restait visible sur grand écran malgré cette règle. */
 .btn-transport-texte.btn-mesures-ligne-bascule { display: none; }
-.groupe-mesures-ligne { display: inline-flex; gap: 2px; flex: none; }
+.groupe-mesures-ligne { display: inline-flex; align-items: center; gap: 6px; flex: none; }
+/* LES DEUX SOUS-GROUPES de la zone « Affichage » : les loupes (échelle entière) et les chiffres
+   (mesures par ligne). Un filet les sépare — deux commandes voisines qui ne font pas la même chose
+   ne doivent pas se lire comme une seule rangée de six boutons et demi. */
+.groupe-zoom { display: inline-flex; gap: 2px; flex: none; }
+.groupe-compte { display: inline-flex; gap: 2px; flex: none; }
+.groupe-zoom + .groupe-compte { border-left: 1px solid var(--border-groupe); padding-left: 6px; }
 .btn-mesures-ligne {
     min-width: 26px; height: var(--h-bouton); padding: 0 6px;
     display: inline-flex; align-items: center; justify-content: center;
@@ -1333,12 +1339,29 @@ body.avec-pave .dpad-flottant { display: grid; }
     .btn-transport-texte.btn-mesures-ligne-bascule { display: inline-flex; }
     .groupe-mesures-ligne { display: none; }
     .groupe-mesures-ligne.ouvert {
-        display: inline-flex; flex-wrap: wrap; gap: 4px;
+        /* EN COLONNE dans le popover, et les chiffres libres de passer à la ligne entre eux : les
+           deux sous-groupes n'ont pas la même largeur naturelle (deux loupes contre six chiffres), et
+           les laisser se suivre sur une seule ligne enveloppante mettait la première loupe au bout
+           de la rangée des chiffres. Le filet vertical qui les sépare en ligne devient horizontal. */
+        display: flex; flex-direction: column; align-items: flex-start; flex-wrap: nowrap; gap: 6px;
         position: fixed; z-index: 70;
         background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
         width: max-content; max-width: min(230px, calc(100vw - 16px));
         box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
     }
+    .groupe-mesures-ligne.ouvert .groupe-compte { flex-wrap: wrap; }
+    .groupe-mesures-ligne.ouvert .groupe-zoom + .groupe-compte {
+        border-left: none; padding-left: 0;
+        border-top: 1px solid var(--border-groupe); padding-top: 6px; width: 100%;
+    }
+    /* LES LOUPES SUIVENT LES CHIFFRES DANS LE POPOVER, et rien n'est à écrire pour cela : elles
+       vivent DANS `.groupe-mesures-ligne` (voir index.html), que la règle ci-dessus efface tant
+       qu'il n'est pas `.ouvert`. Ce n'est pas un repli par défaut mais par MESURE — à 320px, le bloc
+       de lecture prend 219px et la zone de droite 54, soit 47px de reste ; deux loupes au gabarit
+       tactile (44px) en réclament 88 et feraient déborder la barre de 41px, et même ramenées à la
+       taille souris (34px) il en manquerait 21. Le popover « Affichage » est de toute façon leur
+       place ici : c'est là que sont déjà les commandes de ce qu'on voit, et il reste ouvert d'un
+       cran au suivant — mieux qu'un bouton de barre qu'il faudrait atteindre en défilant. */
 }
 
 /* RÉGLAGES/AIDE contre le logo, mais SEULEMENT dès que ça tient (complément du media query ci-dessus,
@@ -1367,7 +1390,72 @@ body.avec-pave .dpad-flottant { display: grid; }
     .etat-pave { display: none; }
 }
 
+/* TÉLÉPHONE LE PLUS ÉTROIT (320-359px) : le bloc de lecture se resserre plutôt que de faire défiler
+   la barre.
+   POURQUOI CETTE RÈGLE EXISTE. Le décompte est la SIXIÈME commande de ce bloc (Lecture, Stop, Tempo,
+   Métronome, Décompte + la zone Affichage à droite). Mesuré à l'ajout : 40px de débordement réel à
+   320px, 20px à 340px, rien à partir de 360px — « réel » voulant dire flèches de défilement
+   DÉDUITES, car elles sont dans le flux et comptent pour 26px dans `scrollWidth` dès qu'elles
+   s'allument (voir ui/toolbar.js#ajusterFleches : un débordement brut de 66px n'en était donc pas un
+   de 66).
+   POURQUOI RESSERRER PLUTÔT QUE LAISSER DÉFILER. La barre SAIT défiler, flèches comprises — ce
+   n'était pas une impasse. Mais une commande de lecture qu'il faut aller chercher en faisant glisser
+   la barre répond mal à ce qui a valu ce bloc (« les boutons de lecture sont trop petits et tout en
+   bas à gauche ») : on appuie sur Lecture entre deux corrections, dix fois par minute.
+   CE QUI EST SACRIFIÉ, ET CE QUI NE L'EST PAS. Les cibles descendent à 40px (Lecture/Stop) et 36px
+   (les deux bascules) — sous les 44px recommandés, assumé pour cette seule largeur, où le clavier du
+   téléphone lui-même n'offre pas 44px par touche. La HAUTEUR des boutons ne bouge pas, et Lecture/
+   Stop restent les plus gros du lot : ce sont eux qu'on vise sans regarder. */
+@media (max-width: 359px) {
+    .bloc-lecture { padding: 3px 4px; gap: 2px; }
+    .bloc-lecture .btn-lecture { width: 40px; }
+    .bloc-lecture .btn-icone { width: 36px; }
+    .bloc-lecture #champ-tempo { width: 38px; padding-left: 2px; padding-right: 2px; }
+}
+
 /* Les deux boutons de transposition (voir ui/toolbar.js) : un ♭ et un ♯ à leur taille de lecture,
    nettement plus grands qu'un libellé de bouton ordinaire — ce sont des SIGNES musicaux, et un
    bémol rendu au corps du texte courant se confond avec un « b » minuscule. */
 .btn-transposer { font-size: 17px; font-weight: 700; line-height: 1; padding-bottom: 2px; }
+
+/* ---------------------------------------------------------------------------------------------
+   HISTORIQUE DES VERSIONS (voir io/versions.js et main.js#remplirListeVersions)
+   --------------------------------------------------------------------------------------------- */
+
+/* Assez large pour qu'une ligne tienne d'un bloc — date, titre, et les deux gestes — sans que le
+   bouton « Revenir à cet état » passe à la ligne sous le texte qu'il concerne. */
+.fenetre-versions { width: min(620px, 100%); }
+
+/* La phrase d'explication en tête de fenêtre : elle dit OÙ vivent ces versions (ce navigateur, pas
+   le .json), ce qu'aucune liste ne peut faire deviner. Discrète, jamais au corps du texte courant :
+   on la lit une fois, pas à chaque ouverture. */
+.note-fenetre { margin: 0; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.5; }
+
+.liste-versions { display: flex; flex-direction: column; gap: 6px; max-height: 52vh; overflow-y: auto; }
+.liste-vide { margin: 0; padding: 14px 2px; font-size: var(--fs-sm); color: var(--text-muted); }
+
+.ligne-version {
+    display: flex; align-items: center; gap: 10px;
+    padding: 8px 10px;
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    background: var(--fond-bouton-sombre);
+}
+/* Le texte prend toute la place restante, et `min-width: 0` l'autorise à se rogner : sans lui, un
+   titre long pousserait les deux boutons hors du cadre (un enfant flex refuse de descendre sous sa
+   largeur de contenu tant qu'on ne le lui permet pas). */
+.version-texte { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.version-date { font-size: var(--fs-sm); font-weight: 700; color: var(--text-main); }
+.version-detail {
+    font-size: var(--fs-xs); color: var(--text-muted);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.ligne-version > .btn-neutre { flex: none; }
+
+/* Sur téléphone, la ligne s'empile : trois éléments côte à côte dans 390px ne laissent au titre
+   qu'une poignée de caractères, et c'est justement lui qui permet de choisir. */
+@media (max-width: 480px) {
+    .ligne-version { flex-wrap: wrap; }
+    .version-texte { flex: 1 1 100%; }
+    .ligne-version > .btn-neutre { flex: 1 1 auto; }
+}

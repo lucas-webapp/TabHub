@@ -168,6 +168,21 @@ répétait en coûtant sa largeur de texte, dans la seule barre de l'application
 Un **métronome** optionnel (deux boutons du transport) suit la signature en vigueur — binaire ou
 ternaire, jamais un simple clic uniforme — avec une option « croche » pour une subdivision en plus.
 
+Un **décompte** d'une mesure peut précéder la lecture : le métronome bat la mesure qui vient, puis la
+musique part. Sa bascule est **dans le bloc de lecture**, à côté du métronome, et pas dans les
+Réglages : c'est une décision d'essai — on compte pour se lancer sur un passage difficile, pas pour
+les suivants. Indépendant du métronome, et c'est le point : l'un met en place AVANT la première note,
+l'autre tient la pulsation PENDANT. Le décompte suit la signature de la mesure de **départ** (trois
+clics en 3/4, pas quatre), et ne se rejoue pas en reprenant une pause — on repartirait au milieu
+d'une phrase.
+
+Techniquement, ce décompte est programmé sur l'**horloge audio**, et le transport simplement démarré
+plus tard. L'autre voie — décaler d'une mesure tout ce qui est programmé sur le transport — aurait
+obligé à retrancher ce décalage partout où une position de transport se relit (tête de lecture,
+bornes de boucle, reprogrammation en direct) ; une seule de ces lectures qui l'oublierait
+désynchroniserait l'image du son. Le décompte n'appartient pas au morceau : il n'a donc rien à faire
+dans son échelle de temps.
+
 Une **boucle de lecture** se définit en glissant (souris ou doigt) sur la fine bande sous la
 tablature de chaque système : la zone se rejoue indéfiniment, pour retravailler un passage sans
 repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
@@ -193,6 +208,24 @@ et le tour suivant rejouait l'ancienne.
 
 Deux **volumes** indépendants (Réglages > Son) : général (agit sur tout ce qui sonne) et métronome
 seul (relatif au premier) — 0 à 100, avec lecture immédiate.
+
+### Affichage de la partition
+
+Deux commandes, sous l'étiquette **Affichage** de la barre du bas, et elles ne font pas la même chose
+— c'est pourquoi les deux existent :
+
+- les **loupes + / −** changent l'échelle **entière** (la taille de portée, de 6 à 15 px d'interligne) :
+  donc la hauteur de chaque système, le nombre de lignes visibles d'un coup d'œil, et la taille des
+  chiffres de tablature. Un curseur de zoom avait existé là, puis disparu comme redondant avec le
+  réglage suivant ; la redondance n'était qu'à moitié vraie, et l'aperçu PDF l'a démontré sur le
+  papier (la taille de portée est de loin le levier le plus fort sur une mise en page). Deux boutons
+  plutôt qu'un curseur : un curseur demande de viser, deux loupes se martèlent sans regarder.
+- **mesures par ligne** (Auto, 2, 3, 4, 6, 8) serre la musique **horizontalement**, à hauteur de
+  portée constante : il redistribue les mesures, il ne change pas l'échelle.
+
+Sur téléphone, les deux se replient derrière le même bouton « Affichage » — mesuré, deux loupes au
+gabarit tactile réclament 88 px là où la barre en a 47 de libre. Le popover reste ouvert d'un cran au
+suivant, ce qu'un bouton de barre n'aurait pas permis.
 
 ### Instruments et accordages
 
@@ -261,7 +294,36 @@ un nom qu'on reconnaît.
 - Un **brouillon** est conservé dans le navigateur : un rechargement accidentel ne coûte rien. Il ne
   se règle pas et ne se pilote pas — il n'y a rien à activer, rien à vider, comme dans HarmoHub. Un
   seul brouillon à la fois, jamais un gestionnaire multi-fichiers : Fichiers > Nouveau l'écrase,
-  Fichiers > Exporter reste la sauvegarde durable.
+  Fichiers > Exporter reste la sauvegarde durable. L'historique des versions (juste en dessous) garde
+  en plus les dix derniers états enregistrés — mais c'est un filet de rattrapage, pas une
+  bibliothèque de morceaux.
+
+**L'historique des versions** (Fichiers > Versions précédentes…). Un état est mis de côté à chaque
+**enregistrement** délibéré, et avant tout **remplacement** du morceau (Nouveau, Ouvrir, import MIDI
+en remplacement, ou le retour à une autre version). Les **dix** derniers sont gardés, datés en clair
+(« hier à 14:05 ») ; le plus ancien s'efface de lui-même. Ce n'est pas le brouillon : celui-ci est UN
+état réécrit sans cesse, qui protège de l'accident ; une version est un état délibéré, qu'on garde
+pour pouvoir y revenir. L'un protège de l'accident, l'autre du regret.
+
+Le modèle est celui de HarmoHub, mais corrigé de ce qui y gêne. Là-bas, réimporter une sauvegarde
+contenant un morceau déjà présent propose d'en garder une copie, nommée « Titre (import du
+14/09/2025) », qui atterrit **dans la bibliothèque** au milieu des morceaux — deux ou trois imports
+plus tard, on ne sait plus lequel est le bon. Le défaut n'est pas de garder des versions, c'est de
+les mêler au travail en cours. D'où quatre règles ici : elles vivent **à part** (jamais dans le nom
+du morceau), leur nombre est **borné**, un état identique au précédent n'en crée pas une deuxième
+(Ctrl+S est un réflexe), et un morceau **sans aucune note** n'est pas une version.
+
+À l'**import**, TabHub demande s'il faut *écraser la version précédente* ou *garder les deux* — c'est
+ce qui empêche la liste d'enfler quand on réimporte plusieurs fois le même fichier retouché ailleurs.
+La question ne se pose qu'aux imports, et seulement s'il y a déjà une version : une question dont une
+seule réponse a du sens n'est pas une question, c'est une étape de plus. Revenir à une version
+**archive l'état qu'on quitte** — sans quoi « revenir en arrière » serait un aller simple, et se
+tromper de ligne coûterait le travail en cours.
+
+L'historique **s'éteint** (Réglages > Fichiers), et s'éteindre **vide réellement** le stockage. Un
+interrupteur qui n'aurait masqué que la liste aurait continué à consommer le quota du navigateur —
+partagé avec le brouillon — tout en laissant croire à un effacement ; c'est le seul réglage de ce
+panneau qui détruit des données, et le seul qui demande confirmation.
 
 **Les garde-fous.** Puisqu'il n'y a qu'un brouillon et que Nouveau l'écrase, deux gestes peuvent
 coûter un travail : remplacer le morceau en cours (Nouveau, Ouvrir, ou un import MIDI « remplacer »)
@@ -309,7 +371,8 @@ src/
     raccourcis.js       table unique des actions (clavier + palette)
     keyboard.js         branchement du clavier
   audio/player.js     Tone.js, transport, tête de lecture
-  io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter)
+  io/                 fichiers : json.js (sauver/ouvrir), pdf.js (paginer/exporter),
+                        midi.js, versions.js (historique local, borné)
   ui/                 icons.js, toolbar.js, dialogue.js (fenêtres de l'app, pas du navigateur)
   main.js             LE SEUL module qui touche au DOM et connaît tous les autres
 outils/
