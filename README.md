@@ -211,6 +211,13 @@ de boucle. **Ce qui reste commun** : la durée choisie dans la palette (un régl
 propriété du morceau) et le **presse-papier de mesure** — c'est précisément lui qui rend les onglets
 utiles, puisqu'il permet de reporter une mesure d'une version à l'autre.
 
+**Au clavier** : `Alt+1` … `Alt+9` va droit au n-ième onglet, `Alt+←` / `Alt+→` passe au voisin —
+sans bouclage aux deux bouts, pour que marteler la touche ne fasse pas réapparaître le premier onglet
+quand on croyait atteindre le dernier. `Alt+7` sur trois onglets ne fait rien plutôt que d'en viser
+un au hasard. Le code de touche (`e.code`, donc `Digit1`) et non le caractère produit : sur un clavier
+AZERTY la rangée des chiffres donne `& é " ' (` sans majuscule, et des caractères plus surprenants
+encore avec Alt.
+
 Le **brouillon du navigateur porte tous les onglets** : un rechargement les retrouve tous, avec celui
 sur lequel on travaillait. Un brouillon écrit avant l'arrivée des onglets se relit en un seul.
 
@@ -316,6 +323,30 @@ Deux commandes, sous l'étiquette **Affichage** de la barre du bas, et elles ne 
 Sur téléphone, les deux se replient derrière le même bouton « Affichage » — mesuré, deux loupes au
 gabarit tactile réclament 88 px là où la barre en a 47 de libre. Le popover reste ouvert d'un cran au
 suivant, ce qu'un bouton de barre n'aurait pas permis.
+
+**Pincer zoome la partition, pas la page.** Sur la partition, `Ctrl+molette`, le pincement de pavé
+tactile et le pincement à deux doigts passent tous par les mêmes loupes (retour utilisateur :
+« lorsque je zoome avec les doigts ou sur mon ordinateur, peux-tu modifier le zoom de la partition
+uniquement ? Actuellement toute la page zoome et dézoome »). Le zoom du navigateur grossit *tout* —
+barres d'outils, boutons, transport — et fait déborder l'interface quand on cherchait seulement à
+mieux voir les notes ; les loupes, elles, remettent la musique en page. Trois choses le rendent juste :
+
+- **Un seul écouteur pour le pavé tactile et la souris** : un pincement de pavé arrive comme un
+  `wheel` avec `ctrlKey`, exactement comme `Ctrl+molette`. Un **seuil cumulé** (42 unités) empêche
+  les dizaines de petits `wheel` d'un pincement de traverser toute l'échelle d'un geste.
+- **Le pincement à deux doigts suit les pointeurs** (aucun `gesturestart` n'est portable) et
+  l'interligne suit le **rapport des écarts depuis le début du geste** : refermer les doigts rend
+  exactement la taille de départ, là où un calcul cran par cran dériverait. Un seul doigt ne zoome
+  pas — il défile.
+- **Uniquement sur la partition**, et c'est la limite qui rend la confiscation acceptable : partout
+  ailleurs le zoom du navigateur reste entier. La barre d'outils, qui transforme la molette verticale
+  en défilement horizontal, laisse donc passer `Ctrl+molette` au lieu de l'avaler.
+
+Le `touch-action: pan-x pan-y` de la partition (qui **exclut** `pinch-zoom`) est délibérément **hors**
+de `@media (pointer: coarse)` : `pointer` décrit le pointeur *principal*, qui sur un portable à écran
+tactile est le pavé — la règle ne s'y appliquait donc pas et un pincement du doigt retombait sur le
+zoom natif, mesuré. Comme `touch-action` ne gouverne que le toucher direct, la poser pour tout le
+monde ne change rien sur une machine sans écran tactile.
 
 **Titre, sous-titre et artiste se modifient sur la partition**, là où ils se lisent : on touche le
 titre gravé au-dessus de la portée et un panneau propose les trois champs. Un seul chemin — les

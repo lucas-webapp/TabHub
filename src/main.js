@@ -315,6 +315,13 @@ class TabHubApp {
             ouvrir: () => this.ouvrir(),
             exporterPdf: () => this.exporterPdf(),
             aide: () => this.ouvrirFenetre('fenetre-aide'),
+            // ONGLETS AU CLAVIER (voir edit/keyboard.js). `allerOnglet` ignore un numéro qui ne
+            // correspond à rien : Alt+7 sur trois onglets ne doit RIEN faire, pas sauter au dernier —
+            // une touche qui agit « au plus proche » se trompe en silence.
+            allerOnglet: (i) => this.activerOnglet(i),
+            // Le VOISIN, sans faire le tour : arrivé au bout, on y reste. Un cycle ferait sauter d'un
+            // bord à l'autre de la barre, et l'on perdrait le fil de ce qu'on comparait.
+            ongletVoisin: (pas) => this.activerOnglet(Math.max(0, Math.min(this.onglets.length - 1, this.ongletActif + pas))),
             focusPartition: () => this.el.zone.focus(),
             signalerErreur: (texte) => this.message(texte),
             aUneSelection: () => this.selectionNotes.size > 0,
@@ -697,6 +704,90 @@ class TabHubApp {
         localStorage.setItem(CLE_ZOOM, String(this.interligne));
         this.rafraichirZoom();
         this.dessiner();
+    }
+
+    /**
+     * PINCER OU MOLETTE-CTRL SUR LA PARTITION : on agrandit LA PARTITION, pas la page.
+     *
+     * LE DÉFAUT (retour utilisateur : « lorsque je zoome avec les doigts ou sur mon ordinateur, peux-tu
+     * modifier le zoom de la partition uniquement ? Actuellement toute la page zoome et dézoome »).
+     * Rien n'interceptait le geste : le navigateur appliquait donc son propre zoom, qui grossit TOUT —
+     * barres d'outils, boutons, transport — et fait déborder l'interface pendant qu'on cherchait
+     * seulement à mieux voir les notes. Or l'application a déjà son zoom À ELLE (l'interligne de la
+     * portée, voir changerZoom), qui remet la musique en page proprement au lieu de l'étirer.
+     *
+     * LES DEUX GESTES ARRIVENT PAR LE MÊME ÉVÈNEMENT, ce qui n'est pas évident : un pincement sur
+     * pavé tactile est rendu par le navigateur comme un `wheel` avec `ctrlKey` — exactement comme
+     * Ctrl+molette à la souris. Un seul écouteur couvre donc le portable et l'ordinateur de bureau.
+     * Le pincement à DEUX DOIGTS sur écran tactile, lui, n'émet pas de `wheel` : il faut suivre les
+     * deux pointeurs, plus bas.
+     *
+     * UNIQUEMENT SUR LA ZONE DE PARTITION, et c'est la limite qui rend la chose acceptable : le zoom
+     * du navigateur reste entier partout ailleurs (barres, fenêtres, réglages). On ne confisque le
+     * geste que là où l'application a une meilleure réponse à donner.
+     */
+    brancherZoomGeste() {
+        const zone = this.el.zone;
+        if (!zone) return;
+
+        // --- Pavé tactile et Ctrl+molette ---------------------------------------------------------
+        // `passive: false` est OBLIGATOIRE pour que `preventDefault` porte : sans lui, le navigateur
+        // considère l'écouteur comme un simple observateur et applique son zoom quand même.
+        //
+        // UN SEUIL CUMULÉ plutôt qu'un cran par évènement : un pincement de pavé tactile émet des
+        // dizaines de `wheel` de quelques unités chacun, et un cran par évènement traverserait toute
+        // l'échelle de zoom en un geste. On accumule et on ne franchit un cran qu'au seuil.
+        let accumule = 0;
+        const SEUIL_MOLETTE = 42;
+        zone.addEventListener('wheel', (e) => {
+            if (!e.ctrlKey) return;   // molette ordinaire : c'est du défilement, on n'y touche pas
+            e.preventDefault();
+            accumule += e.deltaY;
+            while (Math.abs(accumule) >= SEUIL_MOLETTE) {
+                // deltaY NÉGATIF = pincement qui s'ouvre / molette vers le haut = AGRANDIR.
+                this.changerZoom(accumule < 0 ? 1 : -1);
+                accumule -= Math.sign(accumule) * SEUIL_MOLETTE;
+            }
+        }, { passive: false });
+
+        // --- Pincement à deux doigts --------------------------------------------------------------
+        // On suit les pointeurs nous-mêmes : `gesturestart`/`gesturechange` n'existent que chez
+        // Safari, et deux chemins pour un même geste finiraient par ne plus se comporter pareil.
+        //
+        // TANT QU'IL N'Y A QU'UN DOIGT, ON NE TOUCHE À RIEN : un seul doigt fait défiler la partition
+        // (voir .zone-partition, `touch-action: pan-x pan-y`) et pose le curseur. Le zoom ne commence
+        // qu'au SECOND doigt — et c'est seulement à ce moment-là qu'on reprend la main sur le geste.
+        const doigts = new Map();
+        let ecartDepart = 0;
+        let interligneDepart = 0;
+        const ecart = () => {
+            const [a, b] = [...doigts.values()];
+            return Math.hypot(a.x - b.x, a.y - b.y);
+        };
+        zone.addEventListener('pointerdown', (e) => {
+            if (e.pointerType !== 'touch') return;
+            doigts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (doigts.size === 2) { ecartDepart = ecart(); interligneDepart = this.interligne; }
+        });
+        zone.addEventListener('pointermove', (e) => {
+            if (!doigts.has(e.pointerId)) return;
+            doigts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+            if (doigts.size !== 2 || !ecartDepart) return;
+            e.preventDefault();
+            // L'INTERLIGNE SUIT LE RAPPORT DES ÉCARTS, à partir de celui du DÉBUT du geste : écarter
+            // les doigts de moitié agrandit de moitié. Calculer par rapport au cran précédent ferait
+            // dériver le zoom au fil d'un long pincement, et refermer les doigts ne rendrait pas la
+            // taille de départ.
+            const vise = Math.round(interligneDepart * (ecart() / ecartDepart));
+            const delta = Math.min(ZOOM_MAX, Math.max(ZOOM_MIN, vise)) - this.interligne;
+            if (delta) this.changerZoom(delta);
+        }, { passive: false });
+        const lacher = (e) => {
+            doigts.delete(e.pointerId);
+            if (doigts.size < 2) ecartDepart = 0;
+        };
+        zone.addEventListener('pointerup', lacher);
+        zone.addEventListener('pointercancel', lacher);
     }
 
     /** Désactive la loupe arrivée au bout de sa course, et dit dans l'infobulle où l'on en est —
@@ -2080,6 +2171,7 @@ class TabHubApp {
         this.el.feuille.addEventListener('pointerdown', (e) => this.demarrerGeste(e));
         this.el.feuille.addEventListener('contextmenu', (e) => this.ouvrirMenuContextuel(e));
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
+        this.brancherZoomGeste();
         let attenteDefilement = false;
         this.el.zone.addEventListener('scroll', () => {
             if (attenteDefilement) return;
@@ -3336,6 +3428,10 @@ class TabHubApp {
             ['<kbd>Ctrl</kbd>+<kbd>S</kbd>', 'Enregistrer en .json'],
             ['<kbd>Ctrl</kbd>+<kbd>O</kbd>', 'Ouvrir un .json'],
             ['<kbd>Ctrl</kbd>+<kbd>P</kbd>', 'Exporter en PDF'],
+            // ONGLETS — listés ici et non dans la table des actions : celle-ci ne connaît que
+            // l'ÉDITION (voir edit/raccourcis.js), et changer de morceau n'en est pas.
+            ['<kbd>Alt</kbd>+<kbd>1</kbd> … <kbd>9</kbd>', 'Aller au Nième onglet (ordinateur)'],
+            ['<kbd>Alt</kbd>+<kbd>←</kbd> / <kbd>→</kbd>', 'Onglet précédent / suivant'],
             ...ACTIONS.filter(a => a.touches?.length).map(a => [
                 a.touches.map(t => `<kbd>${escapeHtml(toucheDeSig(t))}</kbd>`).join(' ou '),
                 a.libelle,
@@ -3351,6 +3447,10 @@ class TabHubApp {
             ['<kbd>Tap</kbd>', 'Tactile : placer le curseur sur une note'],
             ['<kbd>Appui long</kbd>', 'Tactile : ouvrir le menu d\'une note (équivaut au clic droit)'],
             ['<kbd>Glisser</kbd>', 'Tactile : faire défiler la partition'],
+            // LE ZOOM PAR GESTE (voir brancherZoomGeste) : il confisque un geste que le navigateur
+            // faisait déjà — il faut donc dire qu'il ne fait plus la même chose, et quoi à la place.
+            ['<kbd>Ctrl</kbd>+<kbd>molette</kbd> (sur la partition)', 'Zoomer la PARTITION seule — la page, elle, ne bouge pas'],
+            ['<kbd>Pincer</kbd> (sur la partition)', 'Tactile ou pavé tactile : même zoom, à deux doigts'],
         ];
         table.innerHTML = lignes.map(([t, l]) => `<tr><td>${t}</td><td>${escapeHtml(l)}</td></tr>`).join('');
     }

@@ -42,6 +42,28 @@ export function brancherClavier(editeur, actions = {}) {
         if (sig === 'ctrl+o') { e.preventDefault(); actions.ouvrir?.(); return; }
         if (sig === 'ctrl+p') { e.preventDefault(); actions.exporterPdf?.(); return; }
         if (sig === '?' || sig === 'shift+?') { e.preventDefault(); actions.aide?.(); return; }
+        // ONGLETS — Alt+chiffre va DIRECTEMENT au Nième morceau ouvert, Alt+←/→ au voisin.
+        //
+        // POURQUOI ALT ET NON CTRL+TAB, le réflexe qu'on aurait eu : Ctrl+Tab est capté par le
+        // navigateur lui-même (il change d'onglet DU NAVIGATEUR) et ne parvient pas à la page. Alt+N
+        // est la convention des applications qui vivent dans un onglet, et Alt seul ne sert à rien
+        // d'autre ici — la table des actions n'emploie Alt qu'avec des lettres (alt+m, alt+r, alt+3).
+        //
+        // `preventDefault` même quand il n'y a pas d'onglet à ce numéro : sur plusieurs navigateurs
+        // Alt+chiffre atteint un menu ou un signet, et une touche qui agit UNE FOIS SUR DEUX selon le
+        // nombre d'onglets ouverts est pire qu'une touche qui n'agit pas.
+        // `e.code` ET NON `e.key` POUR LE CHIFFRE, et c'est indispensable : sur un clavier AZERTY la
+        // rangée des chiffres rend « & é " ' ( » sans Maj, et avec Alt des caractères plus exotiques
+        // encore selon le système. `signatureTouche` lit `e.key` (ce qu'il faut pour toutes les autres
+        // touches, qui sont des lettres), mais ici c'est la POSITION physique qu'on veut — Digit1 est
+        // Digit1 sur tous les claviers du monde.
+        if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-9]$/.test(e.code)) {
+            e.preventDefault();
+            actions.allerOnglet?.(Number(e.code.slice(5)) - 1);
+            return;
+        }
+        if (sig === 'alt+arrowright') { e.preventDefault(); actions.ongletVoisin?.(1); return; }
+        if (sig === 'alt+arrowleft') { e.preventDefault(); actions.ongletVoisin?.(-1); return; }
 
         // 1b. Une sélection multiple active (glisser un rectangle sur la partition, voir main.js)
         //     absorbe Suppr/Retour arrière : effacer TOUT ce qui est sélectionné, pas seulement la

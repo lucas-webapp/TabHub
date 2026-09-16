@@ -125,6 +125,7 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
     // Molette verticale -> défilement horizontal, comme dans la barre d'outils : une molette
     // ordinaire ne connaît que le vertical, et la grille n'a rien à défiler verticalement.
     hote.addEventListener('wheel', (e) => {
+        if (e.ctrlKey) return;   // un zoom, pas un défilement — même raison que dans la barre d'outils
         if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
         hote.scrollLeft += e.deltaY;
         e.preventDefault();

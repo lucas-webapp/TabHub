@@ -1185,7 +1185,7 @@ body.avec-pave .dpad-flottant { display: grid; }
        écran de téléphone. `touch-action: pan-x pan-y` rend ce défilement au navigateur : main.js
        n'arme alors plus le lasso du tout sur un pointeur grossier (le geste reste disponible à la
        souris sur les appareils hybrides, qui rapportent les deux). */
-    .zone-partition { touch-action: pan-x pan-y; }
+    /* Le `touch-action` qui va avec est DÉLIBÉRÉMENT hors de ce bloc, voir juste après la règle. */
     .feuille { -webkit-tap-highlight-color: transparent; }
     /* L'APPUI MAINTENU (voir main.js#demarrerGesteTactile) ouvre le menu contextuel de l'app — sans
        cette règle, le navigateur y voit AUSSI un appui long sur du texte sélectionnable (les chiffres
@@ -1195,6 +1195,23 @@ body.avec-pave .dpad-flottant { display: grid; }
        Playwright ne déclenchent jamais ce menu natif, contrairement à un vrai doigt. */
     .zone-partition { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
 }
+
+/* CE QUE LE DOIGT PEUT FAIRE SUR LA PARTITION — et surtout ce qu'il ne peut PLUS faire.
+   `pan-x pan-y` ET NON `manipulation` : un doigt fait défiler la partition, et c'est le navigateur
+   qui le fait (main.js ne s'en mêle pas). Ce qui reste EXCLU de la liste, c'est le `pinch-zoom` —
+   sans quoi le pincement à deux doigts déclencherait le zoom NATIF du navigateur, qui grossit toute
+   la page, au lieu du zoom de la PARTITION que main.js#brancherZoomGeste installe (retour
+   utilisateur : « peux-tu modifier le zoom de la partition uniquement ? »).
+
+   PAS DANS @media (pointer: coarse), ET C'EST LE POINT DÉLICAT. Cette règle y était, et le zoom de
+   page revenait quand même sur un PORTABLE À ÉCRAN TACTILE : `pointer` décrit le pointeur PRINCIPAL,
+   qui sur une telle machine est le pavé tactile — donc `(pointer: coarse)` est FAUX, la règle ne
+   s'appliquait pas, et un pincement du doigt retombait sur le zoom natif (mesuré : `touch-action`
+   valait `auto` en fenêtre d'ordinateur). Or `touch-action` ne gouverne QUE le toucher direct : sur
+   une machine sans écran tactile elle ne change rien du tout, et le lasso à la souris (main.js,
+   demarrerGeste) n'en dépend pas. La poser pour tout le monde est donc sans effet de bord, et
+   couvre la machine hybride que la version précédente laissait passer. */
+.zone-partition { touch-action: pan-x pan-y; }
 
 /* BANDE DE BOUCLE DE LECTURE (voir main.js#marquesBoucle/demarrerGesteBoucle) — la piste invisible
    posée sous la TAB de chaque système, où glisser une zone de mesures à rejouer en boucle. Hors de

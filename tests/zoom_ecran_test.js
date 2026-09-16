@@ -23,7 +23,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('zoom de la partition à l\'écran');
 
 (async () => {
-    plan(30);
+    plan(39);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 1320, height: 900 } });
     try {
         const lire = () => page.evaluate(() => {
@@ -137,10 +137,97 @@ const { check, exiger, plan, bilan } = creerHarnais('zoom de la partition à l\'
         check(!/zoom|interligne/i.test(exporte),
             'le zoom ne voyage pas dans le morceau : rouvrir le fichier ailleurs ne doit pas imposer l\'échelle d\'un autre écran');
 
+        // --- 7. CTRL+MOLETTE / PINCEMENT DE PAVÉ TACTILE : LA PARTITION, PAS LA PAGE --------------
+        // Retour utilisateur : « lorsque je zoome avec les doigts ou sur mon ordinateur, peux-tu
+        // modifier le zoom de la partition uniquement ? Actuellement toute la page zoome et dézoome ».
+        // Voir main.js#brancherZoomGeste. LES DEUX GESTES ARRIVENT PAR LE MÊME ÉVÈNEMENT : un
+        // pincement de pavé tactile est rendu comme un `wheel` avec `ctrlKey` — ce que ces
+        // vérifications éprouvent donc d'un coup pour le portable et l'ordinateur de bureau.
+        //
+        // ON MESURE AUSSI `defaultPrevented`, et c'est la moitié qui compte : un écouteur qui
+        // changerait l'interligne SANS empêcher le défaut laisserait le navigateur appliquer SON zoom
+        // par-dessus — les deux zooms se cumuleraient, exactement le défaut signalé.
+        const molette = (cible, deltaY, ctrl) => page.evaluate(([c, dy, k]) => {
+            const el = document.querySelector(c);
+            const avant = window.app.interligne;
+            const ev = new WheelEvent('wheel', { deltaY: dy, ctrlKey: k, bubbles: true, cancelable: true });
+            el.dispatchEvent(ev);
+            return { avant, apres: window.app.interligne, empeche: ev.defaultPrevented };
+        }, [cible, deltaY, ctrl]);
+
+        await page.evaluate(() => window.app.changerZoom(9 - window.app.interligne));
+        const ouvre = await molette('#zone-partition', -50, true);
+        exiger(ouvre.apres > ouvre.avant,
+            `ctrl+molette vers le haut agrandit la partition (${ouvre.avant} -> ${ouvre.apres})`);
+        exiger(ouvre.empeche === true,
+            'et le geste est CONFISQUÉ au navigateur — sans quoi son zoom de page s\'ajouterait au nôtre');
+        const referme = await molette('#zone-partition', 50, true);
+        check(referme.apres < referme.avant && referme.empeche,
+            `ctrl+molette vers le bas réduit (${referme.avant} -> ${referme.apres})`);
+
+        // LA MOLETTE ORDINAIRE RESTE DU DÉFILEMENT. Sans le `if (!e.ctrlKey) return`, lire son
+        // morceau à la molette en changerait l'échelle à chaque tour — un défaut bien pire que celui
+        // qu'on corrige.
+        const simple = await molette('#zone-partition', 200, false);
+        exiger(simple.apres === simple.avant && simple.empeche === false,
+            'une molette SANS ctrl ne zoome pas et n\'est pas interceptée : elle fait défiler, comme partout');
+
+        // HORS DE LA PARTITION, LE ZOOM DU NAVIGATEUR RESTE ENTIER — c'est la limite qui rend la
+        // confiscation acceptable. Et c'est un piège mesuré : la barre d'outils a son propre
+        // écouteur `wheel` (molette verticale -> défilement horizontal, ui/toolbar.js) qui avalait
+        // AUSSI le ctrl+molette, empêchant le zoom du navigateur sans rien offrir à la place. Le
+        // `if (e.ctrlKey) return` ajouté là-bas est ce que cette vérification garde.
+        const ailleurs = await molette('#barre-outils', -200, true);
+        check(ailleurs.apres === ailleurs.avant && ailleurs.empeche === false,
+            'ctrl+molette sur la barre d\'outils : ni zoom de partition, ni geste confisqué — laissé au navigateur');
+
+        // UN SEUIL CUMULÉ, sans quoi un pincement de pavé tactile (des dizaines de petits `wheel`)
+        // traverserait toute l'échelle en un geste.
+        const petits = await page.evaluate(() => {
+            const zone = document.getElementById('zone-partition');
+            const avant = window.app.interligne;
+            for (let i = 0; i < 10; i++) {
+                zone.dispatchEvent(new WheelEvent('wheel', { deltaY: -4, ctrlKey: true, bubbles: true, cancelable: true }));
+            }
+            return { avant, apres: window.app.interligne };
+        });
+        check(petits.apres === petits.avant,
+            'dix micro-crans de pavé tactile sous le seuil ne bougent rien (sinon un pincement sauterait 10 crans)');
+
+        // ET ÇA RESTE BORNÉ : martelée, la molette s'arrête aux mêmes butoirs que les loupes.
+        const butoirs = await page.evaluate(() => {
+            const zone = document.getElementById('zone-partition');
+            const marteler = (dy) => { for (let i = 0; i < 40; i++) zone.dispatchEvent(new WheelEvent('wheel', { deltaY: dy, ctrlKey: true, bubbles: true, cancelable: true })); };
+            marteler(-50); const haut = window.app.interligne;
+            marteler(50);  const bas = window.app.interligne;
+            return { haut, bas };
+        });
+        check(butoirs.haut === 15 && butoirs.bas === 6,
+            `la molette passe par changerZoom, donc par ses bornes (butoirs ${butoirs.bas} / ${butoirs.haut})`);
+
+        // LA PAGE, ELLE, N'A PAS BOUGÉ — la vérification la plus littérale du retour utilisateur.
+        const laPage = await page.evaluate(() => ({
+            echelle: window.visualViewport ? window.visualViewport.scale : 1,
+            corps: Math.round(document.body.getBoundingClientRect().width),
+            fenetre: window.innerWidth,
+        }));
+        check(laPage.echelle === 1 && Math.abs(laPage.corps - laPage.fenetre) < 2,
+            'après tous ces gestes la PAGE est intacte : même échelle, même largeur de corps que la fenêtre');
+
+        // LE PORTABLE À ÉCRAN TACTILE, cas mesuré et corrigé. `touch-action: pan-x pan-y` sur la
+        // partition (qui EXCLUT `pinch-zoom`) vivait dans @media (pointer: coarse) : or `pointer`
+        // décrit le pointeur PRINCIPAL, qui sur un portable tactile est le pavé — donc la règle ne
+        // s'appliquait pas et un pincement du DOIGT retombait sur le zoom natif de la page, le défaut
+        // même qu'on corrige. On le mesure ICI, en fenêtre d'ORDINATEUR (le banc tactile, lui, tourne
+        // en `pointer: coarse` où la règle s'appliquait déjà : il ne pouvait pas voir ce trou).
+        const gestes = await page.evaluate(() => getComputedStyle(document.getElementById('zone-partition')).touchAction);
+        exiger(/pan-x/.test(gestes) && /pan-y/.test(gestes) && !/pinch|auto|manipulation/.test(gestes),
+            `même en fenêtre d'ordinateur, la partition interdit le pincement NATIF (touch-action: ${gestes})`);
+
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
 
-    // --- 7. SUR TÉLÉPHONE : les loupes sont dans le popover « Affichage », et ATTEIGNABLES ---------
+    // --- 8. SUR TÉLÉPHONE : les loupes sont dans le popover « Affichage », et ATTEIGNABLES ---------
     // Un second navigateur, VRAIMENT tactile (hasTouch/isMobile) : sans cela `(pointer: coarse)`
     // reste faux et l'interface répondrait en souris dans une petite fenêtre — on n'éprouverait rien.
     const tel = await ouvrirApp({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true });

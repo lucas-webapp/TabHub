@@ -208,6 +208,11 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         // molette ordinaire ne connaît que le vertical, et rien d'autre que ces flèches ne suggère
         // qu'on peut glisser cette rangée précise à la souris.
         conteneur.addEventListener('wheel', (e) => {
+            // CTRL ENFONCÉ, ON NE PREND PAS : ce geste-là est un ZOOM, pas un défilement (un
+            // pincement de pavé tactile arrive exactement comme Ctrl+molette). Le laisser passer rend
+            // le zoom du navigateur entier au-dessus des barres — c'est la partition, et elle seule,
+            // qui a son propre zoom à proposer (voir main.js#brancherZoomGeste).
+            if (e.ctrlKey) return;
             if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
             conteneur.scrollLeft += e.deltaY;
             e.preventDefault();

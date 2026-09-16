@@ -31,7 +31,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(40);
+    plan(46);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -356,6 +356,76 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
             'arrivé au bout, la droite s\'éteint et la gauche reste : chaque flèche ne promet que ce qui existe');
         await page.keyboard.press('Escape');
         await page.waitForTimeout(200);
+
+        // --- PINCER À DEUX DOIGTS ZOOME LA PARTITION, PAS LA PAGE ------------------------------------
+        // Retour utilisateur : « lorsque je zoome avec les doigts […], peux-tu modifier le zoom de la
+        // partition uniquement ? Actuellement toute la page zoome et dézoome ». Voir
+        // main.js#brancherZoomGeste. Le pincement tactile N'EST PAS le `wheel` du pavé tactile (que
+        // le banc du zoom éprouve de son côté) : aucun `gesturestart` portable n'existe, il faut
+        // suivre les DEUX pointeurs — donc deux chemins à garder, et deux vérifications.
+        const pincer = (deDemiEcart, aDemiEcart) => page.evaluate(([d0, d1]) => {
+            const zone = document.getElementById('zone-partition');
+            const b = zone.getBoundingClientRect();
+            const cx = b.left + b.width / 2, cy = b.top + b.height / 2;
+            const env = (type, id, x, y) => zone.dispatchEvent(new PointerEvent(type, {
+                pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true,
+            }));
+            const avant = window.app.interligne;
+            env('pointerdown', 21, cx - d0, cy); env('pointerdown', 22, cx + d0, cy);
+            env('pointermove', 21, cx - d1, cy); env('pointermove', 22, cx + d1, cy);
+            const apres = window.app.interligne;
+            // ON REFERME EXACTEMENT AU DÉPART : l'interligne doit retrouver sa valeur initiale.
+            env('pointermove', 21, cx - d0, cy); env('pointermove', 22, cx + d0, cy);
+            const revenu = window.app.interligne;
+            env('pointerup', 21, cx - d0, cy); env('pointerup', 22, cx + d0, cy);
+            return { avant, apres, revenu };
+        }, [deDemiEcart, aDemiEcart]);
+
+        await page.evaluate(() => window.app.changerZoom(9 - window.app.interligne));
+        const ouvrir = await pincer(40, 72);
+        exiger(ouvrir.apres > ouvrir.avant,
+            `écarter les doigts agrandit la partition (${ouvrir.avant} -> ${ouvrir.apres})`);
+        // `apres > avant` REPRIS DANS LA CONDITION : sans lui, un zoom qui ne bougerait pas du tout
+        // satisferait « revenu == avant » par pure vacuité (mesuré : 9 -> 9 -> 9 passait).
+        check(ouvrir.apres > ouvrir.avant && ouvrir.revenu === ouvrir.avant,
+            'et REFERMER au même écart rend exactement la taille de départ : l\'interligne suit le rapport des écarts depuis le DÉBUT du geste, il ne dérive pas cran par cran');
+
+        await page.evaluate(() => window.app.changerZoom(12 - window.app.interligne));
+        const fermer2 = await pincer(80, 44);
+        check(fermer2.apres < fermer2.avant,
+            `resserrer les doigts réduit (${fermer2.avant} -> ${fermer2.apres})`);
+
+        // UN SEUL DOIGT NE ZOOME PAS : il défile et pose le curseur (voir plus haut). Le zoom ne
+        // commence qu'au SECOND doigt — sans quoi tout glissement de lecture changerait l'échelle.
+        const unDoigt = await page.evaluate(() => {
+            const zone = document.getElementById('zone-partition');
+            const b = zone.getBoundingClientRect();
+            const cx = b.left + 60, cy = b.top + 60;
+            const env = (type, x, y) => zone.dispatchEvent(new PointerEvent(type, {
+                pointerId: 31, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true,
+            }));
+            const avant = window.app.interligne;
+            env('pointerdown', cx, cy);
+            for (let d = 0; d <= 160; d += 20) env('pointermove', cx + d, cy);
+            env('pointerup', cx + 160, cy);
+            return { avant, apres: window.app.interligne };
+        });
+        exiger(unDoigt.apres === unDoigt.avant,
+            'un SEUL doigt qui glisse ne zoome rien — c\'est un défilement, et il doit le rester');
+
+        // ET LE NAVIGATEUR N'A PLUS LE DROIT DE ZOOMER LA PAGE SUR LA PARTITION : `touch-action` y
+        // autorise le panoramique et EXCLUT `pinch-zoom`. Sans cette exclusion le zoom natif se
+        // superposerait au nôtre, quoi que fasse le JavaScript — `preventDefault` ne suffit pas.
+        const gestesPermis = await page.evaluate(() => getComputedStyle(document.getElementById('zone-partition')).touchAction);
+        exiger(/pan-x/.test(gestesPermis) && /pan-y/.test(gestesPermis) && !/pinch|auto|manipulation/.test(gestesPermis),
+            `la partition laisse défiler et interdit le pincement natif (touch-action: ${gestesPermis})`);
+        // LA BANDE DE BOUCLE, ELLE, GARDE `none` — l'ordre des règles dans style.css compte, et cette
+        // vérification garde ce que le déplacement de la règle `.zone-partition` pourrait casser.
+        const bande = await page.evaluate(() => {
+            const b = document.querySelector('.bande-boucle');
+            return b ? getComputedStyle(b).touchAction : 'absente';
+        });
+        check(bande === 'none', `et la bande de boucle garde son \`touch-action: none\` (mesuré : ${bande})`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
