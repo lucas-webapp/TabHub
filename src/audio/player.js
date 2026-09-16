@@ -45,12 +45,38 @@ const PIANO_URLS = {
     C6: 'C6.mp3',
 };
 const PIANO_BASE_URL = 'https://tonejs.github.io/audio/salamander/';
+/**
+ * Le numéro MIDI d'un nom de note à l'anglaise (« C4 », « D#2 ») — juste ce qu'il faut pour lire les
+ * clés de PIANO_URLS. Écrit ici plutôt qu'emprunté à Tone.Frequency : cette table se calcule au
+ * CHARGEMENT DU MODULE, quand `globalThis.Tone` peut ne pas être encore posé (voir index.html).
+ */
+function midiDuNom(nom) {
+    const BASES = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+    const m = /^([A-G])(#|b)?(-?\d+)$/.exec(nom);
+    return m ? (Number(m[3]) + 1) * 12 + BASES[m[1]] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) : null;
+}
+/** Les échantillons de piano par hauteur croissante — pour trouver le plus proche d'une note. */
+const ECHANTILLONS = Object.keys(PIANO_URLS)
+    .map(nom => ({ nom, midi: midiDuNom(nom) }))
+    .sort((x, y) => x.midi - y.midi);
+/** L'échantillon dont la hauteur est la plus proche : c'est LUI qu'on fait glisser, et moins on le
+ *  transpose, moins son timbre se déforme (un demi-ton de transposition ne s'entend pas). */
+function echantillonLePlusProche(midi) {
+    return ECHANTILLONS.reduce((meilleur, e) =>
+        Math.abs(e.midi - midi) < Math.abs(meilleur.midi - midi) ? e : meilleur, ECHANTILLONS[0]);
+}
 // L'échantillonneur (échantillons réels, déjà enregistrés à un niveau raisonnable) ne se recale pas —
 // comme dans HarmoHub, dont le Piano garde un trim à 0 dB. La doublure synthétisée, elle, GARDE le
 // recalage `TRIM_DB` déjà en place ci-dessus : c'est le même synthé qu'avant ce changement, au même
 // niveau déjà éprouvé, pas une valeur importée d'ailleurs pour une enveloppe qui n'est pas la sienne.
 const SAMPLER_TRIM_DB = 0;
 /**
+ * LE RECALAGE DE LA VOIX SYNTHÉTISÉE DE REPLI. Elle jouait au départ TOUS les bends et slides, et ce
+ * qui suit raconte pourquoi son niveau a dû changer ; depuis, la voix glissante échantillonnée (voir
+ * TRIM_GLISSANDO_DB) a pris ce rôle dès que le piano est chargé, et ce recalage ne concerne plus que
+ * le cas hors ligne. Il reste juste pour ce cas-là, et l'histoire vaut d'être gardée : elle dit
+ * pourquoi une valeur ne se recopie pas d'une voix à l'autre par simple voisinage.
+ *
  * LA VOIX DE BEND ET DE SLIDE NE SE RECALE PRESQUE PAS — et c'était le défaut signalé (« le son des
  * slides ne fonctionne pas : son inaudible, testé sur plusieurs configurations »).
  *
@@ -73,11 +99,32 @@ const SAMPLER_TRIM_DB = 0;
  * expressif, un rien en avant lui va — pas au point de dominer le morceau.
  */
 const TRIM_BEND_DB = -6;
+/**
+ * LA VOIX GLISSANTE ÉCHANTILLONNÉE NE SE RECALE PAS — 0 dB, comme l'échantillonneur.
+ *
+ * Et c'est le même raisonnement que SAMPLER_TRIM_DB, pas une valeur choisie à l'oreille : cette voix
+ * joue LE MÊME échantillon de piano que l'échantillonneur, une note à la fois, à côté de lui. Lui
+ * donner un recalage différent ferait entendre une note glissée plus forte ou plus faible que la même
+ * note NON glissée — un saut de niveau au milieu d'une phrase, là où l'on veut n'entendre qu'un
+ * mouvement de hauteur. TRIM_BEND_DB (-6) ci-dessus reste pour la voix SYNTHÉTISÉE de repli, dont le
+ * timbre est plus maigre et qui a effectivement besoin de ce rien en avant.
+ */
+const TRIM_GLISSANDO_DB = 0;
+/** Fondu de sortie et queue laissée à l'échantillon : sans le fondu, couper un piano en pleine
+ *  résonance fait un clic net ; sans la queue, la note s'arrête plus sèchement que ses voisines
+ *  jouées par l'échantillonneur (qui, lui, a `release: 1`). */
+const FONDU_GLISSANDO = 0.12, QUEUE_GLISSANDO = 0.35;
 
 export class Lecteur {
     constructor() {
         this.pret = false;
         this.synthe = null;
+        // Les échantillons de piano et les glissandos en cours — posés par `demarrer()`. Déclarés ICI
+        // pour que les gardes de _jouerGlissando et _taireGlissandos aient une réponse AVANT tout
+        // démarrage : un aperçu joué au premier clic passe par là sans qu'`demarrer` ait rendu la main.
+        this._buffersPiano = null;
+        this._glissandos = null;
+        this._sortieGlissando = null;
         this.etat = 'arret';          // 'arret' | 'lecture' | 'pause'
         this.position = 0;            // en noires depuis le début du morceau
         this.duree = 0;
@@ -209,29 +256,50 @@ export class Lecteur {
         // hébergée par le projet Tone.js lui-même. Un échec de téléchargement (hors ligne, réseau trop
         // lent, hôte bloqué) ne doit surtout pas remonter en exception non gérée : c'est un cas ATTENDU,
         // la doublure ci-dessus s'en charge déjà.
-        const volumeSampler = new Tone.Volume(SAMPLER_TRIM_DB);
-        const sampler = new Tone.Sampler({
+        //
+        // LES ÉCHANTILLONS SONT CHARGÉS À PART, PUIS L'ÉCHANTILLONNEUR EST BÂTI DESSUS — et non
+        // téléchargés par l'échantillonneur lui-même comme avant. La raison n'est pas l'économie : la
+        // VOIX GLISSANTE (plus bas) a besoin des buffers EUX-MÊMES pour jouer un échantillon dont elle
+        // fait varier la vitesse de lecture, et `Tone.Sampler` garde les siens privés. Deux
+        // chargements des mêmes 17 fichiers seraient deux vérités à faire coïncider — l'un pouvant
+        // réussir quand l'autre échoue, le piano jouant alors des notes ordinaires mais pas les
+        // glissées, ou l'inverse. Un seul chargement, deux lecteurs.
+        const volumeSampler = new Tone.Volume(SAMPLER_TRIM_DB).connect(Tone.Destination);
+        // `let` et non `const` : l'échantillonneur ne peut naître qu'une fois les buffers arrivés
+        // (mesuré : construit sur un buffer encore vide, il reste `loaded: false` pour toujours). La
+        // façade ci-dessous interroge donc `sampler?.loaded` à CHAQUE note — ce qu'elle faisait déjà,
+        // puisque le relais doublure -> piano se faisait déjà en cours de route.
+        let sampler = null;
+        const buffersPiano = new Tone.ToneAudioBuffers({
             urls: PIANO_URLS,
             baseUrl: PIANO_BASE_URL,
-            release: 1,
+            // Un échec de téléchargement est un cas ATTENDU, pas une anomalie : hors ligne, réseau
+            // lent, hôte bloqué. `onload` ne se déclenche alors pas du tout (mesuré), `loaded` reste
+            // faux, et la doublure synthétisée continue de jouer — exactement comme avant.
             onerror: () => {},
+            onload: () => {
+                const charges = {};
+                for (const { nom } of ECHANTILLONS) charges[nom] = buffersPiano.get(nom);
+                sampler = new Tone.Sampler({ urls: charges, release: 1 });
+                sampler.connect(volumeSampler);
+            },
         });
-        sampler.chain(volumeSampler, Tone.Destination);
+        this._buffersPiano = buffersPiano;
 
         // Une interface UNIQUE, qui choisit elle-même qui joue : tout le reste du fichier (programmer,
         // apercu) continue d'appeler `this.synthe.triggerAttackRelease(...)` sans rien savoir de ce qui
         // sonne derrière — l'échantillonneur dès qu'il est prêt, la doublure sinon, et le relais se fait
         // tout seul dès que les fichiers arrivent, sans rien à reprogrammer.
         this.synthe = {
-            get charge() { return sampler.loaded; },
+            get charge() { return !!sampler?.loaded; },
             triggerAttackRelease(...args) {
-                (sampler.loaded ? sampler : doublure).triggerAttackRelease(...args);
+                (sampler?.loaded ? sampler : doublure).triggerAttackRelease(...args);
                 return this;
             },
             releaseAll() {
                 // `releaseAll` de Sampler peut lever tant qu'aucun échantillon n'a encore joué —
                 // jamais un prétexte pour laisser la doublure, elle, sonner indéfiniment.
-                try { sampler.releaseAll(); } catch (e) { /* rien à relâcher pour l'instant */ }
+                try { sampler?.releaseAll(); } catch (e) { /* rien à relâcher pour l'instant */ }
                 doublure.releaseAll();
                 return this;
             },
@@ -243,11 +311,12 @@ export class Lecteur {
         // `frequency` que l'on peut faire glisser — c'est donc lui, et lui seul, qui joue les notes
         // bendées, avec une vraie rampe de hauteur.
         //
-        // CE QUE ÇA COÛTE, EN TOUTE FRANCHISE : une note bendée n'a pas le timbre du piano
-        // échantillonné, mais celui de cette onde (la même recette que la doublure ci-dessus, pour
-        // détonner le moins possible). C'est le prix d'un bend RÉELLEMENT entendu comme un
-        // glissement de hauteur, plutôt que d'une note plaquée qui ne bouge pas — ce qui était
-        // exactement le défaut signalé (« à la lecture je n'entends rien »).
+        // CE N'EST PLUS QUE LE REPLI. Cette voix jouait TOUTES les notes bendées et glissées, et son
+        // timbre d'onde était le défaut signalé (« un son analogique grave au lieu d'un son de
+        // piano »). Depuis, la voix glissante échantillonnée ci-dessous joue le vrai piano ; ce synthé
+        // ne sert plus que lorsque les échantillons ne sont pas là — hors ligne, réseau lent, ou le
+        // temps qu'ils arrivent. Il reste indispensable à ce titre : sans lui, un bend serait muet sur
+        // ce genre de réseau.
         //
         // Monophonique parce qu'un bend simultané sur deux cordes est rare, et qu'une voix unique
         // évite d'allouer/détruire un synthé à chaque note bendée.
@@ -266,6 +335,43 @@ export class Lecteur {
             envelope: { attack: 0.005, decay: 0.9, sustain: 0.42, release: 0.9 },
         });
         this.voixBend.chain(filtreBend, volumeBend, Tone.Destination);
+
+        // LA VOIX GLISSANTE ÉCHANTILLONNÉE — le VRAI timbre de piano, qui glisse.
+        //
+        // LE DÉFAUT (retour utilisateur, deux fois : « le son du slide fait toujours un son analogique
+        // grave au lieu d'un son de piano. Peux-tu corriger correctement stp ? »). La correction
+        // précédente n'avait traité que le NIVEAU et l'ENVELOPPE : la note glissée s'entendait enfin,
+        // mais c'était toujours une onde triangulaire filtrée à 5200 Hz — donc un son de synthé grave
+        // au milieu d'un piano échantillonné. Le commentaire de la voix de bend ci-dessus le disait
+        // d'ailleurs sans détour, comme un prix à payer : « une note bendée n'a pas le timbre du piano
+        // échantillonné ». Ce prix n'avait pas à être payé.
+        //
+        // CE QUI L'AVAIT FAIT CROIRE IMPOSSIBLE, ET POURQUOI C'ÉTAIT FAUX. Le raisonnement tenait :
+        // ni `Tone.Sampler` ni `Tone.PolySynth` n'offrent de prise sur la hauteur d'une voix déjà
+        // attaquée (`detune` absent des deux — revérifié). Mais il concluait trop vite « donc pas de
+        // piano qui glisse ». Ce qu'il oubliait, c'est qu'un échantillonneur n'est rien d'autre qu'un
+        // lecteur de buffer dont on règle la VITESSE DE LECTURE — et cette vitesse, sur un
+        // `Tone.ToneBufferSource`, est un paramètre RAMPABLE (vérifié : `playbackRate` accepte
+        // `setValueAtTime` et `exponentialRampToValueAtTime`). On joue donc soi-même l'échantillon le
+        // plus proche et on fait glisser sa vitesse : un piano qui glisse pour de bon.
+        //
+        // MESURÉ, pas supposé : un buffer de fondamentale connue, `playbackRate` rampé de 1 à 2^(2/12),
+        // et l'analyseur lit 264 Hz -> 296 Hz (attendu 294) à niveau constant (0,378 -> 0,376).
+        //
+        // CE QUE ÇA COÛTE, EN TOUTE FRANCHISE : faire varier la vitesse de lecture déplace AUSSI le
+        // tempo de l'échantillon (c'est le glissando « à la bande »). Sur les intervalles d'un slide
+        // ou d'un bend — un demi-ton à trois tons — l'écart de vitesse va de 6 % à 19 % : inaudible
+        // comme accélération, et c'est exactement ainsi que tout échantillonneur transpose déjà.
+        //
+        // PAS DE FILTRE ICI, contrairement à la voix synthétisée : les 5200 Hz existaient pour
+        // rattraper une onde pauvre. Un vrai piano n'a rien à rattraper, et le filtrer le rendrait
+        // précisément plus sourd — le défaut signalé.
+        this._sortieGlissando = new Tone.Volume(TRIM_GLISSANDO_DB).connect(Tone.Destination);
+        // LES SOURCES EN COURS, pour pouvoir les taire. Un `ToneBufferSource` n'est pas une voix
+        // persistante à relâcher mais un objet JETABLE, créé par note : sans ce registre, appuyer sur
+        // Stop laisserait le glissando finir tout seul dans le silence (le défaut exact que le filet
+        // `triggerRelease` de la voix de bend corrige déjà pour elle).
+        this._glissandos = new Set();
 
         // LE MÉTRONOME — repris de HarmoHub (METRONOME_SOUNDS.click) : un triangle bref, sans
         // sustain, qui s'éteint avant même la double-croche la plus rapide de la partition. Une voix
@@ -721,20 +827,13 @@ export class Lecteur {
      * L'exponentielle donne une montée régulière À L'OREILLE, ce que fait un doigt sur une corde.
      */
     _jouerBend(e, secondes, temps) {
-        const Tone = globalThis.Tone;
-        if (!this.voixBend) return;   // filet : jamais de note muette si la voix manque
         const ATTENTE = 0.18, MONTEE = 0.42;   // en fraction de la durée sonnante
-        const freq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
-        const depart = freq(e.bend.midi);
-        const arrivee = freq(e.bend.midi + e.bend.demiTons);
-
-        this.voixBend.frequency.cancelScheduledValues(temps);
-        this.voixBend.frequency.setValueAtTime(depart, temps);
-        this.voixBend.frequency.setValueAtTime(depart, temps + secondes * ATTENTE);
-        this.voixBend.frequency.exponentialRampToValueAtTime(arrivee, temps + secondes * (ATTENTE + MONTEE));
-        // `triggerAttackRelease` d'un Tone.Synth REPOSE sa propre fréquence à la note demandée : on lui
-        // passe donc la hauteur de DÉPART, et la rampe programmée juste au-dessus prend le relais.
-        this.voixBend.triggerAttackRelease(depart, secondes, temps, e.velocite);
+        // Un seul palier : on tient la hauteur écrite, puis on pousse jusqu'à la hauteur visée.
+        this._jouerGlissando(e.bend.midi, [{
+            depuis: secondes * ATTENTE,
+            a: secondes * (ATTENTE + MONTEE),
+            midi: e.bend.midi + e.bend.demiTons,
+        }], secondes, temps, e.velocite, e.note);
     }
 
     /**
@@ -758,37 +857,137 @@ export class Lecteur {
      */
     _jouerSlide(e, ticksDuree, temps) {
         const Tone = globalThis.Tone;
-        if (!this.voixBend) {   // filet : jamais de note muette si la voix manque
-            this.synthe.triggerAttackRelease(e.note, Tone.Ticks(ticksDuree).toSeconds(), temps, e.velocite);
-            return;
-        }
         const PART_GLISSEE = 0.45, PLAFOND_GLISSE = 0.16;   // fraction du palier quitté ; secondes
-        const freq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
         const secondes = Tone.Ticks(ticksDuree).toSeconds();
         // Les paliers sont datés en NOIRES depuis le début du son (voir programmer) : on les convertit
         // ici, donc au tempo courant — jamais à celui figé au moment du calcul.
         const enSecondes = (noires) => Tone.Ticks(Math.round(noires * Tone.Transport.PPQ)).toSeconds();
 
-        this.voixBend.frequency.cancelScheduledValues(temps);
-        let freqPalier = freq(e.glisse.midi);   // la hauteur TENUE en ce moment du parcours
-        this.voixBend.frequency.setValueAtTime(freqPalier, temps);
+        const paliers = [];
         let debutPalier = 0;
         for (const etape of e.glisse.etapes) {
             const arrivee = enSecondes(etape.arriveeA);
             const glissement = Math.min((arrivee - enSecondes(debutPalier)) * PART_GLISSEE, PLAFOND_GLISSE);
             // Tenir la hauteur jusqu'au départ du doigt, puis glisser pour arriver pile sur le temps.
-            // `freqPalier` et NON `frequency.value` : ce dernier rendrait la valeur au moment où l'on
-            // PROGRAMME (donc la hauteur du son précédent, ou le défaut du synthé), pas celle qui
-            // régnera à cet instant-là du futur. Une rampe partirait alors d'ailleurs que là où le
-            // son se trouve — un saut audible en plein milieu du glissando.
-            this.voixBend.frequency.setValueAtTime(freqPalier, temps + Math.max(0, arrivee - glissement));
-            this.voixBend.frequency.exponentialRampToValueAtTime(freq(etape.midi), temps + arrivee);
-            freqPalier = freq(etape.midi);
+            paliers.push({ depuis: Math.max(0, arrivee - glissement), a: arrivee, midi: etape.midi });
             debutPalier = etape.arriveeA;
         }
-        // Comme pour le bend : `triggerAttackRelease` repose la fréquence du synthé sur la note
-        // demandée, on lui passe donc la hauteur de DÉPART et la rampe programmée prend le relais.
-        this.voixBend.triggerAttackRelease(freq(e.glisse.midi), secondes, temps, e.velocite);
+        this._jouerGlissando(e.glisse.midi, paliers, secondes, temps, e.velocite, e.note);
+    }
+
+    /**
+     * JOUE UNE HAUTEUR QUI BOUGE — le mécanisme commun au bend et au slide.
+     *
+     * UNE SEULE DESCRIPTION DE LA COURBE, EN MIDI, lue par DEUX voix possibles : l'échantillon de
+     * piano dont on fait glisser la vitesse de lecture (voir demarrer, this._sortieGlissando), et le
+     * synthé de repli quand les échantillons ne sont pas là. C'est tout l'intérêt de ce passage par
+     * une liste de paliers plutôt que deux méthodes qui programmeraient chacune leur rampe : deux
+     * chemins qui décrivent le même geste finissent par ne plus décrire le même geste — l'un gagnant
+     * une correction de forme que l'autre n'a pas, et le repli devenant un son que personne n'écoute
+     * plus jamais en le croyant identique.
+     *
+     * `exponentialRampToValueAtTime` dans les deux cas, et pour la même raison : la hauteur perçue
+     * suit le logarithme de la fréquence, donc une rampe linéaire s'entend comme un mouvement qui
+     * ralentit sur la fin. L'exponentielle donne un glissement régulier À L'OREILLE — ce que fait un
+     * doigt sur une corde.
+     *
+     * @param {number} midiDepart    la hauteur attaquée.
+     * @param {Array<{depuis: number, a: number, midi: number}>} paliers  instants EN SECONDES depuis
+     *        l'attaque : `depuis` = la hauteur commence à bouger, `a` = elle arrive.
+     * @param {number} secondes      durée sonnante.
+     * @param {number} temps         instant d'attaque, sur l'horloge audio.
+     * @param {number} velocite
+     * @param {string} note          le nom de la note, pour le tout dernier filet.
+     */
+    _jouerGlissando(midiDepart, paliers, secondes, temps, velocite, note) {
+        if (this._buffersPiano?.loaded) {
+            this._glissandoEchantillonne(midiDepart, paliers, secondes, temps, velocite);
+            return;
+        }
+        if (this.voixBend) {
+            this._glissandoSynthetise(midiDepart, paliers, secondes, temps, velocite);
+            return;
+        }
+        // Dernier filet : jamais de note muette. Une note plaquée vaut mieux qu'un silence.
+        this.synthe?.triggerAttackRelease(note, secondes, temps, velocite);
+    }
+
+    /**
+     * LE VRAI PIANO QUI GLISSE : on joue soi-même l'échantillon le plus proche et on fait glisser sa
+     * VITESSE DE LECTURE. `playbackRate` est un paramètre rampable (vérifié), là où ni Tone.Sampler ni
+     * Tone.PolySynth n'offrent de prise sur la hauteur d'une voix déjà attaquée.
+     *
+     * LE TAUX EST RELATIF À L'ÉCHANTILLON, pas à la note : 2^((midi - midiÉchantillon)/12). C'est
+     * exactement ce que fait un échantillonneur pour toutes ses notes — jouer l'échantillon de do à
+     * 1,06 pour obtenir un do dièse. Ici on ne fait que continuer de bouger ce taux pendant la note.
+     */
+    _glissandoEchantillonne(midiDepart, paliers, secondes, temps, velocite) {
+        const Tone = globalThis.Tone;
+        const ech = echantillonLePlusProche(midiDepart);
+        const taux = (midi) => Math.pow(2, (midi - ech.midi) / 12);
+
+        // UN OBJET PAR NOTE, et c'est la nature d'un lecteur de buffer : il ne se réattaque pas, il se
+        // crée et se jette. La vélocité passe donc par un gain à soi (un `ToneBufferSource` n'en tient
+        // pas compte, contrairement à `Sampler.triggerAttackRelease`).
+        const gain = new Tone.Gain(velocite).connect(this._sortieGlissando);
+        const source = new Tone.ToneBufferSource({
+            url: this._buffersPiano.get(ech.nom),
+            fadeOut: FONDU_GLISSANDO,
+            curve: 'exponential',
+        }).connect(gain);
+
+        source.playbackRate.setValueAtTime(taux(midiDepart), temps);
+        let midiTenu = midiDepart;   // la hauteur EN VIGUEUR à ce point du parcours
+        for (const p of paliers) {
+            // `midiTenu` et NON `playbackRate.value` : ce dernier rendrait la valeur au moment où l'on
+            // PROGRAMME, pas celle qui régnera à cet instant-là du futur. Une rampe partirait alors
+            // d'ailleurs que là où le son se trouve — un saut audible en plein glissando.
+            source.playbackRate.setValueAtTime(taux(midiTenu), temps + p.depuis);
+            source.playbackRate.exponentialRampToValueAtTime(taux(p.midi), temps + p.a);
+            midiTenu = p.midi;
+        }
+        // On se range dans le registre AVANT de démarrer : un Stop qui tomberait entre les deux
+        // trouverait sinon une source qui joue et qu'il ne connaît pas.
+        const jetable = { source, gain };
+        this._glissandos.add(jetable);
+        source.onended = () => {
+            this._glissandos.delete(jetable);
+            try { source.dispose(); gain.dispose(); } catch (e) { /* déjà jeté par _taireGlissandos */ }
+        };
+        source.start(temps);
+        // La queue laisse l'échantillon résonner comme le ferait l'échantillonneur (`release: 1`),
+        // et le fondu évite le clic d'un piano coupé net en pleine résonance.
+        source.stop(temps + secondes + QUEUE_GLISSANDO);
+    }
+
+    /** LE REPLI, quand les échantillons ne sont pas là (hors ligne, réseau lent) : la même courbe,
+     *  jouée par le synthé monophonique. Timbre plus maigre, mais un glissement qui s'entend — et
+     *  c'est le seul cas où l'utilisateur retrouve le son qu'il a signalé comme « analogique ». */
+    _glissandoSynthetise(midiDepart, paliers, secondes, temps, velocite) {
+        const freq = (midi) => 440 * Math.pow(2, (midi - 69) / 12);
+        const depart = freq(midiDepart);
+        this.voixBend.frequency.cancelScheduledValues(temps);
+        this.voixBend.frequency.setValueAtTime(depart, temps);
+        let midiTenu = midiDepart;
+        for (const p of paliers) {
+            this.voixBend.frequency.setValueAtTime(freq(midiTenu), temps + p.depuis);
+            this.voixBend.frequency.exponentialRampToValueAtTime(freq(p.midi), temps + p.a);
+            midiTenu = p.midi;
+        }
+        // `triggerAttackRelease` d'un Tone.Synth REPOSE sa propre fréquence à la note demandée : on lui
+        // passe donc la hauteur de DÉPART, et les rampes programmées ci-dessus prennent le relais.
+        this.voixBend.triggerAttackRelease(depart, secondes, temps, velocite);
+    }
+
+    /** Coupe tous les glissandos en cours. Appelé par pause() et arreter() : un lecteur de buffer
+     *  n'est pas une voix qu'on relâche, il faut l'arrêter nommément (voir this._glissandos). */
+    _taireGlissandos() {
+        if (!this._glissandos) return;
+        for (const { source, gain } of [...this._glissandos]) {
+            try { source.stop(); } catch (e) { /* pas encore démarrée : sans objet */ }
+            try { source.dispose(); gain.dispose(); } catch (e) { /* déjà jetée */ }
+        }
+        this._glissandos.clear();
     }
 
     async jouer(partition, depuis = null) {
@@ -829,6 +1028,7 @@ export class Lecteur {
         // sustain (voir demarrer), reste un Tone.Synth du même genre : le même filet de sécurité.
         try { this.voixBend?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
         try { this.metronome?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
+        this._taireGlissandos();
         this.etat = 'pause';
         this._arreterSuivi();
         this._prevenir();
@@ -844,6 +1044,7 @@ export class Lecteur {
         // sustain (voir demarrer), reste un Tone.Synth du même genre : le même filet de sécurité.
         try { this.voixBend?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
         try { this.metronome?.triggerRelease?.(); } catch (e) { /* rien en cours : sans objet */ }
+        this._taireGlissandos();
         this.etat = 'arret';
         this.position = 0;
         this._arreterSuivi();

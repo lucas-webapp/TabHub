@@ -19,7 +19,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('effets');
 
 (async () => {
-    plan(37);
+    plan(48);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -348,6 +348,183 @@ const { check, exiger, plan, bilan } = creerHarnais('effets');
             `et il reste du son au moment du glissement : ${Math.round(100 * audio.monte.partAuGlissement)} % de la crête (16 % avant correction, indiscernable d'une traîne)`);
         check(audio.descend.partAuGlissement > 0.3,
             `idem pour un slide descendant : ${Math.round(100 * audio.descend.partAuGlissement)} %`);
+
+        // --- LE TIMBRE DU GLISSANDO : DU PIANO, PAS UNE ONDE --------------------------------------
+        // Retour utilisateur, après une première correction qui n'avait traité que le niveau : « le son
+        // du slide fait toujours un son analogique grave au lieu d'un son de piano. Peux-tu corriger
+        // correctement stp ? » Et c'était exact : la note glissée s'entendait enfin, mais c'était une
+        // onde triangulaire filtrée au milieu d'un piano échantillonné.
+        //
+        // LE CORRECTIF (voir player.js#_glissandoEchantillonne) : on joue soi-même l'échantillon de
+        // piano le plus proche dans un `Tone.ToneBufferSource` et on fait GLISSER sa vitesse de
+        // lecture — `playbackRate` étant un paramètre rampable, là où ni Sampler ni PolySynth
+        // n'offrent de prise sur la hauteur d'une voix déjà attaquée.
+        //
+        // LES ÉCHANTILLONS SALAMANDER NE SE CHARGENT PAS DANS CET ENVIRONNEMENT (sortie réseau
+        // bloquée, voir _page.js). On fabrique donc 17 buffers AUX MÊMES HAUTEURS et on les substitue
+        // à `_buffersPiano` : le chemin de code éprouvé est le VRAI, seule la matière sonore est de
+        // remplacement. Ce que ce banc ne peut donc PAS affirmer, c'est que le timbre est beau ; ce
+        // qu'il affirme, et c'est le défaut signalé, c'est que la voix SYNTHÉTISÉE n'est plus celle
+        // qui joue, et que la hauteur glisse bien sur l'échantillon.
+        const timbre = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur, l = window.app.lecteur;
+            await l.demarrer();
+            const T = globalThis.Tone;
+            const BASES = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+            const midiDuNom = (n) => {
+                const g = /^([A-G])(#|b)?(-?\d+)$/.exec(n);
+                return (Number(g[3]) + 1) * 12 + BASES[g[1]] + (g[2] === '#' ? 1 : 0);
+            };
+            const NOMS = ['C2', 'D#2', 'F#2', 'A2', 'C3', 'D#3', 'F#3', 'A3', 'C4',
+                          'D#4', 'F#4', 'A4', 'C5', 'D#5', 'F#5', 'A5', 'C6'];
+            const sr = T.context.sampleRate;
+            const urls = {};
+            for (const n of NOMS) {
+                const f0 = 440 * Math.pow(2, (midiDuNom(n) - 69) / 12);
+                const b = T.context.createBuffer(1, Math.floor(sr * 3), sr), d = b.getChannelData(0);
+                for (let i = 0; i < d.length; i++) {
+                    const t = i / sr;
+                    d[i] = (0.35 + 0.65 * Math.exp(-t * 0.8)) * 0.45 * Math.sin(2 * Math.PI * f0 * t);
+                }
+                urls[n] = new T.ToneAudioBuffer(b);
+            }
+            const faux = new T.ToneAudioBuffers({ urls });
+
+            // L'ESPION EST SUR LA VOIX SYNTHÉTISÉE : c'est elle qu'on ne veut plus entendre quand les
+            // échantillons sont là. Compter les glissandos ne suffirait pas — les deux voix pourraient
+            // très bien sonner ENSEMBLE, et le son « analogique » serait toujours au rendez-vous.
+            let appelsSynthe = 0;
+            const vrai = l.voixBend.triggerAttackRelease.bind(l.voixBend);
+            l.voixBend.triggerAttackRelease = (...a) => { appelsSynthe++; return vrai(...a); };
+
+            const analyseur = T.context.createAnalyser();
+            analyseur.fftSize = 8192;
+            T.Destination.connect(analyseur);
+            const metre = new T.Meter({ normalRange: true, smoothing: 0 });
+            T.Destination.connect(metre);
+            const spectre = new Float32Array(analyseur.frequencyBinCount);
+            const picHz = () => {
+                analyseur.getFloatFrequencyData(spectre);
+                let i0 = 0;
+                for (let i = 1; i < spectre.length; i++) if (spectre[i] > spectre[i0]) i0 = i;
+                return Math.round(i0 * sr / analyseur.fftSize);
+            };
+            l.synthe.triggerAttackRelease('C3', 0.1, undefined, 0.5);   // chauffe (voir plus haut)
+            await new Promise(r => setTimeout(r, 400));
+
+            const morceau = () => [
+                m.creerEvenement({ valeur: 8 }, [{ ...m.creerNote(2, 5), lien: 'slide' }]),
+                m.creerEvenement({ valeur: 8 }, [m.creerNote(2, 7)]),
+                m.creerEvenement({ valeur: 2 }, [], { silence: true }),
+                m.creerEvenement({ valeur: 4 }, [], { silence: true }),
+            ];
+            const profil = async () => {
+                l.arreter();
+                ed.nouveau('guitare');
+                ed.partition.mesures[0].voix[0].evenements = morceau();
+                ed.prevenir('document');
+                appelsSynthe = 0;
+                const ech = [];
+                let maxSources = 0;
+                await l.jouer(ed.partition, 0);
+                const t0 = performance.now();
+                for (let i = 0; i < 70; i++) {
+                    await new Promise(r => setTimeout(r, 10));
+                    ech.push({ ms: performance.now() - t0, v: metre.getValue(), hz: picHz() });
+                    maxSources = Math.max(maxSources, l._glissandos ? l._glissandos.size : 0);
+                }
+                l.arreter();
+                await new Promise(r => setTimeout(r, 200));
+                const crete = Math.max(...ech.map(e => e.v), 0);
+                const hzVers = (a, b) => {
+                    const f = ech.filter(e => e.ms >= a && e.ms < b && e.v > crete * 0.2);
+                    return f.length ? f[Math.floor(f.length / 2)].hz : null;
+                };
+                return { crete, appelsSynthe, maxSources, hzDebut: hzVers(60, 200), hzFin: hzVers(420, 520) };
+            };
+
+            const reels = l._buffersPiano;
+            l._buffersPiano = faux;
+            const avec = await profil();
+            l._buffersPiano = reels;              // non chargés ici : on retombe sur le repli
+            const sans = await profil();
+
+            // STOP COUPE LE GLISSANDO. Un lecteur de buffer n'est pas une voix qu'on relâche : sans le
+            // registre `_glissandos` et `_taireGlissandos`, il finirait tout seul dans le silence.
+            l._buffersPiano = faux;
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = morceau();
+            ed.prevenir('document');
+            await l.jouer(ed.partition, 0);
+            await new Promise(r => setTimeout(r, 120));
+            const pendant = l._glissandos.size;
+            l.arreter();
+            const apresStop = l._glissandos.size;
+            await new Promise(r => setTimeout(r, 250));
+            const niveauApresStop = metre.getValue();
+
+            // ET RIEN NE FUIT : chaque lecteur se jette QUAND SA NOTE FINIT, sans attendre un Stop.
+            //
+            // LA LECTURE SE POURSUIT PENDANT LA MESURE, et c'est tout le point. Une première version
+            // de cette vérification jouait huit slides en appelant `arreter()` entre chaque, puis
+            // constatait un registre vide : elle passait avec le rangement neutralisé, parce que
+            // c'était `_taireGlissandos` (appelé par Stop) qui vidait le registre — elle mesurait une
+            // grandeur que le mécanisme éprouvé ne gouverne pas. Ici le slide finit SEUL au milieu du
+            // morceau, transport toujours en marche : seul le rappel `onended` peut avoir rangé.
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = morceau();
+            ed.prevenir('document');
+            await l.jouer(ed.partition, 0);
+            await new Promise(r => setTimeout(r, 150));
+            const registrePendant = l._glissandos.size;
+            // 1,2 s : le slide (2 croches = 500 ms) et sa queue (350 ms) sont finis depuis longtemps,
+            // la mesure (4 temps = 2 s à 120 BPM) court encore.
+            await new Promise(r => setTimeout(r, 1050));
+            const enLecture = l.etat;
+            const registreApresLaNote = l._glissandos.size;
+            l.arreter();
+
+            l._buffersPiano = reels;
+            l.voixBend.triggerAttackRelease = vrai;
+            // Corde 2 (sol3, midi 55) : case 5 = midi 60, case 7 = midi 62.
+            return { avec, sans, stop: { pendant, apresStop, niveauApresStop },
+                fuite: { registrePendant, registreApresLaNote, enLecture },
+                attendu: { debut: Math.round(440 * Math.pow(2, (60 - 69) / 12)),
+                           fin: Math.round(440 * Math.pow(2, (62 - 69) / 12)) } };
+        });
+
+        exiger(timbre.avec.appelsSynthe === 0,
+            'échantillons chargés : la voix SYNTHÉTISÉE ne joue plus AUCUNE note glissée — c\'est le défaut signalé, littéralement');
+        exiger(timbre.avec.maxSources === 1,
+            `et c'est un lecteur d'échantillon de piano qui joue à sa place (${timbre.avec.maxSources} source en vol)`);
+        check(timbre.avec.crete > 0.01,
+            `le slide échantillonné sort bien du haut-parleur (crête ${timbre.avec.crete.toFixed(3)})`);
+        // LA HAUTEUR GLISSE VRAIMENT, mesurée par analyse de spectre. Sans la rampe de `playbackRate`,
+        // on lirait deux fois la même fréquence : un échantillon transposé une fois pour toutes.
+        exiger(timbre.avec.hzDebut !== null && timbre.avec.hzFin !== null
+            && timbre.avec.hzFin - timbre.avec.hzDebut > 15,
+            `la hauteur monte pendant la note : ${timbre.avec.hzDebut} -> ${timbre.avec.hzFin} Hz (attendu ${timbre.attendu.debut} -> ${timbre.attendu.fin})`);
+        check(Math.abs(timbre.avec.hzFin - timbre.attendu.fin) < 12,
+            'et elle arrive à la BONNE hauteur : le taux de lecture est calculé par rapport à l\'échantillon choisi, pas à la note');
+
+        // LE REPLI RESTE INTACT, et cette vérification compte autant que les précédentes : sans
+        // échantillons (hors ligne, réseau lent) un bend doit s'entendre quand même. Une correction
+        // qui aurait simplement remplacé une voix par l'autre rendrait l'application muette sur les
+        // notes glissées dès que le réseau manque — ce qui est le cas de cet environnement même.
+        exiger(timbre.sans.appelsSynthe === 1,
+            'sans échantillons, la voix synthétisée reprend le relais : jamais de note glissée muette hors ligne');
+        check(timbre.sans.maxSources === 0 && timbre.sans.crete > 0.01,
+            `et elle sonne seule, sans lecteur d'échantillon (crête ${timbre.sans.crete.toFixed(3)})`);
+
+        exiger(timbre.stop.pendant === 1 && timbre.stop.apresStop === 0,
+            'Stop coupe le glissando en vol au lieu de le laisser finir seul dans le silence');
+        check(timbre.stop.niveauApresStop < 0.01,
+            `et le silence est réel après Stop (niveau ${timbre.stop.niveauApresStop.toFixed(4)})`);
+        exiger(timbre.fuite.enLecture === 'lecture',
+            'préalable de la vérification suivante : le transport tourne TOUJOURS — sans quoi ce serait Stop qui aurait rangé, pas la fin de la note');
+        check(timbre.fuite.registrePendant === 1 && timbre.fuite.registreApresLaNote === 0,
+            `le lecteur se jette quand SA note finit, sans attendre un Stop (${timbre.fuite.registrePendant} en vol, puis ${timbre.fuite.registreApresLaNote} en pleine lecture)`);
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

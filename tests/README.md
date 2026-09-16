@@ -16,7 +16,8 @@ utilisateur devenus des cas permanents.
 | `rendu_double_portee_test.js` | Cinq lignes + six cordes, alignement des deux portées, découpage en systèmes |
 | `accordages_test.js` | Trois instruments, accordages prédéfinis et personnalisés, capodastre |
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
-| `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio |
+| `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio, et LE CHEMIN DE CHARGEMENT RÉUSSI du piano — échantillons servis par le banc, car le réseau bloqué ne le joue jamais |
+| `effets_test.js` | Les effets, de la commande au SON : un slide fusionne ses deux notes, et sa hauteur glisse sur un échantillon de PIANO (la voix synthétisée ne servant plus que hors ligne) |
 | `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
 | `rythme_test.js` | L'aide rythmique : grille, conversion en vraies figures, aperçu gravé, insertion placée |
 | `rythme_impose_test.js` | Taper une case NE change PAS la durée d'un rythme imposé, et la surbrillance survit |

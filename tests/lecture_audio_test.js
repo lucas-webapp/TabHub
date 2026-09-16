@@ -11,7 +11,7 @@ const { ouvrirApp, taper, lireEtat } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
 (async () => {
-    plan(33);
+    plan(39);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree4"]');
@@ -256,5 +256,111 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript pendant la lecture' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
+
+    // --- LE CHEMIN DE CHARGEMENT RÉUSSI, celui que cet environnement ne joue JAMAIS ----------------
+    //
+    // POURQUOI CE BANC EXISTE. Les échantillons sont désormais chargés à part (Tone.ToneAudioBuffers)
+    // puis l'échantillonneur est BÂTI DESSUS dans le rappel `onload` — parce que la voix glissante a
+    // besoin des buffers eux-mêmes (voir player.js#_glissandoEchantillonne). Or la sortie réseau est
+    // bloquée ici : `onload` ne se déclenche donc jamais, et TOUT ce banc, comme tous les autres,
+    // exerce le chemin de la DOUBLURE. Une faute dans ce rappel — l'échantillonneur mal construit,
+    // mal branché, jamais déclaré prêt — rendrait le piano muet ou synthétique chez l'utilisateur
+    // sans qu'aucune vérification ne bronche. C'est précisément le risque qu'un déplacement de
+    // chargement fait courir, et il ne se couvre pas en le supposant.
+    //
+    // ON SERT DONC LES 17 ÉCHANTILLONS SOI-MÊME, en interceptant les requêtes : des WAV fabriqués
+    // aux bonnes hauteurs (`decodeAudioData` les accepte comme des mp3). Le chemin exécuté est le
+    // VRAI, du téléchargement jusqu'au son ; seule la matière sonore est de remplacement.
+    const wav = (hz, secondes = 1.2, sr = 44100) => {
+        const n = Math.floor(sr * secondes);
+        const data = Buffer.alloc(n * 2);
+        for (let i = 0; i < n; i++) {
+            const t = i / sr;
+            const v = Math.exp(-t * 1.2) * 0.5 * (Math.sin(2 * Math.PI * hz * t) + 0.4 * Math.sin(2 * Math.PI * hz * 2 * t));
+            data.writeInt16LE(Math.max(-32768, Math.min(32767, Math.round(v * 32767))), i * 2);
+        }
+        const h = Buffer.alloc(44);
+        h.write('RIFF', 0); h.writeUInt32LE(36 + data.length, 4); h.write('WAVE', 8);
+        h.write('fmt ', 12); h.writeUInt32LE(16, 16); h.writeUInt16LE(1, 20); h.writeUInt16LE(1, 22);
+        h.writeUInt32LE(sr, 24); h.writeUInt32LE(sr * 2, 28); h.writeUInt16LE(2, 32); h.writeUInt16LE(16, 34);
+        h.write('data', 36); h.writeUInt32LE(data.length, 40);
+        return Buffer.concat([h, data]);
+    };
+    const BASES = { C: 0, D: 2, E: 4, F: 5, G: 7, A: 9, B: 11 };
+    // `Ds2.mp3` côté fichier, `D#2` côté clé : c'est la convention de Salamander.
+    const midiDuFichier = (nom) => {
+        const g = /^([A-G])(s|#)?(-?\d+)$/.exec(nom);
+        return g ? (Number(g[3]) + 1) * 12 + BASES[g[1]] + (g[2] ? 1 : 0) : null;
+    };
+    const piano = await ouvrirApp();
+    try {
+        let servis = 0;
+        await piano.page.route('https://tonejs.github.io/audio/salamander/*', (route) => {
+            const nom = route.request().url().split('/').pop().replace('.mp3', '');
+            const midi = midiDuFichier(nom);
+            if (midi === null) return route.continue();
+            servis++;
+            route.fulfill({ status: 200, contentType: 'audio/wav', body: wav(440 * Math.pow(2, (midi - 69) / 12)) });
+        });
+        const charge = await piano.page.evaluate(async () => {
+            const l = window.app.lecteur;
+            await l.demarrer();
+            for (let i = 0; i < 100 && !l._buffersPiano?.loaded; i++) await new Promise(r => setTimeout(r, 100));
+            return {
+                buffers: !!l._buffersPiano?.loaded,
+                // `synthe.charge` ne dit vrai que si l'échantillonneur est NÉ dans le `onload` ET se
+                // déclare prêt : c'est la façade (voir demarrer) qui choisit qui joue à chaque note.
+                echantillonneur: l.synthe.charge,
+                unBuffer: !!l._buffersPiano?.get('C4'),
+            };
+        });
+        exiger(charge.buffers && charge.unBuffer,
+            `les 17 échantillons chargent dans un banc de buffers partagé (${servis} servis)`);
+        exiger(charge.echantillonneur,
+            'et l\'échantillonneur est bâti DESSUS, branché, et se déclare prêt — le rappel `onload` que le réseau bloqué ne joue jamais');
+
+        const son = await piano.page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur, l = window.app.lecteur;
+            const T = globalThis.Tone;
+            const metre = new T.Meter({ normalRange: true, smoothing: 0 });
+            T.Destination.connect(metre);
+            let appelsSynthe = 0;
+            const vrai = l.voixBend.triggerAttackRelease.bind(l.voixBend);
+            l.voixBend.triggerAttackRelease = (...a) => { appelsSynthe++; return vrai(...a); };
+            l.synthe.triggerAttackRelease('C3', 0.1, undefined, 0.5);   // chauffe le contexte
+            await new Promise(r => setTimeout(r, 400));
+            const jouer = async (evs) => {
+                l.arreter(); ed.nouveau('guitare');
+                ed.partition.mesures[0].voix[0].evenements = evs;
+                ed.prevenir('document');
+                appelsSynthe = 0;
+                let crete = 0, maxSources = 0;
+                await l.jouer(ed.partition, 0);
+                for (let i = 0; i < 60; i++) {
+                    await new Promise(r => setTimeout(r, 10));
+                    crete = Math.max(crete, metre.getValue());
+                    maxSources = Math.max(maxSources, l._glissandos.size);
+                }
+                l.arreter(); await new Promise(r => setTimeout(r, 150));
+                return { crete, appelsSynthe, maxSources };
+            };
+            return {
+                note: await jouer([m.creerEvenement({ valeur: 2 }, [m.creerNote(2, 5)]),
+                                   m.creerEvenement({ valeur: 2 }, [], { silence: true })]),
+                slide: await jouer([m.creerEvenement({ valeur: 8 }, [{ ...m.creerNote(2, 5), lien: 'slide' }]),
+                                    m.creerEvenement({ valeur: 8 }, [m.creerNote(2, 7)]),
+                                    m.creerEvenement({ valeur: 2 }, [], { silence: true }),
+                                    m.creerEvenement({ valeur: 4 }, [], { silence: true })]),
+            };
+        });
+        exiger(son.note.crete > 0.01,
+            `une note ORDINAIRE sort du haut-parleur une fois le piano chargé (crête ${son.note.crete.toFixed(3)}) — c'est ce qu'un déplacement de chargement raté aurait fait taire`);
+        check(son.slide.maxSources === 1 && son.slide.appelsSynthe === 0,
+            'et un slide passe par l\'échantillon de piano, pas par l\'onde de repli');
+        check(son.slide.crete > 0.01, `le slide échantillonné sonne (crête ${son.slide.crete.toFixed(3)})`);
+        check(piano.erreurs.length === 0,
+            'aucune erreur JavaScript avec le piano chargé' + (piano.erreurs.length ? ' — ' + piano.erreurs.join(' | ') : ''));
+    } finally { await piano.fermer(); }
     bilan();
 })().catch(err => { console.error(err); process.exit(1); });

@@ -228,6 +228,30 @@ réapparaissent dès que l'écran est assez large.
 
 ### Lecture
 
+#### Le son — un piano échantillonné, qui glisse
+
+Les notes sont jouées par un **piano échantillonné** (Salamander, la bibliothèque publique
+qu'utilise aussi HarmoHub), doublé d'un **synthétiseur de repli** qui joue tant que les 17 fichiers
+n'ont pas fini d'arriver, et qui joue *toujours* hors ligne. Sans cette doublure l'application
+resterait muette sur un réseau faible : le transport avancerait, le curseur suivrait, et chaque note
+serait abandonnée en silence.
+
+**Les bends et les slides ont le timbre du piano, eux aussi** (retour utilisateur : « le son du slide
+fait un son analogique grave au lieu d'un son de piano »). C'était vrai, et la raison en avait l'air
+solide : ni `Tone.Sampler` ni `Tone.PolySynth` n'offrent de prise sur la hauteur d'une voix déjà
+attaquée, donc une note dont la hauteur bouge était jouée par un synthétiseur à part — une onde, au
+milieu d'un piano. Ce raisonnement concluait trop vite. Un échantillonneur n'est rien d'autre qu'un
+lecteur de buffer dont on règle la **vitesse de lecture** ; et cette vitesse, sur un
+`Tone.ToneBufferSource`, est un paramètre **rampable**. TabHub joue donc lui-même l'échantillon le
+plus proche et fait glisser sa vitesse : un vrai piano qui glisse. *Mesuré : la hauteur passe de 264
+à 296 Hz pendant la note (attendu 294), sans que la voix synthétisée soit appelée une seule fois.*
+
+Le prix, en toute franchise : faire varier la vitesse de lecture déplace aussi le *tempo* de
+l'échantillon (c'est le glissando « à la bande »). Sur les intervalles d'un slide ou d'un bend — un
+demi-ton à trois tons — l'écart va de 6 % à 19 %, inaudible comme accélération, et c'est déjà ainsi
+que tout échantillonneur transpose ses notes. La voix synthétisée reste, elle, pour le cas hors
+ligne : timbre plus maigre, mais un glissement qui s'entend plutôt qu'une note muette.
+
 #### Rythme ternaire (swing)
 
 « Est-ce qu'on peut implémenter dans la portée un système classique, qui permet de dire
@@ -576,10 +600,11 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Les triples-croches ne sont pas écrites**, ni à l'aide rythmique ni à l'import : la subdivision
   la plus fine d'un temps est la double-croche (décidé avec l'utilisateur). Un passage plus rapide
   s'approche à la double la plus proche.
-- **Le bend et le slide sont joués par un synthétiseur à part.** La hauteur se courbe bien pendant la lecture,
-  amplitude comprise (`B` fait cycler ½ ton / ton entier / ton et demi), mais via un synthétiseur
-  simple : ni le Sampler ni le PolySynth qui portent le reste de la partition ne savent glisser en
-  hauteur en continu.
+- **Un glissando déplace légèrement le tempo de l'échantillon.** Bends et slides ont bien le timbre
+  du piano (voir *Le son*), obtenu en faisant glisser la vitesse de lecture de l'échantillon : sur
+  les intervalles concernés l'écart de vitesse va de 6 % à 19 %, inaudible comme accélération, mais
+  c'est bien un glissando « à la bande » et non un ré-échantillonnage à hauteur variable. Hors ligne,
+  faute d'échantillons, c'est le synthétiseur de repli qui joue ces notes.
 - **Piano : quelques aspérités, hors du geste central (clic pour poser/retirer une hauteur, qui
   fonctionne).** Toutes les notes d'un accord partagent le même identifiant interne (`corde: 0`, sans
   équivalent piano) : Suppr efface l'accord ENTIER plutôt qu'une seule de ses notes (cliquer de
