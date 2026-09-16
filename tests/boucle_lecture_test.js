@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(73);
+    plan(90);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -906,8 +906,238 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             && apresInsert.boucle.finDansMesure === avantInsert.finDansMesure,
             `et les décalages fins sont intacts, comptés depuis leur ancre (${apresInsert.boucle.debutDansMesure} / ${apresInsert.boucle.finDansMesure})`);
 
+        // --- LA SURBRILLANCE DES POIGNÉES, ET UN CURSEUR QUI NE MENT PLUS ----------------------
+        // Retour utilisateur : « j'ai du mal à atteindre les poignées […] en plus du curseur qui
+        // change, il faut mettre en surbrillance les 2 petites poignées ». Et le curseur MENTAIT :
+        // `.bande-boucle` portait `ew-resize` sur TOUTE la bande, y compris là où glisser REDÉFINIT
+        // la boucle au lieu d'en étirer un bord — il annonçait partout un geste qui n'existe qu'aux
+        // deux extrémités, donc rien ne changeait quand on arrivait enfin sur une poignée.
+        await p.evaluate(() => {
+            window.app.lecteur.definirBoucle(window.app.editeur.partition, 1, 3);
+            window.app.dessiner();
+        });
+        await p.waitForTimeout(150);
+        /** Point d'écran sur un bord de mesure, à la hauteur de la bande. */
+        const surBord = (i, bord) => p.evaluate(({ i, bord }) => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
+            const a = app.page.ancrages.mesures.find(m => m.index === i);
+            const sys = app.page.ancrages.systemes.find(s2 => s2.index === a.systeme);
+            const x = bord === 'debut' ? a.x : (bord === 'fin' ? a.xFin : (a.x + a.xFin) / 2);
+            return { x: b.left + x * ech, y: b.top + (sys.yBas + 1.2 * app.page.geo.S) * ech };
+        }, { i, bord });
+        const etatPoignees = () => p.evaluate(() => {
+            const svg = document.querySelector('#feuille svg');
+            const liste = [...svg.querySelectorAll('.poignee-boucle')];
+            const allumees = liste.filter(el => el.classList.contains('poignee-survolee'));
+            const sous = document.elementFromPoint(window.__mx, window.__my);
+            return {
+                total: liste.length,
+                allumees: allumees.length,
+                laquelle: allumees.map(el => (el.classList.contains('poignee-debut') ? 'debut' : 'fin')),
+                // L'AGRANDISSEMENT est mesuré sur la matrice calculée, pas sur la règle CSS : une
+                // transition non appliquée (propriété inconnue, transform-box absent) laisserait la
+                // classe posée et la poignée inchangée — le banc passerait sans rien montrer.
+                transform: allumees.length ? getComputedStyle(allumees[0]).transform : 'none',
+                curseurSousLePointeur: sous ? getComputedStyle(sous).cursor : null,
+            };
+        });
+        const viser = async (i, bord) => {
+            const pt = await surBord(i, bord);
+            await p.mouse.move(pt.x, pt.y);
+            await p.evaluate(({ x, y }) => { window.__mx = x; window.__my = y; }, pt);
+            await p.waitForTimeout(140);
+            return etatPoignees();
+        };
+
+        const surDebut = await viser(1, 'debut');
+        exiger(surDebut.total === 2 && surDebut.allumees === 1 && surDebut.laquelle[0] === 'debut',
+            'survoler la poignée de DÉBUT l\'allume, elle seule — les deux poignées ne s\'allument jamais ensemble');
+        check(surDebut.transform !== 'none' && surDebut.transform !== 'matrix(1, 0, 0, 1, 0, 0)',
+            `et elle grandit vraiment à l'écran, pas seulement dans une classe (${surDebut.transform})`);
+        exiger(surDebut.curseurSousLePointeur === 'ew-resize',
+            'le curseur annonce l\'étirement SUR la poignée');
+
+        const surFin = await viser(3, 'fin');
+        check(surFin.allumees === 1 && surFin.laquelle[0] === 'fin',
+            'la poignée de FIN s\'allume à son tour, et la première s\'éteint');
+
+        const surCorps = await viser(2, 'milieu');
+        exiger(surCorps.allumees === 0,
+            'au MILIEU de la bande, aucune poignée n\'est allumée');
+        check(surCorps.curseurSousLePointeur === 'pointer',
+            `et le curseur y annonce autre chose que l'étirement (${surCorps.curseurSousLePointeur}) — il promettait « ew-resize » partout jusqu'ici`);
+
         check(geste.erreurs.length === 0,
             'aucune erreur JavaScript pendant les gestes' + (geste.erreurs.length ? ' — ' + geste.erreurs.join(' | ') : ''));
     } finally { await geste.fermer(); }
+
+    // ============================================================================================
+    // AU DOIGT : LA PARTITION VIENT À NOUS, ET LA POIGNÉE EST ATTRAPABLE.
+    //
+    // CE QU'ILS PROTÈGENT (retour utilisateur, téléphone) : « je peux cliquer pour ajouter la barre,
+    // mais je n'arrive pas à l'étirer sur la droite : lorsque mon doigt glisse sur la droite pendant
+    // que j'étire la barre, la partition doit se décaler automatiquement et progressivement pour que
+    // je puisse englober plusieurs mesures », et « j'ai du mal à atteindre les poignées ».
+    const tel = await ouvrirApp({ viewport: { width: 390, height: 780 }, hasTouch: true, isMobile: true });
+    try {
+        const t = tel.page;
+        await t.evaluate(() => {
+            const ed = window.app.editeur;
+            while (ed.partition.mesures.length < 10) ed.ajouterMesure();
+            ed.prevenir('document');
+            window.app.el.zone.scrollTop = 0;
+            window.app.dessiner();
+        });
+        await t.waitForTimeout(200);
+
+        // --- LA PRISE D'UNE POIGNÉE FAIT BIEN LA TAILLE D'UN DOIGT ------------------------------
+        // Mesurée par BALAYAGE de poigneeBoucleAuPoint, jamais déduite des constantes : c'est
+        // exactement l'écart qui avait échappé au correctif précédent, lequel visait « le minimum
+        // tactile appliqué partout ailleurs » et donnait en réalité 26px de haut.
+        const prise = await t.evaluate(() => {
+            const app = window.app;
+            app.lecteur.definirBoucle(app.editeur.partition, 1, 1);
+            app.dessiner();
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
+            const a = app.page.ancrages.mesures.find(m => m.index === 1);
+            const liste = app.page.ancrages.systemes;
+            const sys = liste.find(s => s.index === a.systeme);
+            const x = b.left + a.xFin * ech, y = b.top + (sys.yBas + 0.9 * app.page.geo.S) * ech;
+            const dedans = (dx, dy) => app.poigneeBoucleAuPoint(x + dx, y + dy) === 'fin';
+            const portee = (sx, sy) => { for (let d = 0; d < 400; d++) if (!dedans(sx * d, sy * d)) return d; return 400; };
+            const j = liste.findIndex(s => s.index === sys.index);
+            return {
+                largeur: portee(-1, 0) + portee(1, 0),
+                hauteur: portee(0, -1) + portee(0, 1),
+                creux: j + 1 < liste.length ? Math.round((liste[j + 1].y - sys.yBas) * ech) : null,
+                bas: portee(0, 1),
+            };
+        });
+        exiger(prise.largeur >= 44 && prise.hauteur >= 44,
+            `au doigt, la prise d'une poignée fait ${prise.largeur}×${prise.hauteur} px — le repère de 44px que le projet s'impose partout ailleurs (mesuré à 44×26 avant ce correctif)`);
+        check(prise.creux === null || prise.bas < prise.creux,
+            `et elle reste DANS le creux jusqu'au système suivant (${prise.bas}px vers le bas pour ${prise.creux} disponibles) : un doigt visant le système d'après ne tombe pas dans la bande du précédent`);
+
+        // --- LA PARTITION DÉFILE SOUS UN DOIGT IMMOBILE -----------------------------------------
+        // Le geste interdit volontairement le défilement natif (_bloquerDefilementPendantGeste),
+        // sans quoi le doigt ferait glisser la page au lieu de tracer la bande. Ayant confisqué le
+        // défilement, c'est à l'application de le rendre — d'où cette vérification.
+        await t.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.el.zone.scrollTop = 0; window.app.dessiner(); });
+        await t.waitForTimeout(150);
+        const depart = await t.evaluate(() => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
+            const a = app.page.ancrages.mesures.find(m => m.index === 0);
+            const sys = app.page.ancrages.systemes.find(s => s.index === a.systeme);
+            const rz = app.el.zone.getBoundingClientRect();
+            return {
+                x: b.left + ((a.x + a.xFin) / 2) * ech,
+                y: b.top + (sys.yBas + 1.2 * app.page.geo.S) * ech,
+                bas: rz.bottom,
+            };
+        });
+        // L'écouteur qui démarre un geste est sur #feuille ; les pointermove/up sont posés sur window
+        // par le geste lui-même. Dispatcher le pointerdown sur la ZONE ne déclencherait rien (un
+        // évènement ne descend pas vers les enfants) — trompeuse absence de défilement, mesurée.
+        await t.evaluate(({ x, y }) => {
+            const faire = (cible, type, cx, cy) => cible.dispatchEvent(new PointerEvent(type, {
+                pointerId: 9, pointerType: 'touch', clientX: cx, clientY: cy,
+                bubbles: true, cancelable: true, isPrimary: true,
+            }));
+            faire(document.getElementById('feuille'), 'pointerdown', x, y);
+            window.__geste = (type, cx, cy) => faire(window, type, cx, cy);
+        }, depart);
+        await t.waitForTimeout(60);
+        // Le doigt descend jusqu'au bord bas… puis NE BOUGE PLUS.
+        await t.evaluate(({ x, bas }) => {
+            window.__geste('pointermove', x + 24, bas - 90);
+            window.__geste('pointermove', x + 30, bas - 12);
+        }, depart);
+        const etapes = [];
+        for (let i = 0; i < 4; i++) {
+            await t.waitForTimeout(220);
+            etapes.push(await t.evaluate(() => ({
+                defile: Math.round(window.app.el.zone.scrollTop),
+                fin: window.app.lecteur.boucleLecture ? window.app.lecteur.boucleLecture.fin : null,
+                apercu: document.querySelectorAll('#apercu-boucle rect').length,
+            })));
+        }
+        await t.evaluate(({ x, bas }) => { window.__geste('pointerup', x + 30, bas - 12); }, depart);
+        await t.waitForTimeout(200);
+        const apresRelache = await t.evaluate(() => ({
+            defile: Math.round(window.app.el.zone.scrollTop),
+            boucle: window.app.lecteur.boucleLecture,
+            apercu: !!document.querySelector('#apercu-boucle'),
+        }));
+
+        exiger(etapes[etapes.length - 1].defile > 60,
+            `doigt IMMOBILE au bord bas : la partition monte à sa rencontre (${etapes.map(e => e.defile).join(' -> ')} px)`);
+        check(etapes.every((e, i) => i === 0 || e.defile >= etapes[i - 1].defile),
+            'et elle défile progressivement, sans reculer');
+        exiger(apresRelache.boucle && apresRelache.boucle.fin >= 2,
+            `la boucle finit par englober plusieurs mesures (0 -> ${apresRelache.boucle && apresRelache.boucle.fin}), ce qui était IMPOSSIBLE sur un téléphone où chaque système ne porte qu'une mesure`);
+        // L'APERÇU SURVIT AUX REDESSINS que le défilement déclenche : `surDefilement` appelle
+        // `dessiner()`, qui reconstruit l'innerHTML du SVG. Sans la mémoire de l'aperçu courant, la
+        // bande disparaîtrait à l'instant précis où elle doit s'allonger.
+        check(etapes.every(e => e.apercu > 0),
+            `l'aperçu reste tracé pendant tout le défilement (${etapes.map(e => e.apercu).join(', ')} rectangles), malgré les redessins qu'il provoque`);
+        check(apresRelache.apercu === false,
+            'et il s\'efface au relâchement, comme après tout autre geste');
+
+        // LE DÉFILEMENT S'ARRÊTE AVEC LE GESTE : sans cela l'animation continuerait de tourner (et
+        // de faire défiler) après que le doigt a quitté l'écran.
+        const avantAttente = apresRelache.defile;
+        await t.waitForTimeout(500);
+        const apresAttente = await t.evaluate(() => Math.round(window.app.el.zone.scrollTop));
+        check(apresAttente === avantAttente,
+            `et le défilement s'arrête net au relâchement (${avantAttente} px, toujours ${apresAttente} une demi-seconde plus tard)`);
+
+        // AU MILIEU DE L'ÉCRAN, RIEN NE DÉFILE : un geste tranquille ne doit pas emballer la page.
+        await t.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.el.zone.scrollTop = 200; window.app.dessiner(); });
+        await t.waitForTimeout(150);
+        // ON AMÈNE SOI-MÊME UN SYSTÈME AU CENTRE, plutôt que d'en chercher un qui y serait déjà :
+        // les systèmes sont espacés de 238px dans une zone de 456, il n'y en a donc pas toujours un
+        // à bonne distance des deux bords (mesuré — la première version de cette vérification
+        // n'en trouvait aucun et s'arrêtait là).
+        const milieu = await t.evaluate(() => {
+            const app = window.app, zone = app.el.zone;
+            const svg = document.querySelector('#feuille svg');
+            const b0 = svg.getBoundingClientRect(), ech = b0.width / app.page.largeur;
+            const sys = app.page.ancrages.systemes[2];
+            const rz = zone.getBoundingClientRect();
+            // yBas du système, ramené au centre vertical de la zone visible
+            zone.scrollTop = Math.max(0, sys.yBas * ech - zone.clientHeight / 2);
+            const b = svg.getBoundingClientRect();
+            const a = app.page.ancrages.mesures.find(m => m.systeme === sys.index);
+            const y = b.top + (sys.yBas + 1.2 * app.page.geo.S) * ech;
+            return {
+                x: b.left + ((a.x + a.xFin) / 2) * ech, y,
+                margeHaut: Math.round(y - rz.top), margeBas: Math.round(rz.bottom - y),
+            };
+        });
+        exiger(milieu.margeHaut > 64 && milieu.margeBas > 64,
+            `préalable : le point visé est loin des deux bords (${milieu.margeHaut}px du haut, ${milieu.margeBas}px du bas — le défilement s'amorce à 64)`);
+        await t.evaluate(({ x, y }) => {
+            const faire = (cible, type, cx, cy) => cible.dispatchEvent(new PointerEvent(type, {
+                pointerId: 11, pointerType: 'touch', clientX: cx, clientY: cy,
+                bubbles: true, cancelable: true, isPrimary: true,
+            }));
+            faire(document.getElementById('feuille'), 'pointerdown', x, y);
+            faire(window, 'pointermove', x + 40, y);
+            window.__fin = () => faire(window, 'pointerup', x + 40, y);
+        }, milieu);
+        const avant = await t.evaluate(() => Math.round(window.app.el.zone.scrollTop));
+        await t.waitForTimeout(400);
+        const apres = await t.evaluate(() => Math.round(window.app.el.zone.scrollTop));
+        await t.evaluate(() => window.__fin());
+        await t.waitForTimeout(150);
+        check(apres === avant,
+            `loin des bords, rien ne défile (${avant} px, toujours ${apres} après 400 ms) : le défilement répond au BORD, pas au simple fait de glisser`);
+
+        check(tel.erreurs.length === 0,
+            'aucune erreur JavaScript au doigt' + (tel.erreurs.length ? ' — ' + tel.erreurs.join(' | ') : ''));
+    } finally { await tel.fermer(); }
     bilan();
 })().catch(err => { console.error(err); process.exit(1); });

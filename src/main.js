@@ -64,9 +64,35 @@ const BAS_BANDE_BOUCLE = 1.9;
 // plutôt qu'étiré avec elle — ni plus large ni plus haut à l'œil, seulement bien plus facile à
 // toucher tout autour.
 const BAS_BANDE_BOUCLE_TACTILE = 3.3;
-/** Bas de la zone de SAISIE de la boucle (mouse: BAS_BANDE_BOUCLE, doigt: BAS_BANDE_BOUCLE_TACTILE) —
- *  seule cette borne varie ; le HAUT et le trait VISUEL restent identiques sur les deux appareils. */
-function basBandeBoucle() { return appareilTactile() ? BAS_BANDE_BOUCLE_TACTILE : BAS_BANDE_BOUCLE; }
+/**
+ * CIBLE DE 44 px AU DOIGT, ET MESURÉE CETTE FOIS. Le correctif précédent (BAS_BANDE_BOUCLE_TACTILE)
+ * visait déjà « le minimum tactile appliqué partout ailleurs » — mais sans le vérifier : mesuré
+ * après coup, il donnait 26 px de haut, pas 44. D'où le retour « j'ai du mal à atteindre les
+ * poignées », parfaitement fondé.
+ *
+ * DEUX RAISONS À CET ÉCART, et la seconde est la plus instructive :
+ *   • le commentaire d'origine croyait `geo.margeBas` (3,4 S) infranchissable. Mesuré, le vrai
+ *     plafond est le SYSTÈME SUIVANT, à 6,6 S — et ce creux est réellement vide : zéro primitive s'y
+ *     dessine, vérifié même avec un nom d'accord ET une annotation de section sur le système suivant
+ *     (tous deux se gravent dans la boîte de LEUR système, sous son `y`). Il y avait donc deux fois
+ *     plus de place que ce qu'on s'autorisait ;
+ *   • la hauteur était exprimée en S, donc en fraction de la taille de portée. Or UN DOIGT NE
+ *     RÉTRÉCIT PAS QUAND ON DÉZOOME : la même constante donnait 44 px à S=9 et 29 px à S=6. Une
+ *     cible tactile se mesure en pixels d'écran, pas en unités de gravure.
+ * D'où une hauteur exprimée en PIXELS, convertie en S à l'usage, et bornée par le creux disponible.
+ *
+ * @param {number} S taille de portée, pour convertir les 44 px en unités de gravure.
+ */
+const CIBLE_TACTILE_PX = 44;
+/** Part du creux entre deux systèmes qu'on s'autorise : jamais tout, pour qu'un doigt visant le
+ *  système SUIVANT ne tombe pas dans la bande du précédent. */
+const PART_DU_CREUX = 0.8;
+function basBandeBoucle(S = 9, creuxEnS = Infinity) {
+    if (!appareilTactile()) return BAS_BANDE_BOUCLE;
+    const voulu = HAUT_BANDE_BOUCLE + CIBLE_TACTILE_PX / Math.max(1, S);
+    const plafond = HAUT_BANDE_BOUCLE + Math.max(0, creuxEnS - HAUT_BANDE_BOUCLE) * PART_DU_CREUX;
+    return Math.max(BAS_BANDE_BOUCLE_TACTILE, Math.min(voulu, plafond));
+}
 
 // MARGE D'AFFICHAGE — le trait plein de la boucle collait pile aux bords de mesure et de piste,
 // sans le moindre ajour ni sur les côtés ni en haut/bas (retour utilisateur : « trop proche du
@@ -391,6 +417,12 @@ class TabHubApp {
             systemesVisibles: this.systemesVisibles(),
         });
         this._bandeDessinee = this.bandeVisible();
+        // L'APERÇU DE BOUCLE SURVIT AU REDESSIN, tant que le geste dure : voir poserApercuBoucle. Le
+        // défilement automatique peut provoquer un `dessiner()` en plein geste, et l'aperçu est
+        // justement ce qu'on est en train de regarder.
+        if (this._gesteBoucle && this._apercuCourant) {
+            this.poserApercuBoucle(this._apercuCourant.rects, this._apercuCourant.genre);
+        }
 
         this.rafraichirOutils();
         this.rafraichirPave();
@@ -817,8 +849,40 @@ class TabHubApp {
             derniereMesure = null;
             this.poserApercuBoucle([]);
         };
+        // LA SURBRILLANCE DES POIGNÉES, et le curseur qui va avec.
+        //
+        // LE DÉFAUT (retour utilisateur) : « j'ai du mal à atteindre les poignées […] en plus du
+        // curseur qui change, il faut mettre en surbrillance les 2 petites poignées à l'intérieur de
+        // la barre orange, lorsque je les survole. » Et le curseur MENTAIT déjà : `.bande-boucle`
+        // portait `cursor: ew-resize` sur TOUTE la bande, y compris là où glisser REDÉFINIT la boucle
+        // au lieu d'en étirer un bord. Il annonçait donc partout un geste qui n'existait qu'aux deux
+        // extrémités — ce qui explique en partie qu'on cherche les poignées sans les trouver : rien
+        // ne changeait quand on arrivait dessus.
+        let derniereSurbrillance = null;
+        const surbriller = (bord) => {
+            if (bord === derniereSurbrillance) return;
+            derniereSurbrillance = bord;
+            const svg = this.el.feuille.querySelector('svg');
+            if (!svg) return;
+            for (const el of svg.querySelectorAll('.poignee-boucle')) {
+                const sienne = bord && el.classList.contains(`poignee-${bord}`);
+                el.classList.toggle('poignee-survolee', !!sienne);
+            }
+            // LE CURSEUR NE PROMET QUE CE QUI EXISTE : `ew-resize` sur une poignée (on va étirer ce
+            // bord), la main ailleurs sur la bande (on va poser, retirer ou redéfinir).
+            this.el.feuille.classList.toggle('sur-poignee-boucle', !!bord);
+        };
+        this._surbrillerPoignee = surbriller;
+
         zone.addEventListener('pointermove', (e) => {
-            if (e.pointerType !== 'mouse' || this._gesteBoucle || this.lecteur.boucleLecture) return effacer();
+            if (e.pointerType !== 'mouse' || this._gesteBoucle) { surbriller(null); return effacer(); }
+            // UNE BOUCLE EN PLACE : plus de fantôme (voir la docblock), mais les poignées s'allument.
+            if (this.lecteur.boucleLecture) {
+                effacer();
+                surbriller(this.poigneeBoucleAuPoint(e.clientX, e.clientY));
+                return;
+            }
+            surbriller(null);
             const iMesure = this.mesureDansBandeBoucle(e.clientX, e.clientY);
             if (iMesure == null) return effacer();
             if (iMesure === derniereMesure) return;
@@ -827,7 +891,7 @@ class TabHubApp {
             if (!a) return effacer();
             this.poserApercuBoucle(this.rectsBoucle(a.systeme, a.x, a.systeme, a.xFin), 'fantome');
         });
-        zone.addEventListener('pointerleave', effacer);
+        zone.addEventListener('pointerleave', () => { surbriller(null); effacer(); });
         // Le fantôme s'efface DÈS que le geste commence : à partir de là c'est l'aperçu qui parle,
         // et deux bandes translucides superposées ne diraient plus rien de clair.
         zone.addEventListener('pointerdown', effacer);
@@ -3027,7 +3091,7 @@ class TabHubApp {
         const marques = [];
         for (const sys of systemes) {
             const y = sys.yBas + HAUT_BANDE_BOUCLE * S;
-            const h = (basBandeBoucle() - HAUT_BANDE_BOUCLE) * S;   // zone de SAISIE — grandit au doigt
+            const h = (this.basBandeDuSysteme(sys) - HAUT_BANDE_BOUCLE) * S;   // zone de SAISIE — grandit au doigt
             marques.push({ t: 'rect', x: sys.xDebut, y, w: sys.xFin - sys.xDebut, h,
                 couleur: 'rgba(255, 152, 0, 0)', classe: 'bande-boucle' });
 
@@ -3083,12 +3147,15 @@ class TabHubApp {
             // poignée est ce que le doigt vise PRÉCISÉMENT pour étirer (retour utilisateur), donc le
             // premier rectangle qu'il touche — sans son propre touch-action:none, c'est justement
             // LÀ que le navigateur reprenait la main pour faire défiler.
+            // `poignee-boucle` EN PLUS de `bande-boucle` : la première sert à les RETROUVER pour la
+            // surbrillance au survol (retour utilisateur : « en plus du curseur qui change, il faut
+            // mettre en surbrillance les 2 petites poignées »), la seconde porte le touch-action.
             const largeurPx = LARGEUR_POIGNEE_BOUCLE * S;
             if (touche.some(a => a.index === boucle.debut)) {
-                marques.push({ t: 'rect', x: x1 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle' });
+                marques.push({ t: 'rect', x: x1 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle poignee-boucle poignee-debut' });
             }
             if (touche.some(a => a.index === boucle.fin)) {
-                marques.push({ t: 'rect', x: x2 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle' });
+                marques.push({ t: 'rect', x: x2 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle poignee-boucle poignee-fin' });
             }
         }
         return marques;
@@ -3199,6 +3266,23 @@ class TabHubApp {
         this.dessiner();
     }
 
+    /**
+     * LE BAS DE LA BANDE DE SAISIE D'UN SYSTÈME — une seule fonction, lue par le DESSIN de la piste
+     * invisible et par la DÉTECTION du geste, pour qu'ils ne puissent pas répondre différemment.
+     *
+     * Le creux jusqu'au système suivant est mesuré à chaque fois plutôt que supposé : il vaut 6,6 S
+     * au zoom par défaut mais se resserre en bas de course, et c'est précisément là que la version
+     * précédente rendait la cible inatteignable (mesuré : 30×32 px au zoom minimum).
+     */
+    basBandeDuSysteme(sys) {
+        const S = this.page.geo.S;
+        const liste = this.page.ancrages.systemes;
+        const i = liste.findIndex(s => s.index === sys.index);
+        const suivant = i >= 0 && i + 1 < liste.length ? liste[i + 1] : null;
+        const creuxEnS = suivant ? (suivant.y - sys.yBas) / S : Infinity;
+        return basBandeBoucle(S, creuxEnS);
+    }
+
     /** La mesure qui contient cet instant — la DERNIÈRE quand l'instant tombe pile sur la barre de
      *  fin du morceau, qu'aucune mesure ne contient au sens strict. */
     mesureDeLaPosition(position) {
@@ -3234,12 +3318,79 @@ class TabHubApp {
             let x2 = sys.index === fSys ? fX : sys.xFin;
             if (dSys === fSys) { x1 = Math.min(dX, fX); x2 = Math.max(dX, fX); }
             const y = sys.yBas + HAUT_BANDE_BOUCLE * S;
-            const h = (basBandeBoucle() - HAUT_BANDE_BOUCLE) * S;
+            const h = (this.basBandeDuSysteme(sys) - HAUT_BANDE_BOUCLE) * S;
             const hAff = Math.max(0, (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE - 2 * MARGE_BOUCLE_VERTICALE) * S);
             rects.push({ systeme: sys.index, x: Math.min(x1, x2), w: Math.abs(x2 - x1),
                 y: y + (h - hAff) / 2, h: hAff, xBrut1: x1, xBrut2: x2 });
         }
         return rects;
+    }
+
+    /**
+     * FAIT DÉFILER LA PARTITION QUAND LE DOIGT APPROCHE DU BORD, le temps d'un geste de boucle.
+     *
+     * LE DÉFAUT (retour utilisateur, téléphone) : « je n'arrive pas à l'étirer sur la droite :
+     * lorsque mon doigt glisse sur la droite pendant que j'étire la barre, la partition doit se
+     * décaler automatiquement et progressivement pour que je puisse englober plusieurs mesures ». La
+     * boucle était donc bornée à ce qui tenait à l'écran — sur un téléphone, mesuré, UNE MESURE PAR
+     * SYSTÈME : il était littéralement impossible d'en boucler deux.
+     *
+     * POURQUOI LE NAVIGATEUR NE LE FAIT PAS TOUT SEUL : parce qu'on le lui interdit, et à raison.
+     * `_bloquerDefilementPendantGeste` refuse le défilement natif pendant tout le geste, sans quoi le
+     * doigt ferait glisser la page au lieu de tracer la bande (c'est un retour utilisateur antérieur,
+     * capture à l'appui). Ayant confisqué le défilement, c'est à nous de le rendre — mais gouverné
+     * par le geste, pas par le doigt.
+     *
+     * ET LE DÉFILEMENT EST SURTOUT VERTICAL, ce qui n'est pas évident quand on lit « glisse sur la
+     * droite ». Mesuré sur un écran de 390px : la partition NE déborde PAS horizontalement (elle est
+     * mise en page à la largeur de l'écran) mais déborde en hauteur, 2023px pour 456 visibles, avec
+     * une seule mesure par système. Englober plusieurs mesures, au doigt, veut donc dire DESCENDRE —
+     * on glisse vers la droite, on arrive au bout de la ligne, et c'est la suite qui doit monter à
+     * notre rencontre. Les deux axes sont traités, mais c'est le vertical qui débloque le cas réel.
+     *
+     * PROGRESSIVEMENT, comme demandé : la vitesse croît avec le dépassement, de zéro au bord de la
+     * zone de confort jusqu'à VITESSE_MAX collé au bord. Une vitesse constante donnerait un départ
+     * brutal et impossible à doser.
+     *
+     * @param {Function} rappel appelé après chaque pas de défilement, avec le dernier point du
+     *   pointeur — c'est lui qui redessine l'aperçu. INDISPENSABLE : le doigt ne bouge pas pendant
+     *   que la page défile, mais la MUSIQUE bouge sous lui, donc la bande doit s'allonger quand même.
+     */
+    defilementAuBord(rappel) {
+        const zone = this.el.zone;
+        const MARGE = 64;          // px depuis le bord où le défilement s'amorce
+        const VITESSE_MAX = 24;    // px par image, atteinte collé au bord
+        let dernier = null, anim = null;
+        const depassement = (p, min, max) => (p < min + MARGE ? p - (min + MARGE)
+            : (p > max - MARGE ? p - (max - MARGE) : 0));
+        const vitesse = (d) => (d === 0 ? 0
+            : Math.sign(d) * Math.min(VITESSE_MAX, (Math.abs(d) / MARGE) * VITESSE_MAX));
+        const pas = () => {
+            anim = null;
+            if (!dernier) return;
+            const r = zone.getBoundingClientRect();
+            const vx = vitesse(depassement(dernier.x, r.left, r.right));
+            const vy = vitesse(depassement(dernier.y, r.top, r.bottom));
+            if (vx || vy) {
+                const avantX = zone.scrollLeft, avantY = zone.scrollTop;
+                zone.scrollLeft += vx;
+                zone.scrollTop += vy;
+                // RIEN N'A BOUGÉ -> RIEN À REDESSINER : arrivé en butée, on continue de tourner sans
+                // travail inutile, plutôt que de recalculer la bande soixante fois par seconde pour
+                // le même résultat.
+                if (zone.scrollLeft !== avantX || zone.scrollTop !== avantY) rappel(dernier);
+            }
+            planifier();
+        };
+        const planifier = () => { if (anim === null && dernier) anim = requestAnimationFrame(pas); };
+        return {
+            suivre: (ev) => { dernier = { x: ev.clientX, y: ev.clientY }; planifier(); },
+            arreter: () => {
+                dernier = null;
+                if (anim !== null) cancelAnimationFrame(anim);
+                anim = null;
+            },
+        };
     }
 
     /**
@@ -3264,6 +3415,11 @@ class TabHubApp {
     poserApercuBoucle(rects, genre = 'apercu') {
         const svg = this.el.feuille.querySelector('svg');
         if (!svg) return;
+        // ON RETIENT L'APERÇU COURANT, et c'est le défilement automatique qui l'exige : il fait
+        // défiler la zone, ce qui déclenche `surDefilement`, qui peut appeler `dessiner()` — lequel
+        // reconstruit l'`innerHTML` du SVG et emporte l'aperçu avec. Sans cette mémoire, la bande
+        // clignoterait ou disparaîtrait au moment précis où elle doit s'allonger.
+        this._apercuCourant = rects.length ? { rects, genre } : null;
         let g = svg.querySelector('#apercu-boucle');
         if (!rects.length) { if (g) g.remove(); return; }
         if (!g) {
@@ -3320,7 +3476,7 @@ class TabHubApp {
         const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
-            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + basBandeBoucle() * S);
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + this.basBandeDuSysteme(s) * S);
         if (!systeme) return null;
         return this._mesureDuSysteme(systeme, x);
     }
@@ -3345,7 +3501,7 @@ class TabHubApp {
         const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
-            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + basBandeBoucle() * S);
+            y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + this.basBandeDuSysteme(s) * S);
         if (!systeme) return null;
         const touche = this.page.ancrages.mesures.filter(a =>
             a.systeme === systeme.index && a.index >= boucle.debut && a.index <= boucle.fin);
@@ -3473,9 +3629,21 @@ class TabHubApp {
         // au premier pixel parcouru.
         const ancre = this.instantSousLePoint(e.clientX, e.clientY, mesureAncre);
 
+        // LE MÊME TRAVAIL, appelé par le pointeur ET par le défilement automatique : le doigt
+        // immobile au bord d'un écran doit continuer d'allonger la bande pendant que la page monte.
+        const rafraichir = (point) => {
+            const ici = this.instantSousLePoint(point.x, point.y);
+            if (!ici) return;
+            derniere = ici;
+            this.poserApercuBoucle(this.rectsBoucle(ancre.systeme, ancre.x, ici.systeme, ici.x));
+            this.poserBornesCalees(ancre.position, ici.position, { redessiner: false });
+        };
+        const defilement = this.defilementAuBord(rafraichir);
+
         const surMouvement = (ev) => {
             if (!bouge && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
             if (!bouge) { bouge = true; this._gesteBoucle = true; this.dessiner(); }
+            defilement.suivre(ev);
             const ici = this.instantSousLePoint(ev.clientX, ev.clientY);
             if (!ici) return;
             derniere = ici;
@@ -3499,6 +3667,7 @@ class TabHubApp {
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
+            defilement.arreter();
             this.poserApercuBoucle([]);
             this._gesteBoucle = false;
             if (bouge && derniere) {
@@ -3552,8 +3721,11 @@ class TabHubApp {
         const buter = (position) => (bord === 'debut'
             ? Math.min(position, positionFixe) : Math.max(position, positionFixe));
 
-        const surMouvement = (ev) => {
-            const ici = this.instantSousLePoint(ev.clientX, ev.clientY);
+        // Le même travail pour le pointeur et pour le défilement automatique — voir
+        // demarrerGesteBoucle, qui explique pourquoi un doigt IMMOBILE au bord doit continuer
+        // d'allonger la bande.
+        const rafraichir = (point) => {
+            const ici = this.instantSousLePoint(point.x, point.y);
             if (!ici || !lieuFixe) return;
             // L'œil suit le pixel, l'oreille le temps — exactement le même partage qu'à
             // demarrerGesteBoucle, et pour les mêmes raisons (voir sa docblock).
@@ -3564,12 +3736,19 @@ class TabHubApp {
             this.poserBornesCalees(positionFixe, buter(ici.position), { redessiner: false });
             derniere = ici;
         };
+        const defilement = this.defilementAuBord(rafraichir);
+
+        const surMouvement = (ev) => {
+            defilement.suivre(ev);
+            rafraichir({ x: ev.clientX, y: ev.clientY });
+        };
         const surRelache = () => {
             relacherCapture();
             debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
+            defilement.arreter();
             this.poserApercuBoucle([]);
             this._gesteBoucle = false;
             if (derniere) this.poserBornesCalees(positionFixe, buter(derniere.position));

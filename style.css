@@ -1220,7 +1220,32 @@ body.avec-pave .dpad-flottant { display: grid; }
    partition — `touch-action: none` l'emporte sur le `pan-x pan-y` de .zone-partition dès que le
    doigt se pose PRÉCISÉMENT sur cette bande (résolution par élément, la plus spécifique gagne),
    sans rien retirer au défilement partout ailleurs sur la partition. */
-.bande-boucle { touch-action: none; cursor: ew-resize; }
+/* LE CURSEUR NE PROMET QUE CE QUI EXISTE. Cette règle portait `cursor: ew-resize` sur TOUTE la
+   bande — y compris là où glisser REDÉFINIT la boucle au lieu d'en étirer un bord. Elle annonçait
+   donc partout un geste qui n'existe qu'aux deux extrémités, et rien ne changeait quand on arrivait
+   enfin sur une poignée : c'est une des raisons pour lesquelles on les cherchait sans les trouver
+   (retour utilisateur : « j'ai du mal à atteindre les poignées »). La main sur le corps de la bande
+   (on va poser, retirer ou redéfinir), `ew-resize` seulement sur une poignée — voir
+   main.js#brancherSurvolBoucle, qui pose `.sur-poignee-boucle` d'après la zone de PRISE réelle et
+   non d'après le trait dessiné, bien plus étroit. */
+.bande-boucle { touch-action: none; cursor: pointer; }
+.feuille.sur-poignee-boucle .bande-boucle,
+.feuille.sur-poignee-boucle { cursor: ew-resize; }
+
+/* LA POIGNÉE SURVOLÉE S'ALLUME — le retour visuel que le curseur seul ne donnait pas. Elle grandit
+   PAR SON CENTRE (`transform-box: fill-box` + `transform-origin: center`) : l'agrandir par son coin
+   la décalerait, et une poignée qui saute au survol est pire qu'une poignée discrète. L'échelle ne
+   porte que sur X — la hauteur est contrainte par la bande, et l'étirer verticalement déborderait
+   du halo. */
+.poignee-boucle {
+    transition: transform .12s ease-out, filter .12s ease-out;
+    transform-box: fill-box;
+    transform-origin: center;
+}
+.poignee-boucle.poignee-survolee {
+    transform: scaleX(1.9);
+    filter: brightness(1.25);
+}
 
 /* L'APERÇU TRACÉ PENDANT LE GESTE, et le FANTÔME du survol (voir main.js#poserApercuBoucle). Ni l'un
    ni l'autre n'est une primitive de la gravure : ce sont des `<rect>` écrits à la main dans le SVG

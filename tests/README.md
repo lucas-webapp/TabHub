@@ -25,7 +25,7 @@ utilisateur devenus des cas permanents.
 | `midi_test.js` | Aller-retour `.mid`, doigté par zone de manche, export par section, notes de même hauteur chevauchées |
 | `import_rythme_test.js` | Triolets et swing importés JUSTE : une grille par temps, la question binaire/ternaire, la détection qui ne confond pas swing et vrais triolets |
 | `onglets_test.js` | Plusieurs morceaux ouverts : l'ÉTANCHÉITÉ des documents, ce qui reste commun (durée, presse-papier), le brouillon multi-onglets, et rien au doigt |
-| `boucle_lecture_test.js` | La bande orange : geste souris/doigt, poignées, l'ancrage qui la fait suivre ses mesures, l'aperçu qui suit le PIXEL (mesuré : quatre largeurs distinctes dans UNE mesure) et le fantôme qui la rend découvrable |
+| `boucle_lecture_test.js` | La bande orange : geste souris/doigt, poignées, l'ancrage qui la fait suivre ses mesures, l'aperçu qui suit le PIXEL (mesuré : quatre largeurs distinctes dans UNE mesure), le fantôme qui la rend découvrable, le défilement sous un doigt immobile et la prise des poignées mesurée par balayage |
 | `zoom_ecran_test.js` | Les loupes changent la GRAVURE (pas un nombre) ; `Ctrl+molette` zoome la partition en confisquant le geste, et le laisse au navigateur partout ailleurs |
 | `tactile_test.js` | Écrire au doigt (pavé, tap, appui long, glisser qui défile) et le pincement à deux doigts qui zoome la partition, pas la page |
 

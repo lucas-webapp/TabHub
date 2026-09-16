@@ -320,6 +320,36 @@ milieu du temps 2) — et c'est déjà la notion qu'emploient la ligature et le 
 le temps et 26px la croche, quand le repère tactile que le projet s'impose partout ailleurs est de
 44px. Viser les **bords** d'une mesure redonne exactement la mesure entière.
 
+**Au doigt, la partition vient à nous.** Dès que le doigt approche d'un bord de la zone pendant qu'on
+trace ou qu'on étire la bande, la partition défile d'elle-même, à une vitesse qui croît avec le
+dépassement (retour utilisateur : « je n'arrive pas à l'étirer sur la droite : la partition doit se
+décaler automatiquement et progressivement pour que je puisse englober plusieurs mesures »). Le
+navigateur ne le fait pas tout seul parce qu'on le lui **interdit** — sans quoi le doigt ferait glisser
+la page au lieu de tracer la bande — donc l'application doit le rendre, gouverné par le geste. Le
+défilement est surtout **vertical**, ce qui n'est pas évident en lisant « vers la droite » : mesuré sur
+un écran de 390 px, la partition ne déborde pas horizontalement mais tient **une mesure par système**,
+si bien qu'englober plusieurs mesures veut dire descendre. Englober deux mesures était donc
+littéralement impossible sur un téléphone. L'aperçu se recalcule à chaque pas : le doigt ne bouge pas,
+mais la musique bouge sous lui.
+
+**La prise des poignées fait la taille d'un doigt** — 44 × 45 px, mesurés par balayage. Un correctif
+antérieur visait déjà « le minimum tactile appliqué partout ailleurs » sans le vérifier : il donnait
+44 × **26**, d'où « j'ai du mal à atteindre les poignées ». Deux erreurs se cumulaient. La hauteur
+était plafonnée par `geo.margeBas` (3,4 S), crue infranchissable, alors que le vrai plafond est le
+système suivant, à 6,6 S — et ce creux est réellement vide (zéro primitive s'y grave, vérifié même
+avec un nom d'accord et une annotation sur le système suivant, tous deux gravés dans la boîte de *leur*
+système). Et la hauteur était exprimée en S, donc en fraction de la taille de portée : **un doigt ne
+rétrécit pas quand on dézoome**, et la même constante donnait 44 px à un zoom et 29 à un autre. Elle
+est maintenant exprimée en pixels et bornée par le creux réellement disponible — au zoom minimum, où
+ce creux ne fait que 40 px, la cible n'est pas atteignable et la prise y vaut 30 px.
+
+**Les deux poignées s'allument au survol**, et le curseur ne ment plus. `.bande-boucle` portait
+`ew-resize` sur *toute* la bande, y compris là où glisser **redéfinit** la boucle au lieu d'en étirer un
+bord : il annonçait partout un geste qui n'existe qu'aux deux extrémités, donc rien ne changeait quand
+on arrivait enfin sur une poignée — une des raisons pour lesquelles on les cherchait sans les trouver.
+Désormais la main sur le corps de la bande, `ew-resize` seulement sur une poignée, et la poignée
+survolée s'élargit par son centre (l'agrandir par son coin la ferait sauter).
+
 **Une bande fantôme apparaît au survol** tant qu'aucune boucle n'existe (« avant que je la définisse,
 les utilisateurs ne sauront pas forcément qu'il est possible de placer une barre de lecture »). La
 piste de saisie est invisible par nature — une couleur d'alpha nul, là seulement pour recevoir le
