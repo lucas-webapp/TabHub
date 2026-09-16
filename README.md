@@ -297,8 +297,40 @@ dans son échelle de temps.
 
 Une **boucle de lecture** se définit en glissant (souris ou doigt) sur la fine bande sous la
 tablature de chaque système : la zone se rejoue indéfiniment, pour retravailler un passage sans
-repartir du début à chaque essai. Un tap/clic sans glisser sur la bande retire la boucle en place.
-C'est une préférence de SESSION, jamais sauvée avec le morceau.
+repartir du début à chaque essai. C'est une préférence de SESSION, jamais sauvée avec le morceau.
+
+**Elle colle au doigt pendant qu'on la trace, et se pose sur un temps quand on la lâche** (retour
+utilisateur : « il est difficile de savoir quand je la mets en place ou non, car je ne la vois pas
+apparaître sous mon doigt »). Le défaut n'était pas qu'elle ne se dessinait pas — elle se dessinait
+déjà — mais qu'elle ne bougeait qu'au **franchissement d'une mesure** : entre deux barres, glisser ne
+changeait rien à l'écran. L'aperçu suit maintenant le pixel, tracé directement dans le SVG en place
+(quelques attributs réécrits, pas une remise en page), avec les deux bouts pleins de la vraie bande —
+mesuré en capture, le halo seul est trop pâle pour se remarquer. Étirer une poignée suit le pixel de
+la même façon, le bord opposé restant fixe. L'œil suit donc le pixel ; **l'oreille, elle, suit le
+temps** : la boucle est posée dans l'horloge à chaque changement de plage calée, pour que déplacer la
+bande *pendant* que ça joue s'entende tout de suite.
+
+**Le calage se fait au TEMPS** — ni à la mesure entière, ni à la croche. Une borne de boucle
+s'*entend* : au rebouclage, le point de reprise est un évènement rythmique, et s'il tombe une croche à
+côté de la phrase on entend un faux pas à chaque tour, alors que c'est la pulsation qu'on cherchait à
+installer. Affiner ne multiplie pas les bonnes réponses, mais les mauvaises. Le temps, lui, est une
+position musicale dans toutes les signatures — la demi-mesure ne l'est pas (en 3/4 elle tombe au
+milieu du temps 2) — et c'est déjà la notion qu'emploient la ligature et le métronome
+(`uniteDeGroupement`). Mesuré à l'écran, enfin : au zoom par défaut une mesure fait 204px, donc 51px
+le temps et 26px la croche, quand le repère tactile que le projet s'impose partout ailleurs est de
+44px. Viser les **bords** d'une mesure redonne exactement la mesure entière.
+
+**Une bande fantôme apparaît au survol** tant qu'aucune boucle n'existe (« avant que je la définisse,
+les utilisateurs ne sauront pas forcément qu'il est possible de placer une barre de lecture »). La
+piste de saisie est invisible par nature — une couleur d'alpha nul, là seulement pour recevoir le
+geste — et rien ne disait qu'on pouvait cliquer sous la tablature. Le fantôme couvre **une mesure**,
+exactement ce que le clic pose, et porte un cadre en tirets plutôt que les bouts pleins d'une vraie
+bande : il invite à poser, il ne prétend pas être une boucle. À la **souris seulement** (un doigt n'a
+pas de survol : l'évènement n'arriverait qu'avec le contact, et le fantôme clignoterait sous le doigt
+sans rien apprendre à personne), et **seulement tant qu'il n'y a pas de boucle** — une fois posée,
+c'est la bande elle-même l'affordance, et proposer « clique pour poser » là où un tap **retire** la
+boucle serait un mensonge. Un tap/clic sans glisser pose donc la boucle sur la mesure visée quand il
+n'y en a pas, et retire celle en place quand il y en a une (le seul moyen tactile d'en annuler une).
 
 Elle **suit les mesures qu'elle borne**, pas leurs numéros. Insérer, coller ou supprimer une mesure
 avant elle — ou annuler l'un de ces gestes — la laisse sur le même passage, et son horloge se
@@ -307,7 +339,10 @@ la copie profonde de l'historique préserve) et ses numéros en sont RE-DÉRIVÉ
 document : un seul calcul à un seul endroit, plutôt qu'un décalage à recenser dans chaque commande
 qui touche au tableau des mesures. Si la mesure de début disparaît, la boucle se resserre sur celle de
 fin ; si les deux disparaissent, elle s'en va — jamais une bande qui réapparaît ailleurs que là où on
-l'avait posée.
+l'avait posée. Le décalage fin de chaque bord est compté **depuis son ancre**, pas depuis le début du
+morceau : insérer une mesure ailleurs déplace le numéro sans toucher au décalage. C'est la même raison
+qui avait fait choisir l'ancrage par `id`, poussée d'un cran — une position absolue ne voudrait plus
+rien dire dès la première insertion.
 
 Lecture/Stop, **tempo** et **métronome** vivent ensemble dans un **bloc de lecture** encadré, au
 centre de la barre du bas sur ordinateur, à gauche sur téléphone. Les cinq commandes étaient

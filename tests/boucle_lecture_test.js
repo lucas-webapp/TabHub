@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(55);
+    plan(73);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -148,6 +148,19 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
                 y: b.top + (yBande / window.app.page.hauteur) * b.height,
             };
         }, i);
+        /** Point d'écran à une FRACTION donnée de la largeur de la mesure `i`, à la hauteur de la
+         *  bande — pour viser autre chose que le centre (voir le calage au temps). */
+        const pointDansMesure = (i, fraction) => page.evaluate(({ i, fraction }) => {
+            const svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = window.app.page.ancrages.mesures.find(x => x.index === i);
+            const S = window.app.page.geo.S;
+            const yBande = a.yTab + a.hauteurTab + 1.2 * S;
+            return {
+                x: b.left + ((a.x + (a.xFin - a.x) * fraction) / window.app.page.largeur) * b.width,
+                y: b.top + (yBande / window.app.page.hauteur) * b.height,
+            };
+        }, { i, fraction });
         /** Point d'écran sur le VRAI bord ('debut' = a.x, 'fin' = a.xFin) de la mesure `i`, à la
          *  hauteur de la bande — là où se dessine et se saisit une poignée (voir marquesBoucle/
          *  poigneeBoucleAuPoint), par opposition à pointMesure ci-dessus qui vise son CENTRE. */
@@ -183,9 +196,34 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         }));
         exiger(apres1.boucle && apres1.boucle.debut === 1 && apres1.boucle.fin === 3, 'glisser de la mesure 1 à la mesure 3 définit bien [1, 3]');
         check(apres1.loop === true, 'et Tone.Transport.loop passe à vrai');
-        // 4/4 à 120 BPM : la mesure 1 commence à 2s, la fin de la mesure 3 (donc le début de la 4) à 8s.
-        check(Math.abs(apres1.loopStart - 2) < 0.02 && Math.abs(apres1.loopEnd - 8) < 0.02,
-            'les bornes correspondent au DÉBUT de la mesure 1 et à la FIN de la mesure 3 (epsilon d\'un tic près)');
+        // LE CALAGE SE FAIT AU TEMPS, plus à la mesure entière (retour utilisateur : « elle pourra
+        // effectivement se poser à une demi-mesure près en fonction de la position où je la
+        // relâche », puis le choix du TEMPS plutôt que de la demi-mesure ou de la croche — voir
+        // main.js#callerAuTemps). `pointMesure` vise le CENTRE d'une mesure : partir du milieu de la
+        // mesure 1 pour finir au milieu de la mesure 3 borne donc du temps 3 de l'une au temps 3 de
+        // l'autre, soit 3s -> 7s à 120 BPM, et non plus 2s -> 8s.
+        //
+        // CETTE VÉRIFICATION A CHANGÉ DE VALEUR ATTENDUE, ce qui mérite d'être dit : elle encodait
+        // « une mesure entière quoi qu'on vise », c'est-à-dire exactement ce que l'utilisateur
+        // demandait de changer. Le cas des mesures entières n'a pas disparu pour autant — il est
+        // vérifié juste en dessous, en glissant d'un BORD à l'autre.
+        check(Math.abs(apres1.loopStart - 3) < 0.02 && Math.abs(apres1.loopEnd - 7) < 0.02,
+            `viser le milieu des mesures borne au TEMPS le plus proche : 3s -> 7s (mesuré ${apres1.loopStart.toFixed(2)} -> ${apres1.loopEnd.toFixed(2)})`);
+        check(apres1.boucle.debutDansMesure === 2 && apres1.boucle.finDansMesure === 2,
+            'et le modèle le dit en clair : deux noires depuis le début de chacune des deux mesures d\'ancrage');
+
+        // LES MESURES ENTIÈRES RESTENT ATTEIGNABLES, et c'est ce qui rend le calage fin acceptable :
+        // viser les bords donne exactement ce que l'ancienne version donnait de toute façon.
+        await page.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.dessiner(); });
+        await page.waitForTimeout(120);
+        await glisserSouris(await pointDansMesure(1, 0.02), await pointDansMesure(3, 0.99));
+        const entieres = await page.evaluate(() => ({
+            boucle: window.app.lecteur.boucleLecture,
+            loopStart: Tone.Time(Tone.Transport.loopStart).toSeconds(),
+            loopEnd: Tone.Time(Tone.Transport.loopEnd).toSeconds(),
+        }));
+        check(Math.abs(entieres.loopStart - 2) < 0.02 && Math.abs(entieres.loopEnd - 8) < 0.02,
+            `glisser d'un BORD à l'autre redonne les mesures entières : 2s -> 8s (mesuré ${entieres.loopStart.toFixed(2)} -> ${entieres.loopEnd.toFixed(2)})`);
 
         // --- 2. La zone se dessine réellement (primitive visible, couleur de lecture) ---------------
         const zoneDessinee = await page.evaluate(() => {
@@ -680,5 +718,196 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
+
+    // ============================================================================================
+    // LA BANDE SOUS LE DOIGT — aperçu au pixel, calage au temps, fantôme de survol.
+    //
+    // CE QU'ILS PROTÈGENT (retour utilisateur) : « il est difficile de savoir quand je la mets en
+    // place ou non, car je ne la vois pas apparaître sous mon doigt ou sous le clic de souris »,
+    // « pareil quand je l'étire », et « avant que je la définisse, les utilisateurs ne sauront pas
+    // forcément qu'il est possible de placer une barre de lecture ».
+    //
+    // LE DÉFAUT N'ÉTAIT PAS QUE RIEN NE SE DESSINAIT — une version antérieure dessinait bien pendant
+    // le geste, et un banc plus haut le vérifie encore. C'est qu'elle ne bougeait qu'au
+    // FRANCHISSEMENT D'UNE MESURE : entre deux mesures, glisser ne changeait rien à l'écran. D'où la
+    // vérification centrale ci-dessous, qui ne se contente pas de compter les rectangles mais mesure
+    // PLUSIEURS LARGEURS DISTINCTES À L'INTÉRIEUR D'UNE SEULE MESURE — ce que l'ancienne version ne
+    // pouvait produire par construction.
+    const geste = await ouvrirApp({ viewport: { width: 1320, height: 900 } });
+    try {
+        const p = geste.page;
+        await p.evaluate(() => {
+            const ed = window.app.editeur;
+            while (ed.partition.mesures.length < 6) ed.ajouterMesure();
+            ed.prevenir('document'); window.app.dessiner();
+        });
+        /** Point d'écran à une fraction de la mesure `i`, sur la bande. */
+        const pt = (i, f) => p.evaluate(({ i, f }) => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = app.page.ancrages.mesures.find(m => m.index === i);
+            const S = app.page.geo.S, y = a.yTab + a.hauteurTab + 1.2 * S;
+            return { x: b.left + ((a.x + (a.xFin - a.x) * f) / app.page.largeur) * b.width,
+                     y: b.top + (y / app.page.hauteur) * b.height };
+        }, { i, f });
+        /** L'aperçu tel qu'il est RÉELLEMENT dans le SVG à cet instant. */
+        const apercu = () => p.evaluate(() => {
+            const g = document.querySelector('#apercu-boucle');
+            if (!g) return null;
+            const rects = [...g.childNodes].map(r => ({
+                x: +r.getAttribute('x'), w: +r.getAttribute('width'),
+                bout: r.getAttribute('class') === 'bout-apercu',
+            }));
+            return { classe: g.getAttribute('class'), bandes: rects.filter(r => !r.bout), bouts: rects.filter(r => r.bout).length };
+        });
+        const sansBoucle = async () => {
+            await p.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.dessiner(); });
+            await p.waitForTimeout(120);
+        };
+
+        // --- LE FANTÔME DE SURVOL ---------------------------------------------------------------
+        await sansBoucle();
+        const p2 = await pt(2, 0.5);
+        await p.mouse.move(p2.x, p2.y);
+        await p.waitForTimeout(150);
+        const fantome = await apercu();
+        const mes2 = await p.evaluate(() => {
+            const a = window.app.page.ancrages.mesures.find(m => m.index === 2);
+            return { x: a.x, w: a.xFin - a.x };
+        });
+        exiger(fantome && fantome.classe === 'fantome-boucle' && fantome.bandes.length === 1,
+            'survoler la bande sans aucune boucle fait apparaître un fantôme — la seule chose qui dise qu\'on peut en poser une');
+        check(Math.abs(fantome.bandes[0].x - mes2.x) < 1 && Math.abs(fantome.bandes[0].w - mes2.w) < 1,
+            `et il couvre EXACTEMENT la mesure survolée, ni plus ni moins (${fantome.bandes[0].w.toFixed(0)}px pour ${mes2.w.toFixed(0)})`);
+        check(fantome.bouts === 0,
+            'sans les bouts pleins de la vraie bande : il invite à poser, il ne prétend pas être une boucle');
+
+        // --- LE CLIC POSE LA MESURE SURVOLÉE ----------------------------------------------------
+        await p.mouse.down(); await p.mouse.up();
+        await p.waitForTimeout(180);
+        const posee = await p.evaluate(() => window.app.lecteur.boucleLecture);
+        exiger(posee && posee.debut === 2 && posee.fin === 2,
+            'et cliquer pose la boucle sur CETTE mesure — ce que le fantôme montrait, exactement');
+        // LE FANTÔME SE TAIT DÈS QU'UNE BOUCLE EXISTE : la bande posée est alors elle-même
+        // l'affordance, et proposer « clique pour poser » là où cliquer RETIRE serait un mensonge.
+        await p.mouse.move(p2.x + 4, p2.y);
+        await p.waitForTimeout(150);
+        const apresPose = await apercu();
+        check(apresPose === null || apresPose.bandes.length === 0,
+            'une boucle en place fait taire le fantôme : plus rien ne propose d\'en poser une par-dessus');
+
+        // --- L'APERÇU SUIT LE PIXEL, DANS UNE SEULE MESURE --------------------------------------
+        await sansBoucle();
+        const depart = await pt(1, 0.08);
+        await p.mouse.move(depart.x, depart.y);
+        await p.mouse.down();
+        const largeurs = [];
+        for (const f of [0.3, 0.5, 0.7, 0.92]) {
+            const q = await pt(1, f);
+            await p.mouse.move(q.x, q.y, { steps: 2 });
+            const a = await apercu();
+            largeurs.push(a && a.bandes.length ? a.bandes[0].w : null);
+        }
+        const enCours = await apercu();
+        const bandeFigee = await p.evaluate(() => document.querySelectorAll('#feuille rect.bande-boucle').length);
+        await p.mouse.up();
+        await p.waitForTimeout(180);
+
+        exiger(largeurs.every(w => w !== null),
+            'un aperçu est tracé à chaque étape du glisser, pas seulement au relâchement');
+        exiger(new Set(largeurs.map(w => Math.round(w))).size === largeurs.length,
+            `et il prend QUATRE largeurs distinctes À L'INTÉRIEUR D'UNE SEULE MESURE : ${largeurs.map(w => w.toFixed(0)).join(' -> ')}px — l'ancienne version, calée à la mesure, n'en aurait montré qu'une`);
+        check(largeurs.every((w, i) => i === 0 || w > largeurs[i - 1]),
+            'et il grandit dans le sens du geste, sans reculer');
+        check(enCours.classe === 'apercu-boucle' && enCours.bouts === 2,
+            'l\'aperçu porte les deux bouts pleins de la bande posée (mesuré en capture : le halo seul est trop pâle pour se remarquer sous le doigt)');
+
+        // --- AU RELÂCHEMENT : l'aperçu s'efface, la vraie bande prend sa place -------------------
+        const apres = await p.evaluate(() => ({
+            apercu: !!document.querySelector('#apercu-boucle'),
+            halos: document.querySelectorAll('#feuille rect.bande-boucle').length,
+            boucle: window.app.lecteur.boucleLecture,
+        }));
+        exiger(apres.apercu === false && apres.halos > 0 && !!apres.boucle,
+            'au relâchement l\'aperçu disparaît et la vraie bande le remplace — jamais les deux à la fois');
+
+        // --- PAS DEUX BANDES PENDANT LE GESTE ---------------------------------------------------
+        // On redéfinit par-dessus une boucle EXISTANTE : sans le masquage, l'ancienne resterait
+        // gravée sous l'aperçu et on ne saurait plus laquelle on est en train de tracer.
+        const d3 = await pt(3, 0.2);
+        await p.mouse.move(d3.x, d3.y); await p.mouse.down();
+        const q3 = await pt(4, 0.8);
+        await p.mouse.move(q3.x, q3.y, { steps: 4 });
+        const pendant = await p.evaluate(() => document.querySelectorAll('#feuille rect.bande-boucle:not([fill="rgba(255, 152, 0, 0)"])').length);
+        const halosPendant = await p.evaluate(() => {
+            // Les pistes de saisie INVISIBLES restent (une par système) ; ce qu'on compte ici, c'est
+            // le halo VISIBLE et ses poignées, qui doivent avoir disparu le temps du geste.
+            return [...document.querySelectorAll('#feuille rect.bande-boucle')]
+                .filter(r => (r.getAttribute('fill') || '') !== 'rgba(255, 152, 0, 0)').length;
+        });
+        await p.mouse.up(); await p.waitForTimeout(180);
+        check(halosPendant === 0,
+            `pendant le geste la bande DÉJÀ POSÉE s'efface : l'aperçu est seul à l'écran (${halosPendant} halo visible, ${bandeFigee} pistes de saisie au total)`);
+
+        // --- ÉTIRER UNE POIGNÉE SUIT AUSSI LE PIXEL ---------------------------------------------
+        await p.evaluate(() => { window.app.lecteur.definirBoucle(window.app.editeur.partition, 1, 2); window.app.dessiner(); });
+        await p.waitForTimeout(150);
+        const poignee = await p.evaluate(() => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect();
+            const a = app.page.ancrages.mesures.find(m => m.index === 2);
+            const S = app.page.geo.S, y = a.yTab + a.hauteurTab + 1.2 * S;
+            return { x: b.left + (a.xFin / app.page.largeur) * b.width, y: b.top + (y / app.page.hauteur) * b.height };
+        });
+        await p.mouse.move(poignee.x, poignee.y); await p.mouse.down();
+        const etires = [];
+        for (const f of [0.25, 0.5, 0.75]) {
+            const q = await pt(3, f);
+            await p.mouse.move(q.x, q.y, { steps: 2 });
+            const a = await apercu();
+            etires.push(a ? a.bandes.reduce((t, r) => t + r.w, 0) : null);
+        }
+        await p.mouse.up(); await p.waitForTimeout(180);
+        exiger(etires.every(w => w !== null) && new Set(etires.map(w => Math.round(w))).size === etires.length,
+            `étirer une poignée suit AUSSI le pixel : trois largeurs distinctes dans une seule mesure (${etires.map(w => w.toFixed(0)).join(' -> ')}px)`);
+        check(etires.every((w, i) => i === 0 || w > etires[i - 1]),
+            'et l\'aperçu grandit dans le sens où l\'on tire, le bord opposé restant fixe');
+
+        // --- LES BORNES FINES SURVIVENT À L'ÉDITION ---------------------------------------------
+        // L'ancrage par `id` valait pour des mesures entières ; il doit valoir aussi pour un décalage
+        // DANS la mesure — sans quoi le calage au temps aurait rouvert le défaut que l'ancrage avait
+        // fermé (une boucle qui reste sur ses numéros pendant que la musique glisse dessous).
+        await p.evaluate(() => {
+            const app = window.app;
+            app.lecteur.definirBoucle(app.editeur.partition, 2, 3, { debutDansMesure: 2, finDansMesure: 3 });
+            app.dessiner();
+        });
+        const avantInsert = await p.evaluate(() => ({ ...window.app.lecteur.boucleLecture }));
+        // `ajouterMesure(false)` = INSÉRER AVANT le curseur. Une première version de cette
+        // vérification appelait `ajouterMesureAvant()`/`insererMesure()`, qui n'existent NI l'un NI
+        // l'autre : l'insertion n'avait donc pas lieu, les décalages n'avaient aucune raison de
+        // bouger, et la vérification passait par pure vacuité. D'où le préalable ci-dessous, qui
+        // EXIGE d'abord que l'ancre ait bougé — sans quoi la conservation des décalages ne prouve
+        // rien du tout.
+        await p.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.curseur.mesure = 0;
+            ed.ajouterMesure(false);
+            ed.prevenir('document');
+        });
+        await p.waitForTimeout(200);
+        const apresInsert = await p.evaluate(() => ({
+            boucle: { ...window.app.lecteur.boucleLecture },
+            mesures: window.app.editeur.partition.mesures.length,
+        }));
+        exiger(apresInsert.boucle.debut === avantInsert.debut + 1,
+            `préalable : l'insertion a bien eu lieu et l'ancre a suivi la musique (mesure ${avantInsert.debut} -> ${apresInsert.boucle.debut})`);
+        check(apresInsert.boucle.debutDansMesure === avantInsert.debutDansMesure
+            && apresInsert.boucle.finDansMesure === avantInsert.finDansMesure,
+            `et les décalages fins sont intacts, comptés depuis leur ancre (${apresInsert.boucle.debutDansMesure} / ${apresInsert.boucle.finDansMesure})`);
+
+        check(geste.erreurs.length === 0,
+            'aucune erreur JavaScript pendant les gestes' + (geste.erreurs.length ? ' — ' + geste.erreurs.join(' | ') : ''));
+    } finally { await geste.fermer(); }
     bilan();
 })().catch(err => { console.error(err); process.exit(1); });

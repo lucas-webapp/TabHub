@@ -1222,6 +1222,29 @@ body.avec-pave .dpad-flottant { display: grid; }
    sans rien retirer au défilement partout ailleurs sur la partition. */
 .bande-boucle { touch-action: none; cursor: ew-resize; }
 
+/* L'APERÇU TRACÉ PENDANT LE GESTE, et le FANTÔME du survol (voir main.js#poserApercuBoucle). Ni l'un
+   ni l'autre n'est une primitive de la gravure : ce sont des `<rect>` écrits à la main dans le SVG
+   vivant, que le prochain redessin efface de lui-même.
+
+   L'APERÇU porte la MÊME couleur que la bande posée (`--lecture-halo`) : ce qu'on voit en glissant
+   est ce qu'on obtiendra, à ceci près qu'il suit le pixel quand elle se calera au temps. Lui donner
+   une autre teinte laisserait croire à deux objets différents.
+
+   LE FANTÔME, lui, est PLUS PÂLE et bordé de tirets — il ne dit pas « voici la boucle » mais « on
+   peut en poser une ici ». La différence doit se voir au premier coup d'œil, sans quoi on croirait
+   la boucle déjà définie et on chercherait à la retirer.
+
+   `pointer-events: none` est posé sur le groupe par le JavaScript, pas ici : ces rectangles se
+   dessinent SOUS le doigt et ne doivent jamais lui voler l'évènement suivant. */
+#apercu-boucle.apercu-boucle rect { fill: var(--lecture-halo); }
+#apercu-boucle.apercu-boucle rect.bout-apercu { fill: var(--lecture); }
+#apercu-boucle.fantome-boucle rect {
+    fill: color-mix(in srgb, var(--lecture) 14%, transparent);
+    stroke: color-mix(in srgb, var(--lecture) 55%, transparent);
+    stroke-width: 1;
+    stroke-dasharray: 4 3;
+}
+
 @media (max-width: 720px) {
     .logo-texte { display: none; }   /* .etiquette-groupe : masquée à toutes les largeurs, voir .groupe-outils plus haut */
     /* DÉBORDEMENT PRÉEXISTANT (mesuré, indépendant des repositionnements ci-dessus) : même le logo,

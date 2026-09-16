@@ -571,19 +571,51 @@ export class Lecteur {
      * passe donc pas par programmer() ici (qui annulerait puis reprogrammerait TOUTES les notes,
      * un à-coup audible), seul le point de bouclage de l'horloge bouge.
      */
-    definirBoucle(partition, mesureDebut, mesureFin) {
+    definirBoucle(partition, mesureDebut, mesureFin, fines = {}) {
         const r = this.boucleLecture;
+        // LES BORNES FINES, en noires DEPUIS LE DÉBUT DE LEUR MESURE D'ANCRAGE (voir bornesBoucle).
+        // `debutDansMesure` vaut 0 et `finDansMesure` vaut `null` par défaut : c'est exactement
+        // « toute la mesure », donc le comportement d'avant les bornes fines — un appel à trois
+        // arguments, un brouillon enregistré avant elles, un banc écrit avant elles, continuent tous
+        // de dire ce qu'ils ont toujours dit.
+        const debutDansMesure = fines.debutDansMesure ?? 0;
+        const finDansMesure = fines.finDansMesure ?? null;
         // Rien de changé -> rien à refaire (glisser la barre déclenche ceci à chaque évènement de
         // pointeur ; sans ce garde-fou, la MÊME plage réécrirait Transport.loopStart/loopEnd à
         // chaque micro-mouvement du doigt, pour un résultat identique).
-        if (r && r.debut === mesureDebut && r.fin === mesureFin) return;
-        this.boucleLecture = { debut: mesureDebut, fin: mesureFin };
+        if (r && r.debut === mesureDebut && r.fin === mesureFin
+            && r.debutDansMesure === debutDansMesure && r.finDansMesure === finDansMesure) return;
+        this.boucleLecture = { debut: mesureDebut, fin: mesureFin, debutDansMesure, finDansMesure };
         this._ancresBoucle = {
             debut: partition?.mesures?.[mesureDebut]?.id ?? null,
             fin: partition?.mesures?.[mesureFin]?.id ?? null,
         };
         const Tone = globalThis.Tone;
         if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+    }
+
+    /**
+     * LES DEUX INSTANTS QUE BORNE LA BOUCLE, en noires depuis le début du morceau — la seule lecture
+     * autorisée de `boucleLecture` pour qui veut des POSITIONS plutôt que des numéros de mesure.
+     *
+     * POURQUOI DEUX CHAMPS PLUTÔT QU'UNE POSITION TOUTE FAITE. La boucle doit survivre à l'édition,
+     * et elle y survit en s'ancrant aux `id` des mesures qu'elle borne (voir reancrerBoucle) — une
+     * position absolue, elle, ne veut plus rien dire dès qu'on insère une mesure avant. On garde donc
+     * le NUMÉRO de mesure comme ancre, et le décalage fin est relatif À ELLE : insérer une mesure
+     * ailleurs déplace l'ancre sans toucher au décalage, et la boucle retombe exactement sur le même
+     * passage. C'est la même raison qui avait fait choisir l'ancrage par `id`, poussée d'un cran.
+     *
+     * `finDansMesure` À `null` VEUT DIRE « LA FIN DE CETTE MESURE », et pas une valeur figée à la
+     * définition : changer la signature d'une mesure bornée par une boucle entière doit l'allonger
+     * avec elle, pas laisser la borne au milieu de rien.
+     */
+    bornesBoucle(partition) {
+        const b = this.boucleLecture;
+        if (!b) return null;
+        const debut = positionDebutMesure(partition, b.debut) + (b.debutDansMesure || 0);
+        const fin = positionDebutMesure(partition, b.fin)
+            + (b.finDansMesure ?? capaciteMesure(partition, b.fin));
+        return { debut, fin: Math.max(fin, debut) };
     }
 
     /**
@@ -634,7 +666,22 @@ export class Lecteur {
         const a = iDebut ?? iFin, b = iFin ?? iDebut;
         const debut = Math.min(a, b), fin = Math.max(a, b);
         const bouge = this.boucleLecture.debut !== debut || this.boucleLecture.fin !== fin;
-        this.boucleLecture = { debut, fin };
+        // LES BORNES FINES SUIVENT LEUR ANCRE, puisqu'elles sont comptées DEPUIS elle (voir
+        // bornesBoucle) : insérer une mesure ailleurs déplace le numéro, jamais le décalage.
+        //
+        // SAUF QUAND UNE ANCRE A DISPARU. La boucle se resserre alors sur la mesure restante, et les
+        // décalages de l'autre bord ne désignent plus rien — on rend à ce bord-là sa position
+        // naturelle plutôt que d'y laisser un décalage calculé pour une mesure supprimée, qui poserait
+        // la borne au petit bonheur dans la mesure survivante. Et si les deux bords se sont croisés,
+        // ils échangent leurs décalages avec leurs rôles.
+        let { debutDansMesure = 0, finDansMesure = null } = this.boucleLecture;
+        if (iDebut === null) debutDansMesure = 0;
+        if (iFin === null) finDansMesure = null;
+        if (iDebut !== null && iFin !== null && iDebut > iFin) {
+            const capaciteAncienDebut = capaciteMesure(partition, debut);
+            [debutDansMesure, finDansMesure] = [finDansMesure ?? 0, debutDansMesure || capaciteAncienDebut];
+        }
+        this.boucleLecture = { debut, fin, debutDansMesure, finDansMesure };
         // LES BORNES DE L'HORLOGE SONT REPOSÉES DANS TOUS LES CAS, même quand les numéros n'ont pas
         // bougé : elles sont calculées en tics depuis les CAPACITÉS des mesures qui précèdent (voir
         // _appliquerBoucle), qu'un changement de signature suffit à déplacer sans toucher à un seul
@@ -704,9 +751,10 @@ export class Lecteur {
         const Tone = globalThis.Tone;
         if (!Tone?.Transport || !this.boucleLecture) return;
         const EPSILON = 1;
-        const { debut, fin } = this.boucleLecture;
-        const ticksDebut = Math.max(0, Math.round(positionDebutMesure(partition, debut) * PPQ) - EPSILON);
-        const ticksFin = Math.max(ticksDebut + 1, Math.round(positionDebutMesure(partition, fin + 1) * PPQ) - EPSILON);
+        const bornes = this.bornesBoucle(partition);
+        if (!bornes) return;
+        const ticksDebut = Math.max(0, Math.round(bornes.debut * PPQ) - EPSILON);
+        const ticksFin = Math.max(ticksDebut + 1, Math.round(bornes.fin * PPQ) - EPSILON);
         Tone.Transport.loopStart = `${ticksDebut}i`;
         Tone.Transport.loopEnd = `${ticksFin}i`;
         Tone.Transport.loop = true;

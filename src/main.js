@@ -36,9 +36,9 @@ import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, 
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
-import { VALEURS_FIGURES } from './model/duration.js';
+import { VALEURS_FIGURES, uniteDeGroupement } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
 const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
@@ -515,12 +515,9 @@ class TabHubApp {
         // celle qu'on suit le plus naturellement à l'oreille) : `aplatir` liste toujours les
         // évènements d'une mesure voix par voix, dans l'ordre, donc le premier qui correspond au
         // temps courant est déjà celui de la voix la plus basse en index.
-        const entree = plat.find(e => t >= e.debut - 1e-9 && t < e.debut + e.duree - 1e-9) || null;
-        if (!entree) return [];
-        const a = this.page.ancrages.evenements.find(x => x.mesure === entree.mesure && x.voix === entree.voix && x.evenement === entree.evenement);
-        if (!a) return [];
-        const avance = entree.duree > 0 ? Math.max(0, Math.min(1, (t - entree.debut) / entree.duree)) : 0;
-        const x = a.xDebut + (a.xFin - a.xDebut) * avance;
+        const lieu = this.lieuDeLaPosition(t, plat);
+        if (!lieu) return [];
+        const { x, ancrage: a } = lieu;
         const S = this.page.geo.S;
         const haut = a.yPortee - 1.2 * S;
         const bas = a.yBas + 1.2 * S;
@@ -537,6 +534,86 @@ class TabHubApp {
             { t: 'rect', x: x - S * 0.6, y: haut, w: S * 0.6, h: bas - haut, couleur: 'rgba(255, 152, 0, 0.16)' },
             { t: 'rect', x: x - largeurTrait / 2, y: haut, w: largeurTrait, h: bas - haut, couleur: 'var(--lecture)' },
         ];
+    }
+
+    /**
+     * OÙ TOMBE UN INSTANT SUR LA PAGE — la conversion « position en noires -> abscisse », et son
+     * ancrage. Rendue PARTAGÉE (tête de lecture ET bornes de la bande de boucle) plutôt que
+     * recopiée : une bande dont le bord ne tomberait pas exactement là où la tête de lecture passe
+     * dirait deux vérités sur le même instant, et c'est le genre d'écart qu'on ne remarque qu'en
+     * bouclant sur un passage pour découvrir qu'il ne commence pas où on l'avait dessiné.
+     *
+     * PAS UNE RÈGLE DE TROIS DANS LA MESURE, et c'est la raison d'être de cette fonction. On
+     * pourrait croire l'abscisse proportionnelle au temps : c'est vrai tant que les durées sont
+     * ÉGALES (mesuré : quatre noires tombent exactement tous les 45px d'une zone de notes de 180px),
+     * et FAUX dès qu'elles sont mélangées — une blanche suivie de deux croches et d'une noire écarte
+     * la gravure de l'espacement proportionnel jusqu'à 25px sur ces mêmes 180. On lit donc les
+     * ÉVÈNEMENTS RÉELLEMENT GRAVÉS : on trouve la colonne qui contient l'instant, et on interpole
+     * entre ses deux bords.
+     *
+     * @param {number} position  en noires depuis le début du morceau.
+     * @param {Array} [plat]     `aplatir(partition)` déjà calculé, si l'appelant l'a sous la main.
+     * @returns {{x: number, ancrage: object}|null}
+     */
+    lieuDeLaPosition(position, plat = null) {
+        if (!this.page) return null;
+        const liste = plat || aplatir(this.editeur.partition);
+        const EPS = 1e-9;
+        const ancrageDe = (e) => this.page.ancrages.evenements.find(
+            x => x.mesure === e.mesure && x.voix === e.voix && x.evenement === e.evenement);
+
+        const systemeDe = (a) => this.page.ancrages.mesures.find(m => m.index === a.mesure)?.systeme ?? 0;
+        const dans = liste.find(e => position >= e.debut - EPS && position < e.debut + e.duree - EPS);
+        if (dans) {
+            const a = ancrageDe(dans);
+            if (!a) return null;
+            const avance = dans.duree > 0 ? Math.max(0, Math.min(1, (position - dans.debut) / dans.duree)) : 0;
+            return { x: a.xDebut + (a.xFin - a.xDebut) * avance, ancrage: a, systeme: systemeDe(a) };
+        }
+        // AUCUNE COLONNE NE CONTIENT L'INSTANT : c'est le cas de la FIN d'une boucle, qui tombe
+        // pile sur la barre de mesure — un instant qu'aucun évènement ne couvre, puisqu'il marque
+        // la fin du dernier. On se rabat sur le bord DROIT de la dernière colonne qui le précède,
+        // c'est-à-dire l'endroit exact où cette mesure se termine.
+        let avant = null;
+        for (const e of liste) {
+            if (e.debut + e.duree <= position + EPS && (!avant || e.debut + e.duree > avant.debut + avant.duree)) avant = e;
+        }
+        if (!avant) return null;
+        const a = ancrageDe(avant);
+        return a ? { x: a.xFin, ancrage: a, systeme: systemeDe(a) } : null;
+    }
+
+    /**
+     * L'INVERSE : quel instant du morceau se trouve sous cette abscisse, dans cette mesure. Même
+     * lecture des colonnes gravées que `lieuDeLaPosition`, dans l'autre sens — c'est ce qui rend le
+     * geste et le dessin réciproques, donc une bande qui se repose là où on l'a lâchée.
+     *
+     * @returns {number} position en noires depuis le début du morceau, bornée à la mesure visée.
+     */
+    positionDeLAbscisse(iMesure, x) {
+        const partition = this.editeur.partition;
+        const debutMesure = positionDebutMesure(partition, iMesure);
+        const capacite = capaciteMesure(partition, iMesure);
+        if (!this.page) return debutMesure;
+        // VOIX 0 SEULE, comme la tête de lecture : à plusieurs voix, les colonnes se superposent et
+        // « l'instant sous ce pixel » n'aurait pas de réponse unique. La mélodie tranche.
+        // Les durées viennent d'`aplatir`, jamais recalculées ici : une seconde façon de mesurer la
+        // durée d'un évènement finirait par ne plus donner le même résultat que la première.
+        const plat = aplatir(partition).filter(e => e.mesure === iMesure && e.voix === 0);
+        const avec = plat.map(e => ({
+            e,
+            a: this.page.ancrages.evenements.find(z => z.mesure === iMesure && z.voix === e.voix && z.evenement === e.evenement),
+        })).filter(z => z.a);
+        if (!avec.length) return debutMesure;
+
+        if (x <= avec[0].a.xDebut) return debutMesure;
+        for (const { e, a } of avec) {
+            if (x < a.xFin) {
+                const part = a.xFin > a.xDebut ? Math.max(0, Math.min(1, (x - a.xDebut) / (a.xFin - a.xDebut))) : 0;
+                return e.debut + part * e.duree;
+            }
+        }
+        return debutMesure + capacite;
     }
 
     /** Amène le système du curseur dans la bande visible, s'il n'y est plus. */
@@ -704,6 +781,56 @@ class TabHubApp {
         localStorage.setItem(CLE_ZOOM, String(this.interligne));
         this.rafraichirZoom();
         this.dessiner();
+    }
+
+    /**
+     * LA BANDE FANTÔME AU SURVOL — pour qu'on sache que la boucle existe AVANT de l'avoir découverte.
+     *
+     * LE DÉFAUT (retour utilisateur) : « avant que je la définisse, les utilisateurs ne sauront pas
+     * forcément qu'il est possible de placer une barre de lecture ». C'était exact : la piste de
+     * saisie est INVISIBLE tant qu'aucune boucle n'existe (voir marquesBoucle — une couleur d'alpha
+     * nul, là seulement pour recevoir le geste). Rien, absolument rien, ne disait qu'on pouvait
+     * cliquer sous la tablature. Une fonction qu'on ne peut trouver qu'en glissant par hasard au bon
+     * endroit n'existe pas vraiment.
+     *
+     * LE FANTÔME EST UNE MESURE ENTIÈRE, parce que c'est ce que le CLIC pose (voir
+     * demarrerGesteBoucle, le cas du tap immobile) : ce qu'on montre est exactement ce qu'on obtient.
+     * Lui donner une autre taille que le résultat du clic serait une promesse fausse.
+     *
+     * À LA SOURIS SEULEMENT, et ce n'est pas un oubli : un doigt n'a pas de survol. Sur téléphone
+     * l'évènement n'arriverait qu'AVEC le contact, c'est-à-dire au moment où le geste commence — le
+     * fantôme clignoterait une fraction de seconde sous le doigt pour ne rien apprendre à personne.
+     * La découvrabilité au doigt est un autre problème, qui ne se résout pas par un survol.
+     *
+     * SEULEMENT QUAND IL N'Y A PAS ENCORE DE BOUCLE. Une fois la bande posée, c'est ELLE
+     * l'affordance : elle se voit, elle a des poignées. Continuer à proposer un fantôme par-dessus
+     * brouillerait la lecture, et surtout entrerait en conflit avec le tap qui RETIRE la boucle en
+     * place (le seul moyen tactile d'en annuler une) — on montrerait « clique pour poser » là où
+     * cliquer retire.
+     */
+    brancherSurvolBoucle() {
+        const zone = this.el.zone;
+        if (!zone) return;
+        let derniereMesure = null;
+        const effacer = () => {
+            if (derniereMesure === null) return;
+            derniereMesure = null;
+            this.poserApercuBoucle([]);
+        };
+        zone.addEventListener('pointermove', (e) => {
+            if (e.pointerType !== 'mouse' || this._gesteBoucle || this.lecteur.boucleLecture) return effacer();
+            const iMesure = this.mesureDansBandeBoucle(e.clientX, e.clientY);
+            if (iMesure == null) return effacer();
+            if (iMesure === derniereMesure) return;
+            derniereMesure = iMesure;
+            const a = this.page?.ancrages.mesures.find(m => m.index === iMesure);
+            if (!a) return effacer();
+            this.poserApercuBoucle(this.rectsBoucle(a.systeme, a.x, a.systeme, a.xFin), 'fantome');
+        });
+        zone.addEventListener('pointerleave', effacer);
+        // Le fantôme s'efface DÈS que le geste commence : à partir de là c'est l'aperçu qui parle,
+        // et deux bandes translucides superposées ne diraient plus rien de clair.
+        zone.addEventListener('pointerdown', effacer);
     }
 
     /**
@@ -936,8 +1063,12 @@ class TabHubApp {
      * de façon moins prévisible (sa position dépendait de la dernière case éditée ou cliquée).
      */
     positionDeDepartLecture() {
-        const boucle = this.lecteur.boucleLecture;
-        if (boucle) return positionDebutMesure(this.editeur.partition, boucle.debut);
+        // `bornesBoucle` et non le début de la mesure d'ancrage : une boucle peut commencer EN COURS
+        // de mesure depuis qu'elle se cale au temps (voir player.js#bornesBoucle). Repartir du début
+        // de la mesure ferait entendre, au tout premier tour, un fragment que la boucle exclut —
+        // puis plus jamais, ce qui est la pire façon de se tromper : inaudible à la relecture.
+        const bornes = this.lecteur.bornesBoucle?.(this.editeur.partition);
+        if (bornes) return bornes.debut;
         return 0;
     }
 
@@ -2172,6 +2303,7 @@ class TabHubApp {
         this.el.feuille.addEventListener('contextmenu', (e) => this.ouvrirMenuContextuel(e));
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
         this.brancherZoomGeste();
+        this.brancherSurvolBoucle();
         let attenteDefilement = false;
         this.el.zone.addEventListener('scroll', () => {
             if (attenteDefilement) return;
@@ -2899,12 +3031,24 @@ class TabHubApp {
             marques.push({ t: 'rect', x: sys.xDebut, y, w: sys.xFin - sys.xDebut, h,
                 couleur: 'rgba(255, 152, 0, 0)', classe: 'bande-boucle' });
 
-            if (!boucle) continue;
+            // PENDANT UN GESTE, LA BANDE POSÉE S'EFFACE et laisse l'aperçu seul (voir
+            // poserApercuBoucle) : sans cela on verrait DEUX bandes, l'ancienne figée sous la
+            // nouvelle qui suit le doigt — et on ne saurait plus laquelle on est en train de définir.
+            if (!boucle || this._gesteBoucle) continue;
             const touche = this.page.ancrages.mesures.filter(a =>
                 a.systeme === sys.index && a.index >= boucle.debut && a.index <= boucle.fin);
             if (!touche.length) continue;
-            const x1 = Math.min(...touche.map(a => a.x));
-            const x2 = Math.max(...touche.map(a => a.xFin));
+            // LES BORNES FINES DÉCIDENT DES DEUX BOUTS (voir player.js#bornesBoucle) : une boucle
+            // peut commencer ou finir EN COURS de mesure depuis qu'elle se cale au temps. Sur les
+            // systèmes du MILIEU d'une longue boucle, en revanche, il n'y a pas de bout à placer —
+            // la bande y couvre toute la largeur, et c'est `touche` qui le dit.
+            const bornes = this.lecteur.bornesBoucle(this.editeur.partition);
+            const portDebut = touche.some(a => a.index === boucle.debut)
+                ? this.lieuDeLaPosition(bornes.debut) : null;
+            const portFin = touche.some(a => a.index === boucle.fin)
+                ? this.lieuDeLaPosition(bornes.fin) : null;
+            const x1 = portDebut ? portDebut.x : Math.min(...touche.map(a => a.x));
+            const x2 = portFin ? portFin.x : Math.max(...touche.map(a => a.xFin));
             // Marge d'affichage (voir MARGE_BOUCLE_LATERALE/VERTICALE) : x1/x2/y/h restent les
             // valeurs BRUTES (zone de saisie, celle ci-dessus) ; xAff*/yAff/hAff sont celles, en
             // retrait, qu'on montre réellement — halo ET poignées ci-dessous. L'ÉPAISSEUR visuelle
@@ -2948,6 +3092,218 @@ class TabHubApp {
             }
         }
         return marques;
+    }
+
+    /**
+     * CALE UN INSTANT SUR LE TEMPS LE PLUS PROCHE — ce à quoi la bande de boucle se repose quand on
+     * la lâche.
+     *
+     * LE TEMPS, NI LA MESURE NI LA CROCHE, et c'est une décision prise avec l'utilisateur (« penses-tu
+     * que c'est une bonne idée de placer la barre à la croche près ? ») :
+     *   • UNE BORNE DE BOUCLE S'ENTEND. Au rebouclage, le point de reprise est un évènement
+     *     rythmique ; s'il tombe une croche à côté de la phrase, on entend un faux pas à chaque tour,
+     *     alors que c'est justement la pulsation qu'on cherche à installer en bouclant. Sur les huit
+     *     croches d'une mesure, une ou deux sont des frontières musicales — affiner ne multiplie donc
+     *     pas les bonnes réponses, mais les mauvaises.
+     *   • LE TEMPS EST TOUJOURS UNE POSITION MUSICALE, dans toutes les signatures. La demi-mesure ne
+     *     l'est pas : en 3/4 elle tombe au milieu du temps 2, frontière de rien.
+     *   • LA CIBLE TIENT SOUS LE DOIGT. Mesuré à l'écran : au zoom par défaut une mesure fait 204px,
+     *     donc 51px le temps et 26px la croche — quand le repère tactile que le projet s'impose
+     *     partout ailleurs est de 44px (voir --h-bouton). La croche demanderait de viser plus fin que
+     *     le geste ne sait l'exprimer.
+     * Et `uniteDeGroupement` est déjà la fonction qui décide de la ligature et des clics du métronome :
+     * on réutilise la notion de temps du projet plutôt que d'en inventer une seconde.
+     */
+    callerAuTemps(position) {
+        const partition = this.editeur.partition;
+        const i = this.mesureDeLaPosition(position);
+        const debut = positionDebutMesure(partition, i);
+        const capacite = capaciteMesure(partition, i);
+        const temps = uniteDeGroupement(signatureEffective(partition, i)) || 1;
+        const cale = debut + Math.round((position - debut) / temps) * temps;
+        // BORNÉ À LA MESURE : arrondir le dernier temps vers le haut donnerait une position au-delà
+        // de la barre, c'est-à-dire déjà dans la mesure suivante — la bande y gagnerait un bout de
+        // mesure que le doigt n'a jamais survolé.
+        return Math.max(debut, Math.min(debut + capacite, cale));
+    }
+
+    /**
+     * L'INSTANT SOUS UN POINT D'ÉCRAN, avec le système et l'abscisse qui vont avec — ce que le geste
+     * de boucle suit pendant qu'on glisse.
+     *
+     * L'ABSCISSE RENDUE EST CELLE DU POINTEUR, pas celle de l'instant recalculé : la bande doit coller
+     * au doigt, pas à la note la plus proche. `position`, lui, est l'instant que cette abscisse
+     * désigne — c'est LUI qu'on calera au temps au relâchement.
+     *
+     * @param {number} [mesureImposee] mesure à utiliser plutôt que celle sous le point — pour le
+     *   tout premier appel d'un geste, où l'appelant a déjà fait le tri (bande, poignée…).
+     */
+    instantSousLePoint(clientX, clientY, mesureImposee = null) {
+        if (!this.page) return null;
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return null;
+        const boite = svg.getBoundingClientRect();
+        const x = (clientX - boite.left) * (this.page.largeur / boite.width);
+        const y = (clientY - boite.top) * (this.page.hauteur / boite.height);
+        // LE SYSTÈME LE PLUS PROCHE EN Y, jamais une bande stricte : une fois le geste engagé, un
+        // tremblement vertical ne doit pas l'interrompre (même raison qu'à mesureLaPlusProche).
+        let systeme = null, ecart = Infinity;
+        for (const sys of this.page.ancrages.systemes) {
+            const e = Math.abs(y - sys.yBas);
+            if (e < ecart) { ecart = e; systeme = sys; }
+        }
+        if (!systeme) return null;
+        const iMesure = mesureImposee ?? this._mesureDuSysteme(systeme, x);
+        if (iMesure == null) return null;
+        // L'ABSCISSE EST BORNÉE AU SYSTÈME : glisser au-delà du dernier bord ne doit pas dessiner une
+        // bande qui déborde dans la marge.
+        const xBorne = Math.max(systeme.xDebut, Math.min(systeme.xFin, x));
+        return { systeme: systeme.index, x: xBorne, position: this.positionDeLAbscisse(iMesure, xBorne), mesure: iMesure };
+    }
+
+    /**
+     * Pose la boucle entre deux INSTANTS déjà calés (voir callerAuTemps), en les traduisant dans le
+     * modèle « mesure d'ancrage + décalage » du lecteur (voir player.js#bornesBoucle).
+     *
+     * UNE MESURE MINIMUM, jamais une boucle de longueur nulle : lâcher le doigt sans avoir vraiment
+     * glissé donnerait sinon une boucle qui ne contient rien, sur laquelle le transport tournerait à
+     * vide. Le cas se produit dès qu'on relâche entre deux temps très proches.
+     */
+    poserBoucleEntre(positionDebut, positionFin, { redessiner = true } = {}) {
+        const partition = this.editeur.partition;
+        if (positionFin - positionDebut < 1e-9) return this.poserBoucleSurMesure(this.mesureDeLaPosition(positionDebut));
+        const iDebut = this.mesureDeLaPosition(positionDebut);
+        // LA FIN S'ANCRE À LA MESURE QU'ELLE TERMINE, pas à celle qui suit : une fin tombant pile sur
+        // une barre appartient à la mesure d'AVANT (c'est sa dernière frontière), sans quoi la boucle
+        // s'ancrerait à une mesure qu'elle ne couvre pas — et se déplacerait avec elle à l'édition.
+        let iFin = this.mesureDeLaPosition(positionFin);
+        if (positionFin <= positionDebutMesure(partition, iFin) + 1e-9 && iFin > iDebut) iFin -= 1;
+        this.lecteur.definirBoucle(partition, iDebut, iFin, {
+            debutDansMesure: positionDebut - positionDebutMesure(partition, iDebut),
+            finDansMesure: positionFin - positionDebutMesure(partition, iFin),
+        });
+        if (redessiner) this.dessiner();
+    }
+
+    /** Cale deux instants bruts au temps le plus proche, puis pose la boucle entre eux — le chemin
+     *  commun des deux gestes (définir, étirer), pour qu'ils ne calent jamais différemment. */
+    poserBornesCalees(positionA, positionB, options = {}) {
+        const a = this.callerAuTemps(positionA);
+        const b = this.callerAuTemps(positionB);
+        this.poserBoucleEntre(Math.min(a, b), Math.max(a, b), options);
+    }
+
+    /** Pose la boucle sur UNE mesure entière — le clic simple, et le repli de poserBoucleEntre. */
+    poserBoucleSurMesure(iMesure) {
+        this.lecteur.definirBoucle(this.editeur.partition, iMesure, iMesure);
+        this.dessiner();
+    }
+
+    /** La mesure qui contient cet instant — la DERNIÈRE quand l'instant tombe pile sur la barre de
+     *  fin du morceau, qu'aucune mesure ne contient au sens strict. */
+    mesureDeLaPosition(position) {
+        const partition = this.editeur.partition;
+        for (let k = 0; k < partition.mesures.length; k++) {
+            if (position < positionDebutMesure(partition, k) + capaciteMesure(partition, k) - 1e-9) return k;
+        }
+        return Math.max(0, partition.mesures.length - 1);
+    }
+
+    /**
+     * LES RECTANGLES D'UNE BANDE allant d'un bout à l'autre, système par système — la géométrie
+     * PARTAGÉE par la bande posée, l'aperçu tracé pendant le geste et le fantôme de survol.
+     *
+     * UNE SEULE GÉOMÉTRIE POUR TROIS ÉTATS, et c'est tout l'intérêt : l'aperçu qu'on voit en glissant
+     * doit être la MÊME forme que la bande qui se posera au relâchement. Deux calculs finiraient par
+     * ne plus tomber d'accord, et le geste montrerait alors une chose pour en poser une autre — le
+     * défaut exact qu'on corrige ici, aggravé.
+     *
+     * @param {number} sysA index du système du premier bout, `xA` son abscisse ; idem `sysB`/`xB`.
+     */
+    rectsBoucle(sysA, xA, sysB, xB) {
+        if (!this.page) return [];
+        const S = this.page.geo.S;
+        const [dSys, dX, fSys, fX] = sysA <= sysB ? [sysA, xA, sysB, xB] : [sysB, xB, sysA, xA];
+        const rects = [];
+        for (const sys of this.page.ancrages.systemes) {
+            if (sys.index < dSys || sys.index > fSys) continue;
+            // Sur le PREMIER système la bande part du bout ; sur le DERNIER elle s'y arrête ; entre
+            // les deux elle court d'un bord à l'autre — une boucle qui enjambe un retour à la ligne
+            // n'a pas de bout à y placer.
+            let x1 = sys.index === dSys ? dX : sys.xDebut;
+            let x2 = sys.index === fSys ? fX : sys.xFin;
+            if (dSys === fSys) { x1 = Math.min(dX, fX); x2 = Math.max(dX, fX); }
+            const y = sys.yBas + HAUT_BANDE_BOUCLE * S;
+            const h = (basBandeBoucle() - HAUT_BANDE_BOUCLE) * S;
+            const hAff = Math.max(0, (BAS_BANDE_BOUCLE - HAUT_BANDE_BOUCLE - 2 * MARGE_BOUCLE_VERTICALE) * S);
+            rects.push({ systeme: sys.index, x: Math.min(x1, x2), w: Math.abs(x2 - x1),
+                y: y + (h - hAff) / 2, h: hAff, xBrut1: x1, xBrut2: x2 });
+        }
+        return rects;
+    }
+
+    /**
+     * TRACE L'APERÇU DE LA BANDE DIRECTEMENT DANS LE SVG VIVANT — sans repasser par `dessiner()`.
+     *
+     * POURQUOI PAS `dessiner()` (le défaut signalé : « je ne la vois pas apparaître sous mon doigt »).
+     * L'ancienne version appelait bien `dessiner()` pendant le geste, mais seulement au FRANCHISSEMENT
+     * D'UNE MESURE : la bande sautait donc de mesure en mesure au lieu de suivre le doigt, et entre
+     * deux sauts rien ne bougeait. Suivre le pixel par `dessiner()` serait pire : c'est une remise en
+     * page COMPLÈTE du morceau (mise en page, gravure, sérialisation SVG) à chaque évènement de
+     * pointeur — du travail jeté soixante fois par seconde.
+     *
+     * ON ÉCRIT DONC QUELQUES `<rect>` À LA MAIN dans le SVG déjà en place. Les unités du SVG sont
+     * celles des ancrages (voir render/svg.js : `viewBox` part de `page.largeur`, et `ech` n'est
+     * qu'un arrondi), donc aucune conversion. Le prochain `dessiner()` reconstruit l'`innerHTML` et
+     * efface cet aperçu de lui-même — c'est exactement ce qu'on veut au relâchement, où la VRAIE
+     * bande prend sa place.
+     *
+     * @param {Array} rects  sortie de `rectsBoucle`, ou `[]` pour effacer.
+     * @param {string} genre 'apercu' (le geste en cours) ou 'fantome' (le survol).
+     */
+    poserApercuBoucle(rects, genre = 'apercu') {
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return;
+        let g = svg.querySelector('#apercu-boucle');
+        if (!rects.length) { if (g) g.remove(); return; }
+        if (!g) {
+            g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+            g.setAttribute('id', 'apercu-boucle');
+            // `pointer-events: none` : l'aperçu se dessine SOUS le doigt, il ne doit jamais lui voler
+            // l'évènement suivant — sans quoi le geste s'interromprait dès le premier rectangle posé.
+            g.setAttribute('pointer-events', 'none');
+            svg.appendChild(g);
+        }
+        g.setAttribute('class', genre === 'fantome' ? 'fantome-boucle' : 'apercu-boucle');
+
+        // LES DEUX BOUTS PLEINS, comme la bande posée (voir marquesBoucle, LARGEUR_POIGNEE_BOUCLE) —
+        // et ce n'est pas une coquetterie. Mesuré en capture : le halo SEUL est bien trop pâle pour
+        // se remarquer sous le doigt, et la bande posée ne doit sa lisibilité qu'à ses deux poignées
+        // pleines. Un aperçu sans elles reste exactement aussi difficile à voir que ce dont
+        // l'utilisateur se plaignait. Les deux bouts font en plus la promesse juste : ce qu'on
+        // dessine ressemble à ce qu'on obtiendra.
+        // PAS DE BOUTS AU FANTÔME, en revanche : lui ne dit pas « voici la bande » mais « on peut en
+        // poser une ici », et son cadre en tirets tient déjà ce discours-là.
+        const S = this.page ? this.page.geo.S : 10;
+        const bouts = [];
+        if (genre !== 'fantome' && rects.length) {
+            const l = LARGEUR_POIGNEE_BOUCLE * S;
+            const premier = rects[0], dernier = rects[rects.length - 1];
+            bouts.push({ x: premier.x - l / 2, y: premier.y, w: l, h: premier.h, plein: true });
+            bouts.push({ x: dernier.x + dernier.w - l / 2, y: dernier.y, w: l, h: dernier.h, plein: true });
+        }
+        const tous = [...rects, ...bouts];
+        const voulu = tous.length;
+        while (g.childNodes.length > voulu) g.removeChild(g.lastChild);
+        while (g.childNodes.length < voulu) {
+            g.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
+        }
+        tous.forEach((r, i) => {
+            const el = g.childNodes[i];
+            el.setAttribute('x', r.x); el.setAttribute('y', r.y);
+            el.setAttribute('width', Math.max(0, r.w)); el.setAttribute('height', r.h);
+            el.setAttribute('class', r.plein ? 'bout-apercu' : '');
+        });
     }
 
     /**
@@ -3110,19 +3466,32 @@ class TabHubApp {
         const depart = { x: e.clientX, y: e.clientY };
         const SEUIL = 6;
         let bouge = false;
-        let lo = mesureAncre, hi = mesureAncre;
-        let dessineLo = null, dessineHi = null;
+        let derniere = null;
+
+        // L'ANCRE EST UN INSTANT, PAS UNE MESURE : c'est le point exact où le doigt s'est posé, et
+        // c'est de LUI que part la bande. Poser l'ancre au début de la mesure ferait sauter la bande
+        // au premier pixel parcouru.
+        const ancre = this.instantSousLePoint(e.clientX, e.clientY, mesureAncre);
 
         const surMouvement = (ev) => {
             if (!bouge && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
-            bouge = true;
-            const courante = this.mesureLaPlusProche(ev.clientX, ev.clientY) ?? mesureAncre;
-            lo = Math.min(mesureAncre, courante);
-            hi = Math.max(mesureAncre, courante);
-            if (lo === dessineLo && hi === dessineHi) return;   // même plage : rien de neuf à montrer
-            dessineLo = lo; dessineHi = hi;
-            this.lecteur.definirBoucle(this.editeur.partition, lo, hi);
-            this.dessiner();
+            if (!bouge) { bouge = true; this._gesteBoucle = true; this.dessiner(); }
+            const ici = this.instantSousLePoint(ev.clientX, ev.clientY);
+            if (!ici) return;
+            derniere = ici;
+            // L'ŒIL SUIT LE PIXEL : l'aperçu se redessine à chaque évènement de pointeur, aux
+            // coordonnées exactes du doigt (voir poserApercuBoucle — quelques attributs réécrits,
+            // pas une remise en page).
+            this.poserApercuBoucle(this.rectsBoucle(ancre.systeme, ancre.x, ici.systeme, ici.x));
+            // L'OREILLE SUIT LE TEMPS : on pose quand même la boucle dans le lecteur à chaque
+            // changement de plage CALÉE, parce que glisser la bande pendant que ça joue doit faire
+            // entendre le nouveau bornage tout de suite, pas seulement au relâchement. C'est
+            // volontairement DEUX finesses différentes pour deux sens : le pixel n'aurait aucun
+            // sens à l'oreille (le transport sauterait soixante fois par seconde), et le temps
+            // n'aurait aucun sens à l'œil (c'est exactement l'à-coup qu'on corrige).
+            // Aucun `dessiner()` ici : la bande posée est masquée le temps du geste (voir
+            // `_gesteBoucle` dans marquesBoucle), l'aperçu est seul à l'écran.
+            this.poserBornesCalees(ancre.position, ici.position, { redessiner: false });
         };
         const surRelache = () => {
             relacherCapture();
@@ -3130,9 +3499,20 @@ class TabHubApp {
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
-            // La plage est déjà posée et dessinée par le dernier mouvement : il ne reste à traiter que
-            // le TAP immobile, qui retire la boucle en place (le seul moyen tactile d'en annuler une).
-            if (!bouge && this.lecteur.boucleLecture) { this.lecteur.retirerBoucle(); this.dessiner(); }
+            this.poserApercuBoucle([]);
+            this._gesteBoucle = false;
+            if (bouge && derniere) {
+                this.poserBornesCalees(ancre.position, derniere.position);
+            } else if (!bouge) {
+                // TAP IMMOBILE. Deux gestes distincts selon qu'une boucle existe déjà :
+                //   • aucune boucle -> on en POSE une sur la mesure visée (retour utilisateur : « si
+                //     je clique, elle sera mise en place sur la mesure considérée ») ;
+                //   • une boucle en place -> on la RETIRE, seul moyen tactile d'en annuler une (à la
+                //     souris, Échap ne fait pas ce lien).
+                if (this.lecteur.boucleLecture) this.lecteur.retirerBoucle();
+                else this.poserBoucleSurMesure(mesureAncre);
+                this.dessiner();
+            }
             this.el.zone.focus();
         };
         window.addEventListener('pointermove', surMouvement);
@@ -3156,20 +3536,33 @@ class TabHubApp {
         e.preventDefault();   // même remarque qu'à demarrerGesteBoucle : ne couvre PAS le défilement
         const debloquer = this._bloquerDefilementPendantGeste();
         const relacherCapture = this._capturerPointeur(e);
-        const boucle = this.lecteur.boucleLecture;
-        const fixe = bord === 'debut' ? boucle.fin : boucle.debut;
-        let lo = boucle.debut, hi = boucle.fin;
-        let dessineLo = lo, dessineHi = hi;
+        let derniere = null;
+        // LE BORD QUI NE BOUGE PAS, retenu comme un INSTANT une fois pour toutes : c'est lui qui
+        // ancre la bande pendant tout le geste. Le relire à chaque mouvement le ferait dériver, la
+        // boucle étant justement en train d'être redéfinie sous nos pieds.
+        const bornes = this.lecteur.bornesBoucle(this.editeur.partition);
+        const positionFixe = bord === 'debut' ? bornes.fin : bornes.debut;
+        const lieuFixe = this.lieuDeLaPosition(positionFixe);
+        this._gesteBoucle = true;
+        this.dessiner();
+
+        // BUTÉE AU BORD FIXE, jamais d'inversion : tirer la poignée gauche au-delà de la droite
+        // échangerait silencieusement leurs rôles plutôt que de simplement buter — même choix que
+        // HarmoHub (voir onLoopRangeMove), et déjà celui de la version d'avant ce correctif.
+        const buter = (position) => (bord === 'debut'
+            ? Math.min(position, positionFixe) : Math.max(position, positionFixe));
 
         const surMouvement = (ev) => {
-            const courante = this.mesureLaPlusProche(ev.clientX, ev.clientY);
-            if (courante == null) return;
-            if (bord === 'debut') { lo = Math.min(courante, fixe); hi = fixe; }
-            else { hi = Math.max(courante, fixe); lo = fixe; }
-            if (lo === dessineLo && hi === dessineHi) return;
-            dessineLo = lo; dessineHi = hi;
-            this.lecteur.definirBoucle(this.editeur.partition, lo, hi);
-            this.dessiner();
+            const ici = this.instantSousLePoint(ev.clientX, ev.clientY);
+            if (!ici || !lieuFixe) return;
+            // L'œil suit le pixel, l'oreille le temps — exactement le même partage qu'à
+            // demarrerGesteBoucle, et pour les mêmes raisons (voir sa docblock).
+            const xBute = bord === 'debut'
+                ? Math.min(ici.x, ici.systeme < lieuFixe.systeme ? Infinity : lieuFixe.x)
+                : Math.max(ici.x, ici.systeme > lieuFixe.systeme ? -Infinity : lieuFixe.x);
+            this.poserApercuBoucle(this.rectsBoucle(lieuFixe.systeme, lieuFixe.x, ici.systeme, xBute));
+            this.poserBornesCalees(positionFixe, buter(ici.position), { redessiner: false });
+            derniere = ici;
         };
         const surRelache = () => {
             relacherCapture();
@@ -3177,6 +3570,10 @@ class TabHubApp {
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
             window.removeEventListener('pointercancel', surRelache);
+            this.poserApercuBoucle([]);
+            this._gesteBoucle = false;
+            if (derniere) this.poserBornesCalees(positionFixe, buter(derniere.position));
+            else this.dessiner();
             this.el.zone.focus();
         };
         window.addEventListener('pointermove', surMouvement);
