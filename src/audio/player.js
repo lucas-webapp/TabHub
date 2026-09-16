@@ -727,6 +727,45 @@ export class Lecteur {
     }
 
     /** Retire la boucle : la lecture continue tout droit au lieu de rebrousser chemin. */
+    /**
+     * PHOTOGRAPHIE DE LA BOUCLE — bornes ET ancres, en un objet que l'on peut ranger ailleurs.
+     *
+     * DEUX CLIENTS, ET C'EST TOUT L'INTÉRÊT : le passage d'un onglet à l'autre (chaque morceau garde
+     * sa boucle) et l'historique d'annulation (retour utilisateur : « le bouton undo/redo doit aussi
+     * concerner la mise en place de la barre de lecture »). Les deux lisaient jusqu'ici
+     * `boucleLecture` et `_ancresBoucle` À LA MAIN, le second champ étant PRIVÉ : deux endroits
+     * dehors savaient donc quels champs composent une boucle, et un troisième aurait fini par en
+     * oublier un — celui des ancres, précisément, sans lequel la boucle ne suit plus ses mesures.
+     */
+    instantaneBoucle() {
+        if (!this.boucleLecture) return null;
+        return {
+            boucle: { ...this.boucleLecture },
+            ancres: this._ancresBoucle ? { ...this._ancresBoucle } : null,
+        };
+    }
+
+    /**
+     * REPOSE UNE BOUCLE PHOTOGRAPHIÉE — `null` la retire.
+     *
+     * On passe par `reancrerBoucle` plutôt que d'écrire les numéros tels quels : entre la photo et
+     * sa restitution, le morceau a pu changer (c'est le cas même d'une annulation, qui restaure
+     * justement un autre état du document). Les ancres sont la vérité, les numéros s'en déduisent —
+     * le même principe qu'à chaque édition, et donc le même code.
+     */
+    restaurerBoucle(partition, instantane) {
+        if (!instantane || !instantane.boucle) { this.retirerBoucle(); return; }
+        this.boucleLecture = { ...instantane.boucle };
+        this._ancresBoucle = instantane.ancres ? { ...instantane.ancres } : null;
+        this.reancrerBoucle(partition);
+        // Sans ancres (une boucle posée par appel direct, que l'interface ne produit pas),
+        // `reancrerBoucle` rend la main sans rien reposer : on applique alors les bornes nous-mêmes.
+        if (!this._ancresBoucle) {
+            const Tone = globalThis.Tone;
+            if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+        }
+    }
+
     retirerBoucle() {
         this.boucleLecture = null;
         this._ancresBoucle = null;

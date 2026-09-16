@@ -145,6 +145,17 @@ const CLE_VERSIONS_ACTIVES = 'tabhub.versionsActives';   // l'historique existe-
 // dans la tablature ; à 16px, quatre mesures ne tiennent plus sur la largeur d'un ordinateur, ce que
 // « mesures par ligne » fait déjà mieux. En dehors, la loupe se désactive plutôt que de continuer à
 // cliquer sans rien changer.
+/** Deux photos de boucle décrivent-elles la MÊME bande ? Comparaison champ par champ plutôt que
+ *  par sérialisation : un jour où l'une des deux serait construite dans un autre ordre de clés, un
+ *  `JSON.stringify` les déclarerait différentes sans qu'aucune borne ait bougé. */
+function memesBornesBoucle(a, b) {
+    if (!a || !b) return !a && !b;
+    const x = a.boucle, y = b.boucle;
+    return x.debut === y.debut && x.fin === y.fin
+        && (x.debutDansMesure || 0) === (y.debutDansMesure || 0)
+        && (x.finDansMesure ?? null) === (y.finDansMesure ?? null);
+}
+
 const ZOOM_MIN = 6;
 const ZOOM_MAX = 15;
 const ZOOM_DEFAUT = 9;
@@ -1983,7 +1994,11 @@ class TabHubApp {
         // ON ARCHIVE QUAND MÊME au passage : « rien à perdre » veut dire « le fichier existe »,
         // pas « ce morceau n'intéresse plus personne » — et retrouver un état dans la liste des
         // versions coûte moins qu'aller rechercher le .json dans un dossier de téléchargements.
-        if (!this.editeur.peutAnnuler() || this.travailExporte) {
+        // `etapesDocument()` ET NON `peutAnnuler()` : depuis que la bande de boucle est annulable,
+        // l'historique peut contenir des étapes qui n'ont touché à AUCUNE note (voir
+        // Editeur.memoriserAnnexe). Poser une barre orange ne doit pas faire réclamer un
+        // enregistrement — elle n'est même pas enregistrée dans le fichier.
+        if (this.editeur.etapesDocument() === 0 || this.travailExporte) {
             return this._archiverAvantRemplacement(demanderVersion);
         }
         const choix = await demander({
@@ -2087,7 +2102,7 @@ class TabHubApp {
                 this.onglets[i].etat = {
                     partition: this.editeur.partition,
                     curseur: { mesure: 0, voix: 0, evenement: 0, corde: 0 },
-                    passe: [], futur: [], boucle: null, ancresBoucle: null,
+                    passe: [], futur: [], boucle: null,
                 };
             });
             this.editeur.remplacer(partitions[this.ongletActif]);
@@ -2124,8 +2139,7 @@ class TabHubApp {
             curseur: { ...this.editeur.curseur },
             passe: this.editeur.passe.slice(),
             futur: this.editeur.futur.slice(),
-            boucle: this.lecteur.boucleLecture ? { ...this.lecteur.boucleLecture } : null,
-            ancresBoucle: this.lecteur._ancresBoucle ? { ...this.lecteur._ancresBoucle } : null,
+            boucle: this.lecteur.instantaneBoucle(),
         };
     }
 
@@ -2147,8 +2161,7 @@ class TabHubApp {
             this.editeur.passe = o.etat.passe;
             this.editeur.futur = o.etat.futur;
             this.editeur._dernierChiffre = null;
-            this.lecteur.boucleLecture = o.etat.boucle;
-            this.lecteur._ancresBoucle = o.etat.ancresBoucle;
+            this.lecteur.restaurerBoucle(o.etat.partition, o.etat.boucle);
         }
         o.etat = null;
         this.editeur.corrigerCurseur();
@@ -2369,6 +2382,7 @@ class TabHubApp {
         this.brancherZoomGeste();
         this.brancherSurvolBoucle();
         this.brancherPriseBoucleTactile();
+        this.brancherAnnexeHistorique();
         let attenteDefilement = false;
         this.el.zone.addEventListener('scroll', () => {
             if (attenteDefilement) return;
@@ -2402,7 +2416,9 @@ class TabHubApp {
          * cliquer sans lire, et ne protégerait plus rien le jour où il compte.
          */
         window.addEventListener('beforeunload', (e) => {
-            if (this.travailExporte || !this.editeur.peutAnnuler()) return;
+            // Même raison qu'à peutEcraserLeMorceau : une bande de boucle posée n'est pas du
+            // travail à sauver, et ne doit donc pas retenir la fermeture de l'onglet.
+            if (this.travailExporte || this.editeur.etapesDocument() === 0) return;
             e.preventDefault();
             e.returnValue = '';
         });
@@ -3253,6 +3269,50 @@ class TabHubApp {
         if (redessiner) this.dessiner();
     }
 
+    /**
+     * BRANCHE LA BANDE DE BOUCLE SUR L'HISTORIQUE D'ANNULATION (retour utilisateur : « le bouton
+     * undo/redo doit aussi concerner la mise en place de la barre de lecture »).
+     *
+     * CE QUI A DÛ ÊTRE REVU. Une décision antérieure gardait délibérément la boucle HORS de
+     * l'historique, et pour une raison qui tenait : l'ancrage par `id` avait justement été choisi
+     * pour n'avoir PAS à la porter dans l'historique (« six endroits à ne jamais oublier, dont un
+     * qu'on oublierait »). Cette raison-là reste valable et n'est pas défaite : l'historique ne
+     * DÉCALE toujours rien, il restitue une photo, et les numéros continuent de se déduire des
+     * ancres à chaque édition. Ce qui change, c'est qu'une photo voyage maintenant avec chaque
+     * étape — sans que l'éditeur sache de quoi elle est faite (voir Editeur, l'annexe).
+     *
+     * DEUX EFFETS, dont le second est gratuit :
+     *   • annuler la POSE d'une boucle la retire, et rétablir la remet ;
+     *   • annuler une édition de NOTES remet aussi la boucle telle qu'elle était à ce moment — ce
+     *     qui est la seule réponse cohérente, puisque l'état du document remonte avec elle.
+     */
+    brancherAnnexeHistorique() {
+        this.editeur.lireAnnexe = () => this.lecteur.instantaneBoucle();
+        this.editeur.ecrireAnnexe = (v) => this.lecteur.restaurerBoucle(this.editeur.partition, v);
+    }
+
+    /**
+     * OUVRE UNE ÉTAPE D'ANNULATION POUR LA BANDE, et rend la fonction qui la CLÔT.
+     *
+     * UNE ÉTAPE PAR GESTE, jamais une par temps franchi. Pendant un glisser, la boucle est reposée
+     * dans le lecteur à chaque changement de plage calée (pour que ça s'entende tout de suite, voir
+     * demarrerGesteBoucle) : enregistrer une étape à chacun de ces moments remplirait la pile de
+     * dizaines d'états intermédiaires, et défaire un seul geste demanderait autant de Ctrl+Z. On
+     * photographie donc l'état AVANT, et on n'enregistre qu'une fois, à la fin.
+     *
+     * RIEN N'EST ENREGISTRÉ SI RIEN N'A CHANGÉ : un appui qui n'aboutit pas, un geste annulé sans
+     * effet, ne doivent pas coûter un Ctrl+Z pour rien.
+     */
+    etapeBoucle() {
+        const avant = this.lecteur.instantaneBoucle();
+        return () => {
+            const apres = this.lecteur.instantaneBoucle();
+            if (memesBornesBoucle(avant, apres)) return;
+            this.editeur.memoriserAnnexe(avant);
+            this.rafraichirInfos();
+        };
+    }
+
     /** Cale deux instants bruts au temps le plus proche, puis pose la boucle entre eux — le chemin
      *  commun des deux gestes (définir, étirer), pour qu'ils ne calent jamais différemment. */
     poserBornesCalees(positionA, positionB, options = {}) {
@@ -3682,9 +3742,28 @@ class TabHubApp {
         // c'est de LUI que part la bande. Poser l'ancre au début de la mesure ferait sauter la bande
         // au premier pixel parcouru.
         const ancre = this.instantSousLePoint(e.clientX, e.clientY, mesureAncre);
+        // Une seule étape d'annulation pour tout le geste — voir etapeBoucle.
+        const cloreEtape = this.etapeBoucle();
 
-        // LE MÊME TRAVAIL, appelé par le pointeur ET par le défilement automatique : le doigt
-        // immobile au bord d'un écran doit continuer d'allonger la bande pendant que la page monte.
+        /**
+         * LE MÊME TRAVAIL POUR LE POINTEUR ET POUR LE DÉFILEMENT AUTOMATIQUE — un seul corps, appelé
+         * par les deux. Un doigt immobile au bord d'un écran doit continuer d'allonger la bande
+         * pendant que la page monte à sa rencontre, donc le défilement rappelle ceci à chaque pas.
+         *
+         * `surMouvement` RECOPIAIT CES QUATRE LIGNES, et c'est une neutralisation de banc qui l'a
+         * révélé : la vérification « un geste = une étape » restait verte alors qu'on avait
+         * délibérément cassé le regroupement — parce que le sabotage avait atterri dans la copie que
+         * le geste à la souris ne traverse jamais. Deux exemplaires du même travail, dont un seul
+         * éprouvé : exactement ce que ce projet évite partout ailleurs.
+         *
+         * L'ŒIL SUIT LE PIXEL, L'OREILLE SUIT LE TEMPS, et c'est délibérément deux finesses pour
+         * deux sens. L'aperçu se retrace aux coordonnées exactes du pointeur (quelques attributs
+         * réécrits, pas une remise en page) ; la boucle, elle, n'est reposée dans le lecteur qu'au
+         * changement de plage CALÉE, parce que glisser la bande pendant que ça joue doit s'entendre
+         * tout de suite — mais que le pixel n'aurait aucun sens à l'oreille (le transport sauterait
+         * soixante fois par seconde). Aucun `dessiner()` ici : la bande posée est masquée le temps du
+         * geste (voir `_gesteBoucle` dans marquesBoucle), l'aperçu est seul à l'écran.
+         */
         const rafraichir = (point) => {
             const ici = this.instantSousLePoint(point.x, point.y);
             if (!ici) return;
@@ -3698,22 +3777,7 @@ class TabHubApp {
             if (!bouge && Math.hypot(ev.clientX - depart.x, ev.clientY - depart.y) < SEUIL) return;
             if (!bouge) { bouge = true; this._gesteBoucle = true; this.dessiner(); }
             defilement.suivre(ev);
-            const ici = this.instantSousLePoint(ev.clientX, ev.clientY);
-            if (!ici) return;
-            derniere = ici;
-            // L'ŒIL SUIT LE PIXEL : l'aperçu se redessine à chaque évènement de pointeur, aux
-            // coordonnées exactes du doigt (voir poserApercuBoucle — quelques attributs réécrits,
-            // pas une remise en page).
-            this.poserApercuBoucle(this.rectsBoucle(ancre.systeme, ancre.x, ici.systeme, ici.x));
-            // L'OREILLE SUIT LE TEMPS : on pose quand même la boucle dans le lecteur à chaque
-            // changement de plage CALÉE, parce que glisser la bande pendant que ça joue doit faire
-            // entendre le nouveau bornage tout de suite, pas seulement au relâchement. C'est
-            // volontairement DEUX finesses différentes pour deux sens : le pixel n'aurait aucun
-            // sens à l'oreille (le transport sauterait soixante fois par seconde), et le temps
-            // n'aurait aucun sens à l'œil (c'est exactement l'à-coup qu'on corrige).
-            // Aucun `dessiner()` ici : la bande posée est masquée le temps du geste (voir
-            // `_gesteBoucle` dans marquesBoucle), l'aperçu est seul à l'écran.
-            this.poserBornesCalees(ancre.position, ici.position, { redessiner: false });
+            rafraichir({ x: ev.clientX, y: ev.clientY });
         };
         // RANGEMENT COMMUN aux trois façons de finir : doigt levé, geste annulé, ou pointeur perdu.
         const detacher = () => {
@@ -3740,6 +3804,7 @@ class TabHubApp {
                 else this.poserBoucleSurMesure(mesureAncre);
                 this.dessiner();
             }
+            cloreEtape();
             this.el.zone.focus();
         };
         /**
@@ -3760,7 +3825,10 @@ class TabHubApp {
          * (demarrerGesteTactile faisait déjà cette distinction, avec son `surAnnulation` à part —
          * elle manquait ici, et nulle part ailleurs.)
          */
-        const surAnnulation = () => { detacher(); this.el.zone.focus(); };
+        // MÊME SUR ANNULATION on clôt l'étape : le glisser avait déjà posé la plage qu'on voit à
+        // l'écran (voir la docblock ci-dessus), et ce qui est visible doit être annulable. Si rien
+        // n'a bougé, `cloreEtape` n'enregistre rien.
+        const surAnnulation = () => { detacher(); cloreEtape(); this.el.zone.focus(); };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
         window.addEventListener('pointercancel', surAnnulation);
@@ -3783,6 +3851,7 @@ class TabHubApp {
         const debloquer = this._bloquerDefilementPendantGeste();
         const relacherCapture = this._capturerPointeur(e);
         let derniere = null;
+        const cloreEtape = this.etapeBoucle();
         // LE BORD QUI NE BOUGE PAS, retenu comme un INSTANT une fois pour toutes : c'est lui qui
         // ancre la bande pendant tout le geste. Le relire à chaque mouvement le ferait dériver, la
         // boucle étant justement en train d'être redéfinie sous nos pieds.
@@ -3833,11 +3902,12 @@ class TabHubApp {
             detacher();
             if (derniere) this.poserBornesCalees(positionFixe, buter(derniere.position));
             else this.dessiner();
+            cloreEtape();
             this.el.zone.focus();
         };
         // Même distinction qu'à demarrerGesteBoucle, et pour la même raison exactement (voir sa
         // docblock) : un geste que le navigateur annule ne doit rien décider à notre place.
-        const surAnnulation = () => { detacher(); this.dessiner(); this.el.zone.focus(); };
+        const surAnnulation = () => { detacher(); this.dessiner(); cloreEtape(); this.el.zone.focus(); };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
         window.addEventListener('pointercancel', surAnnulation);

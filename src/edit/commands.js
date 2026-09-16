@@ -58,6 +58,22 @@ export class Editeur {
 
     // -- Historique ------------------------------------------------------------------------------
     /**
+     * L'ANNEXE : un état qui voyage dans l'historique SANS appartenir au document.
+     *
+     * POURQUOI DEUX CROCHETS PLUTÔT QU'UN CHAMP. Retour utilisateur : « le bouton undo/redo doit
+     * aussi concerner la mise en place de la barre de lecture ». Or la bande de boucle appartient au
+     * LECTEUR, pas au document — elle n'est pas enregistrée dans le fichier, et cet éditeur n'a
+     * aucune raison de savoir ce qu'est une boucle de lecture. Deux fonctions posées de l'extérieur
+     * (voir main.js#brancherAnnexeHistorique) suffisent : l'une dit « voici mon état courant »,
+     * l'autre « repose celui-ci ». L'éditeur ne transporte qu'un objet opaque, qu'il ne lit jamais.
+     *
+     * Le jour où une autre préférence de session devra suivre l'annulation, elle passera par le même
+     * canal — sans rouvrir cette classe.
+     */
+    lireAnnexe = () => null;
+    ecrireAnnexe = () => {};
+
+    /**
      * Enregistre l'état AVANT modification. `fusion` permet à une suite de gestes de même nature
      * (taper les deux chiffres d'une case, tirer le tempo) de ne compter que pour une annulation :
      * sans ça, défaire « case 12 » demanderait deux Ctrl+Z, dont le premier laisserait « case 1 ».
@@ -68,21 +84,55 @@ export class Editeur {
             dernier.temps = Date.now();
             return;
         }
-        this.passe.push({ etat: cloner(this.partition), curseur: { ...this.curseur }, fusion, temps: Date.now() });
-        if (this.passe.length > MAX_HISTORIQUE) this.passe.shift();
+        this._empiler(this.passe, { fusion, annexe: this.lireAnnexe() });
         this.futur.length = 0;
         this.partition.meta.modifieLe = new Date().toISOString();
+    }
+
+    /**
+     * Enregistre une étape dont le DOCUMENT NE CHANGE PAS — seule l'annexe. C'est le cas de la bande
+     * de boucle : la poser ne touche pas une note.
+     *
+     * `modifieLe` N'EST DÉLIBÉRÉMENT PAS TOUCHÉ, et c'est le point délicat. Poser une boucle ne
+     * modifie pas le morceau : le marquer comme modifié ferait réclamer un enregistrement à la
+     * fermeture (voir main.js, le garde-fou qui s'appuie sur `peutAnnuler`) pour quelque chose qui
+     * n'est même pas enregistré dans le fichier. L'étape existe donc pour l'annulation, et pour elle
+     * seule.
+     *
+     * @param {*} avant l'annexe TELLE QU'ELLE ÉTAIT avant le geste — fournie par l'appelant, qui
+     *   l'a photographiée au début. On ne peut pas la relire ici : au moment où l'on enregistre
+     *   l'étape, le changement est déjà fait.
+     */
+    memoriserAnnexe(avant) {
+        this._empiler(this.passe, { annexe: avant, documentIntact: true });
+        this.futur.length = 0;
+    }
+
+    /** Empile une entrée d'historique — un seul endroit qui sait de quoi une entrée est faite. */
+    _empiler(pile, extra = {}) {
+        pile.push({
+            etat: cloner(this.partition),
+            curseur: { ...this.curseur },
+            temps: Date.now(),
+            ...extra,
+        });
+        if (pile.length > MAX_HISTORIQUE) pile.shift();
     }
 
     peutAnnuler() { return this.passe.length > 0; }
     peutRetablir() { return this.futur.length > 0; }
 
+    /** Le nombre d'étapes qui ont VRAIMENT touché au document — ce sur quoi s'appuient les
+     *  garde-fous « travail non enregistré », qui ne doivent pas s'alarmer d'une bande de boucle. */
+    etapesDocument() { return this.passe.filter(e => !e.documentIntact).length; }
+
     annuler() {
         if (!this.passe.length) return false;
         const entree = this.passe.pop();
-        this.futur.push({ etat: cloner(this.partition), curseur: { ...this.curseur } });
+        this._empiler(this.futur, { annexe: this.lireAnnexe(), documentIntact: entree.documentIntact });
         this.partition = entree.etat;
         this.curseur = entree.curseur;
+        this.ecrireAnnexe(entree.annexe);
         this.corrigerCurseur();
         this.prevenir('annulation');
         return true;
@@ -91,9 +141,10 @@ export class Editeur {
     retablir() {
         if (!this.futur.length) return false;
         const entree = this.futur.pop();
-        this.passe.push({ etat: cloner(this.partition), curseur: { ...this.curseur }, temps: Date.now() });
+        this._empiler(this.passe, { annexe: this.lireAnnexe(), documentIntact: entree.documentIntact });
         this.partition = entree.etat;
         this.curseur = entree.curseur;
+        this.ecrireAnnexe(entree.annexe);
         this.corrigerCurseur();
         this.prevenir('retablissement');
         return true;

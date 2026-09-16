@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(100);
+    plan(112);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -967,6 +967,110 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             'au MILIEU de la bande, aucune poignée n\'est allumée');
         check(surCorps.curseurSousLePointeur === 'pointer',
             `et le curseur y annonce autre chose que l'étirement (${surCorps.curseurSousLePointeur}) — il promettait « ew-resize » partout jusqu'ici`);
+
+        // --- ANNULER / RÉTABLIR COUVRE LA BANDE -------------------------------------------------
+        // Retour utilisateur : « le bouton undo/redo doit aussi concerner la mise en place de la
+        // barre de lecture ». La boucle vit dans le LECTEUR, délibérément hors du document — elle
+        // voyage donc dans l'historique comme une ANNEXE opaque, que l'éditeur ne lit jamais (voir
+        // Editeur.lireAnnexe/ecrireAnnexe et main.js#brancherAnnexeHistorique).
+        const remise = async () => {
+            await p.evaluate(() => {
+                const ed = window.app.editeur;
+                ed.passe.length = 0; ed.futur.length = 0;
+                window.app.lecteur.retirerBoucle();
+                window.app.dessiner();
+            });
+            await p.waitForTimeout(140);
+        };
+        const histoire = () => p.evaluate(() => ({
+            boucle: window.app.lecteur.boucleLecture
+                ? `${window.app.lecteur.boucleLecture.debut}-${window.app.lecteur.boucleLecture.fin}` : null,
+            passe: window.app.editeur.passe.length,
+            futur: window.app.editeur.futur.length,
+            // Les étapes qui ont VRAIMENT touché au document : c'est là-dessus que s'appuient les
+            // garde-fous « travail non enregistré ».
+            etapesDocument: window.app.editeur.etapesDocument(),
+            loop: window.Tone ? window.Tone.Transport.loop : null,
+            notes: window.app.editeur.partition.mesures[0].voix[0].evenements
+                .filter(ev => ev.notes && ev.notes.length).length,
+        }));
+        const cliquerMesure = async (i) => {
+            const pt = await surBord(i, 'milieu');
+            await p.mouse.move(pt.x, pt.y);
+            await p.mouse.down(); await p.mouse.up();
+            await p.waitForTimeout(170);
+        };
+        const annuler = async () => { await p.evaluate(() => window.app.editeur.annuler()); await p.waitForTimeout(170); };
+
+        await remise();
+        await cliquerMesure(2);
+        const bandePosee = await histoire();
+        exiger(bandePosee.boucle === '2-2' && bandePosee.passe === 1,
+            `poser la bande crée UNE étape d'annulation (${bandePosee.passe})`);
+        await annuler();
+        const defaite = await histoire();
+        exiger(defaite.boucle === null && defaite.futur === 1,
+            'Ctrl+Z retire la bande — c\'est la demande, littéralement');
+        check(defaite.loop === false,
+            'et l\'horloge cesse de boucler avec elle : ce n\'est pas qu\'un dessin qui disparaît');
+        await p.evaluate(() => window.app.editeur.retablir());
+        await p.waitForTimeout(170);
+        const refaite = await histoire();
+        exiger(refaite.boucle === '2-2' && refaite.loop === true,
+            'et Ctrl+Y la remet exactement où elle était');
+
+        // UNE ÉTAPE PAR GESTE, jamais une par temps franchi. Pendant un glisser la boucle est
+        // reposée dans le lecteur à chaque changement de plage calée (pour que ça s'entende tout de
+        // suite) : sans le regroupement, défaire un seul geste demanderait autant de Ctrl+Z qu'il a
+        // traversé de temps.
+        await remise();
+        const depGlisse = await surBord(1, 'debut');
+        await p.mouse.move(depGlisse.x, depGlisse.y);
+        await p.mouse.down();
+        for (const i of [2, 3, 4]) {
+            const q = await surBord(i, 'milieu');
+            await p.mouse.move(q.x, q.y, { steps: 4 });
+        }
+        await p.mouse.up();
+        await p.waitForTimeout(200);
+        const apresGlisse = await histoire();
+        exiger(apresGlisse.passe === 1,
+            `un glisser traversant quatre mesures ne coûte qu'UNE étape (${apresGlisse.passe}), pas une par temps franchi`);
+        await annuler();
+        check((await histoire()).boucle === null,
+            'et un seul Ctrl+Z défait tout le geste');
+
+        // UNE BANDE N'EST PAS DU TRAVAIL À SAUVER. `memoriserAnnexe` ne touche pas `modifieLe`, et
+        // les garde-fous comptent `etapesDocument()` : sans cela, poser une barre orange ferait
+        // réclamer un enregistrement à la fermeture pour quelque chose qui n'est même pas dans le
+        // fichier.
+        await remise();
+        await cliquerMesure(3);
+        const gardeFou = await histoire();
+        exiger(gardeFou.passe === 1 && gardeFou.etapesDocument === 0,
+            'la bande peuple l\'historique (1 étape) SANS compter comme une modification du document (0)');
+
+        // LES DEUX HISTOIRES S'ENTRELACENT SANS SE MÉLANGER — le cas qui prouve que l'annexe suit
+        // bien chaque étape, et pas seulement la dernière.
+        await remise();
+        await cliquerMesure(2);                                   // 1. poser en 2
+        await p.evaluate(() => { window.app.editeur.curseur.mesure = 0; window.app.editeur.saisirChiffre(7); });
+        await p.waitForTimeout(200);                              // 2. écrire une note
+        await cliquerMesure(2);                                   // 3. retirer (un clic sur la bande)
+        await cliquerMesure(5);                                   // 4. poser en 5
+        const avantRemontee = await histoire();
+        exiger(avantRemontee.boucle === '5-5' && avantRemontee.notes === 1 && avantRemontee.etapesDocument === 1,
+            `préalable : boucle en 5, une note écrite, et UNE seule étape de document (${avantRemontee.etapesDocument})`);
+        const remontee = [];
+        for (let i = 0; i < 4; i++) { await annuler(); remontee.push(await histoire()); }
+        check(remontee[0].boucle === null,
+            'en remontant : défaire la pose en 5 la retire');
+        check(remontee[1].boucle === '2-2',
+            'défaire le retrait fait revenir celle de la mesure 2');
+        exiger(remontee[2].notes === 0 && remontee[2].boucle === '2-2',
+            'défaire la NOTE ne touche pas à la bande — les deux histoires ne se mélangent pas');
+        check(remontee[3].boucle === null,
+            'et défaire la première pose retire la bande : on est revenu au point de départ');
 
         check(geste.erreurs.length === 0,
             'aucune erreur JavaScript pendant les gestes' + (geste.erreurs.length ? ' — ' + geste.erreurs.join(' | ') : ''));

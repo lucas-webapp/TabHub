@@ -297,7 +297,8 @@ dans son échelle de temps.
 
 Une **boucle de lecture** se définit en glissant (souris ou doigt) sur la fine bande sous la
 tablature de chaque système : la zone se rejoue indéfiniment, pour retravailler un passage sans
-repartir du début à chaque essai. C'est une préférence de SESSION, jamais sauvée avec le morceau.
+repartir du début à chaque essai. C'est une préférence de SESSION, jamais sauvée avec le morceau —
+mais elle est **annulable** (voir plus bas).
 
 **Elle colle au doigt pendant qu'on la trace, et se pose sur un temps quand on la lâche** (retour
 utilisateur : « il est difficile de savoir quand je la mets en place ou non, car je ne la vois pas
@@ -383,6 +384,29 @@ sans rien apprendre à personne), et **seulement tant qu'il n'y a pas de boucle*
 c'est la bande elle-même l'affordance, et proposer « clique pour poser » là où un tap **retire** la
 boucle serait un mensonge. Un tap/clic sans glisser pose donc la boucle sur la mesure visée quand il
 n'y en a pas, et retire celle en place quand il y en a une (le seul moyen tactile d'en annuler une).
+
+**Annuler et Rétablir la couvrent** (retour utilisateur : « le bouton undo/redo doit aussi concerner
+la mise en place de la barre de lecture »). Cela a demandé de revoir une décision antérieure, qui
+gardait délibérément la boucle hors de l'historique — et pour une raison qui tenait : l'ancrage par
+`id` avait justement été choisi pour n'avoir *pas* à la porter dans l'historique. Cette raison reste
+valable et n'est pas défaite : l'historique ne décale toujours rien, il restitue une photo, et les
+numéros continuent de se déduire des ancres à chaque édition.
+
+Ce qui change, c'est qu'une photo voyage avec chaque étape, **sous forme d'annexe opaque**. La bande
+appartient au lecteur, pas au document, et l'éditeur n'a aucune raison de savoir ce qu'est une boucle :
+deux fonctions posées de l'extérieur suffisent — l'une dit « voici mon état courant », l'autre « repose
+celui-ci ». Trois conséquences :
+
+- **un geste = une étape.** Pendant un glisser, la boucle est reposée dans le lecteur à chaque
+  changement de plage calée (pour que ça s'entende tout de suite) ; sans regroupement, défaire un seul
+  geste coûterait autant de Ctrl+Z qu'il a traversé de temps — mesuré : 13 au lieu de 1.
+- **une bande n'est pas du travail à sauver.** L'étape existe pour l'annulation et pour elle seule :
+  elle ne marque pas le document modifié, sinon la fermeture réclamerait un enregistrement pour
+  quelque chose qui n'est même pas dans le fichier. Les garde-fous comptent les étapes qui ont
+  vraiment touché au document.
+- **annuler une édition de notes remet aussi la boucle de ce moment**, ce qui est gratuit et la seule
+  réponse cohérente — l'état du document remonte avec elle. Les deux histoires s'entrelacent sans se
+  mélanger.
 
 Elle **suit les mesures qu'elle borne**, pas leurs numéros. Insérer, coller ou supprimer une mesure
 avant elle — ou annuler l'un de ces gestes — la laisse sur le même passage, et son horloge se
