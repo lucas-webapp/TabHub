@@ -14,7 +14,7 @@
          « les boutons du bas [...] se trouvent dans les angles [...] de l'arrondi »). -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>TabHub — éditeur de tablatures</title>
-    <link rel="icon" type="image/svg+xml" href="icons/favicon.svg">
+    <link rel="icon" type="image/svg+xml" href="icons/favicon.svg?v=202609161700">
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#0a0a0a">
     <!-- ÉCRAN D'ACCUEIL IPHONE (retour utilisateur : « mettre en forme le logo [...] sur mon bureau
@@ -25,7 +25,7 @@
          déjà arrondi laisserait un liseré visible entre les deux découpes (voir icons/favicon.svg,
          régénérées par le même dessin — tests/pwa_test.js). `web-app-capable` + le titre : lancée en
          PLEIN ÉCRAN depuis l'icône, sans barre d'adresse Safari, sous le nom « TabHub » et non l'URL. -->
-    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+    <link rel="apple-touch-icon" href="icons/apple-touch-icon.png?v=202609161700">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
@@ -75,17 +75,49 @@
 
     <a class="logo" href="#" onclick="return false" title="TabHub" aria-label="TabHub">
         <span class="logo-marque">
-            <!-- Même grammaire que le logo « grille » de HarmoHub (barres arrondies, opacité
-                 croissante, currentColor, 48×48) mais tournée d'un quart de tour et à six barres :
-                 les six cordes d'une tablature plutôt que quatre repères génériques. Le calibre
-                 croît légèrement lui aussi, du mi aigu au mi grave, comme un vrai jeu de cordes. -->
+            <!-- « TAB » gravé dans quatre cordes. Quatre et non six, et les lettres au
+                 lieu d'un dégradé d'opacité : c'est ce dégradé sur des barres nues qui
+                 faisait confondre cette marque avec celle de HarmoHub. Les cordes sont
+                 ici d'opacité uniforme — un jeu de cordes, pas une gradation.
+
+                 Le détourage des lettres passe par un <mask> et non par un liseré peint
+                 de la couleur du fond : la marque reste donc juste sur n'importe quel
+                 fond (barre du haut à --card-bg, icône à #0a0a0a, impression sur blanc).
+                 Le masque n'utilise que les contours EXTÉRIEURS des lettres, sinon une
+                 corde traverserait le triangle du A et les panses du B.
+
+                 Les lettres sont des chemins extraits de Plus Jakarta Sans ExtraBold —
+                 la police de l'appli — et non du texte : un logo ne doit pas changer de
+                 dessin selon les polices installées sur la machine.
+
+                 Cadrage partagé avec HarmoHub : une boîte d'ENCRE de 32 × 30 centrée sur
+                 (24, 24) — 8 px de marge sur les flancs, 9 px en haut et en bas. C'est la
+                 boîte d'ENCRE et non celle des tracés : les cordes portant un trait de 2,
+                 leurs centres sont rentrés d'un pixel (y de 10 à 38) pour que leur encre
+                 affleure 9 et 39, exactement comme les barres de HarmoHub, qui n'ont pas
+                 de trait. C'est ce que l'œil voit qui doit coïncider, pas les nombres. -->
             <svg viewBox="0 0 48 48" aria-hidden="true">
-                <rect x="6" y="7"    width="36" height="3"   rx="1.5" fill="currentColor" opacity=".2"/>
-                <rect x="6" y="13.6" width="36" height="3.2" rx="1.6" fill="currentColor" opacity=".36"/>
-                <rect x="6" y="20.2" width="36" height="3.4" rx="1.7" fill="currentColor" opacity=".52"/>
-                <rect x="6" y="26.8" width="36" height="3.6" rx="1.8" fill="currentColor" opacity=".68"/>
-                <rect x="6" y="33.4" width="36" height="3.8" rx="1.9" fill="currentColor" opacity=".84"/>
-                <rect x="6" y="40"   width="36" height="4"   rx="2"   fill="currentColor"/>
+                <defs>
+                  <mask id="logo-th-detourage" maskUnits="userSpaceOnUse" x="0" y="0" width="48" height="48">
+                    <rect width="48" height="48" fill="#fff"/>
+                    <g fill="#000" stroke="#000" stroke-width="3" stroke-linejoin="round" stroke-linecap="round">
+                      <path d="M16.64 18.87V11.99H14.51V10.47H20.49V11.99H18.39V18.87Z"/>
+                      <path d="M13.50 28.20 16.34 19.80H18.66L21.50 28.20H19.60L19.03 26.49H15.96L15.39 28.20Z"/>
+                      <path d="M14.17 37.53V29.13H17.72Q18.59 29.13 19.21 29.43Q19.83 29.72 20.16 30.27Q20.48 30.81 20.48 31.59Q20.48 32.14 20.18 32.65Q19.87 33.15 19.17 33.49V32.63Q19.84 32.89 20.20 33.25Q20.56 33.61 20.70 34.03Q20.83 34.46 20.83 34.92Q20.83 36.16 20.01 36.85Q19.19 37.53 17.72 37.53Z"/>
+                    </g>
+                  </mask>
+                </defs>
+                <g mask="url(#logo-th-detourage)" stroke="currentColor" stroke-width="2" stroke-linecap="round" opacity="0.62">
+                  <path d="M9 10H39"/>
+                  <path d="M9 19.33H39"/>
+                  <path d="M9 28.67H39"/>
+                  <path d="M9 38H39"/>
+                </g>
+                <g fill="currentColor">
+                  <path d="M16.64 18.87V11.99H14.51V10.47H20.49V11.99H18.39V18.87Z"/>
+                  <path d="M13.50 28.20 16.34 19.80H18.66L21.50 28.20H19.60L19.03 26.49H15.96L15.39 28.20ZM16.44 24.96H18.55L17.26 21.00H17.74Z"/>
+                  <path d="M14.17 37.53V29.13H17.72Q18.59 29.13 19.21 29.43Q19.83 29.72 20.16 30.27Q20.48 30.81 20.48 31.59Q20.48 32.14 20.18 32.65Q19.87 33.15 19.17 33.49V32.63Q19.84 32.89 20.20 33.25Q20.56 33.61 20.70 34.03Q20.83 34.46 20.83 34.92Q20.83 36.16 20.01 36.85Q19.19 37.53 17.72 37.53ZM15.92 36.01H17.92Q18.45 36.01 18.77 35.71Q19.08 35.40 19.08 34.92Q19.08 34.42 18.77 34.12Q18.45 33.81 17.92 33.81H15.92ZM15.92 32.29H17.84Q18.25 32.29 18.49 32.06Q18.73 31.83 18.73 31.44Q18.73 31.06 18.49 30.83Q18.25 30.60 17.84 30.60H15.92Z"/>
+                </g>
             </svg>
         </span>
         <span class="logo-texte">TabHub</span>

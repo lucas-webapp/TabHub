@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**45 bancs, 1201 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**45 bancs, 1295 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -27,6 +27,7 @@ utilisateur devenus des cas permanents.
 | `onglets_test.js` | Plusieurs morceaux ouverts : l'ÉTANCHÉITÉ des documents, ce qui reste commun (durée, presse-papier), le brouillon multi-onglets, et rien au doigt |
 | `boucle_lecture_test.js` | La bande orange : geste souris/doigt, poignées, l'ancrage qui la fait suivre ses mesures, l'aperçu qui suit le PIXEL (mesuré : quatre largeurs distinctes dans UNE mesure), le fantôme qui la rend découvrable, le défilement sous un doigt immobile, la prise des poignées mesurée par balayage, et l'annulation qui la couvre sans mélanger les deux histoires |
 | `zoom_ecran_test.js` | Les loupes changent la GRAVURE (pas un nombre) ; `Ctrl+molette` zoome la partition en confisquant le geste, et le laisse au navigateur partout ailleurs |
+| `pwa_test.js` | L'icône d'écran d'accueil et la marque : `apple-touch-icon` carré plein cadre, PNG du manifest, et surtout le favicon qui trace EXACTEMENT les mêmes chemins que le logo de la barre du haut — lettres en chemins (pas de `<text>`), détourage par masque (pas un liseré peint du fond), cordes d'opacité uniforme, et une marge d'encre mesurée de 8 px sur les flancs / 9 px en haut et en bas. **Sans navigateur.** |
 | `tactile_test.js` | Écrire au doigt (pavé, tap, appui long, glisser qui défile) et le pincement à deux doigts qui zoome la partition, pas la page |
 
 ## Lancer

@@ -224,8 +224,23 @@ body > * { min-width: 0; }
 .btn-icone-accent:hover:not(:disabled) { background: var(--btn-green-2); border-color: var(--btn-green-border-hover); color: var(--btn-text); }
 
 .logo { display: flex; align-items: center; gap: 8px; color: var(--text-main); text-decoration: none; margin-left: 4px; }
-.logo-marque { display: inline-flex; color: var(--accent); }
-.logo-marque svg { width: 22px; height: 22px; }
+/* Même traitement EXACTEMENT que .logo-mark de HarmoHub (pastille sombre arrondie, marque en
+   --accent dedans) et à la même taille : c'est ce qui rend les deux barres du haut cohérentes
+   quand on passe d'une appli à l'autre. La marque porte déjà sa propre marge interne — 8 px sur
+   un dessin de 48 — donc le SVG remplit la pastille au lieu d'y ajouter un second retrait, qui
+   ne ferait que rapetisser le dessin. */
+.logo-marque {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    background: var(--bg);
+    color: var(--accent);
+    line-height: 1;
+}
+.logo-marque svg { width: 26px; height: 26px; }
 .logo-texte { font-weight: 800; font-size: var(--fs-lg); letter-spacing: -.01em; }
 
 .separateur { width: 1px; height: 22px; background: var(--border); margin: 0 4px; flex: none; }

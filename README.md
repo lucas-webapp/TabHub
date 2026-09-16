@@ -109,6 +109,33 @@ Repris de HarmoHub, même version vendorée. La boîte d'impression du navigateu
 système qui peut manquer, impose deux clics de plus et repagine selon les réglages de l'imprimante.
 Un clic sur « Exporter PDF » écrit le fichier et ouvre directement « Enregistrer sous ».
 
+### La marque : un générateur, pas du SVG à la main
+
+La marque de TabHub existe en quatre exemplaires — le SVG en ligne dans `index.html`,
+`icons/favicon.svg`, et les PNG d'écran d'accueil — et elle doit rester le MÊME dessin. Tenus à la
+main, ces exemplaires divergent : une version antérieure du favicon dessinait cinq cordes là où la
+barre du haut en montrait six, à une autre marge. `outils/generer-logos.py` les produit donc tous
+depuis une seule description, et `tests/pwa_test.js` vérifie que le favicon trace exactement les
+chemins du logo en ligne.
+
+Le dessin lui-même répond à deux reproches précis. « Je le trouve trop proche du logo HarmoHub, même
+s'ils doivent être du même type. On va confondre les logiciels » : les deux marques n'étaient que des
+barres au dégradé d'opacité, à un quart de tour près. TabHub porte maintenant le mot « TAB » gravé
+dans quatre cordes d'opacité **uniforme**, et le dégradé d'opacité reste la signature de HarmoHub
+seule. « Les 6 traits prennent trop de place, ils sont trop proches du bord de l'icône d'app en noir,
+ça rend un effet pas pro » : les deux marques tiennent désormais dans la même **boîte d'encre de
+32 × 30 centrée sur (24, 24)** — 8 px de marge sur les flancs, 9 px en haut et en bas, identiques
+pour les deux applis. Le banc mesure ces marges sur les chemins plutôt que de les supposer.
+
+Deux points de technique méritent d'être dits, parce qu'ils ne se voient pas dans le rendu final.
+Les lettres sont des **chemins** extraits de Plus Jakarta Sans ExtraBold — la police de l'appli — et
+non du `<text>` : un logo composé dans une police du système change de dessin d'une machine à
+l'autre. Et leur détourage passe par un `<mask>`, pas par un liseré peint de la couleur du fond : un
+liseré n'est juste que sur le fond pour lequel on l'a choisi, alors que la marque est posée tantôt
+sur `--card-bg` (barre du haut), tantôt sur `#0a0a0a` (icône). Le masque n'emploie que les contours
+EXTÉRIEURS des lettres — avec les contre-formes, une corde traverserait le triangle du A et les
+panses du B.
+
 ---
 
 ## Utilisation
@@ -733,9 +760,13 @@ Dit franchement, pour que la suite se décide sur des faits :
 | `vendor/tone.min.js` | MIT | moteur audio, vendoré depuis HarmoHub |
 | `vendor/jspdf.umd.min.js` | MIT | export PDF, vendoré depuis HarmoHub |
 | Bravura (Steinberg) | **SIL OFL 1.1** — `vendor/OFL-Bravura.txt` | contours des signes musicaux, extraits dans `src/engine/glyphes-bravura.js` |
+| Plus Jakarta Sans (Tokotype) | **SIL OFL 1.1** | contours des lettres T, A, B de la marque, extraits dans `icons/favicon.svg` et `index.html` |
 
 « Bravura » est un nom de police réservé au sens de l'OFL : TabHub ne redistribue pas une police,
 mais des contours dérivés, et ne porte pas ce nom.
+
+Même principe pour Plus Jakarta Sans : aucun fichier de police n'est versionné ici, seuls les
+contours de trois lettres le sont — comme le permet l'OFL pour une œuvre dérivée.
 
 Pour régénérer les glyphes après une mise à jour de Bravura :
 
@@ -743,3 +774,12 @@ Pour régénérer les glyphes après une mise à jour de Bravura :
 pip install fonttools
 python3 outils/generer-glyphes.py chemin/vers/Bravura.otf
 ```
+
+Et pour régénérer les marques après une retouche du dessin :
+
+```sh
+python3 outils/generer-logos.py chemin/vers/PlusJakartaSans-ExtraBold.ttf
+```
+
+Les deux polices se récupèrent chez leurs éditeurs (Bravura chez Steinberg, Plus Jakarta Sans sur
+Google Fonts) ; elles ne sont nécessaires que pour régénérer, jamais pour faire tourner l'appli.
