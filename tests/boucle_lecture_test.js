@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(90);
+    plan(100);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -1135,6 +1135,147 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         await t.waitForTimeout(150);
         check(apres === avant,
             `loin des bords, rien ne défile (${avant} px, toujours ${apres} après 400 ms) : le défilement répond au BORD, pas au simple fait de glisser`);
+
+        // --- LE TOUCHER EST RÉCLAMÉ DÈS `touchstart`, DANS LA BANDE SEULEMENT ------------------
+        // Retour utilisateur, troisième passage sur le même défaut : « je ne peux pas l'étirer car
+        // c'est l'écran avec la portée qui bouge et qui réagit aux mouvements de mon doigt ».
+        // Deux filets existaient déjà et ne suffisaient pas : `touch-action: none` sur les <rect>
+        // (non honoré par WebKit sur du SVG) et un `touchmove` non passif posé depuis `pointerdown`
+        // — trop tard, `pointerdown` arrivant APRÈS `touchstart`, moment où un navigateur mobile
+        // s'engage déjà sur un défilement. Le seul instant où l'on peut réclamer une séquence de
+        // toucher entière est `touchstart`.
+        //
+        // ET LA CONDITION COMPTE AUTANT QUE LE PREVENTDEFAULT : « lorsque je suis dans la zone de la
+        // bande, seule la barre orangée doit pouvoir réagir ». Réclamer inconditionnellement
+        // paralyserait le défilement au doigt sur toute la partition — bien pire que le défaut.
+        const toucherReclame = (pt) => t.evaluate(({ x, y }) => {
+            const feuille = document.getElementById('feuille');
+            const decrire = (cx, cy) => ({
+                identifier: 1, target: feuille, clientX: cx, clientY: cy, pageX: cx, pageY: cy,
+                screenX: cx, screenY: cy, radiusX: 8, radiusY: 8, force: 1,
+            });
+            const ev = new TouchEvent('touchstart', {
+                bubbles: true, cancelable: true,
+                touches: [new Touch(decrire(x, y))],
+                targetTouches: [new Touch(decrire(x, y))],
+                changedTouches: [new Touch(decrire(x, y))],
+            });
+            feuille.dispatchEvent(ev);
+            return ev.defaultPrevented;
+        }, pt);
+        const ptBande = await t.evaluate(() => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
+            const a = app.page.ancrages.mesures.find(m => m.index === 0);
+            const sys = app.page.ancrages.systemes.find(s => s.index === a.systeme);
+            return { x: b.left + ((a.x + a.xFin) / 2) * ech, y: b.top + (sys.yBas + 1.2 * app.page.geo.S) * ech };
+        });
+        const ptNote = await t.evaluate(() => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
+            const a = app.page.ancrages.mesures.find(m => m.index === 0);
+            return { x: b.left + ((a.x + a.xFin) / 2) * ech, y: b.top + (a.yTab + a.hauteurTab / 2) * ech };
+        });
+        exiger(await toucherReclame(ptBande),
+            'un doigt posé DANS la bande réclame tout le geste dès `touchstart` : le navigateur n\'a plus le droit de faire défiler la portée sous le doigt');
+        exiger((await toucherReclame(ptNote)) === false,
+            'et un doigt posé sur la TABLATURE ne réclame rien : le défilement du morceau au doigt reste intact partout ailleurs');
+
+        // --- UN POINTEUR ANNULÉ N'EST PAS UN APPUI ---------------------------------------------
+        // « j'appuie et je glisse pour étirer la barre, et le logiciel comprend que j'ajoute une
+        // barre, puis que je scrolle horizontalement. » Les deux moitiés de cette phrase, dans
+        // l'ordre : `pointercancel` est précisément ce qu'émet le navigateur en s'emparant du geste,
+        // souvent AVANT le seuil de 6px — donc avec `bouge` faux. L'ancienne version branchait le
+        // même gestionnaire sur `pointerup` et `pointercancel` : l'annulation tombait dans la
+        // branche « tap immobile » et posait une boucle d'une mesure que personne n'avait demandée.
+        const geste2 = (pointerId, finir) => t.evaluate(({ x, y, pointerId, finir }) => {
+            const faire = (cible, type, cx, cy) => cible.dispatchEvent(new PointerEvent(type, {
+                pointerId, pointerType: 'touch', clientX: cx, clientY: cy,
+                bubbles: true, cancelable: true, isPrimary: true,
+            }));
+            faire(document.getElementById('feuille'), 'pointerdown', x, y);
+            faire(window, finir, x + 2, y);   // 2px : sous le seuil, comme dans le cas réel
+            return window.app.lecteur.boucleLecture;
+        }, { ...ptBande, pointerId, finir });
+
+        await t.evaluate(() => { window.app.lecteur.retirerBoucle(); window.app.dessiner(); });
+        await t.waitForTimeout(120);
+        const apresAnnule = await geste2(31, 'pointercancel');
+        exiger(apresAnnule === null,
+            'un geste ANNULÉ par le navigateur ne laisse aucune barre derrière lui — c\'est la « barre ajoutée » dont se plaignait l\'utilisateur');
+        const apresVraiTap = await geste2(32, 'pointerup');
+        exiger(apresVraiTap !== null && apresVraiTap.debut === 0,
+            'tandis qu\'un VRAI appui (doigt levé) pose toujours la boucle : la distinction porte sur l\'annulation, pas sur le tap');
+        // Et une annulation ne RETIRE pas non plus une boucle déjà posée — l'autre moitié de la
+        // branche « tap immobile », tout aussi destructrice quand elle se déclenche par accident.
+        const apresAnnuleAvecBoucle = await geste2(33, 'pointercancel');
+        check(apresAnnuleAvecBoucle !== null,
+            'et elle ne retire pas non plus la boucle en place : un geste avorté ne décide de rien');
+
+        // --- LE DÉFILEMENT HORIZONTAL, sous un vrai débordement en largeur ----------------------
+        // Condition de l'utilisateur, reproduite : au zoom par défaut sur 390px la feuille ne
+        // déborde QUE en hauteur (mesuré), mais il parle de défilement horizontal — donc sa feuille
+        // déborde en largeur. Un zoom plus fort, ou un nombre de mesures par ligne imposé, y suffit
+        // (mesuré : 405px de feuille pour 390 de zone dès le zoom 12). L'axe horizontal du
+        // défilement n'avait jamais été éprouvé.
+        const debordement = await t.evaluate(() => {
+            const app = window.app, zone = app.el.zone;
+            app.changerZoom(15 - app.interligne);
+            app.mesuresParLigne = 4;
+            app.lecteur.retirerBoucle();
+            app.dessiner();
+            zone.scrollLeft = 0; zone.scrollTop = 0;
+            return { x: zone.scrollWidth - zone.clientWidth, y: zone.scrollHeight - zone.clientHeight };
+        });
+        await t.waitForTimeout(200);
+        exiger(debordement.x > 200,
+            `préalable : la feuille déborde vraiment en LARGEUR (${debordement.x}px), sans quoi ce cas ne prouverait rien`);
+        const depart2 = await t.evaluate(() => {
+            const app = window.app, svg = document.querySelector('#feuille svg');
+            const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
+            const a = app.page.ancrages.mesures.find(m => m.index === 0);
+            const sys = app.page.ancrages.systemes.find(s => s.index === a.systeme);
+            const rz = app.el.zone.getBoundingClientRect();
+            return {
+                x: b.left + ((a.x + a.xFin) / 2) * ech,
+                y: b.top + (sys.yBas + 1.2 * app.page.geo.S) * ech,
+                droite: rz.right,
+            };
+        });
+        await t.evaluate(({ x, y, droite }) => {
+            const faire = (cible, type, cx, cy) => cible.dispatchEvent(new PointerEvent(type, {
+                pointerId: 41, pointerType: 'touch', clientX: cx, clientY: cy,
+                bubbles: true, cancelable: true, isPrimary: true,
+            }));
+            faire(document.getElementById('feuille'), 'pointerdown', x, y);
+            faire(window, 'pointermove', x + 30, y);
+            faire(window, 'pointermove', droite - 8, y);   // collé au bord DROIT, puis immobile
+            window.__finH = () => faire(window, 'pointerup', droite - 8, y);
+        }, depart2);
+        const horiz = [];
+        const t0 = Date.now();
+        for (let i = 0; i < 4; i++) {
+            await t.waitForTimeout(250);
+            horiz.push(await t.evaluate(() => Math.round(window.app.el.zone.scrollLeft)));
+        }
+        const duree = (Date.now() - t0) / 1000;
+        await t.evaluate(() => window.__finH());
+        await t.waitForTimeout(200);
+        const boucleH = await t.evaluate(() => window.app.lecteur.boucleLecture);
+
+        exiger(horiz[horiz.length - 1] > 60,
+            `doigt collé au bord DROIT : la partition défile latéralement (${horiz.join(' -> ')} px)`);
+        check(horiz.every((v, i) => i === 0 || v >= horiz[i - 1]),
+            'et toujours dans le même sens, sans reculer');
+        check(boucleH && boucleH.fin > 0,
+            `la boucle s'étend au fil du défilement horizontal (0 -> ${boucleH && boucleH.fin})`);
+        // LENTEMENT, comme demandé (« la partition doit défiler lentement pour que je puisse
+        // continuer à étirer »). Une première version montait à ~1270 px/s : trois à six mesures par
+        // seconde sur un téléphone, on dépassait sa cible avant de pouvoir lever le doigt. Le
+        // plafond ci-dessous garde ce réglage — il échouerait si l'on revenait à cette vitesse.
+        const vitesse = horiz[horiz.length - 1] / duree;
+        check(vitesse < 800,
+            `et lentement : ${Math.round(vitesse)} px/s collé au bord (la première version en faisait ~1270, impossible à doser)`);
 
         check(tel.erreurs.length === 0,
             'aucune erreur JavaScript au doigt' + (tel.erreurs.length ? ' — ' + tel.erreurs.join(' | ') : ''));

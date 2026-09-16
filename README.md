@@ -320,17 +320,39 @@ milieu du temps 2) — et c'est déjà la notion qu'emploient la ligature et le 
 le temps et 26px la croche, quand le repère tactile que le projet s'impose partout ailleurs est de
 44px. Viser les **bords** d'une mesure redonne exactement la mesure entière.
 
+**Dans la bande, le geste nous appartient — réclamé dès `touchstart`.** C'est le correctif qui a
+demandé trois passages, et la description de l'utilisateur en donnait la clé : « j'appuie et je glisse
+pour étirer la barre, et le logiciel comprend que j'ajoute une barre, **puis** que je scrolle
+horizontalement ». Les deux moitiés de cette phrase sont deux défauts distincts.
+
+Le second : deux filets existaient déjà et ne suffisaient pas. `touch-action: none` sur les `<rect>`
+de la bande, que WebKit n'honore pas sur du SVG — c'était su. Et un `touchmove` non passif posé depuis
+`pointerdown` — **trop tard**, et c'est ce qui manquait : `pointerdown` est émis *après* `touchstart`,
+or un navigateur mobile décide de défiler dès `touchstart`, et le défilement part alors sur le thread
+de composition où aucun `preventDefault` ultérieur ne l'atteint. Le seul instant où l'on peut réclamer
+une séquence de toucher entière est `touchstart` lui-même. La condition compte autant que l'appel :
+on ne réclame **que** dans la bande ou sur une poignée — un `preventDefault` inconditionnel
+paralyserait le défilement au doigt sur toute la partition, bien pire que le défaut corrigé.
+
+Le premier : **un pointeur annulé n'est pas un appui**. `pointercancel` est précisément ce qu'émet le
+navigateur en s'emparant du geste, et souvent *avant* que le seuil de 6 px soit franchi — donc avec le
+geste encore considéré comme immobile. Le même gestionnaire était branché sur `pointerup` et sur
+`pointercancel` : l'annulation tombait donc dans la branche « tap immobile » et posait une boucle d'une
+mesure que personne n'avait demandée, juste avant que l'écran se mette à glisser. Un geste avorté ne
+laisse maintenant aucune trace ; s'il avait déjà bougé, on garde la plage qu'il avait dessinée, qui est
+ce que l'utilisateur voyait.
+
 **Au doigt, la partition vient à nous.** Dès que le doigt approche d'un bord de la zone pendant qu'on
-trace ou qu'on étire la bande, la partition défile d'elle-même, à une vitesse qui croît avec le
-dépassement (retour utilisateur : « je n'arrive pas à l'étirer sur la droite : la partition doit se
-décaler automatiquement et progressivement pour que je puisse englober plusieurs mesures »). Le
-navigateur ne le fait pas tout seul parce qu'on le lui **interdit** — sans quoi le doigt ferait glisser
-la page au lieu de tracer la bande — donc l'application doit le rendre, gouverné par le geste. Le
-défilement est surtout **vertical**, ce qui n'est pas évident en lisant « vers la droite » : mesuré sur
-un écran de 390 px, la partition ne déborde pas horizontalement mais tient **une mesure par système**,
-si bien qu'englober plusieurs mesures veut dire descendre. Englober deux mesures était donc
-littéralement impossible sur un téléphone. L'aperçu se recalcule à chaque pas : le doigt ne bouge pas,
-mais la musique bouge sous lui.
+trace ou qu'on étire la bande, la partition défile d'elle-même, **lentement** — environ 420 px/s collé
+au bord, mesurés, avec une rampe au carré qui garde la majeure partie de la marge très lente. Une
+première version montait à ~1270 px/s : trois à six mesures par seconde sur un téléphone, on dépassait
+sa cible avant de pouvoir lever le doigt. Le navigateur ne défile pas tout seul parce qu'on le lui
+**interdit** (voir ci-dessus), donc l'application doit le rendre, gouverné par le geste. Les deux axes
+sont traités : au zoom par défaut sur un écran de 390 px la partition ne déborde qu'en **hauteur** et
+tient une mesure par système, si bien qu'englober plusieurs mesures veut dire descendre ; dès le
+zoom 12, ou avec un nombre de mesures par ligne imposé, elle déborde aussi en **largeur** et le
+défilement latéral prend le relais. L'aperçu se recalcule à chaque pas : le doigt ne bouge pas, mais la
+musique bouge sous lui.
 
 **La prise des poignées fait la taille d'un doigt** — 44 × 45 px, mesurés par balayage. Un correctif
 antérieur visait déjà « le minimum tactile appliqué partout ailleurs » sans le vérifier : il donnait

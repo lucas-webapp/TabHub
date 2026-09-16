@@ -2368,6 +2368,7 @@ class TabHubApp {
         this.el.zone.addEventListener('pointerdown', () => this.el.zone.focus());
         this.brancherZoomGeste();
         this.brancherSurvolBoucle();
+        this.brancherPriseBoucleTactile();
         let attenteDefilement = false;
         this.el.zone.addEventListener('scroll', () => {
             if (attenteDefilement) return;
@@ -3359,12 +3360,25 @@ class TabHubApp {
     defilementAuBord(rappel) {
         const zone = this.el.zone;
         const MARGE = 64;          // px depuis le bord où le défilement s'amorce
-        const VITESSE_MAX = 24;    // px par image, atteinte collé au bord
+        // LENTEMENT, et c'est une demande explicite (« la partition doit défiler lentement pour que
+        // je puisse continuer à étirer »). La première version montait à 24 px par image, soit
+        // ~1270 px/s mesurés : sur un téléphone où une mesure fait 200 à 400 px, cela traversait
+        // trois à six mesures par seconde — impossible à doser, on dépassait sa cible avant de
+        // pouvoir lever le doigt. À 9 px par image on parcourt ~540 px/s, soit une à deux mesures
+        // par seconde : on voit passer les barres de mesure et on s'arrête où l'on veut.
+        const VITESSE_MAX = 9;
         let dernier = null, anim = null;
         const depassement = (p, min, max) => (p < min + MARGE ? p - (min + MARGE)
             : (p > max - MARGE ? p - (max - MARGE) : 0));
-        const vitesse = (d) => (d === 0 ? 0
-            : Math.sign(d) * Math.min(VITESSE_MAX, (Math.abs(d) / MARGE) * VITESSE_MAX));
+        // RAMPE AU CARRÉ plutôt que linéaire : sur la plus grande partie de la marge le défilement
+        // reste très lent, et n'atteint sa pleine vitesse qu'au ras du bord. C'est ce qui rend le
+        // réglage possible au doigt — avec une rampe linéaire, la moitié de la marge donnait déjà la
+        // moitié de la vitesse maximale, trop rapide pour viser.
+        const vitesse = (d) => {
+            if (d === 0) return 0;
+            const part = Math.min(1, Math.abs(d) / MARGE);
+            return Math.sign(d) * Math.max(0.5, part * part * VITESSE_MAX);
+        };
         const pas = () => {
             anim = null;
             if (!dernier) return;
@@ -3575,6 +3589,46 @@ class TabHubApp {
     }
 
     /**
+     * RÉCLAME LA SÉQUENCE DE TOUCHER DÈS `touchstart`, quand le doigt se pose DANS LA BANDE.
+     *
+     * LE DÉFAUT, SIGNALÉ TROIS FOIS ET TOUJOURS PAS RÉGLÉ : « je ne peux pas l'étirer car c'est
+     * l'écran avec la portée qui bouge et qui réagit aux mouvements de mon doigt […] j'appuie et je
+     * glisse pour étirer la barre, et le logiciel comprend que j'ajoute une barre, puis que je
+     * scrolle horizontalement sur la portée ». Cette description dit exactement ce qui se passe, et
+     * dans le bon ordre — c'est elle qui a permis de trouver la cause.
+     *
+     * POURQUOI LES DEUX FILETS PRÉCÉDENTS NE SUFFISENT PAS. Il y en avait déjà deux :
+     *   • `touch-action: none` sur les `<rect>` de la bande — non honoré par WebKit sur du SVG,
+     *     c'était déjà écrit ici ;
+     *   • un `touchmove` non passif posé depuis `pointerdown` (_bloquerDefilementPendantGeste).
+     * Le second arrive TROP TARD, et c'est le point qui manquait : `pointerdown` est émis APRÈS
+     * `touchstart`, et un navigateur mobile décide de défiler DÈS `touchstart` dès que `touch-action`
+     * le lui permet. Le défilement part alors sur le thread de composition, où un `preventDefault`
+     * ultérieur ne l'atteint plus. Le seul instant où l'on peut réclamer une séquence de toucher
+     * entière, c'est `touchstart` lui-même.
+     *
+     * ET C'EST EXACTEMENT CE QUE DEMANDE L'UTILISATEUR : « lorsque je suis dans la zone de la bande,
+     * seule la barre orangée doit pouvoir réagir avec un étirement ». D'où la condition — on ne
+     * réclame le toucher QUE dans la bande ou sur une poignée. Partout ailleurs sur la partition, un
+     * doigt continue de faire défiler normalement : un `preventDefault` inconditionnel ici
+     * paralyserait la lecture du morceau au doigt, ce qui serait bien pire.
+     *
+     * UN SEUL DOIGT : deux doigts sont un pincement de zoom (voir brancherZoomGeste), qui a ses
+     * propres écouteurs et ne doit pas se voir confisquer son geste par la bande.
+     */
+    brancherPriseBoucleTactile() {
+        const feuille = this.el.feuille;
+        if (!feuille) return;
+        feuille.addEventListener('touchstart', (e) => {
+            if (e.touches.length !== 1) return;
+            const t = e.touches[0];
+            const dansLaBande = this.poigneeBoucleAuPoint(t.clientX, t.clientY)
+                || this.mesureDansBandeBoucle(t.clientX, t.clientY) != null;
+            if (dansLaBande) e.preventDefault();
+        }, { passive: false });
+    }
+
+    /**
      * CAPTURE LE POINTEUR SUR UN ÉLÉMENT STABLE pour toute la durée d'un geste — et rend de quoi la
      * relâcher.
      *
@@ -3661,15 +3715,19 @@ class TabHubApp {
             // `_gesteBoucle` dans marquesBoucle), l'aperçu est seul à l'écran.
             this.poserBornesCalees(ancre.position, ici.position, { redessiner: false });
         };
-        const surRelache = () => {
+        // RANGEMENT COMMUN aux trois façons de finir : doigt levé, geste annulé, ou pointeur perdu.
+        const detacher = () => {
             relacherCapture();
             debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
-            window.removeEventListener('pointercancel', surRelache);
+            window.removeEventListener('pointercancel', surAnnulation);
             defilement.arreter();
             this.poserApercuBoucle([]);
             this._gesteBoucle = false;
+        };
+        const surRelache = () => {
+            detacher();
             if (bouge && derniere) {
                 this.poserBornesCalees(ancre.position, derniere.position);
             } else if (!bouge) {
@@ -3684,9 +3742,28 @@ class TabHubApp {
             }
             this.el.zone.focus();
         };
+        /**
+         * UN POINTEUR ANNULÉ N'EST PAS UN APPUI, et c'est le défaut exact que l'utilisateur
+         * décrivait : « j'appuie et je glisse pour étirer la barre, et le logiciel comprend que
+         * j'ajoute une barre, puis que je scrolle horizontalement ».
+         *
+         * `pointercancel` est précisément ce que le navigateur émet quand il s'emparre du geste pour
+         * défiler — et il l'émet souvent AVANT que le seuil de 6px soit franchi, donc avec
+         * `bouge` encore faux. L'ancienne version branchait le MÊME `surRelache` sur `pointerup` et
+         * sur `pointercancel` : l'annulation tombait donc dans la branche « tap immobile » et posait
+         * une boucle d'une mesure que personne n'avait demandée, juste avant que l'écran se mette à
+         * glisser. Les deux moitiés de la phrase de l'utilisateur, dans l'ordre.
+         *
+         * Un geste avorté ne laisse donc AUCUNE trace nouvelle. S'il avait déjà bougé, en revanche,
+         * on garde la plage déjà posée pendant le glisser : c'est ce que l'utilisateur voyait à
+         * l'écran, et la lui retirer serait une seconde surprise.
+         * (demarrerGesteTactile faisait déjà cette distinction, avec son `surAnnulation` à part —
+         * elle manquait ici, et nulle part ailleurs.)
+         */
+        const surAnnulation = () => { detacher(); this.el.zone.focus(); };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
-        window.addEventListener('pointercancel', surRelache);
+        window.addEventListener('pointercancel', surAnnulation);
     }
 
     /**
@@ -3742,22 +3819,28 @@ class TabHubApp {
             defilement.suivre(ev);
             rafraichir({ x: ev.clientX, y: ev.clientY });
         };
-        const surRelache = () => {
+        const detacher = () => {
             relacherCapture();
             debloquer();
             window.removeEventListener('pointermove', surMouvement);
             window.removeEventListener('pointerup', surRelache);
-            window.removeEventListener('pointercancel', surRelache);
+            window.removeEventListener('pointercancel', surAnnulation);
             defilement.arreter();
             this.poserApercuBoucle([]);
             this._gesteBoucle = false;
+        };
+        const surRelache = () => {
+            detacher();
             if (derniere) this.poserBornesCalees(positionFixe, buter(derniere.position));
             else this.dessiner();
             this.el.zone.focus();
         };
+        // Même distinction qu'à demarrerGesteBoucle, et pour la même raison exactement (voir sa
+        // docblock) : un geste que le navigateur annule ne doit rien décider à notre place.
+        const surAnnulation = () => { detacher(); this.dessiner(); this.el.zone.focus(); };
         window.addEventListener('pointermove', surMouvement);
         window.addEventListener('pointerup', surRelache);
-        window.addEventListener('pointercancel', surRelache);
+        window.addEventListener('pointercancel', surAnnulation);
     }
 
     /**
