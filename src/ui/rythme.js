@@ -2,8 +2,8 @@
 //
 // POURQUOI ELLE EXISTE. Retour utilisateur : « des fois j'ai des difficultés à écrire la partition à
 // cause du rythme ». La saisie de TabHub demande de NOMMER une durée avant d'écrire une note — noire ?
-// croche pointée ? — et c'est un acte de vocabulaire, pas de musique. Ici on place des barres, et la
-// vraie écriture s'affiche à côté, avec ses figures, ses silences et ses ligatures.
+// croche pointée ? — et c'est un acte de vocabulaire, pas de musique. Ici on pose des notes sur une
+// grille, et la vraie écriture s'affiche à côté, avec ses figures, ses silences et ses ligatures.
 //
 // CE QU'ELLE N'EST PAS, et c'est ce qui la rend sûre : ce n'est PAS une seconde surface d'édition.
 // Elle ne connaît ni hauteurs, ni effets, ni voix multiples. Elle produit une suite de DURÉES, que
@@ -16,29 +16,40 @@
 // de dessin ici. Les triolets y arrivent avec leur chiffre, les croches pointées avec leur ligature
 // et les silences avec le bon glyphe, parce que c'est le même moteur que la partition.
 //
-// LA GRILLE. Une mesure se divise en TEMPS (voir uniteDeGroupement), chaque temps en 2, 3 ou 4
-// CELLULES — jamais plus (pas de triples-croches, décidé avec l'utilisateur). La subdivision se
-// choisit temps par temps, en cliquant son en-tête : c'est le cas courant d'un morceau binaire avec
-// un seul temps en triolet, et c'est justement celui qu'on n'arrive pas à écrire à la main.
-
-// LA PARTIE PURE EST DANS `model/rythme.js` — grille, conversion en figures, partition d'aperçu —
-// parce que l'import MIDI s'en sert aussi (voir là-bas). Elle est REEXPORTÉE ici pour que l'interface
-// n'ait qu'une adresse à connaître : `main.js` fait `import * as Rythme from './ui/rythme.js'` et
-// trouve tout, le dessin comme le calcul.
+// LA GRILLE, TELLE QU'ELLE EST MAINTENANT — et chaque trait répond à un reproche précis :
+//
+//   • UNE GRILLE CONTINUE, plus une suite de boîtes. Chaque temps était encadré pour porter un
+//     en-tête cliquable ; il en résultait quatre compartiments par mesure (« ne pas autant
+//     compartimenter chaque temps »). Le temps se lit désormais à un simple trait plus marqué, et
+//     à son NUMÉRO écrit dessous.
+//   • UNE NOTE TENUE EST UNE PILULE : une seule forme arrondie posée PAR-DESSUS les cases, avec un
+//     repère d'attaque à son début. C'était une file de carrés accolés, chacun avec ses coins
+//     (« l'étirement des notes fait une forme bizarre »). Les cases restent dessous et gardent les
+//     clics : la pilule n'est que du dessin (`pointer-events: none` en CSS).
+//   • LA SUBDIVISION EST GLOBALE, binaire ou ternaire, et se règle en un mot plutôt qu'en cliquant
+//     un « 4 » énigmatique au-dessus de chaque temps (voir model/rythme.js#SUBDIVISIONS, qui
+//     raconte pourquoi le « 2 » a disparu).
+//   • DEUX MESURES PAR RANGÉE, les suivantes en dessous.
+//
+// LA PARTIE PURE EST DANS `model/rythme.js` — grille, courses, conversion en figures, partition
+// d'aperçu — parce que l'import MIDI s'en sert aussi (voir là-bas). Elle est REEXPORTÉE ici pour que
+// l'interface n'ait qu'une adresse à connaître : `main.js` fait
+// `import * as Rythme from './ui/rythme.js'` et trouve tout, le dessin comme le calcul.
 export * from '../model/rythme.js';
 
 import { mettreEnPage } from '../engine/layout.js';
-import { flecheOutilsSvg, ajusterFleches } from './toolbar.js';
 import { rendreSvg } from '../render/svg.js';
-import { partitionApercu, aplatirCellules, SUBDIVISIONS, VIDE, ATTAQUE, TENUE, changerSubdivision,
-         basculerCellule, etirerCellule } from '../model/rythme.js';
+import { partitionApercu, colonnesDeMesure, coursesDeMesure, courseA, poserCourse,
+         effacerCourse, deplacerCourse, colonneAuTemps } from '../model/rythme.js';
 
 /**
  * Dessine l'aperçu dans `hote` : la vraie écriture du rythme, portée seule.
+ * @param {object|string} source le MORCEAU (pour son instrument, son accordage et sa tonique), ou un
+ *   identifiant d'instrument — voir model/rythme.js#partitionApercu.
  * @returns {object} la page mise en page, pour que l'appelant puisse en lire la hauteur.
  */
-export function dessinerApercu(hote, etat, instrumentId, ternaire, largeur) {
-    const p = partitionApercu(etat, instrumentId, ternaire);
+export function dessinerApercu(hote, etat, source, ternaire, largeur) {
+    const p = partitionApercu(etat, source, ternaire);
     const page = mettreEnPage(p, {
         S: 10,
         largeurPage: Math.max(320, largeur),
@@ -65,175 +76,301 @@ export function dessinerApercu(hote, etat, instrumentId, ternaire, largeur) {
 // « une dépendance ne remonte jamais ») et que main.js n'a pas à grossir d'une seconde grille.
 // ---------------------------------------------------------------------------------------------
 
+/** Deux mesures par rangée, les suivantes en dessous — demande explicite de l'utilisateur :
+ *  « 2 mesures doivent s'enchainer horizontalement. Si j'en ai plus, les mettre effectivement
+ *  en-dessous ». Deux, et pas trois : au-delà, seize cases par mesure ne laissent plus de quoi
+ *  viser une double-croche au doigt. */
+export const MESURES_PAR_RANGEE = 2;
+
+/** Au-delà de ce déplacement, un geste n'est plus un clic. Assez pour absorber le tremblement d'un
+ *  doigt, assez peu pour qu'un vrai glissement soit reconnu tout de suite. */
+const SEUIL_GESTE = 6;
+
 /**
- * Construit la grille et branche les gestes. Rend une fonction de rafraîchissement, pour que
- * l'appelant redessine après avoir changé l'état sans reconstruire tout le DOM.
+ * Construit la grille et branche les gestes. Rend un objet de commande, pour que l'appelant
+ * redessine ou déplace la tête de lecture sans reconstruire tout le DOM.
  *
- * DEUX GESTES SEULEMENT, et le second est celui qui compte :
- *   • un CLIC pose ou retire une attaque ;
- *   • un GLISSER depuis une cellule étire la note sur celles qu'il traverse — c'est ainsi qu'on dit
- *     « cette note dure trois cases » sans jamais nommer une figure. C'est le geste que cette fenêtre
- *     existe pour offrir.
+ * LES GESTES, et ils tiennent en une phrase : on clique une case vide pour poser une note, on
+ * clique une note pour l'enlever, on tire ses bords pour l'allonger ou la raccourcir, on tire son
+ * corps pour la déplacer dans le temps. Demande de l'utilisateur : « me permettre d'étirer les
+ * notes, de les supprimer plus facilement ». Repris du séquenceur de HarmoHub (onSeqPointerDown /
+ * beginSeqResize / beginSeqHDrag), mais SANS sa sélection multiple, son changement de voix ni sa
+ * duplication : ici une grille n'a qu'une seule ligne, et « une version simplifiée » était la
+ * consigne.
  *
- * Le clic sur l'EN-TÊTE d'un temps fait défiler sa subdivision (2 → 3 → 4 → 2). Un temps en trois est
- * un triolet : c'est le cas qu'on n'écrit pas à la main, et il est à un clic.
+ * @param {HTMLElement} hote l'élément qui accueille la grille.
+ * @param {object} etat voir model/rythme.js#etatInitial.
+ * @param {{surChangement?:Function}} options `surChangement` est appelé après chaque modification.
  */
 export function construireGrille(hote, etat, { surChangement } = {}) {
-    let geste = null;   // { iTemps, iCell, indexPlat } pendant un glisser
+    let geste = null;
 
-    // DEUX FLÈCHES DE DÉFILEMENT, et c'est le `touch-action: none` des cellules qui les impose : un
-    // doigt posé sur une case y pose une note, il ne peut donc pas faire glisser la grille. Sur un
-    // téléphone, une mesure de 4/4 en doubles-croches (seize cases de 26px) est plus large que
-    // l'écran : sans ces flèches, ses dernières cases étaient tout simplement inatteignables.
-    //
-    // LES MÊMES FLÈCHES QUE LA BARRE D'OUTILS, jusqu'à la fonction qui décide de les montrer
-    // (ajusterFleches, importée de ui/toolbar.js) : elle porte un correctif qu'on ne veut surtout pas
-    // réécrire ici — une flèche `sticky` est EN FLUX, donc ses 26px comptent dans `scrollWidth`, et
-    // le test naïf « ça déborde » se mesurait lui-même (voir là-bas, le fil qui se tient par ses
-    // propres 7px). Deux copies de ce raisonnement finiraient par ne plus dire la même chose.
-    const PAS = 120;   // un peu moins d'un temps en doubles-croches : on ne saute pas une mesure entière
-    const fleche = (sens) => {
-        const b = document.createElement('button');
-        b.type = 'button';
-        b.className = `fleche-outils fleche-outils-${sens}`;
-        b.innerHTML = flecheOutilsSvg(sens);
-        b.title = sens === 'gauche' ? 'Défiler la grille vers la gauche' : 'Défiler la grille vers la droite';
-        b.setAttribute('aria-label', b.title);
-        b.addEventListener('click', () => hote.scrollBy({ left: sens === 'gauche' ? -PAS : PAS, behavior: 'smooth' }));
-        return b;
-    };
-    const flecheGauche = fleche('gauche');
-    const flecheDroite = fleche('droite');
-    // LES MESURES DANS UN ENFANT : l'hôte devient une rangée (les deux flèches et ce bloc), le bloc
-    // garde l'empilement vertical des mesures. Sans cet enfant, les flèches se rangeraient au-dessus
-    // et en dessous des mesures au lieu de les encadrer.
     const pile = document.createElement('div');
-    pile.className = 'mesures-rythme';
+    pile.className = 'rangees-rythme';
     hote.innerHTML = '';
-    hote.append(flecheGauche, pile, flecheDroite);
-    const rafraichirFleches = () => ajusterFleches(hote, flecheGauche, flecheDroite);
-    hote.addEventListener('scroll', rafraichirFleches, { passive: true });
-    // REMESURER QUAND LA TAILLE CHANGE, et pas seulement au défilement. La grille est CONSTRUITE
-    // pendant que la fenêtre est encore masquée : toutes ses largeurs valent alors zéro, « rien ne
-    // déborde », et les flèches restaient éteintes devant une grille qui débordait pourtant dès
-    // l'ouverture (mesuré : 184px hors écran sur un téléphone de 390px, aucune flèche). Un
-    // observateur de taille couvre l'ouverture, la rotation de l'écran et le redimensionnement de la
-    // fenêtre d'un seul mécanisme — plutôt qu'un appel à ne pas oublier chez l'appelant.
-    // Pas de boucle à craindre : montrer une flèche change le `scrollWidth` du défilé, jamais la
-    // boîte de l'hôte, seule chose que cet observateur regarde.
-    if (typeof ResizeObserver === 'function') new ResizeObserver(rafraichirFleches).observe(hote);
-    // Molette verticale -> défilement horizontal, comme dans la barre d'outils : une molette
-    // ordinaire ne connaît que le vertical, et la grille n'a rien à défiler verticalement.
-    hote.addEventListener('wheel', (e) => {
-        if (e.ctrlKey) return;   // un zoom, pas un défilement — même raison que dans la barre d'outils
-        if (Math.abs(e.deltaY) <= Math.abs(e.deltaX)) return;
-        hote.scrollLeft += e.deltaY;
-        e.preventDefault();
-    }, { passive: false });
+    hote.appendChild(pile);
 
-    const indexPlat = (iTemps, iCell) => {
-        let n = 0;
-        for (let t = 0; t < iTemps; t++) n += etat.temps[t].cellules.length;
-        return n + iCell;
+    /** La case sous un point, avec sa mesure et sa colonne — `null` ailleurs. */
+    const caseAuPoint = (x, y) => {
+        const el = document.elementFromPoint(x, y);
+        const b = el?.closest?.('[data-colonne]');
+        if (!b || !hote.contains(b)) return null;
+        return { mesure: Number(b.dataset.mesure), colonne: Number(b.dataset.colonne), el: b };
     };
 
-    const rafraichir = () => {
-        for (const bouton of pile.querySelectorAll('[data-cell]')) {
-            const t = Number(bouton.dataset.temps), c = Number(bouton.dataset.cell);
-            const e = etat.temps[t]?.cellules[c];
-            bouton.classList.toggle('attaque', e === ATTAQUE);
-            bouton.classList.toggle('tenue', e === TENUE);
-            bouton.setAttribute('aria-pressed', String(e !== VIDE));
+    // -----------------------------------------------------------------------------------------
+    // CONSTRUCTION
+    // -----------------------------------------------------------------------------------------
+    const construireMesure = (m) => {
+        const cols = colonnesDeMesure(etat, m);
+        const bloc = document.createElement('div');
+        bloc.className = 'mesure-seq';
+        bloc.dataset.mesure = String(m);
+        // Une seule variable pilote toute la géométrie : les cases, la réglette des temps et la
+        // pilule partagent le MÊME découpage en colonnes, donc ne peuvent pas se désaligner.
+        bloc.style.setProperty('--cases', String(cols.length));
+
+        const num = document.createElement('span');
+        num.className = 'num-mesure-seq';
+        num.textContent = String(m + 1);
+        bloc.appendChild(num);
+
+        const piste = document.createElement('div');
+        piste.className = 'piste-seq';
+
+        // LES CASES — le fond, et c'est LUI qui reçoit les clics : la pilule posée par-dessus est
+        // transparente aux pointeurs, sans quoi cliquer une note ne toucherait aucune case.
+        cols.forEach((c, i) => {
+            const b = document.createElement('div');
+            b.className = 'case-seq' + (c.iCell === 0 ? ' debut-temps' : '');
+            b.dataset.mesure = String(m);
+            b.dataset.colonne = String(i);
+            b.style.gridColumn = String(i + 1);
+            b.setAttribute('role', 'button');
+            b.setAttribute('aria-label',
+                `Mesure ${m + 1}, temps ${Math.floor(i / c.sub) + 1}, case ${c.iCell + 1}`);
+            piste.appendChild(b);
+        });
+
+        // LA TÊTE DE LECTURE — une colonne entière, masquée tant que rien ne joue. Une colonne
+        // plutôt qu'un trait : sur une case déjà colorée, un trait se perd (même raison que
+        // .seq-playhead dans HarmoHub).
+        const tete = document.createElement('div');
+        tete.className = 'tete-seq';
+        tete.hidden = true;
+        piste.appendChild(tete);
+        bloc.appendChild(piste);
+
+        // LES NUMÉROS DE TEMPS, SOUS les cases — demande de l'utilisateur, et ils remplacent
+        // l'en-tête cliquable qui compartimentait la grille. Chaque numéro s'étend sur les cases
+        // de SON temps, donc se centre naturellement dessus quelle que soit la subdivision.
+        const reglette = document.createElement('div');
+        reglette.className = 'temps-seq';
+        let i = 0, noTemps = 1;
+        while (i < cols.length) {
+            const sub = cols[i].sub;
+            const t = document.createElement('span');
+            t.className = 'num-temps';
+            t.style.gridColumn = `${i + 1} / span ${sub}`;
+            t.textContent = String(noTemps);
+            reglette.appendChild(t);
+            i += sub;
+            noTemps++;
         }
-        for (const entete of pile.querySelectorAll('[data-sub]')) {
-            const t = Number(entete.dataset.sub);
-            entete.textContent = String(etat.temps[t]?.sub ?? 4);
-        }
+        bloc.appendChild(reglette);
+        return bloc;
     };
 
     const construire = () => {
         pile.innerHTML = '';
-        for (let m = 0; m < etat.nMesures; m++) {
-            const ligne = document.createElement('div');
-            ligne.className = 'mesure-rythme';
-            const num = document.createElement('span');
-            num.className = 'numero-mesure-rythme';
-            num.textContent = String(m + 1);
-            ligne.appendChild(num);
-            etat.temps.forEach((t, iTemps) => {
-                if (t.mesure !== m) return;
-                const bloc = document.createElement('div');
-                bloc.className = 'temps-rythme';
-                const entete = document.createElement('button');
-                entete.type = 'button';
-                entete.className = 'entete-temps';
-                entete.dataset.sub = String(iTemps);
-                entete.title = 'Subdivision de ce temps : 2 (croches), 3 (triolet) ou 4 (doubles-croches) — cliquez pour changer';
-                entete.setAttribute('aria-label', entete.title);
-                entete.addEventListener('click', () => {
-                    const suivant = SUBDIVISIONS[(SUBDIVISIONS.indexOf(t.sub) + 1) % SUBDIVISIONS.length];
-                    changerSubdivision(etat, iTemps, suivant);
-                    construire();
-                    surChangement?.();
-                });
-                bloc.appendChild(entete);
-                const rangee = document.createElement('div');
-                rangee.className = 'cellules-temps';
-                t.cellules.forEach((_, iCell) => {
-                    const b = document.createElement('button');
-                    b.type = 'button';
-                    b.className = 'cellule-rythme';
-                    b.dataset.temps = String(iTemps);
-                    b.dataset.cell = String(iCell);
-                    b.setAttribute('aria-label', `Mesure ${m + 1}, temps ${iTemps % etat.tempsParMesure + 1}, case ${iCell + 1}`);
-                    rangee.appendChild(b);
-                });
-                bloc.appendChild(rangee);
-                ligne.appendChild(bloc);
-            });
-            pile.appendChild(ligne);
+        for (let m = 0; m < etat.nMesures; m += MESURES_PAR_RANGEE) {
+            const rangee = document.createElement('div');
+            rangee.className = 'rangee-rythme';
+            for (let k = 0; k < MESURES_PAR_RANGEE && m + k < etat.nMesures; k++) {
+                rangee.appendChild(construireMesure(m + k));
+            }
+            pile.appendChild(rangee);
         }
         rafraichir();
-        // Après reconstruction, la largeur a changé (une subdivision qui passe de 2 à 4 double les
-        // cases d'un temps) : les flèches se remesurent, sinon elles resteraient éteintes devant une
-        // grille qui vient de déborder.
-        rafraichirFleches();
     };
 
-    // UN SEUL BRANCHEMENT, PAR DÉLÉGATION sur l'hôte : la grille se reconstruit à chaque changement
-    // de subdivision, et rebrancher chaque cellule à chaque fois finirait par en oublier une.
+    // -----------------------------------------------------------------------------------------
+    // RAFRAÎCHISSEMENT — les pilules seules sont refaites ; les cases, jamais.
+    //
+    // Reconstruire les cases à chaque mouvement de pointeur perdrait la capture en cours et ferait
+    // clignoter la grille. Les pilules, elles, sont du pur dessin : les jeter et les redessiner est
+    // exactement ce qu'il faut.
+    // -----------------------------------------------------------------------------------------
+    const rafraichir = () => {
+        for (const bloc of pile.querySelectorAll('.mesure-seq')) {
+            const m = Number(bloc.dataset.mesure);
+            const piste = bloc.querySelector('.piste-seq');
+            const courses = coursesDeMesure(etat, m);
+
+            for (const vieille of piste.querySelectorAll('.note-seq')) vieille.remove();
+            for (const { debut, fin } of courses) {
+                const longue = fin > debut;
+                const note = document.createElement('div');
+                note.className = 'note-seq' + (longue ? ' tenue' : '');
+                note.style.gridColumn = `${debut + 1} / span ${fin - debut + 1}`;
+                note.dataset.debut = String(debut);
+                note.dataset.fin = String(fin);
+                // REPÈRE D'ATTAQUE : une fine bande plus claire au tout début de la pilule, pour
+                // distinguer d'un coup d'œil où la note est PINCÉE de sa partie tenue. Inutile sur
+                // une note d'une seule case — il n'y a rien à y distinguer.
+                if (longue) {
+                    const a = document.createElement('span');
+                    a.className = 'attaque-seq';
+                    note.appendChild(a);
+                }
+                piste.appendChild(note);
+            }
+
+            // Les cases portent l'état pour le CSS (le curseur d'étirement sur les bords) et pour
+            // les lecteurs d'écran.
+            for (const b of piste.querySelectorAll('[data-colonne]')) {
+                const i = Number(b.dataset.colonne);
+                const c = courses.find(x => i >= x.debut && i <= x.fin);
+                b.classList.toggle('occupee', !!c);
+                b.classList.toggle('bord-gauche', !!c && c.fin > c.debut && i === c.debut);
+                b.classList.toggle('bord-droit', !!c && i === c.fin);
+                b.setAttribute('aria-pressed', String(!!c));
+            }
+        }
+    };
+
+    // -----------------------------------------------------------------------------------------
+    // LA TÊTE DE LECTURE
+    // -----------------------------------------------------------------------------------------
+    /** Allume la colonne où tombe `position` (en noires depuis le début de la grille), ou éteint
+     *  tout si `position` vaut `null`. */
+    const poserTete = (position) => {
+        const cible = position == null ? null : colonneAuTemps(etat, position);
+        for (const bloc of pile.querySelectorAll('.mesure-seq')) {
+            const m = Number(bloc.dataset.mesure);
+            const tete = bloc.querySelector('.tete-seq');
+            if (!tete) continue;
+            if (!cible || cible.mesure !== m) { tete.hidden = true; continue; }
+            tete.hidden = false;
+            tete.style.gridColumn = String(cible.colonne + 1);
+        }
+    };
+
+    // -----------------------------------------------------------------------------------------
+    // LES GESTES — un seul branchement, par délégation sur l'hôte
+    //
+    // La grille se reconstruit quand la subdivision ou le nombre de mesures change ; rebrancher
+    // chaque case à chaque fois finirait par en oublier une.
+    // -----------------------------------------------------------------------------------------
     hote.addEventListener('pointerdown', (ev) => {
-        const b = ev.target.closest('[data-cell]');
-        if (!b) return;
+        if (ev.button === 2) return;            // le clic droit a son propre traitement, plus bas
+        const c = caseAuPoint(ev.clientX, ev.clientY);
+        if (!c) return;
         ev.preventDefault();
-        const iTemps = Number(b.dataset.temps), iCell = Number(b.dataset.cell);
-        geste = { iTemps, iCell, depart: indexPlat(iTemps, iCell), etire: false };
-        b.setPointerCapture?.(ev.pointerId);
+        const course = courseA(etat, c.mesure, c.colonne);
+        // QUEL GESTE ? Sur une case vide, on peint. Sur une note, le BORD étire et le CORPS déplace.
+        //
+        // LE CAS DE LA NOTE D'UNE SEULE CASE, qui n'a ni corps ni deux bords distincts. Une première
+        // version lui donnait d'office son « bord droit », au motif que l'allonger est le geste qu'on
+        // vient chercher — mais glisser une telle note vers la GAUCHE l'allongeait alors vers la
+        // droite, ce qui se lit comme un défaut (mesuré en la déplaçant de deux cases : elle
+        // s'étirait au lieu de bouger). Elle prend donc son bord DANS LE SENS DU GESTE, décidé au
+        // premier vrai mouvement : on la tire à droite, elle grandit à droite ; on la tire à gauche,
+        // elle grandit à gauche. Aucune surprise dans les deux cas.
+        //
+        // CE QU'ON NE PEUT PAS FAIRE, et c'est assumé : DÉPLACER une note d'une seule case, faute de
+        // corps à saisir. Un clic l'enlève et un clic la repose ailleurs — deux clics, contre un
+        // glissement qui aurait fatalement été ambigu avec l'étirement.
+        let mode = 'peindre';
+        if (course) {
+            const seule = course.fin === course.debut;
+            if (seule) mode = 'bordSelonLeSens';
+            else if (c.colonne === course.debut) mode = 'bordGauche';
+            else if (c.colonne === course.fin) mode = 'bordDroit';
+            else mode = 'deplacer';
+        }
+        geste = { mode, course, mesure: c.mesure, colonne: c.colonne,
+                  x0: ev.clientX, y0: ev.clientY, bouge: false };
+        // La capture garde le geste sur cette case même si le doigt sort de la grille. Elle jette
+        // quand le pointeur n'est plus actif (il a déjà été relâché, ou l'évènement est synthétique
+        // comme dans un banc d'essai) : l'échec est sans conséquence — `geste` est déjà posé et
+        // `caseAuPoint` retrouve la case traversée sans elle — mais une exception ici tuerait le
+        // reste du gestionnaire.
+        try { c.el.setPointerCapture?.(ev.pointerId); } catch (e) { /* pointeur déjà relâché */ }
     });
+
     hote.addEventListener('pointermove', (ev) => {
         if (!geste) return;
+        if (!geste.bouge) {
+            if (Math.hypot(ev.clientX - geste.x0, ev.clientY - geste.y0) < SEUIL_GESTE) return;
+            geste.bouge = true;
+            // Le sens ne se décide qu'ICI, au premier vrai mouvement : au `pointerdown` il n'existe
+            // pas encore. Une fois choisi il ne change plus, sinon la note rebondirait d'un bord à
+            // l'autre en revenant sur ses pas.
+            if (geste.mode === 'bordSelonLeSens') {
+                geste.mode = ev.clientX < geste.x0 ? 'bordGauche' : 'bordDroit';
+            }
+        }
         // `elementFromPoint` plutôt que `ev.target` : avec la capture du pointeur, la cible reste la
-        // cellule de DÉPART pendant tout le glisser — on ne saurait jamais qu'on en a traversé d'autres.
-        const sous = document.elementFromPoint(ev.clientX, ev.clientY);
-        const b = sous?.closest?.('[data-cell]');
-        if (!b || !hote.contains(b)) return;
-        const jusqua = indexPlat(Number(b.dataset.temps), Number(b.dataset.cell));
-        if (jusqua <= geste.depart) return;
-        geste.etire = true;
-        etirerCellule(etat, geste.iTemps, geste.iCell, jusqua - geste.depart + 1);
+        // case de DÉPART pendant tout le glissement — on ne saurait jamais qu'on en a traversé
+        // d'autres.
+        const c = caseAuPoint(ev.clientX, ev.clientY);
+        // ON RESTE DANS SA MESURE. Une note appartient à une mesure : la laisser glisser dans la
+        // suivante demanderait de décider ce qu'elle devient à cheval sur la barre, et toute réponse
+        // serait une surprise. Un geste qui sort est ignoré, la note reste où elle est.
+        if (!c || c.mesure !== geste.mesure) return;
+
+        if (geste.mode === 'peindre') {
+            poserCourse(etat, geste.mesure, geste.colonne, c.colonne);
+        } else if (geste.mode === 'bordDroit') {
+            poserCourse(etat, geste.mesure, geste.course.debut, Math.max(geste.course.debut, c.colonne));
+        } else if (geste.mode === 'bordGauche') {
+            effacerCourse(etat, geste.mesure, geste.course.debut);
+            poserCourse(etat, geste.mesure, Math.min(c.colonne, geste.course.fin), geste.course.fin);
+        } else {
+            deplacerCourse(etat, geste.mesure, geste.course.debut, c.colonne - geste.colonne);
+            // La course a bougé : le geste la suit, sinon le mouvement suivant repartirait de
+            // l'ancien emplacement et la note ferait des bonds.
+            const bougee = courseA(etat, geste.mesure, c.colonne);
+            if (bougee) { geste.course = bougee; geste.colonne = c.colonne; }
+        }
         rafraichir();
         surChangement?.();
     });
+
     const finir = () => {
         if (!geste) return;
-        // Un glisser qui n'a traversé aucune autre cellule EST un clic : c'est le même geste au doigt,
-        // où l'on bouge toujours de deux ou trois pixels sans le vouloir.
-        if (!geste.etire) { basculerCellule(etat, geste.iTemps, geste.iCell); rafraichir(); surChangement?.(); }
+        const g = geste;
         geste = null;
+        // UN GESTE QUI N'A PAS BOUGÉ EST UN CLIC : on pose sur une case vide, on enlève sur une
+        // note. C'est le même geste au doigt, où l'on remue toujours de deux ou trois pixels sans
+        // le vouloir — d'où le seuil plutôt qu'une égalité stricte.
+        if (g.bouge) return;
+        if (g.mode === 'peindre') poserCourse(etat, g.mesure, g.colonne, g.colonne);
+        else effacerCourse(etat, g.mesure, g.colonne);
+        rafraichir();
+        surChangement?.();
     };
     hote.addEventListener('pointerup', finir);
-    hote.addEventListener('pointercancel', finir);
+    // `pointercancel` N'EST PAS UN CLIC : c'est ce qu'émet un navigateur quand il confisque le geste
+    // (un défilement qui démarre), souvent AVANT le seuil de mouvement — donc avec `bouge` encore
+    // faux. Le traiter comme un relâchement poserait une note que personne n'a demandée. C'est
+    // exactement le défaut qu'avait la bande de boucle (voir main.js, tâche « pointercancel »).
+    hote.addEventListener('pointercancel', () => { geste = null; });
+
+    // LE CLIC DROIT EFFACE, sur ordinateur : un second chemin pour supprimer, celui qu'on essaie
+    // spontanément. Sur une case vide il ne fait rien — plutôt que d'ouvrir le menu du navigateur
+    // au milieu d'une grille.
+    hote.addEventListener('contextmenu', (ev) => {
+        const c = caseAuPoint(ev.clientX, ev.clientY);
+        if (!c) return;
+        ev.preventDefault();
+        if (!courseA(etat, c.mesure, c.colonne)) return;
+        effacerCourse(etat, c.mesure, c.colonne);
+        rafraichir();
+        surChangement?.();
+    });
 
     construire();
-    return { rafraichir, reconstruire: construire };
+    return { rafraichir, reconstruire: construire, poserTete };
 }

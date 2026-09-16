@@ -1234,21 +1234,84 @@ class TabHubApp {
             depart: Math.max(0, Math.min(partition.mesures.length - 1, mesureDepart)),
             signature: { ...signatureEffective(partition, mesureDepart) },
             nMesures: 1,
+            sub: 4,
+            boucle: false,
         };
         this._rythme.etat = Rythme.etatInitial(1, this._rythme.signature);
-        this.construireBoutonsNbMesuresRythme();
-        this._rythme.grille = Rythme.construireGrille(
-            document.getElementById('grille-rythme'), this._rythme.etat,
-            { surChangement: () => this.rafraichirApercuRythme() });
-        this.rafraichirApercuRythme();
+        this.construireCommandesRythme();
+        this.rebatirGrilleRythme();
         this.ouvrirFenetre('fenetre-rythme');
+    }
+
+    /** Les trois commandes de la ligne du haut, reconstruites ensemble : elles se contraignent l'une
+     *  l'autre (la longueur borne le départ, et réciproquement), donc les tenir à jour séparément
+     *  finirait par en laisser une en arrière. */
+    construireCommandesRythme() {
+        this.construireDepartRythme();
+        this.construireBoutonsNbMesuresRythme();
+        this.construireSubdivisionRythme();
+    }
+
+    /**
+     * LA MESURE DE DÉPART, en pas-à-pas.
+     *
+     * POURQUOI ELLE SE CHOISIT ICI. L'endroit venait du geste qui ouvrait la fenêtre — un clic droit
+     * sur la mesure visée — et ne se changeait plus ensuite. Retour utilisateur : « je dois pouvoir
+     * choisir la ou les mesures dans lesquelles ces rythmes interviennent, AVANT de placer les notes
+     * dedans ». Le clic droit reste le raccourci qui pré-remplit ; la fenêtre laisse corriger.
+     *
+     * UN PAS-À-PAS ET NON UNE RANGÉE DE BOUTONS, contrairement à la longueur : un morceau peut avoir
+     * cent mesures, et cent boutons ne tiennent pas dans une fenêtre.
+     */
+    construireDepartRythme() {
+        const hote = document.getElementById('rythme-depart');
+        if (!hote || !this._rythme) return;
+        const total = this.editeur.partition.mesures.length;
+        // LE DÉPART EST BORNÉ PAR LA LONGUEUR : un rythme de trois mesures ne peut pas commencer à
+        // l'avant-dernière, il n'y aurait pas de place pour l'accueillir.
+        const max = Math.max(0, total - this._rythme.nMesures);
+        this._rythme.depart = Math.max(0, Math.min(max, this._rythme.depart));
+        hote.innerHTML = '';
+        const pas = (sens, libelle, titre) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn-mesures-ligne';
+            b.textContent = libelle;
+            b.title = titre;
+            b.setAttribute('aria-label', titre);
+            b.disabled = sens < 0 ? this._rythme.depart <= 0 : this._rythme.depart >= max;
+            b.addEventListener('click', () => {
+                this._rythme.depart = Math.max(0, Math.min(max, this._rythme.depart + sens));
+                // LA SIGNATURE SUIT LA MESURE VISÉE : un rythme dessiné en 4/4 puis déposé dans une
+                // mesure en 3/4 ne voudrait rien dire. Elle change donc la grille, qui repart neuve.
+                const sig = signatureEffective(this.editeur.partition, this._rythme.depart);
+                if (sig.battements !== this._rythme.signature.battements
+                    || sig.unite !== this._rythme.signature.unite) {
+                    this._rythme.signature = { ...sig };
+                    this._rythme.etat = Rythme.etatInitial(this._rythme.nMesures, this._rythme.signature);
+                    Rythme.changerSubdivisionGlobale(this._rythme.etat, this._rythme.sub);
+                    this.construireCommandesRythme();
+                    this.rebatirGrilleRythme();
+                    return;
+                }
+                this.construireDepartRythme();
+                this.rafraichirApercuRythme();
+            });
+            return b;
+        };
+        const valeur = document.createElement('span');
+        valeur.className = 'valeur-pas';
+        valeur.setAttribute('aria-live', 'polite');
+        valeur.textContent = String(this._rythme.depart + 1);
+        hote.append(pas(-1, '◀', 'Mesure précédente'), valeur, pas(1, '▶', 'Mesure suivante'));
     }
 
     /** Les boutons « 1 2 3 4 » du nombre de mesures. Quatre au plus, comme demandé : au-delà, la
      *  grille ne tient plus à l'écran et l'aide cesse d'aider. */
     construireBoutonsNbMesuresRythme() {
         const hote = document.getElementById('rythme-nb-mesures');
-        if (!hote) return;
+        if (!hote || !this._rythme) return;
+        const total = this.editeur.partition.mesures.length;
         hote.innerHTML = '';
         for (let n = 1; n <= 4; n++) {
             const b = document.createElement('button');
@@ -1257,29 +1320,84 @@ class TabHubApp {
             b.textContent = String(n);
             b.title = `${n} mesure${n > 1 ? 's' : ''} de rythme`;
             b.setAttribute('aria-label', b.title);
+            // Une longueur qui ne tient pas dans ce qui reste du morceau est ÉTEINTE plutôt que
+            // silencieusement ramenée : on voit pourquoi on ne peut pas la choisir.
+            b.disabled = n > total;
             b.addEventListener('click', () => {
                 if (n === this._rythme.nMesures) return;
                 // ON REPART D'UNE GRILLE NEUVE : étendre une grille existante demanderait de décider
                 // ce que deviennent les temps déjà remplis, et toute réponse serait une surprise.
                 this._rythme.nMesures = n;
+                this._rythme.depart = Math.max(0, Math.min(total - n, this._rythme.depart));
                 this._rythme.etat = Rythme.etatInitial(n, this._rythme.signature);
-                this.construireBoutonsNbMesuresRythme();
-                this._rythme.grille = Rythme.construireGrille(
-                    document.getElementById('grille-rythme'), this._rythme.etat,
-                    { surChangement: () => this.rafraichirApercuRythme() });
-                this.rafraichirApercuRythme();
+                Rythme.changerSubdivisionGlobale(this._rythme.etat, this._rythme.sub);
+                this.construireCommandesRythme();
+                this.rebatirGrilleRythme();
             });
             hote.appendChild(b);
         }
     }
 
-    /** Redessine l'écriture proposée, et rappelle où l'insertion ira. */
+    /**
+     * BINAIRE OU TERNAIRE, pour toute la grille.
+     *
+     * DEUX BOUTONS, PAS TROIS, et c'est le fond de l'affaire. Le réglage était par temps, à faire
+     * défiler en cliquant un « 4 » posé au-dessus de chaque temps — illisible (retour utilisateur :
+     * « je n'ai pas besoin du "4" noté juste au-dessus des barres », et « j'ai l'impression que cet
+     * outil est incohérent »). Il proposait 4, 3 et 2 ; or une grille en 2 produit une écriture
+     * RIGOUREUSEMENT identique à une grille en 4 — ce n'était pas un choix musical (voir
+     * model/rythme.js#SUBDIVISIONS). Reste la seule vraie question : moitiés ou tiers.
+     */
+    construireSubdivisionRythme() {
+        const hote = document.getElementById('rythme-subdivision');
+        if (!hote || !this._rythme) return;
+        const LIBELLES = {
+            4: { texte: 'Binaire', titre: 'Chaque temps en quatre doubles-croches' },
+            3: { texte: 'Ternaire', titre: 'Chaque temps en trois croches de triolet' },
+        };
+        hote.innerHTML = '';
+        for (const sub of Rythme.SUBDIVISIONS) {
+            const actif = sub === this._rythme.sub;
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn-mesures-ligne' + (actif ? ' actif' : '');
+            b.textContent = LIBELLES[sub].texte;
+            b.title = LIBELLES[sub].titre;
+            b.setAttribute('role', 'radio');
+            b.setAttribute('aria-checked', String(actif));
+            b.dataset.sub = String(sub);
+            b.addEventListener('click', () => {
+                if (sub === this._rythme.sub) return;
+                this._rythme.sub = sub;
+                Rythme.changerSubdivisionGlobale(this._rythme.etat, sub);
+                this.construireSubdivisionRythme();
+                this.rebatirGrilleRythme();
+            });
+            hote.appendChild(b);
+        }
+    }
+
+    /** Rebâtit la grille et l'aperçu — après tout changement de STRUCTURE (nombre de mesures,
+     *  subdivision, signature). Un simple changement de contenu passe par `rafraichirApercuRythme`,
+     *  qui ne touche pas au DOM des cases. */
+    rebatirGrilleRythme() {
+        if (!this._rythme) return;
+        this._rythme.grille = Rythme.construireGrille(
+            document.getElementById('grille-rythme'), this._rythme.etat,
+            { surChangement: () => this.rafraichirApercuRythme() });
+        this.rafraichirApercuRythme();
+    }
+
+    /** Redessine l'écriture proposée, rappelle où l'insertion ira, et — si la boucle tourne —
+     *  reprogramme le son sans l'interrompre. */
     rafraichirApercuRythme() {
         if (!this._rythme) return;
         const hote = document.getElementById('apercu-rythme');
         const largeur = Math.max(320, (hote?.clientWidth || 640) - 12);
+        // LA PARTITION ENTIÈRE et non son seul instrument : l'aperçu y prend l'accordage, le capo et
+        // la TONIQUE du morceau (voir model/rythme.js#partitionApercu et #caseDeLaTonique).
         this._rythme.page = Rythme.dessinerApercu(
-            hote, this._rythme.etat, this.editeur.partition.piste.instrument,
+            hote, this._rythme.etat, this.editeur.partition,
             this.editeur.partition.meta.ternaire, largeur);
         const cible = document.getElementById('rythme-cible');
         if (cible) {
@@ -1291,20 +1409,96 @@ class TabHubApp {
         // Un rythme vide n'a rien à insérer : le bouton le dit avant d'être cliqué, plutôt que de
         // poser quatre mesures de silence à qui a cliqué sans le vouloir.
         if (inserer) inserer.disabled = Rythme.estVide(this._rythme.etat);
+        this.reprogrammerBoucleRythme();
     }
 
-    /** Écoute le rythme dessiné — la seule façon de savoir que c'est bien celui qu'on avait en tête.
-     *  La partition d'aperçu EST une partition : le lecteur en prend une, sans rien de spécial. */
-    async ecouterRythme() {
+    // ------------------------------------------------------------------------------------------
+    // LA BOUCLE DU SÉQUENCEUR — « une lecture en boucle qui suit exactement les modifications
+    // en direct » (retour utilisateur).
+    //
+    // TOUT EST DÉJÀ LÀ, et c'est pourquoi ce bloc est court : le lecteur sait reprogrammer un
+    // transport EN COURS sans le couper (`reprogrammerSiEnCours`, écrit pour que tirer le curseur de
+    // tempo ou déplacer une note pendant la lecture ne fasse pas de trou), et il sait boucler sur un
+    // intervalle de mesures (`definirBoucle`). La partition d'aperçu EST une partition : le lecteur
+    // en prend une, sans rien de spécial.
+    // ------------------------------------------------------------------------------------------
+
+    /** La partition jetable que la boucle fait sonner — la MÊME que celle de l'aperçu, donc ce qu'on
+     *  entend est exactement ce qu'on lit. */
+    partitionRythme() {
+        return Rythme.partitionApercu(
+            this._rythme.etat, this.editeur.partition, this.editeur.partition.meta.ternaire);
+    }
+
+    /** Démarre ou arrête la boucle. */
+    async basculerBoucleRythme() {
         if (!this._rythme) return;
+        if (this._rythme.boucle) { this.arreterBoucleRythme(); return; }
         try {
+            // L'AUDIO EST PRÉPARÉ AVANT QU'ON TOUCHE AU TRANSPORT, et cet ordre n'est pas
+            // cosmétique : c'est ce qui rend le premier clic sonore.
+            //
+            // LE DÉFAUT, mesuré, et il est ANTÉRIEUR à cette fenêtre — l'ancien bouton « Écouter »
+            // faisait `arreter()` puis `jouer()` et était donc muet au premier clic de la session.
+            // `jouer()` commence par `await demarrer()`, la mise en place audio, qui ne se fait
+            // qu'UNE fois. Quand cette mise en place a lieu APRÈS un arrêt du transport, le
+            // `Transport.start()` qui la suit ne prend pas : les tics restent à zéro et
+            // `Transport.state` reste « stopped », sans qu'aucun `stop()` ni `pause()` de plus
+            // n'ait lieu (vérifié en piégeant les deux, ainsi que `Lecteur.arreter`). Les quatre
+            // combinaisons mesurées le disent sans ambiguïté : `arreter()` + `Transport.start()`
+            // brut fonctionne, `Transport.stop()` + `jouer()` échoue, et `demarrer()` + `arreter()`
+            // + `jouer()` fonctionne. C'est donc bien la mise en place, pas l'arrêt, qui perd le
+            // départ — d'où cette ligne, et non une attente arbitraire.
+            await this.lecteur.demarrer();
+            const p = this.partitionRythme();
             this.lecteur.arreter();
-            await this.lecteur.jouer(Rythme.partitionApercu(
-                this._rythme.etat, this.editeur.partition.piste.instrument,
-                this.editeur.partition.meta.ternaire));
+            this._rythme.boucle = true;
+            this.majBoutonBoucleRythme();
+            // LA TÊTE DE LECTURE SUIT LE TRANSPORT, pas une horloge à nous : `surPosition` est
+            // notifié par le lecteur lui-même, donc la colonne allumée ne peut pas dériver de ce
+            // qu'on entend. Le désabonnement est gardé pour la fermeture de la fenêtre.
+            this._rythme.detacherTete = this.lecteur.surPosition((position, etat) => {
+                if (!this._rythme) return;
+                this._rythme.grille?.poserTete(etat === 'lecture' ? position : null);
+            });
+            await this.lecteur.jouer(p, 0);
+            this.lecteur.definirBoucle(p, 0, Math.max(0, p.mesures.length - 1));
         } catch (err) {
+            this.arreterBoucleRythme();
             this.message(err.message || 'Impossible de démarrer l\'audio');
         }
+    }
+
+    /** Arrête la boucle et éteint la tête de lecture. */
+    arreterBoucleRythme() {
+        if (!this._rythme) return;
+        this._rythme.boucle = false;
+        this._rythme.detacherTete?.();
+        this._rythme.detacherTete = null;
+        this.lecteur.arreter();
+        // LA BOUCLE DU SÉQUENCEUR N'EST PAS CELLE DE LA PARTITION : on la retire en partant, sinon
+        // la prochaine lecture du morceau tournerait en rond sur ses deux premières mesures.
+        this.lecteur.definirBoucle(this.editeur.partition, null, null);
+        this._rythme.grille?.poserTete(null);
+        this.majBoutonBoucleRythme();
+    }
+
+    /** Le bouton dit ce qu'il fera au prochain clic, et son état est lisible par un lecteur d'écran. */
+    majBoutonBoucleRythme() {
+        const b = document.getElementById('btn-rythme-boucle');
+        if (!b || !this._rythme) return;
+        b.textContent = this._rythme.boucle ? 'Arrêter' : 'Boucler';
+        b.classList.toggle('actif', this._rythme.boucle);
+        b.setAttribute('aria-pressed', String(this._rythme.boucle));
+    }
+
+    /** Pousse le rythme courant dans le transport EN COURS — appelé après chaque modification.
+     *  C'est cette ligne qui fait que la boucle « suit les modifications en direct ». */
+    reprogrammerBoucleRythme() {
+        if (!this._rythme?.boucle) return;
+        const p = this.partitionRythme();
+        this.lecteur.definirBoucle(p, 0, Math.max(0, p.mesures.length - 1));
+        this.lecteur.reprogrammerSiEnCours(p);
     }
 
     /** Insère le rythme dessiné dans la partition, en cases à remplir. */
@@ -2286,7 +2480,7 @@ class TabHubApp {
         });
         // L'aide rythmique : ses trois boutons de pied. La fenêtre s'ouvre, elle, depuis le menu
         // contextuel — c'est le geste qui choisit AUSSI l'endroit d'insertion (voir ouvrirAideRythme).
-        surClic('btn-rythme-lecture', () => this.ecouterRythme());
+        surClic('btn-rythme-boucle', () => this.basculerBoucleRythme());
         surClic('btn-rythme-inserer', () => this.insererRythme());
         surClic('btn-rythme-effacer', () => {
             if (!this._rythme) return;
@@ -3946,6 +4140,11 @@ class TabHubApp {
 
     ouvrirFenetre(id) { document.getElementById(id).hidden = false; }
     fermerFenetres() {
+        // LA BOUCLE DU SÉQUENCEUR S'ARRÊTE AVEC SA FENÊTRE. Sans ça, fermer l'aide rythmique laissait
+        // tourner un rythme jetable en boucle, avec sa tête de lecture abonnée au transport pour
+        // toujours — et la boucle du séquenceur serait restée posée sur la partition du morceau.
+        if (this._rythme?.boucle) this.arreterBoucleRythme();
+        this._rythme?.detacherTete?.();
         for (const v of document.querySelectorAll('.voile')) v.hidden = true;
         this.el.zone.focus();
     }

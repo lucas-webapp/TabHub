@@ -1664,83 +1664,143 @@ body.avec-pave .dpad-flottant { display: grid; }
    AIDE RYTHMIQUE (voir ui/rythme.js)
    --------------------------------------------------------------------------------------------- */
 
-/* Large : quatre mesures de quatre temps de quatre cases font soixante-quatre cellules côte à côte.
-   En dessous, elles deviennent trop fines pour être visées — d'où le défilement horizontal de la
-   grille plutôt qu'un rétrécissement à l'infini. */
-.fenetre-rythme { width: min(980px, 100%); }
+/* Large : deux mesures de seize cases côte à côte, plus leurs réglettes. La grille ne défile plus
+   horizontalement — les cases s'étirent pour remplir la largeur disponible (voir .piste-seq), ce qui
+   supprime du même coup les deux flèches de défilement dont l'ancienne version avait besoin. */
+.fenetre-rythme { width: min(1040px, 100%); }
 
-/* LA GRILLE DÉFILE, AVEC SES DEUX FLÈCHES — et c'est le `touch-action: none` des cellules qui
-   l'exige (voir .cellule-rythme) : le doigt posé sur une case pose une note, il ne peut donc pas
-   faire glisser la grille, et une mesure plus large que la fenêtre y aurait des cases hors
-   d'atteinte. Un téléphone de 320px ne peut pas montrer seize cases visables d'un coup : plutôt que
-   de les réduire à dix pixels, on les garde et on se déplace.
-   MÊME MONTAGE QUE LA BARRE D'OUTILS (voir ui/toolbar.js) : conteneur de défilement en RANGÉE, deux
-   flèches `position: sticky` EN FLUX, et la même fonction partagée pour décider de les montrer
-   (ajusterFleches, qui porte le correctif du débordement qui se mesurait lui-même). Les mesures
-   elles-mêmes s'empilent dans un enfant, `.mesures-rythme`. */
-.grille-rythme { display: flex; align-items: stretch; overflow-x: auto; padding-bottom: 4px; }
-.mesures-rythme { display: flex; flex-direction: column; gap: 8px; }
-/* Les flèches de la grille sont centrées sur sa hauteur, là où celles de la barre d'outils épousent
-   la rangée entière : ici il y a plusieurs mesures empilées, et une flèche haute de tout le bloc
-   serait un mur. */
-.grille-rythme .fleche-outils { align-self: center; }
+/* La ligne de commandes au-dessus de la grille : elle enveloppe sur téléphone plutôt que de
+   pousser la grille hors de l'écran. */
+.ligne-cible-rythme { flex-wrap: wrap; row-gap: 8px; }
 
-.mesure-rythme {
-    display: flex; align-items: flex-end; gap: 10px;
-    padding: 6px 8px;
+/* LE PAS-À-PAS de la mesure de départ : « ◀ 3 ▶ ». Un pas-à-pas et non une rangée de boutons comme
+   pour la longueur — un morceau peut avoir cent mesures, et cent boutons ne tiennent pas. Les deux
+   flèches reprennent .btn-mesures-ligne, donc la même hauteur et le même langage que le reste. */
+.pas-a-pas { display: inline-flex; align-items: center; gap: 2px; flex: none; }
+.pas-a-pas .valeur-pas {
+    min-width: 2.4em; text-align: center;
+    font-size: var(--fs-sm); font-weight: 700; color: var(--text-main);
+    font-variant-numeric: tabular-nums;
+}
+
+/* LES RANGÉES : deux mesures par rangée, les suivantes en dessous (voir
+   ui/rythme.js#MESURES_PAR_RANGEE). Chaque mesure prend la moitié de la largeur, donc les cases
+   d'une mesure de 4/4 en doubles-croches y font ~28px sur un écran d'ordinateur. */
+.grille-rythme { overflow: visible; }
+.rangees-rythme { display: flex; flex-direction: column; gap: 14px; }
+.rangee-rythme { display: flex; gap: 14px; align-items: flex-start; }
+.mesure-seq { flex: 1 1 0; min-width: 0; position: relative; }
+
+/* Le numéro de mesure, discret, posé au-dessus à gauche : il situe sans peser. Il ne prend pas de
+   place dans le flux (position absolue) pour que les deux mesures d'une rangée restent exactement
+   de la même largeur, quel que soit le nombre de chiffres. */
+.num-mesure-seq {
+    position: absolute; top: -2px; left: 0;
+    font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted);
+    font-variant-numeric: tabular-nums; pointer-events: none;
+}
+
+/* LA PISTE — une grille CSS d'autant de colonnes que la mesure a de cases. Les cases, les pilules et
+   la tête de lecture partagent TOUTES ce découpage et vivent sur la MÊME ligne : elles ne peuvent
+   donc pas se désaligner, et la pilule se superpose exactement aux cases qu'elle couvre.
+   `--cases` est posé en JS sur .mesure-seq (voir construireMesure). */
+.piste-seq {
+    display: grid;
+    grid-template-columns: repeat(var(--cases), 1fr);
+    grid-template-rows: 34px;
+    margin-top: 14px;
     border: 1px solid var(--border-groupe);
-    border-radius: 10px;
+    border-radius: 8px;
     background: var(--fond-bouton-sombre);
-    width: max-content;
+    overflow: hidden;   /* les coins arrondis rognent les cases et les pilules des deux bouts */
+    touch-action: none; /* le GLISSER est le geste principal : sans ça le navigateur le prend pour
+                           un défilement et la note ne s'allonge jamais */
 }
-.numero-mesure-rythme { font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); min-width: 12px; }
 
-/* Un temps : son chiffre de subdivision au-dessus, ses cellules en dessous. Le cadre léger dit « ces
-   cases-là forment un temps » — sans lui, seize cellules d'affilée ne laisseraient plus voir la
-   pulsation, qui est justement ce qu'on vient travailler. */
-.temps-rythme {
-    display: flex; flex-direction: column; align-items: center; gap: 3px;
-    padding: 3px 4px;
-    border-radius: 7px;
-    background: rgba(255, 255, 255, .03);
-}
-.entete-temps {
-    min-width: 20px; height: 18px; padding: 0 4px;
-    display: inline-flex; align-items: center; justify-content: center;
-    border: 1px solid var(--btn-neutral-border); border-radius: 5px;
-    background: transparent; color: var(--text-muted);
-    font-size: var(--fs-xs); font-weight: 700; font-variant-numeric: tabular-nums;
+/* UNE GRILLE CONTINUE, PAS DES BOÎTES. Retour utilisateur : « ne pas autant compartimenter chaque
+   temps, pour le moment c'est groupé par 4 double-croches ». Chaque temps était un cadre à part,
+   parce qu'il devait porter un en-tête cliquable ; l'en-tête a disparu, le cadre avec. Reste un
+   simple filet entre cases, et un trait plus franc au DÉBUT DE CHAQUE TEMPS — assez pour voir la
+   pulsation, trop peu pour découper la mesure. */
+.case-seq {
+    grid-row: 1;
+    border-left: 1px solid rgba(255, 255, 255, .05);
     cursor: pointer;
+    transition: background .1s;
 }
-.entete-temps:hover { color: var(--text-main); border-color: var(--btn-neutral-border-hover); }
+.case-seq:first-child { border-left: none; }
+.case-seq.debut-temps { border-left: 1px solid rgba(255, 255, 255, .3); }
+.case-seq:first-child.debut-temps { border-left: none; }
+.case-seq:hover { background: rgba(255, 255, 255, .06); }
+/* Sur les bords d'une note, le curseur annonce l'étirement — c'est ce qui rend la poignée
+   découvrable sans rien dessiner de plus (même langage que les poignées de la bande de boucle). */
+.case-seq.bord-gauche, .case-seq.bord-droit { cursor: ew-resize; }
+/* Le corps d'une note se déplace dans le temps : le curseur le dit aussi. */
+.case-seq.occupee:not(.bord-gauche):not(.bord-droit) { cursor: grab; }
 
-.cellules-temps { display: flex; gap: 2px; }
-/* 26px de côté quand il y a la place : au-dessus de ce que l'œil distingue sans effort, et assez pour
-   qu'un doigt en vise une sans toucher la voisine. `touch-action: none` parce que le GLISSER est le
-   geste principal — sans lui, le navigateur le prendrait pour un défilement et la note ne
-   s'allongerait jamais.
-   ET C'EST CE `touch-action` QUI A RENDU NÉCESSAIRES LES FLÈCHES DE DÉFILEMENT (voir
-   .grille-rythme) : puisque le doigt posé sur une cellule ne peut PAS faire défiler la grille, une
-   mesure plus large que la fenêtre avait des cases inatteignables au doigt. Les cases gardent donc
-   leur taille — la rétrécir assez pour faire tenir seize cases dans 320px les ramenait à 10px, sous
-   le seuil du visable — et c'est la grille qui se déplace. */
-.cellule-rythme {
-    width: 26px; height: 30px;
-    border: 1px solid var(--btn-neutral-border); border-radius: 4px;
-    background: var(--fond-bouton-sombre);
-    cursor: pointer;
-    touch-action: none;
-    transition: background .1s, border-color .1s;
+/* LA PILULE — UNE note, UNE forme. Retour utilisateur : « l'étirement des notes fait une forme
+   bizarre, remplacer par quelque chose de joli ». C'était une file de carrés accolés, chacun avec
+   ses coins et ses bords ; c'est maintenant un seul bloc arrondi qui couvre ses colonnes.
+   `pointer-events: none` : les clics traversent jusqu'aux cases, qui portent toute la logique de
+   geste — sans quoi cliquer une note ne toucherait aucune case. */
+.note-seq {
+    grid-row: 1;
+    position: relative;
+    z-index: 2;
+    margin: 3px 1px;
+    border-radius: 6px;
+    /* LA COULEUR VIENT DE L'ACCENT, pas du vert des BOUTONS. Une première version prenait
+       --btn-green-1 (#234534), le vert d'un bouton actif : sur le fond sombre de la piste les
+       pilules devenaient des blocs gris-vert qu'on distinguait à peine des cases vides (mesuré en
+       capture). Un bouton n'a besoin que de se signaler « allumé » à côté de ses voisins éteints ;
+       une note doit se lire seule, d'un coup d'œil. D'où un vert franc dérivé de --accent. */
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 74%, #0d2a1b),
+        color-mix(in srgb, var(--accent) 52%, #0d2a1b));
+    border: 1px solid color-mix(in srgb, var(--accent) 45%, #000);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+    pointer-events: none;
 }
-.cellule-rythme:hover { border-color: var(--btn-neutral-border-hover); }
-/* L'ATTAQUE est franche, la TENUE plus pâle et sans bord à gauche : ensemble elles dessinent UNE
-   barre qui commence là et se prolonge — la forme qu'on est venu poser. */
-.cellule-rythme.attaque { background: var(--btn-green-1); border-color: var(--btn-green-border); }
-.cellule-rythme.tenue {
-    background: color-mix(in srgb, var(--btn-green-1) 45%, transparent);
-    border-color: var(--btn-green-border);
-    border-left-color: transparent;
-    border-radius: 0 4px 4px 0;
+/* Une note TENUE est un peu plus haute qu'une note d'une seule case : elle se lit comme une barre
+   posée sur la grille, pas comme une case allumée. */
+.note-seq.tenue { margin-top: 2px; margin-bottom: 2px; }
+
+/* Le repère d'attaque : la fine bande claire au tout début de la pilule, là où la note est
+   réellement pincée. Sans elle, une note de quatre cases ne dit pas où elle attaque (reprise de
+   .seq-note-head dans HarmoHub, où elle répond au même besoin). */
+.attaque-seq {
+    position: absolute; left: 0; top: 0; bottom: 0;
+    width: 4px;
+    background: rgba(255, 255, 255, .75);
+    border-radius: 5px 0 0 5px;
+}
+
+/* LA TÊTE DE LECTURE : toute la colonne du pas en cours, pas un simple trait — sur une case déjà
+   colorée par une note, un trait se perd. Jamais interactive. */
+.tete-seq {
+    grid-row: 1;
+    z-index: 3;
+    pointer-events: none;
+    background: rgba(255, 255, 255, .14);
+    box-shadow: inset 1px 0 0 var(--accent), inset -1px 0 0 var(--accent);
+}
+
+/* LES NUMÉROS DE TEMPS, SOUS LES CASES — demande de l'utilisateur : « numéroter le numéro de chaque
+   temps en dessous des cases ». Même découpage en colonnes que la piste, chaque numéro s'étendant
+   sur les cases de SON temps : il se centre donc dessus tout seul, que le temps ait trois cases
+   (ternaire) ou quatre (binaire). */
+.temps-seq {
+    display: grid;
+    grid-template-columns: repeat(var(--cases), 1fr);
+    margin-top: 4px;
+}
+.num-temps {
+    text-align: center;
+    font-size: var(--fs-xs);
+    font-weight: 700;
+    color: var(--text-muted);
+    font-variant-numeric: tabular-nums;
+    user-select: none;
 }
 
 /* L'aperçu : le panneau « papier » au milieu d'une fenêtre sombre se lit comme une partition. */
@@ -1752,12 +1812,21 @@ body.avec-pave .dpad-flottant { display: grid; }
 .apercu-rythme svg { display: block; }
 
 @media (max-width: 720px) {
-    /* Au doigt, les cellules gagnent en HAUTEUR : la largeur, elle, est déjà au minimum utile, et
-       c'est la seule dimension qu'on puisse offrir sans réduire le nombre de cases visibles. */
-    .cellule-rythme { height: 36px; }
-    /* Les ÉCARTS se resserrent : chaque pixel rendu ici est un pixel de moins à faire défiler, et
-       sur seize cases un écart de 10px entre temps en coûte 30. */
-    .mesure-rythme { gap: 5px; padding: 6px 5px; }
-    .temps-rythme { padding: 3px 2px; }
-    .apercu-rythme { max-height: 28vh; }
+    /* Au doigt, les cases gagnent en HAUTEUR : la largeur est contrainte par le nombre de cases,
+       c'est la seule dimension qu'on puisse offrir. */
+    .piste-seq { grid-template-rows: 44px; }
+    /* UNE SEULE MESURE PAR RANGÉE sur téléphone : deux mesures de seize cases dans 320px donneraient
+       des colonnes de 10px, sous le seuil du visable. Mieux vaut empiler.
+
+       `align-items: stretch` N'EST PAS DÉCORATIF, et son absence a coûté un défaut mesuré : la
+       rangée porte `align-items: flex-start` pour aligner deux mesures par le haut quand elles sont
+       CÔTE À CÔTE. Basculée en colonne, cette même règle s'applique à la LARGEUR — et une mesure
+       ramenée à sa largeur intrinsèque s'effondre, puisque .piste-seq n'est faite que de colonnes
+       `1fr` sans largeur propre. Mesuré avant correction : une piste de 32px et des cases de 1,9px
+       de large sur un écran de 320 comme de 390. Il faut donc redemander explicitement l'étirement
+       sur l'axe qui vient de changer de rôle. */
+    .rangee-rythme { flex-direction: column; align-items: stretch; }
+    .rangees-rythme { gap: 16px; }
+    .apercu-rythme { max-height: 26vh; }
+}
 }

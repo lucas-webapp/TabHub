@@ -183,6 +183,21 @@ export function figuresPour(noires) {
  * la mesure composée reste couverte, puisqu'un temps de 6/8 vaut trois croches que l'alignement
  * regroupe correctement.
  *
+ * ET POURQUOI IL N'Y A PAS DE `figuresNotePour` EN FACE. Une version de cette feuille en portait
+ * une, qui appliquait aux notes la même discipline d'alignement en la relâchant un peu (une figure
+ * admise si elle tenait dans un temps, ou si elle couvrait des temps entiers). C'était faux, et
+ * l'import MIDI l'a démontré : une note tenue de la deuxième croche du temps 1 à la deuxième croche
+ * du temps 2 — la syncope la plus banale du répertoire, `croche noire croche noire` — en ressortait
+ * coupée en DEUX croches liées, là où toute édition imprimée écrit UNE noire. Mesuré : deux notes
+ * écrites, TROIS têtes relues ; trois notes, QUATRE têtes.
+ *
+ * La règle des silences n'a pas d'équivalent pour les notes parce que les deux signes ne disent pas
+ * la même chose. Un silence sert à MONTRER la métrique : l'enjamber la cache, il n'y a rien d'autre
+ * à lire. Une note, elle, porte la musique par-dessus la métrique — l'enjamber EST la syncope, et
+ * c'est le sens de la phrase. Ce qui reste vrai pour les deux, c'est qu'une durée qu'aucune figure
+ * n'exprime doit être coupée AUX TEMPS plutôt que n'importe où ; cette partie-là vit dans
+ * model/rythme.js#figuresDeCourse, qui ne coupe une note que faute de figure exacte.
+ *
  * @param {number} noires   durée du passage à couvrir
  * @param {number} depuis   sa position dans la mesure, en noires depuis le début
  */

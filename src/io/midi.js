@@ -631,7 +631,9 @@ export function construirePartitionDepuisMidi(analyse, instrumentId = 'guitare',
             });
         };
         const poserSilence = (debut, fin) => {
-            for (const f of figuresSurGrille(temps, debut, fin)) evenements.push(creerEvenement(f, [], { silence: true }));
+            // `silence: true` — un silence ne prend jamais de point et s'aligne plus strictement
+            // qu'une note (voir score.js#figuresSilencePour vs #figuresNotePour).
+            for (const f of figuresSurGrille(temps, debut, fin, true)) evenements.push(creerEvenement(f, [], { silence: true }));
         };
 
         if (continuation) {

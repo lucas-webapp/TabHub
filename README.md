@@ -189,11 +189,23 @@ rythmique à partir d'ici…** — sépare les deux décisions qu'on prenait jus
 **quel rythme**, puis **quelles notes**. Le bouton ouvre l'aide sur la mesure du curseur ; le clic
 droit, sur celle qu'on désigne.
 
-On pose des barres dans une grille de **1 à 4 mesures consécutives** — un clic pose une attaque, un
-glissé l'étire, un clic sur l'en-tête d'un temps en change la subdivision (triolet, double, croche).
-TabHub affiche alors la **vraie écriture** en dessous : chiffres de triolet, ligatures pointée +
-double, silences réécrits au plus court. C'est le moteur de gravure lui-même qui la produit, sur une
-partition jetable sans tablature — donc elle ne peut pas mentir sur ce que l'insertion va écrire.
+On choisit d'abord **où** : un pas-à-pas « ◀ 3 ▶ » désigne la mesure de départ, et une rangée de
+boutons **1 / 2 / 3 / 4** la longueur — les mesures visées sont décidées avant d'y poser quoi que ce
+soit. On pose ensuite les barres dans la grille : un clic pose une note d'une case, un glissé la
+pose tenue, un glissé sur un **bord** l'étire ou la raccourcit, un glissé sur son **corps** la
+déplace dans le temps, un clic ou un clic droit dessus l'enlève. Une note est **une pilule arrondie**
+d'un seul tenant, avec un repère d'attaque à son début — pas une file de carrés accolés. Les temps
+sont numérotés **sous** les cases, et séparés par un simple trait plus franc plutôt que par un cadre
+chacun. La subdivision est **globale** — un sélecteur *Binaire (4) / Ternaire (3)* pour toute la
+grille, plutôt qu'un réglage par temps qu'il fallait deviner.
+
+TabHub affiche la **vraie écriture** en dessous : chiffres de triolet, ligatures pointée + double,
+silences réécrits au plus court. C'est le moteur de gravure lui-même qui la produit, sur une
+partition jetable sans tablature — donc elle ne peut pas mentir sur ce que l'insertion va écrire. Le
+bouton **Boucle** joue ces mesures en rond, avec la tête de lecture sur la grille, et **suit les
+modifications en direct** : poser une note pendant que ça tourne la fait entendre au tour suivant,
+sans rien arrêter. La hauteur jouée est la **tonique de la tonalité du morceau**, cherchée en
+position ouverte dans l'accordage courant.
 
 L'insertion **remplace** les mesures visées, à l'endroit choisi à la souris ou au doigt, et laisse la
 **tablature vide** : les cases à choisir apparaissent en surbrillance, `Tab` saute de l'une à la
@@ -203,11 +215,28 @@ figures ressortait en six croches plates et la mesure à −1 temps.
 
 Les notes et les effets s'écrivent ensuite, par-dessus un rythme déjà juste.
 
-Une mesure en doubles-croches fait seize cases : plus large que n'importe quel téléphone. Comme le
-glisser sur une case y POSE une note (elle ne peut donc pas servir à faire défiler), la grille porte
-**les mêmes flèches de défilement que la barre d'outils** — chacune ne s'allumant que s'il reste
-vraiment quelque chose à atteindre de son côté. Rétrécir les cases n'était pas une issue : seize
-cases dans 320px les ramènent à dix pixels, sous le seuil du visable.
+**La conversion en figures suit la place, pas seulement la durée**, et la règle n'est pas la même
+pour ce qui se tait et pour ce qui sonne (retour utilisateur : « théoriquement parlant, j'ai
+l'impression que cet outil est incohérent »). Un **silence** ne commence que sur une position
+multiple de sa propre durée, et n'est jamais pointé hors mesure composée : cinq seizièmes à partir du
+dernier seizième du temps 3 s'écrivent « quart-de-soupir puis soupir », dans cet ordre, et non
+l'inverse. Une **note**, elle, a le droit d'enjamber un temps : `croche noire croche noire` en 4/4 —
+la syncope la plus banale du répertoire — garde ses noires entières, sans liaison. On ne coupe une
+note que faute de figure exacte, et on coupe alors **aux temps** : un tiers de temps tenu dans un
+temps binaire sort en croche de triolet liée à une double-croche. Le même code sert à l'import MIDI
+(`model/rythme.js`), donc les deux portes écrivent pareil.
+
+Deux mesures se suivent **horizontalement** ; au-delà, elles passent à la ligne. Sur un téléphone
+elles s'**empilent** — deux fois seize cases dans 390px ramèneraient chaque colonne sous dix pixels.
+
+La grille ne défile plus : ses colonnes sont en `1fr`, donc une mesure occupe exactement la largeur
+disponible et ne sort jamais de l'écran, ce qui a permis de retirer les deux flèches de défilement
+dont la version précédente avait besoin (c'est aussi le choix du séquenceur de HarmoHub, et pour la
+même raison). Le prix est mesuré plutôt que supposé, et il est réel : une case fait **19,6px de large
+à 390px** et 15,3px à 320px, contre 26px fixes avant — c'est la **hauteur** qui prend le relais, 44px
+au doigt contre 34 sur un écran d'ordinateur. En échange, les dernières cases d'une mesure ne sont
+plus inatteignables au doigt, ce qu'elles étaient : les cases portent `touch-action: none` pour que
+le glissé y pose une note, donc un doigt posé dessus ne pouvait pas faire défiler la grille.
 
 La palette cliquable double intégralement le clavier : les deux sont construits à partir de la même
 table (`src/edit/raccourcis.js`), ils ne peuvent donc pas se contredire. **Chaque bouton d'effet

@@ -566,7 +566,7 @@
 </div>
 
 <!-- L'AIDE RYTHMIQUE (retour utilisateur : « des fois j'ai des difficultés à écrire la partition à
-     cause du rythme »). On place des barres sur une grille, et la VRAIE écriture s'affiche à côté —
+     cause du rythme »). On pose des notes sur une grille, et la VRAIE écriture s'affiche à côté —
      figures, silences, ligatures, chiffre de triolet. C'est un ORACLE : la fenêtre ne connaît ni
      hauteurs, ni effets, ni voix ; elle produit des durées, que « Insérer » pose dans la partition
      en cases à remplir (voir ui/rythme.js et model/score.js `Évènement#aRemplir`).
@@ -580,20 +580,36 @@
             <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
         </div>
         <div class="fenetre-corps">
-            <p class="note-fenetre">Posez une barre d'un clic, faites-la GLISSER pour l'allonger. Le
-               chiffre au-dessus de chaque temps donne sa subdivision : 2 (croches), 3 (triolet),
-               4 (doubles-croches) — cliquez-le pour le changer. L'écriture juste s'affiche en dessous.</p>
-            <div class="ligne-champ">
-                <label id="etiquette-rythme-mesures">Mesures</label>
-                <div class="groupe-compte" id="rythme-nb-mesures" role="group" aria-labelledby="etiquette-rythme-mesures"></div>
+            <!-- PAS DE TEXTE D'EXPLICATION AU-DESSUS DE LA GRILLE (retour utilisateur : « je n'ai pas
+                 besoin d'avoir les indications texte au-dessus du séquenceur »). Les gestes se
+                 découvrent au curseur — flèche d'étirement sur les bords d'une note, main sur son
+                 corps — et les infobulles des commandes disent le reste. Un paragraphe qu'on ne lit
+                 qu'une fois occupe l'écran pour toujours. -->
+            <div class="ligne-champ ligne-cible-rythme">
+                <!-- OÙ LE RYTHME VA ATTERRIR, choisi AVANT de le dessiner (retour utilisateur : « je
+                     dois pouvoir choisir la ou les mesures dans lesquelles ces rythmes interviennent,
+                     avant de placer les notes dedans »). Auparavant la mesure de départ venait du
+                     clic droit qui ouvrait la fenêtre et ne se changeait plus. -->
+                <label id="etiquette-rythme-depart">De la mesure</label>
+                <div class="pas-a-pas" id="rythme-depart" role="group" aria-labelledby="etiquette-rythme-depart"></div>
+                <label id="etiquette-rythme-nb">sur</label>
+                <div class="groupe-compte" id="rythme-nb-mesures" role="group" aria-labelledby="etiquette-rythme-nb"></div>
                 <span class="valeur-etat" id="rythme-cible" aria-live="polite">—</span>
+                <span class="pousse"></span>
+                <!-- LA SUBDIVISION, GLOBALE : la seule question musicale qui se pose, et elle se pose
+                     une fois pour toute la grille (voir model/rythme.js#SUBDIVISIONS). -->
+                <label id="etiquette-rythme-sub">Division</label>
+                <div class="groupe-compte" id="rythme-subdivision" role="radiogroup" aria-labelledby="etiquette-rythme-sub"></div>
             </div>
             <div class="grille-rythme" id="grille-rythme"></div>
             <div class="apercu-rythme" id="apercu-rythme" aria-label="Écriture proposée"></div>
         </div>
         <div class="fenetre-pied">
             <button type="button" class="btn-neutre" id="btn-rythme-effacer">Tout effacer</button>
-            <button type="button" class="btn-neutre" id="btn-rythme-lecture">Écouter</button>
+            <!-- BOUCLER plutôt qu'« Écouter » : la lecture tourne en rond et SUIT les modifications
+                 sans s'interrompre (retour utilisateur : « intégrer une lecture en boucle qui suit
+                 exactement les modifications en direct »). Voir main.js#basculerBoucleRythme. -->
+            <button type="button" class="btn-neutre" id="btn-rythme-boucle" aria-pressed="false">Boucler</button>
             <span class="pousse"></span>
             <button type="button" class="btn-neutre" data-fermer>Annuler</button>
             <button type="button" class="btn-plein" id="btn-rythme-inserer">Insérer dans la partition</button>

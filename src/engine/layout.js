@@ -990,7 +990,7 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, groupes, S, staff.yPortee);
+        poserNolets(out, poses, groupes, S, staff.yPortee, m.signature);
         poserLiaisons(out, poses, S, undefined);
     });
 
@@ -1569,7 +1569,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         const groupes = grouperLigatures(poses, m.signature);
         poserHampes(out, poses, groupes, S);
         poserArticulations(out, poses, S);
-        poserNolets(out, poses, groupes, S, yPortee);
+        poserNolets(out, poses, groupes, S, yPortee, m.signature);
         poserLiaisons(out, poses, S, ST);
     });
 
@@ -2049,17 +2049,64 @@ function poserArticulations(out, poses, S) {
  * ordinaires : le dessin des notes est identique, seule la durée change. C'est le seul cas de la
  * notation où l'information rythmique ne tient pas dans la forme des notes.
  *
- * `groupes` (les MÊMES groupes de ligature que poserHampes, jamais recalculés ici) sert à ne JAMAIS
- * laisser une course de n-olets enjamber deux TEMPS différents. Sans ça (trouvé en reproduisant un
- * rythme en triolets répété tout du long, retour utilisateur) : plusieurs temps consécutifs de
- * triolets, qui partagent tous le MÊME descripteur `{dans, valent}`, se voyaient fusionnés en une
- * seule course par la seule comparaison de descripteur — un unique « 3 » pour toute la suite, centré
- * n'importe où, au lieu d'un par temps. L'appartenance à un groupe de ligature (ou son absence)
- * referme la course aussi sûrement qu'un descripteur différent.
+ * UNE COURSE DE N-OLETS NE DOIT JAMAIS ENJAMBER DEUX TEMPS, et il a fallu deux correctifs pour y
+ * arriver :
+ *
+ *   1. D'abord l'appartenance à un groupe de ligature (`groupes`, les MÊMES que poserHampes, jamais
+ *      recalculés ici). Trouvé en reproduisant un rythme en triolets répété tout du long : plusieurs
+ *      temps consécutifs de triolets, qui partagent tous le MÊME descripteur `{dans, valent}`,
+ *      étaient fusionnés en une seule course par la seule comparaison de descripteur.
+ *   2. Puis LE NUMÉRO DE TEMPS, parce que le premier correctif ne couvrait pas le cas où les notes
+ *      ne sont pas ligaturées DU TOUT. Mesuré : quatre temps portant chacun une croche de triolet
+ *      suivie de silences donnaient encore UN seul « 3 » étiré sur toute la mesure. La raison est
+ *      discrète — une note isolée par des silences n'appartient à aucun groupe, donc `groupeDe.get`
+ *      rend `undefined` DES DEUX CÔTÉS, et `undefined !== undefined` est faux : la comparaison ne
+ *      refermait jamais rien. Le temps, lui, est toujours connu.
+ *
+ *   3. Puis, troisième correctif, LA POSITION EXACTE plutôt que le numéro de temps — parce que le
+ *      deuxième avait introduit sa propre régression. Mesuré : un triolet de NOIRES (trois noires
+ *      dans le temps de deux) dure exactement deux temps, donc sa deuxième note enjambe la
+ *      frontière et sa troisième tombe dans le temps suivant ; comparer les numéros de temps
+ *      coupait ce triolet unique en deux courses et gravait DEUX « 3 ». Le critère juste n'est pas
+ *      « le temps a changé » mais « ON PEUT REFERMER ICI » : une course ne se referme que si la
+ *      pose suivante COMMENCE pile sur un temps. Quand la frontière tombe au MILIEU d'une figure,
+ *      il n'y a aucun endroit où couper, et la course continue.
+ *
+ * Cette formulation absorbe la précédente : une pose qui commence pile sur un temps change
+ * forcément de temps (les positions croissent), donc le numéro de temps n'a plus rien à dire de
+ * plus. Elle règle du même coup deux cas que le numéro de temps traitait à l'envers — un triolet
+ * posé à contretemps (croche puis triolet de croches : 0,5 / 0,8333 / 1,1667) reste UNE course,
+ * et deux triolets de noires consécutifs en font bien DEUX, leur jointure tombant pile sur le
+ * temps 2.
+ *
+ * CE QU'ELLE NE COUVRE PAS, et c'est assumé : un DUOLET en mesure composée (deux noires dans le
+ * temps de trois, en 6/8) a sa seconde note pile sur le deuxième temps, et se verrait donc coupé
+ * en deux « 2 ». Aucun chemin de l'application n'en fabrique — l'éditeur ne pose que des triolets
+ * (voir edit/commands.js#basculerTriolet) et l'import rythmique n'émet que `T3` — seul un fichier
+ * JSON étranger pourrait en porter un. Le cas inverse (fusionner deux triolets de noires en un
+ * seul « 3 ») est lui atteignable au clavier, et c'est celui qu'on protège.
+ *
+ * Les deux gardes sont conservées : la position règle le cas général, le groupe de ligature sépare
+ * encore deux courses distinctes qui tomberaient dans le même temps.
  */
-function poserNolets(out, poses, groupes, S, yPortee) {
+function poserNolets(out, poses, groupes, S, yPortee, signature) {
     const groupeDe = new Map();
     groupes.forEach((g, ig) => { for (const p of g) groupeDe.set(p, ig); });
+    // Le temps de chaque pose, compté comme le fait grouperLigatures : en cumulant les durées
+    // écrites depuis le début de la mesure. Même notion de « temps » que les ligatures, le
+    // métronome et la grille du séquenceur (voir duration.js#uniteDeGroupement).
+    const unite = uniteDeGroupement(signature);
+    const debutDe = new Map();
+    let tCourant = 0;
+    for (const p of poses) {
+        debutDe.set(p, tCourant);
+        tCourant += dureeEnNoires(p.ref.duree);
+    }
+    /** Cette pose commence-t-elle PILE sur un temps ? C'est là, et là seulement, qu'on peut couper. */
+    const surUnTemps = (p) => {
+        const x = debutDe.get(p) / unite;
+        return Math.abs(x - Math.round(x)) < 1e-6;
+    };
 
     let i = 0;
     while (i < poses.length) {
@@ -2069,6 +2116,7 @@ function poserNolets(out, poses, groupes, S, yPortee) {
         while (j + 1 < poses.length) {
             const suivant = poses[j + 1].ref.duree.nolet;
             if (!suivant || suivant.dans !== nolet.dans || suivant.valent !== nolet.valent) break;
+            if (surUnTemps(poses[j + 1])) break;
             if (groupeDe.get(poses[j]) !== groupeDe.get(poses[j + 1])) break;
             j++;
         }

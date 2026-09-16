@@ -31,7 +31,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
 (async () => {
-    plan(46);
+    plan(49);
     // Un iPhone de taille courante, avec le tactile réellement actif — sans quoi
     // `pointerType` resterait 'mouse' et rien de ce qui suit ne serait éprouvé pour de vrai.
     const { page, erreurs, fermer } = await ouvrirApp({
@@ -318,42 +318,102 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         check((await page.evaluate(() => document.getElementById('champ-pave').getAttribute('aria-checked'))) === 'false',
             'et l\'interrupteur y montre bien « éteint »');
 
-        // --- L'AIDE RYTHMIQUE AU DOIGT : la grille déborde, donc elle doit se déplacer ---------------
-        // LE DÉFAUT QUE CE CAS A DÉBUSQUÉ, en donnant à l'aide un bouton visible (elle n'était avant
-        // atteignable qu'au clic droit, donc jamais ici) : une mesure de 4/4 en doubles-croches fait
-        // seize cases de 26px, plus large que n'importe quel téléphone. Et les cellules portent
-        // `touch-action: none` — le GLISSER y pose une note — si bien qu'un doigt posé dessus ne
-        // pouvait pas faire défiler la grille : ses dernières cases étaient tout simplement
-        // inatteignables. Mesuré : 210px hors écran à 390px de large, et aucune flèche.
+        // --- L'AIDE RYTHMIQUE AU DOIGT : la grille S'ÉTIRE, elle ne défile plus -------------------
+        // CE QUE CE BLOC PROTÉGEAIT AVANT, et pourquoi il a changé de mécanisme. L'ancienne grille
+        // donnait à chaque case 26px FIXES : une mesure de 4/4 en doubles-croches faisait donc 416px,
+        // plus large que n'importe quel téléphone (mesuré : 210px hors écran à 390px de large). Et
+        // comme les cases portent `touch-action: none` — le GLISSER y pose une note — un doigt posé
+        // dessus ne pouvait pas faire défiler : les dernières cases étaient inatteignables. Deux
+        // flèches, les mêmes que la barre d'outils, déplaçaient alors la grille.
         //
-        // Rétrécir les cases n'était pas une issue : faire tenir seize cases dans 320px les ramène à
-        // dix pixels, sous le seuil du visable. Ce sont donc les MÊMES flèches que la barre d'outils
-        // qui déplacent la grille — jusqu'à la fonction qui décide de les montrer.
+        // LA NOUVELLE GRILLE N'A PLUS BESOIN D'ELLES : ses colonnes sont en `1fr`, donc la mesure
+        // occupe EXACTEMENT la largeur disponible et ne déborde jamais — c'est le choix qu'a fait
+        // HarmoHub pour son propre séquenceur, et pour la même raison (voir style.css .piste-seq).
+        // Le prix est mesuré ici plutôt que supposé : les cases sont plus étroites qu'avant (voir le
+        // contrôle de largeur ci-dessous), et c'est la HAUTEUR qui prend le relais — 44px au doigt
+        // contre 34 sur un écran d'ordinateur.
+        //
+        // ET LE PREMIER CONTRÔLE CI-DESSOUS A DÉJÀ SERVI : il a débusqué un effondrement complet de
+        // la grille sur téléphone. La rangée passe en colonne sous 720px (une mesure par ligne), et
+        // son `align-items: flex-start` — posé pour aligner par le haut deux mesures côte à côte —
+        // s'appliquait alors à la LARGEUR. Mesuré : une piste de 32px et des cases de 1,9px.
         await page.evaluate(() => { document.querySelector('[data-action="aideRythme"]').click(); });
         await page.waitForTimeout(500);
         exiger(await page.locator('#fenetre-rythme').isVisible(),
             'le bouton « Rythme » de la barre d\'outils ouvre l\'aide au doigt aussi');
         const etatGrille = () => page.evaluate(() => {
             const g = document.getElementById('grille-rythme');
-            const f = (sens) => g.querySelector(`.fleche-outils-${sens}`)?.classList.contains('invisible') ? 'eteinte' : 'allumee';
-            return { deborde: g.scrollWidth - g.clientWidth, gauche: f('gauche'), droite: f('droite'), defile: g.scrollLeft };
+            const cases = [...g.querySelectorAll('.case-seq')];
+            const r = cases.map(c => c.getBoundingClientRect());
+            const rangees = [...g.querySelectorAll('.rangee-rythme')];
+            return {
+                deborde: g.scrollWidth - g.clientWidth,
+                debordePage: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+                fleches: g.querySelectorAll('.fleche-outils').length,
+                nbCases: cases.length,
+                largeurMin: r.length ? +Math.min(...r.map(x => x.width)).toFixed(1) : 0,
+                hauteur: r.length ? +r[0].height.toFixed(1) : 0,
+                parRangee: rangees.map(x => x.querySelectorAll('.mesure-seq').length),
+                // LA GÉOMÉTRIE, pas la structure : l'empilement sur téléphone est l'affaire du CSS
+                // (.rangee-rythme passe en colonne sous 720px), le DOM garde ses deux mesures dans
+                // la MÊME rangée. Compter les enfants ne dirait donc rien de ce qu'on voit — c'est
+                // le défaut d'une première version de ce contrôle, qui mesurait une quantité dont le
+                // mécanisme éprouvé ne décide pas. On lit les rectangles.
+                boites: [...g.querySelectorAll('.mesure-seq')]
+                    .map(m => { const r = m.getBoundingClientRect(); return { x: Math.round(r.left), y: Math.round(r.top) }; }),
+            };
         });
         const g1 = await etatGrille();
-        exiger(g1.deborde > 20, `une mesure en doubles-croches déborde bien de l'écran ici (${g1.deborde}px)`);
-        check(g1.droite === 'allumee' && g1.gauche === 'eteinte',
-            'la flèche DROITE s\'allume dès l\'ouverture, la gauche reste éteinte — on est tout à gauche');
-        // Elle doit VRAIMENT déplacer la grille : une flèche qui ne fait rien serait pire qu'absente.
-        await page.evaluate(() => document.querySelector('#grille-rythme .fleche-outils-droite').click());
-        await page.waitForTimeout(500);
+        exiger(g1.nbCases === 16, `une mesure de 4/4 en doubles-croches fait bien seize cases (${g1.nbCases})`);
+        check(g1.largeurMin >= 14,
+            `au doigt, la case la plus étroite reste visable : ${g1.largeurMin}px de large — l'ancienne `
+            + 'grille en donnait 26 mais sortait de l\'écran, celle-ci tient entière');
+        check(g1.hauteur >= 40,
+            `et c'est la HAUTEUR qui compense ce que la largeur ne peut pas donner : ${g1.hauteur}px `
+            + 'au doigt (34 sur un écran d\'ordinateur)');
+        check(g1.deborde === 0 && g1.debordePage === 0,
+            `la grille ne déborde plus de rien — ni d'elle-même (${g1.deborde}px), ni de la page `
+            + `(${g1.debordePage}px) : il n'y a donc plus rien à faire défiler`);
+        check(g1.fleches === 0,
+            `et les deux flèches de défilement ont disparu avec le débordement qui les justifiait `
+            + `(${g1.fleches} flèche(s))`);
+
+        // DEUX MESURES S'EMPILENT sur un téléphone, là où elles se suivent sur un écran large : deux
+        // fois seize cases dans 390px ramèneraient chaque colonne sous dix pixels.
+        await page.click('#rythme-nb-mesures button:nth-child(2)');
+        await page.waitForTimeout(450);
         const g2 = await etatGrille();
-        check(g2.defile > 0, `un appui la déplace pour de bon (défilé à ${Math.round(g2.defile)}px)`);
-        check(g2.gauche === 'allumee', 'et la flèche gauche s\'allume alors, puisqu\'il y a de nouveau quelque chose à gauche');
-        // Tout au bout : la droite s'éteint, il n'y a plus rien à atteindre de ce côté.
-        await page.evaluate(() => { const g = document.getElementById('grille-rythme'); g.scrollLeft = g.scrollWidth; });
+        const empilees = g2.boites.length === 2
+            && g2.boites[0].x === g2.boites[1].x && g2.boites[1].y > g2.boites[0].y;
+        check(empilees,
+            'deux mesures S\'EMPILENT au doigt, l\'une sous l\'autre — mesuré aux rectangles : '
+            + g2.boites.map(b => `(${b.x},${b.y})`).join(' et ')
+            + ' — là où un écran large les met côte à côte');
+        check(g2.largeurMin >= 14 && g2.nbCases === 32,
+            `et les trente-deux cases gardent leur largeur en s'empilant (${g2.largeurMin}px pour `
+            + `${g2.nbCases} cases) — c'est tout l'intérêt d'empiler`);
+
+        // LE GESTE LUI-MÊME, au doigt : un glissé sur la piste pose une note TENUE. C'est le geste
+        // principal du séquenceur, et il part ici en `pointerType: 'touch'` comme sur l'appareil.
+        const bornes = await page.evaluate(() => {
+            const cases = [...document.querySelectorAll('.mesure-seq[data-mesure="0"] .case-seq')];
+            const b = (i) => { const r = cases[i].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };
+            return { a: b(2), b: b(6) };
+        });
+        await page.evaluate(({ a, b }) => {
+            const g = document.getElementById('grille-rythme');
+            const o = (p) => ({ pointerType: 'touch', clientX: p.x, clientY: p.y, button: 0, bubbles: true, cancelable: true, isPrimary: true, pointerId: 1 });
+            g.dispatchEvent(new PointerEvent('pointerdown', o(a)));
+            g.dispatchEvent(new PointerEvent('pointermove', o({ x: (a.x + b.x) / 2, y: a.y })));
+            g.dispatchEvent(new PointerEvent('pointermove', o(b)));
+            g.dispatchEvent(new PointerEvent('pointerup', o(b)));
+        }, bornes);
         await page.waitForTimeout(300);
-        const g3 = await etatGrille();
-        check(g3.droite === 'eteinte' && g3.gauche === 'allumee',
-            'arrivé au bout, la droite s\'éteint et la gauche reste : chaque flèche ne promet que ce qui existe');
+        const pilule = await page.evaluate(() => [...document.querySelectorAll('.mesure-seq[data-mesure="0"] .note-seq')]
+            .map(n => n.style.gridColumn).join(' '));
+        check(pilule === '3 / span 5',
+            `un GLISSÉ au doigt pose une note tenue sur les cases traversées (« ${pilule || 'aucune'} ») — `
+            + 'le geste principal du séquenceur marche au doigt, pas seulement à la souris');
         await page.keyboard.press('Escape');
         await page.waitForTimeout(200);
 

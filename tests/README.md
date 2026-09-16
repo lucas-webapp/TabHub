@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**45 bancs, 1295 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**46 bancs, 1273 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -19,7 +19,8 @@ utilisateur devenus des cas permanents.
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio, et LE CHEMIN DE CHARGEMENT RÉUSSI du piano — échantillons servis par le banc, car le réseau bloqué ne le joue jamais |
 | `effets_test.js` | Les effets, de la commande au SON : un slide fusionne ses deux notes, et sa hauteur glisse sur un échantillon de PIANO (la voix synthétisée ne servant plus que hors ligne) |
 | `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
-| `rythme_test.js` | L'aide rythmique : grille, conversion en vraies figures, aperçu gravé, insertion placée |
+| `rythme_test.js` | Le séquenceur rythmique : grille continue, pilules, gestes (poser/étirer/déplacer/enlever), deux mesures par rangée, mesure de départ, boucle en direct, tonique du morceau, insertion placée |
+| `conversion_rythme_test.js` | La conversion cellules → FIGURES, sans navigateur : la règle d'alignement des silences, le droit qu'a une note d'enjamber un temps (la syncope), les triolets et leur « 3 » par temps, et deux balayages exhaustifs (256 motifs binaires, 64 ternaires) |
 | `rythme_impose_test.js` | Taper une case NE change PAS la durée d'un rythme imposé, et la surbrillance survit |
 | `ternaire_test.js` | Une seule grille de temps pour l'audio, le métronome et le MIDI ; la tête de lecture repasse par la réciproque ; l'indication gravée |
 | `midi_test.js` | Aller-retour `.mid`, doigté par zone de manche, export par section, notes de même hauteur chevauchées |
@@ -28,7 +29,7 @@ utilisateur devenus des cas permanents.
 | `boucle_lecture_test.js` | La bande orange : geste souris/doigt, poignées, l'ancrage qui la fait suivre ses mesures, l'aperçu qui suit le PIXEL (mesuré : quatre largeurs distinctes dans UNE mesure), le fantôme qui la rend découvrable, le défilement sous un doigt immobile, la prise des poignées mesurée par balayage, et l'annulation qui la couvre sans mélanger les deux histoires |
 | `zoom_ecran_test.js` | Les loupes changent la GRAVURE (pas un nombre) ; `Ctrl+molette` zoome la partition en confisquant le geste, et le laisse au navigateur partout ailleurs |
 | `pwa_test.js` | L'icône d'écran d'accueil et la marque : `apple-touch-icon` carré plein cadre, PNG du manifest, et surtout le favicon qui trace EXACTEMENT les mêmes chemins que le logo de la barre du haut — lettres en chemins (pas de `<text>`), détourage par masque (pas un liseré peint du fond), cordes d'opacité uniforme, et une marge d'encre mesurée de 8 px sur les flancs / 9 px en haut et en bas. **Sans navigateur.** |
-| `tactile_test.js` | Écrire au doigt (pavé, tap, appui long, glisser qui défile) et le pincement à deux doigts qui zoome la partition, pas la page |
+| `tactile_test.js` | Écrire au doigt (pavé, tap, appui long, glisser qui défile), le séquenceur rythmique au doigt (cases étirées plutôt que défilantes, mesures empilées, glissé qui pose une note) et le pincement à deux doigts qui zoome la partition, pas la page |
 
 ## Lancer
 
