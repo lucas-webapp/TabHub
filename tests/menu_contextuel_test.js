@@ -65,10 +65,19 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         // (retour utilisateur : « je dois pouvoir choisir où l'insérer [...] le placer à la souris ou
         // au doigt »). C'est ce menu qui donne l'endroit : il s'ouvre déjà SUR la mesure visée, donc
         // le geste qui appelle la fenêtre choisit aussi où elle écrira — voir main.js#ouvrirAideRythme.
+        //
+        // ET LES DEUX ENTRÉES DE VOIX, après le saut de ligne : « cette mesure » et « tout le
+        // morceau ». Elles sont ICI parce que sur un écran étroit la palette ne peut pas les porter
+        // — les deux boutons y ajoutaient 111px et faisaient déborder la rangée du haut (mesuré :
+        // 469px de contenu pour 360 de place). Le menu est donc le seul chemin au doigt, et un
+        // second chemin à la souris. Les libellés disent l'ÉTAT COURANT, comme celui du saut de
+        // ligne juste au-dessus : on lit ce que le clic va faire, sans avoir à le deviner.
         check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite'
             + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure'
-            + '|Commencer une nouvelle ligne ici|Aide rythmique à partir d\'ici…|Copier cette mesure',
-            'les dix actions attendues, dans cet ordre, et aucun « Coller » tant que rien n\'est copié');
+            + '|Commencer une nouvelle ligne ici|Deux voix sur cette mesure|Deux voix sur tout le morceau'
+            + '|Aide rythmique à partir d\'ici…|Copier cette mesure',
+            `les douze actions attendues, dans cet ordre, et aucun « Coller » tant que rien n'est copié `
+            + `— reçu : ${textes.join(' | ')}`);
         const boiteMenu = await menu.boundingBox();
         check(Math.abs(boiteMenu.x - p.x) < 20 && Math.abs(boiteMenu.y - p.y) < 20, 'le menu s\'ouvre AU POINT du clic, pas ailleurs');
 

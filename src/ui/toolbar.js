@@ -15,7 +15,7 @@ import * as G from '../engine/glyphs.js';
 import { icone } from './icons.js';
 import { armureEffective, modeEffectif } from '../model/score.js';
 
-const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', repere: 'Repères', voix: 'Voix' };
+const TITRES_GROUPES = { duree: 'Durée', effet: 'Effets', mesure: 'Mesure', repere: 'Repères' };
 
 /** Chevron d'une flèche de défilement — dessiné, pas une police (voir la même logique dans
  *  ui/pave.js pour les flèches de DÉPLACEMENT du curseur, un besoin distinct qui n'a pas à
@@ -337,28 +337,37 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         // Visibilité dynamique : un bouton dont la pertinence dépend de l'état courant (nombre de
         // voix, par exemple) se cache plutôt que de rester affiché sans effet.
         if (typeof action.palette === 'function') {
+            // APPLIQUÉ TOUT DE SUITE, PUIS À CHAQUE RAFRAÎCHISSEMENT. Sans le premier, le bouton
+            // naît VISIBLE et n'est caché qu'au premier rafraîchissement — qui n'a pas forcément
+            // lieu. Mesuré : le basculeur de voix occupait 49px dans la rangée du haut d'un
+            // téléphone alors qu'il n'y avait qu'une voix, et c'est ce qui l'a fait déborder.
+            b.hidden = !action.palette(editeur);
             aRafraichir.push(() => { b.hidden = !action.palette(editeur); });
         }
-        // « Voix suivante » montre sa DESTINATION plutôt qu'une icône figée : le bouton dit où l'on va,
-        // ce qu'aucun pictogramme fixe ne saurait exprimer pour un aller-retour entre deux états.
+        // « Voix suivante » montre D'OÙ L'ON VIENT ET OÙ L'ON VA — « Voix 1 → 2 » — plutôt qu'une
+        // icône figée, et plutôt que la seule destination comme une première version l'écrivait
+        // (« → Voix 2 »). La destination seule laisse DEVINER la voix courante par soustraction, et
+        // c'est précisément ce qu'il ne faut pas faire deviner : rien d'autre dans l'interface ne dit
+        // dans quelle voix on écrit, et taper dans la mauvaise sans le savoir est le défaut le plus
+        // coûteux d'une saisie à deux voix.
         if (action.apercu?.type === 'voix') {
             aRafraichir.push(() => {
                 const n = editeur.nbVoixMesure();
                 if (n <= 1) return;
-                const suivante = (editeur.curseur.voix + 1) % n;
-                b.querySelector('[data-role="voix"]').textContent = `→ Voix ${suivante + 1}`;
-                b.title = `Basculer vers la voix ${suivante + 1} (${suivante === 0 ? 'mélodie' : 'accompagnement'}) — Tab`;
+                const ici = editeur.curseur.voix;
+                const suivante = (ici + 1) % n;
+                b.querySelector('[data-role="voix"]').textContent = `Voix ${ici + 1} → ${suivante + 1}`;
+                b.title = `Vous écrivez dans la voix ${ici + 1} (${ici === 0 ? 'mélodie, hampes en haut'
+                    : 'accompagnement, hampes en bas'}). Basculer vers la voix ${suivante + 1} — Tab`;
             });
         }
         return b;
     };
 
-    // Le groupe « Voix » n'a plus qu'une seule action (basculerVoix, Tab) depuis le retrait de
-    // « + Voix »/« − Voix » de la palette (guitare/basse : voir edit/raccourcis.js) — et cette action
-    // se cache elle-même tant qu'il n'y a qu'une voix (son `palette`), ce qui est TOUJOURS le cas ici
-    // désormais. Un groupe qui ne montrerait jamais rien laisserait une étiquette « Voix » orpheline
-    // dans la barre : on ne le construit donc plus du tout. `basculerVoix` reste utilisable au
-    // clavier (Tab) pour un fichier déjà à deux voix, simplement sans bouton dans la palette.
+    // PLUS DE GROUPE « VOIX » : ses deux actions vivent maintenant dans le cadre « Écriture » (voir
+    // edit/raccourcis.js). L'interrupteur « 2 voix » et le basculeur « Voix 1 → 2 » sont des réglages
+    // de la MANIÈRE d'écrire, comme « Ternaire » à côté d'eux — et un cadre à part n'aurait montré
+    // qu'une étiquette orpheline tant qu'il n'y a qu'une voix, ce qui est le cas le plus fréquent.
     // DEUX GROUPES SE REPLIENT derrière un bouton : « Effets » (neuf gestes) et « Repères » (dix
     // marques de navigation et de barre). Même mécanique pour les deux — d'où ce petit tableau plutôt
     // qu'un `if (cle === 'effet')` doublé le jour où le second est arrivé : deux copies d'un popover

@@ -408,6 +408,15 @@ body.outils-gauche .barre-outils {
 }
 body.outils-gauche .groupe-outils { flex-wrap: wrap; justify-content: flex-start; }
 
+/* `hidden` DOIT L'EMPORTER SUR `display: inline-flex`, et c'est un correctif : `.btn-outil` posait
+   son display sans condition, si bien qu'un bouton masqué par l'attribut `hidden` restait VISIBLE et
+   occupait sa place. Le mécanisme de visibilité dynamique de la palette (voir ui/toolbar.js, la clé
+   `palette` en fonction) ne faisait donc rien du tout. Mesuré au moment de l'ajout de « 2 voix » :
+   les deux boutons de voix rendaient `hidden: true` et 62px + 49px de largeur, et c'est ce qui
+   faisait déborder la rangée du haut d'un téléphone (469px de contenu pour 360 de place). Le défaut
+   était antérieur — il ne se voyait pas parce qu'aucun bouton de la palette ne se masquait encore. */
+.btn-outil[hidden] { display: none; }
+
 .btn-outil {
     min-width: var(--h-bouton); height: var(--h-bouton);
     padding: 0 8px;

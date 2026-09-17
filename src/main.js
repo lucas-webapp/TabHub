@@ -3000,6 +3000,34 @@ class TabHubApp {
                 : 'Commencer une nouvelle ligne ici',
               faire: action(() => this.editeur.basculerSautDeLigne()) },
             null,
+            // LA SECONDE VOIX SUR TOUT LE MORCEAU. L'interrupteur « 2 voix » de la palette agit sur
+            // UNE mesure, ce qui est le bon grain quand une seule en a besoin — mais une pièce
+            // écrite à deux voix l'est du début à la fin, et la demander trente-deux fois ferait
+            // renoncer. D'où ce geste-ci, à part et explicite : on ne confond pas « ici » et
+            // « partout » parce que ce sont deux entrées différentes, à deux endroits différents.
+            // Le libellé dit l'état courant, comme celui du saut de ligne juste au-dessus.
+            // PAR MESURE, ici aussi — et pas seulement dans la palette. Sur un écran étroit la
+            // palette n'affiche pas l'interrupteur (il faisait déborder la rangée du haut : 469px
+            // de contenu pour 390 de place), donc le menu est le SEUL chemin. Sur grand écran il
+            // double le bouton, ce qui ne coûte rien et suit le geste qu'on est en train de faire.
+            { texte: this.editeur.nbVoixMesure() > 1
+                ? 'Une seule voix sur cette mesure'
+                : 'Deux voix sur cette mesure',
+              faire: action(() => this.editeur.basculerDeuxVoix()) },
+            { texte: this.editeur.partition.mesures.every(m => m.voix.length > 1)
+                ? 'Retirer la seconde voix partout'
+                : 'Deux voix sur tout le morceau',
+              faire: action(() => {
+                  const toutes = this.editeur.partition.mesures.every(m => m.voix.length > 1);
+                  const n = this.editeur.deuxVoixPartout(!toutes);
+                  if (n) {
+                      this.message(toutes
+                          ? `Seconde voix retirée de ${n} mesure${n > 1 ? 's' : ''}`
+                          : `Seconde voix ajoutée à ${n} mesure${n > 1 ? 's' : ''} — Tab passe de l'une à l'autre`,
+                          4000);
+                  }
+              }) },
+            null,
             // COPIER/COLLER UNE MESURE ENTIÈRE (retour utilisateur : « permets-moi de copier/coller une
             // mesure complète avec clic droit, et de l'insérer là où je le souhaite »). Copier ne
             // modifie rien, donc pas de `action()` ici : ce relais redessine et lit derniereErreur,

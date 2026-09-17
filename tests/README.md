@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**47 bancs, 1345 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**48 bancs, 1455 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -14,6 +14,7 @@ utilisateur devenus des cas permanents.
 | `modele_test.js` | Théorie, durées, accordages, normalisation d'un fichier importé. **Sans navigateur.** |
 | `saisie_clavier_test.js` | Cases à deux chiffres, prolongation de mesure par `→`, accords, annulation |
 | `liaisons_test.js` | Les liaisons qui FRANCHISSENT une barre de mesure, sans navigateur : l'arc sur la même ligne, les deux demi-arcs au saut de ligne, et surtout le fait que chaque arc vive DANS la tranche de primitives de son système — les rendus découpent par système, et une passe finale émettait des arcs que personne ne dessinait |
+| `deux_voix_test.js` | La SECONDE VOIX rendue accessible à la guitare et à la basse : le bouton « 2 voix » (Alt+V) dans le cadre Écriture, le repère `Voix 1 → 2` qui dit où l'on écrit, les deux grains du menu contextuel (cette mesure / tout le morceau) en UN seul retour en arrière, la gravure elle-même (hampes opposées, silences décalés) et le fait que ces commandes quittent la palette sous 720 px pour ne pas faire déborder la barre |
 | `rendu_double_portee_test.js` | Cinq lignes + six cordes, alignement des deux portées, découpage en systèmes |
 | `accordages_test.js` | Trois instruments, accordages prédéfinis et personnalisés, capodastre |
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |

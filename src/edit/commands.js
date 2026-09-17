@@ -315,6 +315,64 @@ export class Editeur {
         return true;
     }
 
+    /**
+     * DEUX VOIX SUR CETTE MESURE, ou une seule — le geste unique qui remplace « + Voix »/« − Voix ».
+     *
+     * POURQUOI UN SEUL BOUTON. Les deux boutons ont été retirés de la palette guitare/basse sur un
+     * retour sans appel : « je ne comprends pas les boutons voix+/voix-, à quoi cela sert-il ? ».
+     * Ils avaient deux défauts. Ils étaient DEUX pour deux états d'une même question, ce qui oblige
+     * à deviner lequel s'applique ; et « voix » ne dit rien de l'usage — or l'usage, à la guitare,
+     * a un nom que tout guitariste connaît : une basse tenue sous la mélodie, l'écriture de *Jeux
+     * interdits* et de tout le répertoire en fingerstyle. Un interrupteur nommé « 2 voix », dont
+     * l'infobulle donne cet exemple, répond à la question que l'ancien posait.
+     *
+     * LE MOTEUR SAVAIT DÉJÀ LES GRAVER : hampes opposées, silences décalés, ligatures et liaisons
+     * par voix, évitement de collision (voir engine/layout.js, la boucle `m.ref.voix.forEach`). Il
+     * n'y manquait que cette porte.
+     *
+     * PAR MESURE, comme les deux commandes qu'il enveloppe : on se place là où la seconde voix doit
+     * commencer, et seule cette mesure change. Un morceau qui en a besoin partout s'obtient avec
+     * `deuxVoixPartout`, un geste explicite — plutôt qu'en faisant de ce bouton-ci un geste global
+     * dont on ne saurait plus s'il vise une mesure ou cent.
+     */
+    basculerDeuxVoix() {
+        return this.nbVoixMesure() > 1 ? this.supprimerVoix() : this.ajouterVoix();
+    }
+
+    /**
+     * LA SECONDE VOIX SUR TOUT LE MORCEAU, ou nulle part.
+     *
+     * Une pièce écrite à deux voix l'est du début à la fin : la demander mesure par mesure sur
+     * trente-deux mesures est une corvée qui ferait renoncer. C'est donc un geste à part, ET
+     * EXPLICITE — c'est bien pour cela qu'il ne se confond pas avec l'interrupteur par mesure.
+     *
+     * UN SEUL `memoriser` POUR TOUT : l'annulation ramène le morceau entier d'un coup, et non
+     * mesure par mesure. Une centaine d'entrées d'historique pour un seul geste rendrait Ctrl+Z
+     * inutilisable là où on en a le plus besoin.
+     */
+    deuxVoixPartout(actif) {
+        // ON COMPTE AVANT DE MÉMORISER : un geste qui ne change rien ne doit pas laisser d'entrée
+        // dans l'historique, sinon Ctrl+Z « ne fait rien » une fois de plus à chaque clic inutile.
+        const aFaire = this.partition.mesures.filter(m =>
+            actif ? m.voix.length < MAX_VOIX : m.voix.length > 1);
+        if (!aFaire.length) return 0;
+        this.memoriser();
+        let touchees = 0;
+        this.partition.mesures.forEach((m, iMesure) => {
+            if (actif && m.voix.length < MAX_VOIX) {
+                m.voix.push(creerVoix(capaciteMesure(this.partition, iMesure)));
+                touchees++;
+            } else if (!actif && m.voix.length > 1) {
+                m.voix.length = 1;
+                touchees++;
+            }
+        });
+        this.corrigerCurseur();
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+        return touchees;
+    }
+
     /** Bascule la saisie sur la voix suivante de la mesure courante (Tab). Sans effet à une seule voix. */
     basculerVoix() {
         const n = this.nbVoixMesure();

@@ -289,6 +289,29 @@ répétait en coûtant sa largeur de texte, dans la seule barre de l'application
 (152px récupérés sur ordinateur, mesurés). Le nom reste annoncé aux lecteurs d'écran (`role="group"`
 + `aria-label`) — un cadre ne s'entend pas.
 
+**Deux voix sur la même portée**, pour une basse tenue sous la mélodie — le cas de *Jeux
+interdits*, où le pouce garde un mi pendant que les doigts montent. Le moteur gravait déjà la
+polyphonie (hampes opposées, silences décalés, ligatures et liaisons par voix) ; ce qui manquait était
+la porte d'entrée. Les anciens boutons « + Voix » / « − Voix » avaient été retirés parce qu'ils ne
+disaient pas à quoi ils servaient (« je ne comprends pas les boutons voix+/voix-, à quoi cela
+sert-il ? »), et c'est bien le nom qui était le défaut, pas la fonction. À leur place, dans le cadre
+**Écriture** :
+
+- un seul bouton **« 2 voix »** (`Alt+V`) qui bascule la mesure courante, et dont l'infobulle nomme
+  l'usage plutôt que le mécanisme — *une basse tenue sous la mélodie, par exemple* ;
+- le repère **« Voix 1 → 2 »** (`Tab`), qui n'apparaît que là où il y a deux voix et qui dit à la
+  fois où l'on écrit et où l'on ira : sans lui, la même touche envoyait la note ailleurs sans que
+  rien ne l'annonce ;
+- deux grains dans le **menu contextuel** — *cette mesure* ou *tout le morceau* — parce qu'une pièce
+  à deux voix l'est du début à la fin, et que la poser mesure par mesure sur cinquante mesures n'est
+  pas une commande mais une corvée. Les deux s'annulent d'**un seul retour en arrière**.
+
+Sous 720px, ces deux boutons quittent la palette au profit du menu contextuel : ajoutés à la barre,
+ils la faisaient déborder de 151px sur un écran de 360 (mesuré). Ce report a d'ailleurs révélé que
+`hidden` ne masquait rien sur les boutons d'outil — `.btn-outil { display: inline-flex }` gagnait
+contre l'attribut — donc que le mécanisme de visibilité dynamique de la palette était inopérant
+depuis le début.
+
 ### Onglets — plusieurs morceaux à la fois
 
 Sur ordinateur, une **barre d'onglets sous la barre d'outils** garde plusieurs morceaux ouverts en
@@ -784,11 +807,10 @@ La règle qui tient l'ensemble : **une dépendance ne remonte jamais**. `model/`
 
 Dit franchement, pour que la suite se décide sur des faits :
 
-- **La seconde voix n'a pas d'entrée dans la palette guitare/basse.** Le moteur la GRAVE (hampes
-  opposées, silences décalés, ligatures et liaisons par voix), et `Tab` navigue entre les voix d'un
-  fichier qui en a deux — mais les boutons « + Voix »/« − Voix » ont été retirés pour la guitare et
-  la basse (« je ne comprends pas les boutons voix+/voix-, à quoi cela sert-il ? »), et rien ne les
-  remplace encore. Une pièce comme *Jeux interdits* est donc gravable mais pas saisissable.
+- **Deux voix par portée, pas trois.** C'est assez pour une basse tenue sous la mélodie (voir
+  *Saisie*), pas pour une fugue : `MAX_VOIX = 2`. Une troisième voix demanderait de répartir les
+  hampes autrement que « l'une en haut, l'autre en bas », donc de revoir la gravure, pas d'ouvrir un
+  cran de plus.
 - **Pas de dépliage des reprises à la lecture.** Les barres de reprise s'écrivent et s'exportent,
   mais la lecture parcourt la partition écrite, une fois.
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
@@ -796,7 +818,7 @@ Dit franchement, pour que la suite se décide sur des faits :
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
 - **L'import MIDI fond tout dans une seule voix.** Deux lignes indépendantes qui sonnent ensemble
   deviennent une suite d'accords : séparer les voix d'un fichier source est un problème autrement
-  plus dur, et TabHub n'a de toute façon qu'une voix par mesure (voir plus haut). Le rythme, lui,
+  plus dur, et l'import ne pose jamais la seconde voix que TabHub sait pourtant graver. Le rythme, lui,
   n'est plus aplati : triolets et swing sont désormais lus correctement (voir *Le rythme d'un fichier
   importé*).
 - **Les triples-croches ne sont pas écrites**, ni à l'aide rythmique ni à l'import : la subdivision

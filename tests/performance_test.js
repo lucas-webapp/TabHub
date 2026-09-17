@@ -26,9 +26,19 @@ const mesurer = (page, n) => page.evaluate(async (n) => {
     }));
     ed.prevenir('document');
     window.app.dessiner();                                   // une passe à blanc : on ne mesure pas le premier appel
-    const t0 = performance.now();
-    for (let k = 0; k < 12; k++) window.app.dessiner();
-    const ms = (performance.now() - t0) / 12;
+    // LE MEILLEUR DE TROIS SÉRIES, et non la moyenne d'une seule. Ce banc tourne au milieu de
+    // quarante-six autres, chacun avec son Chromium : une série peut tomber pendant que la machine
+    // fait autre chose, et le rapport mesuré s'envole sans que rien n'ait changé dans le code.
+    // Mesuré : le même rapport donnait 1,23 / 1,32 / 1,70 en isolation et 2,18 sous la charge de la
+    // suite complète — assez pour faire échouer un seuil de 2 sur un bruit de fond. Le MINIMUM de
+    // plusieurs séries mesure ce que la machine sait faire quand on la laisse tranquille, ce qui est
+    // précisément la propriété qu'on veut comparer entre deux longueurs de morceau.
+    let ms = Infinity;
+    for (let serie = 0; serie < 3; serie++) {
+        const t0 = performance.now();
+        for (let k = 0; k < 12; k++) window.app.dessiner();
+        ms = Math.min(ms, (performance.now() - t0) / 12);
+    }
     return {
         mesures: n,
         primitives: window.app.page.primitives.length,

@@ -263,15 +263,45 @@ export const ACTIONS = [
       } },
 
     // --- Voix — voir edit/commands.js ------------------------------------------------------------
-    // « + Voix »/« − Voix » ont disparu de la palette pour la guitare et la basse (retour direct :
-    // « je ne comprends pas les boutons voix+/voix-, à quoi cela sert-il ? » — une seconde voix par
-    // mesure n'a d'usage clair que pour le piano, à venir). Les MÉTHODES (Editeur.ajouterVoix/
-    // supprimerVoix) restent en place, prêtes à être reproposées quand le piano existera — seule
-    // l'ENTRÉE dans la palette actuelle disparaît. `basculerVoix` (Tab), lui, reste : un fichier déjà
-    // à deux voix (ouvert d'avant ce retrait) doit rester navigable, même sans bouton pour EN CRÉER.
-    { id: 'basculerVoix', touches: ['tab'], libelle: 'Voix suivante', groupe: 'voix', apercu: { type: 'voix' },
-      palette: ed => ed.nbVoixMesure() > 1, actif: () => false, faire: ed => ed.basculerVoix() },
+    // « + Voix »/« − Voix » ont disparu ici, et c'était justifié : deux boutons pour deux états d'une
+    // même question, avec un nom qui ne disait pas l'usage (« je ne comprends pas les boutons
+    // voix+/voix-, à quoi cela sert-il ? »). Ils sont remplacés par UN interrupteur qui NOMME l'usage.
+    //
+    // « 2 VOIX » PLUTÔT QUE « VOIX », parce que le mot « voix » est du vocabulaire de logiciel, pas
+    // de musicien. Ce qu'un guitariste cherche, c'est d'écrire une basse tenue SOUS une mélodie —
+    // l'écriture de *Jeux interdits* et de tout le fingerstyle. L'infobulle le dit en ces termes.
+    // Le moteur savait déjà les graver (hampes opposées, silences décalés, ligatures par voix : voir
+    // engine/layout.js) ; il ne manquait que cette porte.
+    //
+    // DANS LE CADRE « ÉCRITURE », à côté de « Ternaire » : ce sont deux réglages de la MANIÈRE
+    // d'écrire, pas deux outils de pose. Et dans le MÊME cadre que `basculerVoix`, pour qu'il n'y
+    // ait pas une étiquette « Voix » orpheline dans la barre quand il n'y a qu'une voix.
+    // PAS SUR UN ÉCRAN ÉTROIT, et c'est un correctif mesuré : ces deux boutons ajoutent 111px à la
+    // rangée du haut, qui passait alors de 358 à 469px de contenu pour 390px de place — elle
+    // débordait sur tous les téléphones. La capacité ne disparaît pas pour autant : l'appui long
+    // ouvre le menu contextuel, qui porte « Deux voix sur cette mesure » et son pendant global (voir
+    // main.js#ouvrirMenuContextuel). C'est l'échange que l'application fait déjà pour le retour à la
+    // ligne et le copier/coller de mesure — les gestes rares vont au menu, la barre reste lisible.
+    { id: 'deuxVoix', touches: ['alt+v'],
+      libelle: 'Deux voix sur cette mesure — une basse tenue sous la mélodie, par exemple',
+      groupe: 'ecriture', apercu: { type: 'texteGras', texte: '2 voix' },
+      palette: () => !ecranEtroit(),
+      actif: ed => ed.nbVoixMesure() > 1, faire: ed => ed.basculerDeuxVoix() },
+    // `basculerVoix` (Tab) se cache lui-même tant qu'il n'y a qu'une voix (son `palette`) : sans
+    // deuxième voix, il ne coûte rien ; avec, c'est LUI qui dit dans quelle voix on écrit, ce que
+    // rien d'autre ne disait.
+    { id: 'basculerVoix', touches: ['tab'], libelle: 'Voix suivante', groupe: 'ecriture', apercu: { type: 'voix' },
+      palette: ed => ed.nbVoixMesure() > 1 && !ecranEtroit(), actif: () => false, faire: ed => ed.basculerVoix() },
 ];
+
+/**
+ * ÉCRAN ÉTROIT — par la MÊME media query que la feuille de style (`max-width: 720px`) et que
+ * main.js#ecranEtroit, pour que les trois basculent au même instant. Une constante recopiée
+ * dériverait le jour où l'une changerait ; `matchMedia` interroge la CSS elle-même.
+ */
+function ecranEtroit() {
+    return globalThis.matchMedia?.('(max-width: 720px)').matches ?? false;
+}
 
 /** Passe à la figure voisine (plus longue ou plus brève) dans l'échelle des durées. */
 function changerFigure(ed, pas) {
