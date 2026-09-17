@@ -83,8 +83,28 @@ export function dessinerApercu(hote, etat, source, ternaire, largeur) {
 export const MESURES_PAR_RANGEE = 2;
 
 /** Au-delà de ce déplacement, un geste n'est plus un clic. Assez pour absorber le tremblement d'un
- *  doigt, assez peu pour qu'un vrai glissement soit reconnu tout de suite. */
-const SEUIL_GESTE = 6;
+ *  doigt, assez peu pour qu'un vrai glissement soit reconnu tout de suite.
+ *
+ *  IL VALAIT 6, ET C'ÉTAIT TROP : un étirement raté de quelques pixels retombait dans le cas du
+ *  clic, et un clic sur une note l'EFFACE. Mesuré — prendre le bord droit d'une note et bouger de
+ *  4px la faisait disparaître. Trois pixels absorbent encore le tremblement du doigt, et la garde
+ *  qui suit (`finir`) achève de fermer le piège : sous le seuil, un geste parti d'une POIGNÉE ne
+ *  fait plus rien du tout au lieu de supprimer. */
+const SEUIL_GESTE = 3;
+
+/** LA POIGNÉE D'ÉTIREMENT, en pixels, aux deux bouts de la NOTE — un quart de sa largeur, borné.
+ *
+ *  POURQUOI PAS « LA CASE DU BOUT », qui était la règle d'avant. Une case fait 62,8px sur un écran
+ *  d'ordinateur : la poignée d'une note de quatre cases valait donc un QUART de la note, et une note
+ *  de DEUX cases n'était faite que de poignées — donc impossible à déplacer. Une poignée doit être
+ *  une petite zone au bord de l'objet, pas une fraction de l'objet. Mêmes valeurs que HarmoHub, qui
+ *  a résolu exactement ce problème (voir SEQ_ZONE_HANDLE_* là-bas). */
+const POIGNEE_RATIO = 0.25;
+const POIGNEE_MIN = 6;
+const POIGNEE_MAX = 18;
+/** Sous cette largeur de corps, la note n'a pas de quoi loger trois zones : on n'en garde que deux,
+ *  et le CORPS passe devant — condamner une note étroite à ne jamais se déplacer serait pire. */
+const CORPS_MIN = 8;
 
 /**
  * Construit la grille et branche les gestes. Rend un objet de commande, pour que l'appelant
@@ -233,6 +253,14 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
                 note.style.gridColumn = `${debut + 1} / span ${fin - debut + 1}`;
                 note.dataset.debut = String(debut);
                 note.dataset.fin = String(fin);
+                // Un bout COUPÉ PAR LA BARRE n'est pas une poignée : la note continue de l'autre
+                // côté, il n'y a rien à y étirer (voir zoneDansLaNote).
+                note.dataset.attaque = attaque ? '1' : '';
+                note.dataset.suite = suite ? '1' : '';
+                // `--span` : le nombre de cases couvertes. Le CSS s'en sert pour graduer la pilule,
+                // une marque par case, afin que sa durée se COMPTE à travers son remplissage
+                // translucide (voir style.css, .note-seq).
+                note.style.setProperty('--span', String(fin - debut + 1));
                 // REPÈRE D'ATTAQUE : une fine bande plus claire au tout début de la pilule, pour
                 // distinguer d'un coup d'œil où la note est PINCÉE de sa partie tenue. Inutile sur
                 // une note d'une seule case — il n'y a rien à y distinguer — et FAUX sur un morceau
@@ -258,6 +286,11 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
                 b.setAttribute('aria-pressed', String(!!c));
             }
         }
+        // LES PILULES VIENNENT D'ÊTRE REFAITES : le survol se repose dessus, sinon l'éclaircissement
+        // et le liseré disparaîtraient à chaque redessin — pendant un étirement, par exemple — alors
+        // que le pointeur n'a pas bougé d'un pixel. C'est le même piège que dans HarmoHub, qui
+        // rappelle `applySeqHoverHighlight` à la fin de chaque rendu pour la même raison.
+        majSurvol();
     };
 
     // -----------------------------------------------------------------------------------------
@@ -276,6 +309,75 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
             tete.style.gridColumn = String(cible.colonne + 1);
         }
     };
+
+    // -----------------------------------------------------------------------------------------
+    // OÙ EST LE POINTEUR DANS LA NOTE — les trois zones
+    // -----------------------------------------------------------------------------------------
+
+    /** La pilule sous l'abscisse `x` dans cette piste, ou `null`. */
+    const piluleAuPoint = (piste, x) => [...piste.querySelectorAll('.note-seq')]
+        .find(n => { const r = n.getBoundingClientRect(); return x >= r.left - 1 && x <= r.right + 1; }) || null;
+
+    /**
+     * 'debut' | 'fin' | 'corps' — la zone de la note sous l'abscisse `x`.
+     *
+     * Un bout coupé par la barre de mesure n'est PAS une poignée : la note continue de l'autre côté,
+     * et l'étirer par là n'aurait pas de sens. On le rabat donc sur le corps.
+     */
+    const zoneDansLaNote = (pilule, x) => {
+        const r = pilule.getBoundingClientRect();
+        const poignee = Math.min(POIGNEE_MAX, Math.max(POIGNEE_MIN, r.width * POIGNEE_RATIO));
+        const debutReel = pilule.dataset.attaque === '1';
+        const finReelle = pilule.dataset.suite !== '1';
+        let zone;
+        if (r.width - 2 * poignee < CORPS_MIN) {
+            // Trop étroite pour trois zones : le dernier tiers étire, le reste déplace.
+            zone = x > r.left + r.width * 0.6 ? 'fin' : 'corps';
+        } else if (x < r.left + poignee) zone = 'debut';
+        else if (x > r.right - poignee) zone = 'fin';
+        else zone = 'corps';
+        if (zone === 'debut' && !debutReel) return 'corps';
+        if (zone === 'fin' && !finReelle) return 'corps';
+        return zone;
+    };
+
+    // -----------------------------------------------------------------------------------------
+    // LE SURVOL — ce qui rend les gestes DÉCOUVRABLES
+    //
+    // Le seul signal qu'une note s'étire était le curseur `ew-resize`, posé sur les cases du bout.
+    // Il faut donc avoir survolé pile la bonne case pour l'apprendre, et il n'existe pas au doigt.
+    // Trois repères le remplacent : la note survolée s'éclaircit (on sait sur LAQUELLE on agit), un
+    // liseré clair marque le bord qu'on va tirer (on sait LEQUEL), et le curseur suit la ZONE et non
+    // la case (on sait QUEL geste partira d'ici). Repris de HarmoHub, qui avait déjà ces trois-là.
+    // -----------------------------------------------------------------------------------------
+    let survol = null;   // { x, y } la dernière position connue du pointeur, pour reposer le survol
+
+    const majSurvol = () => {
+        for (const n of pile.querySelectorAll('.note-seq')) {
+            n.classList.remove('survolee', 'poignee-debut', 'poignee-fin');
+        }
+        for (const p of pile.querySelectorAll('.piste-seq')) {
+            p.classList.remove('curseur-etirer', 'curseur-deplacer');
+        }
+        if (!survol || geste) return;
+        const c = caseAuPoint(survol.x, survol.y);
+        if (!c) return;
+        const piste = c.el.parentElement;
+        const pilule = piluleAuPoint(piste, survol.x);
+        if (!pilule) return;
+        const zone = zoneDansLaNote(pilule, survol.x);
+        pilule.classList.add('survolee');
+        if (zone === 'debut') { pilule.classList.add('poignee-debut'); piste.classList.add('curseur-etirer'); }
+        else if (zone === 'fin') { pilule.classList.add('poignee-fin'); piste.classList.add('curseur-etirer'); }
+        else piste.classList.add('curseur-deplacer');
+    };
+
+    hote.addEventListener('pointermove', (ev) => {
+        if (geste) return;
+        survol = { x: ev.clientX, y: ev.clientY };
+        majSurvol();
+    });
+    hote.addEventListener('pointerleave', () => { survol = null; majSurvol(); });
 
     // -----------------------------------------------------------------------------------------
     // LE CLAVIER
@@ -359,28 +461,29 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         if (!c) return;
         ev.preventDefault();
         const course = courseA(etat, c.i);
-        // QUEL GESTE ? Sur une case vide, on peint. Sur une note, le BORD étire et le CORPS déplace.
+        // DEUX RÈGLES ONT PRÉCÉDÉ CELLE-CI, et toutes deux venaient de la même erreur : croire que la
+        // zone de préhension est une CASE.
         //
-        // LE CAS DE LA NOTE D'UNE SEULE CASE, qui n'a ni corps ni deux bords distincts. Une première
-        // version lui donnait d'office son « bord droit », au motif que l'allonger est le geste qu'on
-        // vient chercher — mais glisser une telle note vers la GAUCHE l'allongeait alors vers la
-        // droite, ce qui se lit comme un défaut (mesuré en la déplaçant de deux cases : elle
-        // s'étirait au lieu de bouger). Elle prend donc son bord DANS LE SENS DU GESTE, décidé au
-        // premier vrai mouvement : on la tire à droite, elle grandit à droite ; on la tire à gauche,
-        // elle grandit à gauche. Aucune surprise dans les deux cas.
+        //   1. La case du bout étirait, les cases du milieu déplaçaient. À 62,8px la case sur un
+        //      écran d'ordinateur, la poignée d'une note de quatre cases valait donc un quart de la
+        //      note — et une note de DEUX cases n'était faite que de poignées, donc indéplaçable.
+        //   2. Pour la note d'UNE case, qui n'avait alors ni corps ni deux bords distincts, un mode
+        //      spécial décidait du bord au premier mouvement (« bordSelonLeSens »). Il réparait un
+        //      symptôme de la règle 1 et n'a plus de raison d'être.
         //
-        // CE QU'ON NE PEUT PAS FAIRE, et c'est assumé : DÉPLACER une note d'une seule case, faute de
-        // corps à saisir. Un clic l'enlève et un clic la repose ailleurs — deux clics, contre un
-        // glissement qui aurait fatalement été ambigu avec l'étirement.
+        // La zone se lit maintenant en PIXELS dans la note : une petite poignée à chaque bout, tout
+        // le reste est corps (voir zoneDansLaNote). Une note d'une case s'étire ET se déplace, et
+        // l'ancien mode spécial a disparu avec le problème qu'il compensait.
+        // QUEL GESTE ? Sur une case vide, on peint. Sur une note, la ZONE sous le pointeur décide :
+        // une poignée au bord étire, le corps déplace (voir zoneDansLaNote).
         let mode = 'peindre';
+        let zone = null;
         if (course) {
-            const seule = course.fin === course.debut;
-            if (seule) mode = 'bordSelonLeSens';
-            else if (c.i === course.debut) mode = 'bordGauche';
-            else if (c.i === course.fin) mode = 'bordDroit';
-            else mode = 'deplacer';
+            const pilule = piluleAuPoint(c.el.parentElement, ev.clientX);
+            zone = pilule ? zoneDansLaNote(pilule, ev.clientX) : 'corps';
+            mode = zone === 'debut' ? 'bordGauche' : zone === 'fin' ? 'bordDroit' : 'deplacer';
         }
-        geste = { mode, course, i: c.i, x0: ev.clientX, y0: ev.clientY, bouge: false };
+        geste = { mode, zone, course, i: c.i, x0: ev.clientX, y0: ev.clientY, bouge: false };
         // Le focus suit le pointeur : reprendre au clavier après un clic repart de là où on a
         // cliqué, et non du début de la grille.
         poserFocus(c.i, false);
@@ -397,12 +500,6 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         if (!geste.bouge) {
             if (Math.hypot(ev.clientX - geste.x0, ev.clientY - geste.y0) < SEUIL_GESTE) return;
             geste.bouge = true;
-            // Le sens ne se décide qu'ICI, au premier vrai mouvement : au `pointerdown` il n'existe
-            // pas encore. Une fois choisi il ne change plus, sinon la note rebondirait d'un bord à
-            // l'autre en revenant sur ses pas.
-            if (geste.mode === 'bordSelonLeSens') {
-                geste.mode = ev.clientX < geste.x0 ? 'bordGauche' : 'bordDroit';
-            }
         }
         // `elementFromPoint` plutôt que `ev.target` : avec la capture du pointeur, la cible reste la
         // case de DÉPART pendant tout le glissement — on ne saurait jamais qu'on en a traversé
@@ -440,7 +537,14 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         // UN GESTE QUI N'A PAS BOUGÉ EST UN CLIC : on pose sur une case vide, on enlève sur une
         // note. C'est le même geste au doigt, où l'on remue toujours de deux ou trois pixels sans
         // le vouloir — d'où le seuil plutôt qu'une égalité stricte.
-        if (g.bouge) return;
+        if (g.bouge) { majSurvol(); return; }
+        // MAIS UN GESTE PARTI D'UNE POIGNÉE N'EST JAMAIS UN CLIC, même s'il n'a pas bougé assez.
+        // Viser une poignée, c'est vouloir étirer ; effacer la note parce que le doigt n'a pas
+        // parcouru trois pixels est le piège exact qui rendait l'étirement « impossible » (mesuré :
+        // bord droit + 4px de mouvement, et la note disparaissait). Un étirement raté ne fait donc
+        // RIEN, et on recommence. Pour effacer, on clique le CORPS de la note, ou on fait un clic
+        // droit — deux chemins qui restent à un seul geste.
+        if (g.zone === 'debut' || g.zone === 'fin') return;
         if (g.mode === 'peindre') poserCourse(etat, g.i, g.i);
         else effacerCourse(etat, g.i);
         rafraichir();

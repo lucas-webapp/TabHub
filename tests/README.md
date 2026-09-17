@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**46 bancs, 1320 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**46 bancs, 1326 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -19,7 +19,7 @@ utilisateur devenus des cas permanents.
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio, et LE CHEMIN DE CHARGEMENT RÉUSSI du piano — échantillons servis par le banc, car le réseau bloqué ne le joue jamais |
 | `effets_test.js` | Les effets, de la commande au SON : un slide fusionne ses deux notes, et sa hauteur glisse sur un échantillon de PIANO (la voix synthétisée ne servant plus que hors ligne) |
 | `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
-| `rythme_test.js` | Le séquenceur rythmique : grille continue, pilules, gestes (poser/étirer/déplacer/enlever), le CLAVIER (focus baladeur, flèches, Maj+flèches, Suppr), deux mesures par rangée, mesure de départ, boucle en direct, tonique du morceau, motifs tout prêts, note liée par-dessus la barre remplie d'une seule frappe, réouverture sur le rythme déjà écrit, et les deux garde-fous (Boucler à vide, écrasement de notes) |
+| `rythme_test.js` | Le séquenceur rythmique : grille continue, pilules, gestes (poser/étirer/déplacer/enlever), les trois ZONES d'une note (poignée / corps, en pixels) avec leurs repères de survol, le CLAVIER (focus baladeur, flèches, Maj+flèches, Suppr), deux mesures par rangée, mesure de départ, boucle en direct, tonique du morceau, motifs tout prêts, note liée par-dessus la barre remplie d'une seule frappe, réouverture sur le rythme déjà écrit, et les deux garde-fous (Boucler à vide, écrasement de notes) |
 | `conversion_rythme_test.js` | La conversion cellules → FIGURES, sans navigateur : la règle d'alignement des silences, le droit qu'a une note d'enjamber un temps (la syncope), les triolets et leur « 3 » par temps, les divisions propres à chaque famille de mesure (pas de triple-croche en 6/8, pas de faux triolet en mesure composée), la liaison par-dessus la barre, la requantification qui ne jette pas le travail, l'aller-retour grille → partition → grille, les dix-neuf motifs tout prêts, et deux balayages exhaustifs (256 motifs binaires, 64 ternaires) |
 | `rythme_impose_test.js` | Taper une case NE change PAS la durée d'un rythme imposé, et la surbrillance survit |
 | `ternaire_test.js` | Une seule grille de temps pour l'audio, le métronome et le MIDI ; la tête de lecture repasse par la réciproque ; l'indication gravée |

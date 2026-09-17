@@ -1734,11 +1734,17 @@ body.avec-pave .dpad-flottant { display: grid; }
 .case-seq.debut-temps { border-left: 1px solid rgba(255, 255, 255, .3); }
 .case-seq:first-child.debut-temps { border-left: none; }
 .case-seq:hover { background: rgba(255, 255, 255, .06); }
-/* Sur les bords d'une note, le curseur annonce l'étirement — c'est ce qui rend la poignée
-   découvrable sans rien dessiner de plus (même langage que les poignées de la bande de boucle). */
-.case-seq.bord-gauche, .case-seq.bord-droit { cursor: ew-resize; }
-/* Le corps d'une note se déplace dans le temps : le curseur le dit aussi. */
-.case-seq.occupee:not(.bord-gauche):not(.bord-droit) { cursor: grab; }
+
+/* LE CURSEUR SUIT LA ZONE SOUS LE POINTEUR, PAS LA CASE — et c'est un correctif, pas un détail.
+   Les classes `bord-gauche`/`bord-droit` marquent les cases qui portent les BOUTS d'une note ;
+   elles portaient aussi le curseur, ce qui revenait à dire qu'une case entière est une poignée. À
+   62,8px la case sur un écran d'ordinateur, la « poignée » d'une note de quatre cases faisait donc
+   un quart de la note, et une note de DEUX cases n'était que poignées — indéplaçable. La zone est
+   maintenant calculée en pixels DANS la note (voir ui/rythme.js#zoneDansLaNote), et c'est elle qui
+   pose la classe ci-dessous sur la piste. */
+.piste-seq.curseur-etirer { cursor: ew-resize; }
+.piste-seq.curseur-deplacer { cursor: grab; }
+.piste-seq.curseur-deplacer:active { cursor: grabbing; }
 
 /* LA PILULE — UNE note, UNE forme. Retour utilisateur : « l'étirement des notes fait une forme
    bizarre, remplacer par quelque chose de joli ». C'était une file de carrés accolés, chacun avec
@@ -1755,14 +1761,67 @@ body.avec-pave .dpad-flottant { display: grid; }
        --btn-green-1 (#234534), le vert d'un bouton actif : sur le fond sombre de la piste les
        pilules devenaient des blocs gris-vert qu'on distinguait à peine des cases vides (mesuré en
        capture). Un bouton n'a besoin que de se signaler « allumé » à côté de ses voisins éteints ;
-       une note doit se lire seule, d'un coup d'œil. D'où un vert franc dérivé de --accent. */
-    background: linear-gradient(180deg,
-        color-mix(in srgb, var(--accent) 74%, #0d2a1b),
-        color-mix(in srgb, var(--accent) 52%, #0d2a1b));
-    border: 1px solid color-mix(in srgb, var(--accent) 45%, #000);
-    box-shadow: 0 1px 3px rgba(0, 0, 0, .45);
+       une note doit se lire seule, d'un coup d'œil. D'où un vert franc dérivé de --accent.
+
+       ET LE REMPLISSAGE EST TRANSLUCIDE, avec un CONTOUR saturé — demande explicite de
+       l'utilisateur : « les bâtons doivent rester légèrement translucides pour que je puisse voir
+       leur durée à travers ». Une version antérieure posait un dégradé OPAQUE : il couvrait les
+       filets entre cases et le trait plus franc du début de temps, donc la seule façon de savoir
+       qu'une note faisait trois cases était de mesurer sa longueur à l'œil. Sous un remplissage à
+       30 %, la grille se devine dessous et la durée SE COMPTE. C'est le choix du séquenceur de
+       HarmoHub, pour la même raison et avec le même commentaire (voir .seq-note là-bas).
+
+       LE CONTOUR COMPENSE : à 30 % de remplissage, deux notes voisines se confondraient sans un
+       bord bien marqué — d'où 1,5px à 85 % d'accent, qui garde chaque note nette. */
+    /* DEUX COUCHES. Dessous, le remplissage translucide. DESSUS, un repère à chaque case couverte —
+       et cette seconde couche est ce qui rend « voir la durée à travers » vraiment vrai. Les filets
+       entre cases ne valent que 5 % de blanc (voir .case-seq) : sous un remplissage à 34 %, ils
+       disparaissent, et seuls les traits de DÉBUT DE TEMPS (30 %) se devinent encore. On ne pourrait
+       donc lire que le nombre de temps, jamais le nombre de cases. La pilule porte ses propres
+       graduations, une par case, calées sur `--span` (le nombre de cases qu'elle couvre, posé en JS
+       par construireGrille) : une note de trois cases montre trois compartiments, et sa durée se
+       COMPTE au lieu de s'estimer. */
+    background-image:
+        linear-gradient(90deg, rgba(255, 255, 255, .26) 0 1.5px, transparent 1.5px),
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent) 34%, transparent),
+            color-mix(in srgb, var(--accent) 22%, transparent));
+    background-size: calc(100% / var(--span, 1)) 100%, 100% 100%;
+    background-repeat: repeat, no-repeat;
+    border: 1.5px solid color-mix(in srgb, var(--accent) 85%, transparent);
+    box-shadow: 0 0 8px color-mix(in srgb, var(--accent) 22%, transparent);
     pointer-events: none;
 }
+
+/* LA NOTE SURVOLÉE s'éclaircit. Le curseur dit QUEL geste partira d'ici, le liseré de QUEL bord —
+   mais ni l'un ni l'autre ne disait SUR QUELLE note, et c'est entre deux notes courtes et voisines
+   qu'on se trompe de cible. Un simple éclaircissement, pas un changement de couleur. */
+.note-seq.survolee {
+    background-image:
+        linear-gradient(90deg, rgba(255, 255, 255, .30) 0 1.5px, transparent 1.5px),
+        linear-gradient(180deg,
+            color-mix(in srgb, var(--accent) 44%, transparent),
+            color-mix(in srgb, var(--accent) 30%, transparent));
+    border-color: var(--accent);
+}
+
+/* LE LISERÉ DE POIGNÉE — le repère qui manquait le plus.
+   Avant, le SEUL signal qu'une note s'étire était le curseur `ew-resize` : il faut avoir survolé
+   pile le bon endroit pour le voir, et il n'existe pas au doigt. Un trait clair au bord qu'on va
+   tirer le dit sans mot et sans curseur (repris de .seq-cell-edge-start/end dans HarmoHub). Posé
+   sur la PILULE, qui est déjà au-dessus des cases et transparente aux pointeurs. */
+.note-seq.poignee-debut::before,
+.note-seq.poignee-fin::after {
+    content: '';
+    position: absolute;
+    top: 2px; bottom: 2px;
+    width: 3px;
+    border-radius: 2px;
+    background: rgba(255, 255, 255, .92);
+    pointer-events: none;
+}
+.note-seq.poignee-debut::before { left: 1px; }
+.note-seq.poignee-fin::after { right: 1px; }
 /* Une note TENUE est un peu plus haute qu'une note d'une seule case : elle se lit comme une barre
    posée sur la grille, pas comme une case allumée. */
 .note-seq.tenue { margin-top: 2px; margin-bottom: 2px; }

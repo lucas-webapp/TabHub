@@ -29,7 +29,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
 
 (async () => {
-    plan(73);
+    plan(80);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 1320, height: 950 } });
     try {
         /** L'écriture proposée, lue dans le MODÈLE de la partition d'aperçu — la même que celle qui
@@ -71,6 +71,24 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         const glisser = async (de, vers) => {
             const [x1, y1] = await centre(de);
             const [x2] = await centre(vers);
+            await page.mouse.move(x1, y1);
+            await page.mouse.down();
+            await page.mouse.move(x2, y1, { steps: 8 });
+            await page.mouse.up();
+            await page.waitForTimeout(160);
+        };
+        /** LE POINT DE PRISE COMPTE MAINTENANT, et pas seulement la case : la zone d'une note se lit
+         *  en PIXELS (une petite poignée à chaque bout, le reste est corps — voir
+         *  ui/rythme.js#zoneDansLaNote). Saisir au centre d'une case n'éprouve donc qu'une des trois
+         *  zones. `depuis` permet de viser une fraction de la case : 0,02 pour le bord gauche, 0,5
+         *  pour le corps, 0,98 pour le bord droit. */
+        const en = (sel, frac) => page.evaluate(([sel, frac]) => {
+            const r = document.querySelector(sel).getBoundingClientRect();
+            return [r.left + r.width * frac, r.top + r.height / 2];
+        }, [sel, frac]);
+        const glisserDepuis = async (de, fracDe, vers, fracVers = 0.5) => {
+            const [x1, y1] = await en(de, fracDe);
+            const [x2] = await en(vers, fracVers);
             await page.mouse.move(x1, y1);
             await page.mouse.down();
             await page.mouse.move(x2, y1, { steps: 8 });
@@ -197,28 +215,114 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         check((await pilules(0)).join(' ') === '2+1',
             `un CLIC sur une case vide pose une note d'une case (${(await pilules(0)).join(' ')})`);
 
-        await glisser(laCase(0, 2), laCase(0, 6));
+        // LA ZONE DE PRISE SE LIT EN PIXELS DANS LA NOTE, plus « la case du bout ». L'ancienne règle
+        // donnait à une note de quatre cases une poignée d'un QUART de sa largeur (62,8px sur un
+        // écran d'ordinateur), et à une note de DEUX cases deux poignées et aucun corps — donc
+        // aucune façon de la déplacer. Les trois contrôles suivants visent chacun une zone précise.
+        await glisserDepuis(laCase(0, 2), 0.98, laCase(0, 6));
         check((await pilules(0)).join(' ') === '2+5',
-            `un GLISSER depuis son bord droit l'allonge jusqu'à la case traversée (${(await pilules(0)).join(' ')})`);
+            `un GLISSER depuis son BOUT DROIT l'allonge jusqu'à la case traversée (${(await pilules(0)).join(' ')})`);
 
-        await glisser(laCase(0, 6), laCase(0, 4));
+        await glisserDepuis(laCase(0, 6), 0.98, laCase(0, 4));
         check((await pilules(0)).join(' ') === '2+3',
             `et le même geste vers l'arrière la RACCOURCIT (${(await pilules(0)).join(' ')}) — un étirement se reprend`);
 
-        await glisser(laCase(0, 3), laCase(0, 8));
+        await glisserDepuis(laCase(0, 3), 0.5, laCase(0, 8));
         check((await pilules(0)).join(' ') === '7+3',
             `un glisser depuis son CORPS la DÉPLACE dans le temps, sans la déformer (${(await pilules(0)).join(' ')})`);
 
         // Le déplacement est BORNÉ par la mesure, pas refusé : la note se colle au bord et y reste.
-        await glisser(laCase(0, 8), laCase(0, 15));
+        await glisserDepuis(laCase(0, 8), 0.5, laCase(0, 15));
         check((await pilules(0)).join(' ') === '13+3',
             `poussée au-delà du dernier temps, elle se colle au bord de sa mesure (${(await pilules(0)).join(' ')}) — `
             + 'bornée plutôt que refusée, on peut viser le dernier temps sans précision');
 
+        // UNE NOTE DE DEUX CASES SE DÉPLACE, ce que l'ancienne règle rendait impossible : ses deux
+        // cases étant ses deux bords, elle n'avait pas de corps à saisir.
+        await viderGrille();
+        await poserCourse(0, 4, 5);
+        await page.waitForTimeout(150);
+        await glisserDepuis(laCase(0, 4), 0.6, laCase(0, 8));
+        check((await pilules(0)).join(' ') === '8+2',
+            `une note de DEUX cases se déplace par son milieu (${(await pilules(0)).join(' ')}) — `
+            + 'avant, ses deux cases étaient deux poignées et rien ne pouvait la saisir');
+
+        // UN ÉTIREMENT RATÉ NE SUPPRIME PLUS LA NOTE. Mesuré sur l'ancienne version : prendre le bout
+        // droit et bouger de 4px la faisait DISPARAÎTRE — le geste retombait sous le seuil, donc
+        // dans le cas du clic, et un clic sur une note l'efface. C'est très probablement ce qui
+        // rendait l'étirement « impossible » : on essaie, on rate de trois pixels, la note s'évapore.
+        await viderGrille();
+        await poserCourse(0, 4, 7);
+        await page.waitForTimeout(150);
+        const [xb, yb] = await en(laCase(0, 7), 0.9);   // dans la poignée (18px), pas sur la frontière de case
+        await page.mouse.move(xb, yb);
+        await page.mouse.down();
+        await page.mouse.move(xb + 2, yb);
+        await page.mouse.up();
+        await page.waitForTimeout(200);
+        check((await pilules(0)).join(' ') === '4+4',
+            `un étirement qui n'aboutit pas laisse la note INTACTE (${(await pilules(0)).join(' ') || 'aucune pilule'}) — `
+            + 'viser une poignée, c\'est vouloir étirer, jamais effacer');
+
+        // LES TROIS REPÈRES DE SURVOL, qui remplacent le seul curseur posé sur la case du bout : la
+        // note survolée s'éclaircit (on sait LAQUELLE), un liseré marque le bord qu'on va tirer (on
+        // sait LEQUEL), et le curseur suit la zone (on sait QUEL geste part d'ici).
+        const survolDe = async (m, i, frac) => {
+            const [x, y] = await en(laCase(m, i), frac);
+            await page.mouse.move(x, y);
+            await page.waitForTimeout(140);
+            return page.evaluate(() => {
+                const n = document.querySelector('.mesure-seq[data-mesure="0"] .note-seq');
+                const p = document.querySelector('.mesure-seq[data-mesure="0"] .piste-seq');
+                return { classes: [...(n?.classList || [])].filter(x => x !== 'note-seq' && x !== 'tenue').sort().join('+'),
+                         curseur: getComputedStyle(p).cursor };
+            });
+        };
+        const surBout = await survolDe(0, 7, 0.98);
+        check(surBout.classes === 'poignee-fin+survolee' && surBout.curseur === 'ew-resize',
+            `au survol d'un BOUT, la note s'éclaircit et montre son liseré de poignée, curseur `
+            + `« ${surBout.curseur} » (classes : ${surBout.classes})`);
+        const surCorps = await survolDe(0, 5, 0.5);
+        check(surCorps.classes === 'survolee' && surCorps.curseur === 'grab',
+            `au survol du CORPS, pas de liseré et un curseur de déplacement « ${surCorps.curseur} » `
+            + `(classes : ${surCorps.classes})`);
+
+        // LA PILULE EST TRANSLUCIDE ET GRADUÉE — « les bâtons doivent rester légèrement translucides
+        // pour que je puisse voir leur durée à travers » (retour utilisateur). Le remplissage laisse
+        // voir le fond, et une graduation par case rend la durée COMPTABLE : les filets entre cases
+        // ne valent que 5 % de blanc et disparaîtraient sous n'importe quel remplissage.
+        // LE POINTEUR EST ÉCARTÉ AVANT DE MESURER, et ce n'est pas une précaution de style : la note
+        // SURVOLÉE a son propre remplissage (plus clair), et les contrôles de survol juste au-dessus
+        // laissent la souris dessus. Une première version mesurait donc l'état survolé — elle
+        // passait même avec un remplissage de base opaque et sans graduation, ce qu'a montré la
+        // neutralisation. Un contrôle qui mesure un autre état que celui qu'il nomme ne protège rien.
+        await page.mouse.move(4, 4);
+        await page.waitForTimeout(160);
+        const aspect = await page.evaluate(() => {
+            const n = document.querySelector('.mesure-seq[data-mesure="0"] .note-seq');
+            const s = getComputedStyle(n);
+            return { survolee: n.classList.contains('survolee'),
+                     fond: s.backgroundImage, span: n.style.getPropertyValue('--span'),
+                     couches: s.backgroundImage.split('linear-gradient').length - 1 };
+        });
+        exiger(!aspect.survolee, 'préalable : la pilule mesurée n\'est PAS dans son état survolé');
+        check(/\/\s*0?\.[0-9]+\s*\)/.test(aspect.fond) || /rgba\(/.test(aspect.fond),
+            'le remplissage de la pilule a bien une composante de TRANSPARENCE — on voit le fond à travers');
+        check(aspect.couches === 2 && aspect.span === '4',
+            `et elle porte une graduation par case (${aspect.couches} couches, --span « ${aspect.span} ») : `
+            + 'une note de quatre cases montre quatre compartiments, donc sa durée se compte');
+
+        // LE CLIC EFFACE TOUJOURS, mais sur le CORPS de la note : sur une poignée, il ne fait plus
+        // rien (voir juste au-dessus). On repart d'un état connu, les contrôles de zone ci-dessus
+        // ayant laissé la grille dans le leur.
+        await viderGrille();
+        await poserCourse(0, 13, 15);
+        await page.waitForTimeout(180);
         [x, y] = await centre(laCase(0, 14));
         await page.mouse.click(x, y);
         await page.waitForTimeout(220);
-        check((await pilules(0)).length === 0, 'un CLIC sur une note l\'enlève — la suppression est à un clic, comme la pose');
+        check((await pilules(0)).length === 0,
+            'un CLIC sur le CORPS d\'une note l\'enlève — la suppression reste à un clic, comme la pose');
 
         // Le clic droit efface aussi : le geste qu'on essaie spontanément.
         await poserCourse(0, 1, 3);

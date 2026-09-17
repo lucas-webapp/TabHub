@@ -202,8 +202,15 @@ composée. Reconnaître un motif demande moins que de savoir le dessiner, et c'e
 directe à la difficulté de départ.
 
 On pose ensuite les barres dans la grille : un clic pose une note d'une case, un glissé la pose
-tenue, un glissé sur un **bord** l'étire ou la raccourcit, un glissé sur son **corps** la déplace
-dans le temps, un clic ou un clic droit dessus l'enlève. Une note peut **franchir la barre de
+tenue, un glissé sur une **poignée** — la petite zone à chaque bout de la note — l'étire ou la
+raccourcit, un glissé sur son **corps** la déplace dans le temps, un clic sur son corps ou un clic
+droit l'enlève. Trois repères disent à l'avance ce qui va se passer : la note survolée s'éclaircit,
+un liseré clair marque le bout qu'on va tirer, et le curseur change (⟷ pour étirer, main pour
+déplacer). Un étirement qui n'aboutit pas ne fait **rien** — viser une poignée, c'est vouloir
+étirer, jamais effacer.
+
+Les bâtons sont **translucides et gradués**, une marque par case : on voit la grille au travers et la
+durée se **compte** au lieu de s'estimer. Une note peut **franchir la barre de
 mesure** : elle est alors dessinée en deux morceaux (le second sans repère d'attaque, les angles
 droits à la barre) et **écrite liée**. Tout cela existe aussi **au clavier** : les flèches déplacent
 le focus, Espace ou Entrée pose et enlève, Maj + flèches allonge et raccourcit, Suppr efface.
