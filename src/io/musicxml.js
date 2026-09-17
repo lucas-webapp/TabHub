@@ -19,7 +19,9 @@
 // morceau), le tempo, les reprises et leur nombre de fois, les barres doubles et finales, les repères
 // de navigation (Segno, Coda, D.C., D.S., al Coda, Fine), les noms d'accords en vraies harmonies, les
 // annotations de section, les nuances, l'accent, le staccato, le palm mute, les notes fantômes,
-// l'accordage corde par corde et le capodastre.
+// l'accordage corde par corde, et le capodastre — fondu dans l'accordage déclaré plutôt qu'écrit en
+// `<capo>`, pour une raison mesurée que poserAccordage détaille (un fichier qui se contredisait d'une
+// portée à l'autre), avec l'indication reportée en texte.
 //
 // CE QUI NE PART PAS, dit franchement :
 //   • LE SWING n'a pas d'élément standard en MusicXML 3.1 — MuseScore le range dans son propre
@@ -111,19 +113,37 @@ function aUneTablature(partition) {
  *  celui de TabHub (`accordage.cordes[0]` est la corde du haut, la plus aiguë). Rien à retourner. */
 function poserAccordage(flux, partition) {
     const cordes = partition.piste.accordage.cordes;
+    const capo = partition.piste.capo || 0;
     flux.ouvrir('staff-details', ' number="2"');
     flux.seule('staff-lines', String(cordes.length));
+    // LE CAPODASTRE EST FONDU DANS L'ACCORDAGE, et `<capo>` n'est PAS écrit. Ce n'est pas la lecture
+    // naïve du format — il a bien un élément `<capo>`, dont la spécification dit qu'il « décale
+    // l'accordage des cordes d'autant de demi-tons ». C'est une décision prise sur une MESURE.
+    //
+    // CE QUI A ÉTÉ MESURÉ. Le morceau d'essai (capodastre à la case 2) a été relu par Verovio, un
+    // moteur de gravure indépendant, puis rendu en MIDI et comparé note à note à la partition
+    // d'origine : 14 notes justes et 14 exactement DEUX DEMI-TONS plus bas. Les justes venaient de
+    // la portée de notation, où la hauteur est écrite en clair ; les fausses de la portée de
+    // tablature, où le lecteur recalcule corde + case + accordage — sans appliquer le `<capo>`.
+    //
+    // POURQUOI C'EST GRAVE, ET PAS UN SIMPLE DÉFAUT DE LECTEUR. Le fichier se CONTREDISAIT lui-même :
+    // ses deux portées, censées porter la même musique, ne décrivaient plus la même hauteur. Un
+    // lecteur qui honore `<capo>` s'en sortait, un autre non — et rien dans le fichier ne permettait
+    // de trancher. En fondant le capodastre dans l'accordage déclaré, corde + case + accordage donne
+    // la hauteur sonnante CHEZ TOUT LE MONDE, et il n'y a plus de `<capo>` pour la compter deux fois.
+    //
+    // CE QU'ON PERD, ET COMMENT ON LE RATTRAPE : le lecteur ne sait plus qu'un capodastre est posé —
+    // or pour un guitariste, une case 0 avec capodastre n'est pas le sillet. L'indication part donc
+    // en TEXTE au-dessus de la première mesure (« Capodastre case 2 », voir genererMusicXML). Un
+    // humain la lit, et la hauteur reste juste pour la machine : c'est le bon partage.
     cordes.forEach((midi, i) => {
-        const h = ecrireHauteur(midi, 0);
+        const h = ecrireHauteur(midi + capo, 0);
         flux.ouvrir('staff-tuning', ` line="${cordes.length - i}"`);
         flux.seule('tuning-step', h.lettre);
         if (h.alteration) flux.seule('tuning-alter', String(h.alteration));
         flux.seule('tuning-octave', String(h.octave));
         flux.fermer('staff-tuning');
     });
-    // LE CAPODASTRE EST UN ÉLÉMENT DU FORMAT, pas une note de bas de page : `<capo>` dit à quelle
-    // case la corde est raccourcie, et un lecteur en tient compte pour le doigté comme pour le son.
-    if (partition.piste.capo) flux.seule('capo', String(partition.piste.capo));
     flux.fermer('staff-details');
 }
 
@@ -281,7 +301,7 @@ function memeNolet(a, b) {
  * lui-même : la voix MusicXML, la portée, la chaîne pour regarder devant et derrière.
  */
 function poserNote(flux, partition, evt, note, ctx) {
-    const { iVoix, voixXml, portee, suite, index, premiere, armure, avecTechnique } = ctx;
+    const { iVoix, voixXml, portee, suite, index, premiere, armure, avecCordeCase, avecJeu } = ctx;
     const duree = Math.round(dureeEnNoires(evt.duree) * DIVISIONS);
     const silence = evt.silence || !evt.notes?.length;
 
@@ -348,7 +368,20 @@ function poserNote(flux, partition, evt, note, ctx) {
     const finNolet = nolet && !memeNolet(nolet, noletApres);
     const lien = silence ? null : note.lien;
     const arrivee = !silence && aUneArrivee(suite, index, note.corde);
-    const aTechnique = avecTechnique && !silence;
+    // DEUX FAMILLES DE `<technical>`, CHACUNE SUR SA PORTÉE — et ce partage vient d'une MESURE, pas
+    // d'un principe. Verovio, un moteur de gravure indépendant qui lit MusicXML, refuse d'attacher
+    // une articulation à un groupe de tablature : « Adding 'artic' to a 'tabGrp' », cinq fois sur un
+    // morceau d'essai qui en portait cinq. Il JETTE donc le hammer-on, le pull-off et le bend posés
+    // sur la portée de tablature — le fichier reste valide au schéma, mais le « H », le « P » et la
+    // flèche de bend n'arrivent nulle part.
+    //
+    // Sur la portée de NOTATION la même information s'attache sans broncher, et elle y est à sa
+    // place : le « H » est le NOM de l'arc de liaison qu'on trace déjà là, les deux se lisent
+    // ensemble. La corde et la case, elles, restent sur la tablature — c'est elle qui les dessine,
+    // et elles n'ont aucun sens ailleurs.
+    const aJeu = avecJeu && !silence && (
+        (['hammer', 'pull'].includes(lien) && arrivee) || ['hammer', 'pull'].includes(entrant) || !!note.bend?.demiTons);
+    const aTechnique = !silence && (avecCordeCase || aJeu);
     const aQuelqueChose = (premiere && (debutNolet || finNolet))
         || (!silence && (entrant === 'tie' || (lien === 'tie' && arrivee)))
         || (!silence && ['hammer', 'pull', 'slide'].includes(lien) && arrivee)
@@ -381,21 +414,23 @@ function poserNote(flux, partition, evt, note, ctx) {
         }
         if (aTechnique) {
             flux.ouvrir('technical');
-            // L'ORDRE EST IMPOSÉ par le format : hammer-on/pull-off, bend, puis string, puis fret —
-            // l'inverse produit un fichier que les lecteurs stricts refusent.
-            if (['hammer', 'pull'].includes(entrant)) {
-                flux.seule(entrant === 'hammer' ? 'hammer-on' : 'pull-off', '', ' type="stop" number="1"');
+            if (aJeu) {
+                if (['hammer', 'pull'].includes(entrant)) {
+                    flux.seule(entrant === 'hammer' ? 'hammer-on' : 'pull-off', '', ' type="stop" number="1"');
+                }
+                if (['hammer', 'pull'].includes(lien) && arrivee) {
+                    flux.seule(lien === 'hammer' ? 'hammer-on' : 'pull-off', lien === 'hammer' ? 'H' : 'P', ' type="start" number="1"');
+                }
+                if (note.bend?.demiTons) {
+                    flux.ouvrir('bend');
+                    flux.seule('bend-alter', String(note.bend.demiTons));
+                    flux.fermer('bend');
+                }
             }
-            if (['hammer', 'pull'].includes(lien) && arrivee) {
-                flux.seule(lien === 'hammer' ? 'hammer-on' : 'pull-off', lien === 'hammer' ? 'H' : 'P', ' type="start" number="1"');
+            if (avecCordeCase) {
+                flux.seule('string', String(note.corde + 1));
+                flux.seule('fret', String(note.frette));
             }
-            if (note.bend?.demiTons) {
-                flux.ouvrir('bend');
-                flux.seule('bend-alter', String(note.bend.demiTons));
-                flux.fermer('bend');
-            }
-            flux.seule('string', String(note.corde + 1));
-            flux.seule('fret', String(note.frette));
             flux.fermer('technical');
         }
         // LE SLIDE EST UN `<glissando>`, pas un `<slide>` : les deux existent dans le format et se
@@ -486,6 +521,12 @@ function poserMesure(flux, partition, iMesure, chaines, etatPrecedent) {
     // --- Directions, une seule fois par mesure (sur la première portée) -------------------------
     if (iMesure === 0) poserTempo(flux, partition.meta.tempo || 120);
     if (iMesure === 0 && partition.meta.ternaire) poserMots(flux, 'Swing  ♫ = ♩♪', 'above', true);
+    // LE CAPODASTRE EN TEXTE, parce qu'il n'est plus un élément du fichier — voir poserAccordage, qui
+    // explique pourquoi il est fondu dans l'accordage. Une case 0 avec capodastre n'est pas le
+    // sillet : le guitariste doit le savoir, même si la machine n'en a plus besoin.
+    if (iMesure === 0 && tab && partition.piste.capo) {
+        poserMots(flux, `Capodastre case ${partition.piste.capo}`, 'above', true);
+    }
     if (mesure.annotation) poserMots(flux, mesure.annotation, 'above', true);
     if (mesure.repere) poserRepere(flux, mesure.repere);
 
@@ -537,7 +578,10 @@ function poserMesure(flux, partition, iMesure, chaines, etatPrecedent) {
         // DESSINE. Posées aussi sur la portée de notation, elles y feraient afficher un doigté
         // parasite chez les lecteurs qui les honorent partout.
         const ctx = { iVoix, voixXml, portee, nbVoix, nbPortees, armure,
-                      avecTechnique: tab && portee === 2,
+                      // Voir `aJeu` dans poserNote : la corde et la case vont à la TABLATURE, le
+                      // hammer-on / pull-off / bend à la NOTATION, et c'est une mesure qui l'a décidé.
+                      avecCordeCase: tab && portee === 2,
+                      avecJeu: portee === 1,
                       memoire: portee === 1 ? memoire : null,
                       suite: chaine.suite };
         evenements.forEach((evt, iEvenement) => {

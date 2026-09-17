@@ -158,12 +158,11 @@ const { check, exiger, plan, bilan } = creerHarnais('export MusicXML');
             // L'accordage tel que le FICHIER le déclare, indexé par numéro de corde — en appliquant
             // la conversion que fera le lecteur : `line` se compte depuis le bas, la corde 1 est la
             // plus aiguë, donc line = nCordes + 1 - corde.
-            // LE CAPODASTRE COMPTE, et le format le dit explicitement : « capo […] changes the open
-            // tuning of the strings specified by staff-tuning by the specified number of
-            // half-steps ». Les cases se comptent donc DEPUIS le capodastre, exactement comme dans
-            // TabHub (voir instruments.js#hauteurDeCase, `base + frette + capo`). Première version
-            // de cette vérification : elle l'oubliait, et accusait l'export d'une erreur de deux
-            // demi-tons sur TOUTES les notes — c'était le banc qui mesurait mal.
+            // LE CAPODASTRE EST DANS L'ACCORDAGE, et il n'y a plus d'élément `<capo>` — décision
+            // prise sur une mesure, voir musicxml.js#poserAccordage : avec `<capo>` et l'accordage
+            // à vide, un lecteur qui n'honore pas cet élément (Verovio, mesuré) tirait de la
+            // tablature des hauteurs deux demi-tons trop basses, contredisant la portée de notation
+            // du MÊME fichier. `capo` vaut donc 0 ici, et l'invariant ci-dessous tient sans lui.
             const capo = Number(doc.querySelector('capo')?.textContent || 0);
             const tunings = [...doc.querySelectorAll('staff-tuning')];
             const n = tunings.length;
@@ -178,8 +177,13 @@ const { check, exiger, plan, bilan } = creerHarnais('export MusicXML');
             // Chaque note de la portée de tablature : corde + case doit redonner la hauteur.
             const ecarts = [];
             for (const note of doc.querySelectorAll('note')) {
+                // UNE `<technical>` NE PORTE PLUS FORCÉMENT UNE CORDE : depuis que le hammer-on,
+                // le pull-off et le bend vivent sur la portée de notation (voir plus bas), celle-ci
+                // a ses propres `<technical>`, sans corde ni case. Chercher `string` sans vérifier
+                // sa présence faisait tomber le banc en route — 10 vérifications sur 38, et le
+                // `plan()` du harnais l'a dit au lieu de laisser croire à une campagne complète.
                 const tech = note.querySelector('technical');
-                if (!tech) continue;
+                if (!tech || !tech.querySelector('string')) continue;
                 const corde = Number(tech.querySelector('string').textContent);
                 const frette = Number(tech.querySelector('fret').textContent);
                 const attendu = parCorde.get(corde) + capo + frette;
@@ -204,12 +208,16 @@ const { check, exiger, plan, bilan } = creerHarnais('export MusicXML');
                 flux.push(position);
                 bilans.push({ mesure: m.getAttribute('number'), flux, maxi, retourAZero: flux.slice(0, -1).every((_, i) => true) });
             }
-            return { nCordes: n, capo: doc.querySelector('capo')?.textContent, parCorde: [...parCorde.entries()], ecarts, bilans };
+            return { nCordes: n, capo: doc.querySelector('capo')?.textContent ?? null,
+                     corde1: parCorde.get(1), accordageCapote: parCorde.get(1) === 64 + 2,
+                     parCorde: [...parCorde.entries()], ecarts, bilans };
         }, xml);
         check(invariants.ecarts.length === 0,
             `CORDE + CASE REDONNE LA HAUTEUR, pour chacune des notes de tablature : c'est la seule vérification qui attrape une inversion de la numérotation des cordes, invisible à la lecture puisque la corde 1 est la plus aiguë et que la \`line\` d'un accordage se compte depuis le bas${invariants.ecarts.length ? ' — écarts : ' + invariants.ecarts.join(' ; ') : ''}`);
-        check(invariants.nCordes === 6 && invariants.capo === '2',
-            `l'accordage part corde par corde (${invariants.nCordes} cordes) et le CAPODASTRE est un élément du format, pas une note de bas de page (\`<capo>${invariants.capo}</capo>\`)`);
+        check(invariants.nCordes === 6 && invariants.capo == null,
+            `l'accordage part corde par corde (${invariants.nCordes} cordes) et SANS élément \`<capo>\` : le capodastre est fondu dans l'accordage déclaré, sans quoi un lecteur qui l'ignore tire de la tablature des hauteurs deux demi-tons trop basses — le fichier se contredisait alors d'une portée à l'autre (lu : ${JSON.stringify(invariants.capo)})`);
+        check(invariants.accordageCapote,
+            `et cet accordage EST bien celui du manche capodastré : la corde 1 y est déclarée à ${invariants.corde1} au lieu de 64 à vide, soit les 2 demi-tons du capodastre`);
         const m2 = invariants.bilans.find(b => b.mesure === '2');
         exiger(!!m2, 'la mesure 2, celle qui porte deux voix, est bien dans le fichier');
         check(m2.flux.length === 4 && m2.flux.every(f => f === 1920),
@@ -237,8 +245,10 @@ const { check, exiger, plan, bilan } = creerHarnais('export MusicXML');
                 tiedArriveeM3: notesDe(2, 1).some(n => n.querySelector('tied[type="stop"]')),
                 // hammer-on : liaison sur la portée de notation, technique sur la tablature
                 slurNotation: notesDe(0, 1).some(n => n.querySelector('slur[type="start"]')),
-                hammerTab: notesDe(0, 2).some(n => n.querySelector('technical hammer-on[type="start"]')),
-                hammerNotation: notesDe(0, 1).some(n => n.querySelector('hammer-on')),
+                hammerNotation: notesDe(0, 1).some(n => n.querySelector('technical hammer-on[type="start"]')),
+                hammerTab: notesDe(0, 2).some(n => n.querySelector('hammer-on')),
+                cordeCaseTab: notesDe(0, 2).every(n => !n.querySelector('rest') ? !!n.querySelector('technical string') : true),
+                cordeCaseNotation: notesDe(0, 1).some(n => n.querySelector('technical string')),
                 // slide en glissando
                 glissando: q('glissando').length,
                 slideElement: q('slide').length,
@@ -282,8 +292,10 @@ const { check, exiger, plan, bilan } = creerHarnais('export MusicXML');
             `LE TRIOLET : ses trois notes portent chacune la \`<time-modification>\` qui fixe leur durée, sur les DEUX portées (${musique.timeMod} = 3 × 2) — mais le crochet ne s'ouvre et ne se referme qu'UNE FOIS PAR PORTÉE (${musique.noletDebut} début, ${musique.noletFin} fin, soit une par portée) : un « 3 » par note serait illisible. Et il reste sur la tablature, contrairement aux accents : une tablature qui montrerait trois croches dans le temps de deux sans son « 3 » serait fausse à la lecture`);
         check(musique.tieDepartM2 && musique.tieArriveeM3 && musique.tiedArriveeM3,
             `LA LIAISON FRANCHIT LA BARRE : elle part en mesure 2 et arrive en mesure 3, avec \`<tie>\` (ce qui sonne) ET \`<tied>\` (ce qui se dessine). Beaucoup d'exports n'écrivent que le second, et le fichier se rejoue alors en notes répétées`);
-        check(musique.slurNotation && musique.hammerTab && !musique.hammerNotation,
-            `LE HAMMER-ON EST DEUX CHOSES à la fois, et chacune à sa place : un ARC sur la portée de notation (une seule attaque pour deux notes) et un \`<hammer-on>\` dans la \`<technical>\` de la TABLATURE, avec la corde et la case (arc ${musique.slurNotation}, technique ${musique.hammerTab}, technique sur la notation ${musique.hammerNotation})`);
+        check(musique.slurNotation && musique.hammerNotation && !musique.hammerTab,
+            `LE HAMMER-ON VA SUR LA PORTÉE DE NOTATION, avec l'arc qu'il nomme — et PAS sur la tablature. Décision prise sur une mesure : Verovio refuse d'attacher une articulation à un groupe de tablature (« Adding 'artic' to a 'tabGrp' », cinq fois) et JETTE donc le hammer-on, le pull-off et le bend qui y sont posés — fichier valide, information perdue (arc ${musique.slurNotation}, technique sur la notation ${musique.hammerNotation}, sur la tablature ${musique.hammerTab})`);
+        check(musique.cordeCaseTab && !musique.cordeCaseNotation,
+            `et LA CORDE ET LA CASE font le chemin inverse : sur la tablature, qui les dessine, et nulle part ailleurs (tablature ${musique.cordeCaseTab}, notation ${musique.cordeCaseNotation})`);
         check(musique.glissando === 4 && musique.slideElement === 0,
             `LE SLIDE EST UN \`<glissando>\`, PAS UN \`<slide>\` : les deux existent dans le format, mais \`<slide>\` est le portamento continu d'un trombone, là où \`<glissando>\` passe par les hauteurs intermédiaires — un slide de guitare, précisément (${musique.glissando} glissandos, ${musique.slideElement} slides)`);
         check(musique.bend === '2',

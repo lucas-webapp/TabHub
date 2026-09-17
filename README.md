@@ -723,6 +723,7 @@ un nom qu'on reconnaît.
   et non une étiquette de texte), les annotations de section, les nuances, l'accent, le staccato, le
   palm mute, les notes fantômes, l'accordage corde par corde et le capodastre.
 
+
   **Les altérations viennent de la même règle que la gravure à l'écran**
   (`engine/layout.js#memoireAlterations`, exportée pour cela) : une altération vaut jusqu'à la barre,
   pour toutes les notes de même nom et même octave. C'est ce qui fait qu'un *si naturel en fa
@@ -741,11 +742,41 @@ un nom qu'on reconnaît.
   version que tout lecteur en service accepte — y compris les Finale et Sibelius d'il y a quelques
   années, qui sont précisément ceux d'un professeur à qui l'on envoie un fichier.
 
-  *Réserve honnête* : le fichier est vérifié bien formé et conforme aux ordres d'éléments que le
-  format impose, et 44 vérifications permanentes l'éprouvent jusqu'à l'invariant « corde + case +
-  capodastre redonne la hauteur écrite » (voir `tests/musicxml_test.js`). Il n'a pas pu être validé
-  contre le schéma officiel ni ouvert dans MuseScore depuis l'environnement de développement, dont la
-  sortie réseau est fermée : un premier aller-retour dans un vrai éditeur reste à faire.
+  **Comment on sait que ça marche.** Trois niveaux, du plus faible au plus fort, et chacun a trouvé
+  quelque chose :
+
+  1. **Le schéma officiel.** Les treize morceaux d'essai (les quatre instruments à vide, un morceau
+     portant *tout*, les six repères, toutes les figures et n-olets, les quinze armures, les
+     signatures irrégulières, un titre truffé de caractères hostiles, deux voix partout, un piano à
+     deux mains, une mesure unique) valident contre le XSD MusicXML 3.1 du W3C.
+  2. **Un moteur de gravure indépendant.** [Verovio](https://www.verovio.org/) charge et grave les
+     treize fichiers sans un message, et la tablature s'y dessine juste : chaque case tombe sur sa
+     corde, à 5px près pour un interligne de 315.
+  3. **Un aller-retour sémantique.** Le fichier est relu par ce moteur, rendu en MIDI, et les notes
+     qu'il en tire sont comparées une à une à celles de la partition d'origine : **mêmes hauteurs aux
+     mêmes instants**, accord, triolet, note pointée, deux voix et capodastre compris. Aucune
+     vérification de structure ne dit cela — un fichier peut être valide, bien ordonné, et décrire
+     une autre musique.
+
+  Deux vrais défauts sont sortis de là, et tous deux ont changé le code :
+
+  - **Le capodastre est fondu dans l'accordage déclaré**, et l'élément `<capo>` n'est pas écrit. La
+    lecture naïve du format voudrait l'inverse — la spécification dit que `<capo>` « décale
+    l'accordage des cordes d'autant de demi-tons ». Mesuré : sur un morceau à capodastre 2, le moteur
+    tirait 14 notes justes (la portée de notation, où la hauteur est écrite en clair) et 14
+    exactement **deux demi-tons plus bas** (la tablature, recalculée sans honorer `<capo>`). Le
+    fichier se contredisait d'une portée à l'autre, et rien ne permettait de trancher. Fondu dans
+    l'accordage, corde + case donne la hauteur sonnante chez tout le monde ; l'indication part en
+    texte (« Capodastre case 2 ») pour le guitariste, à qui une case 0 sous capodastre ne dit pas le
+    sillet.
+  - **Hammer-on, pull-off et bend vont sur la portée de notation**, avec l'arc de liaison qu'ils
+    nomment — pas sur la tablature. Le moteur refuse d'attacher une articulation à un groupe de
+    tablature (« Adding 'artic' to a 'tabGrp' », cinq fois sur le morceau complet) et les **jetait**
+    donc : fichier valide, « H », « P » et flèche de bend perdus. La corde et la case, elles, font le
+    chemin inverse et restent sur la tablature, qui les dessine.
+
+  *Ce qui reste à faire* : l'ouvrir dans MuseScore, Finale ou Sibelius. Aucun des trois n'est
+  installable ici, et un moteur tiers, même exigeant, n'est pas eux.
 - **Importer un fichier MIDI** relit un `.mid` dans l'instrument/accordage/capodastre en place : une
   note hors de portée du manche est abandonnée (jamais une case inventée), et le résultat est compté
   dans le message de fin d'import. Vient-il REMPLACER le morceau en cours, ou s'AJOUTER à sa suite
