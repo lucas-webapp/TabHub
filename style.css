@@ -505,7 +505,14 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 .groupe-zoom { display: inline-flex; gap: 2px; flex: none; }
 .groupe-compte { display: inline-flex; gap: 2px; flex: none; }
 .groupe-zoom + .groupe-compte { border-left: 1px solid var(--border-groupe); padding-left: 6px; }
-.btn-mesures-ligne {
+/* LE DESSIN PARTAGÉ D'UN RANG DE BOUTONS DONT UN SEUL EST ACTIF — les mesures par ligne, et la
+   vitesse de travail. Deux classes et non une : le dessin se partage, l'IDENTITÉ non. Une valeur de
+   vitesse n'est pas un bouton « mesures par ligne », et elle ne doit pas répondre aux requêtes qui
+   cherchent ceux-là. Trouvé au banc, et c'est un vrai piège : les valeurs de vitesse portaient
+   d'abord `.btn-mesures-ligne` pour hériter de ce bloc, et deux bancs de mesures-par-ligne se sont
+   mis à compter dix boutons au lieu de six et deux actifs au lieu d'un. Leurs vérifications étaient
+   justes ; c'était le DOM qui mentait sur ce que ces boutons étaient. */
+.btn-mesures-ligne, .btn-vitesse-valeur {
     min-width: 26px; height: var(--h-bouton); padding: 0 6px;
     display: inline-flex; align-items: center; justify-content: center;
     border-radius: 7px;
@@ -516,11 +523,73 @@ input.champ[type="number"] { width: 54px; text-align: center; }
     cursor: pointer;
     transition: background .12s, border-color .12s, color .12s;
 }
-.btn-mesures-ligne:hover { background: var(--fond-bouton-sombre-survol); color: var(--text-main); }
-.btn-mesures-ligne.actif {
+.btn-mesures-ligne:hover, .btn-vitesse-valeur:hover { background: var(--fond-bouton-sombre-survol); color: var(--text-main); }
+.btn-mesures-ligne.actif, .btn-vitesse-valeur.actif {
     background: linear-gradient(180deg, var(--btn-green-1) 0%, var(--btn-green-2) 100%);
     border-color: var(--btn-green-border);
     color: var(--btn-text);
+}
+
+/* VITESSE DE TRAVAIL — le bouton qui a pris la place de l'unité « BPM » dans le bloc de lecture
+   (voir #btn-vitesse dans index.html pour le pourquoi de cette place), et son popover.
+
+   `min-width` ET NON `width` : le libellé va de « 25 % » à « 100 % », donc de trois à quatre
+   caractères. Une largeur fixe l'aurait calée sur le plus large et laissé du vide les trois quarts
+   du temps ; `tabular-nums` suffit à ce que le nombre ne DANSE pas en changeant de valeur, ce qui
+   est le seul défaut qu'une largeur fixe évitait vraiment.
+   Padding resserré à 6px contre les 10 de `.btn-transport-texte` : ce bouton vit dans la seule barre
+   de l'application qui manque de place (19px de jeu à 320px, mesuré), et « 100 % » n'a pas besoin de
+   respirer autant qu'un mot. */
+.btn-transport-texte.btn-vitesse {
+    min-width: 44px; padding: 0 6px;
+    font-variant-numeric: tabular-nums; letter-spacing: 0;
+    color: var(--text-muted);
+}
+/* À 100 %, LE BOUTON SE TAIT : gris comme l'unité qu'il remplace, il ne dit qu'une chose — rien
+   d'anormal ici. Dès qu'on ralentit, il passe à l'ACCENT, parce qu'une lecture à 50 % qui ne se
+   voit pas est un piège : on rejoue un passage, on le trouve facile, et on ne comprend qu'à la
+   scène qu'on ne l'a jamais joué au tempo. C'est le seul état de ce bloc qu'il faut pouvoir
+   constater sans rien ouvrir — d'où la couleur, et non un simple libellé. */
+.btn-transport-texte.btn-vitesse.ralenti {
+    color: var(--accent);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--btn-neutral-border));
+    background: linear-gradient(180deg,
+        color-mix(in srgb, var(--accent) 16%, var(--btn-neutral-1)) 0%,
+        color-mix(in srgb, var(--accent) 10%, var(--btn-neutral-2)) 100%);
+}
+
+/* LE RANG DES QUATRE VALEURS — un seul dans le DOM, deux portes d'entrée selon la place (voir
+   #groupe-vitesse-hote dans index.html, qui porte le pourquoi). SUR ORDINATEUR : un popover flottant
+   sous le bouton du bloc de lecture, aux mêmes mécanismes que tous les popovers de l'application
+   (voir main.js#basculerGroupeVitesse) — `position: fixed` posé par la classe, coordonnées par
+   _positionnerPanneau, fermeture par _fermerAuClicAilleurs. Il vit dans la zone « Affichage » mais
+   n'y paraît jamais : `display: none` tant qu'il n'est pas `.ouvert`, et `position: fixed` l'affranchit
+   ensuite de son parent.
+   C'EST LE CONTENANT (`.bloc-vitesse`) QUI S'OUVRE, jamais le rang qu'il porte : un enfant
+   `position: fixed` dont un ancêtre est `display: none` n'est pas rendu du tout — la boîte effacée
+   emporte tout son sous-arbre, `fixed` ou non. Ouvrir le rang seul n'aurait rien affiché. */
+.bloc-vitesse { display: none; }
+.groupe-vitesse { display: flex; align-items: center; gap: 4px; }
+.bloc-vitesse.ouvert {
+    display: flex; align-items: center; gap: 4px;
+    position: fixed; z-index: 70;
+    background: var(--card-bg); border: 1px solid var(--border); border-radius: 10px; padding: 6px;
+    width: max-content; max-width: calc(100vw - 16px);
+    box-shadow: 0 14px 38px rgba(0, 0, 0, .55);
+}
+/* Dans le popover d'ordinateur, l'étiquette ne sert à rien : le bouton qui vient de l'ouvrir porte
+   déjà le pourcentage, et le popover sort juste en dessous. Elle n'a de raison d'être que sur
+   téléphone, où ce rang voisine avec un zoom (voir plus bas). */
+.bloc-vitesse.ouvert .etiquette-popover { display: none; }
+/* De quoi loger « 100 % » sans serrer — le reste du dessin est partagé avec `.btn-mesures-ligne`
+   (voir plus haut, et pourquoi c'est bien DEUX classes). */
+.btn-vitesse-valeur { min-width: 42px; }
+/* ÉTIQUETTE DE SECTION dans un popover — le pendant de « Affichage » dans la barre, pour la même
+   raison : un rang de chiffres nus se lit mal sans être nommé. Discrète (même graisse et même
+   couleur que `.info-transport`), sur sa propre ligne. */
+.etiquette-popover {
+    display: block; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted);
+    letter-spacing: .04em; margin-bottom: 4px;
 }
 
 /* ============================================================
@@ -1523,6 +1592,27 @@ body.avec-pave .dpad-flottant { display: grid; }
        pour atteindre aurait mal répondu à « les boutons de lecture sont trop petits ». 48px reste
        au-dessus des 44px de cible tactile recommandée, et la HAUTEUR, elle, ne bouge pas. */
     .btn-lecture { width: 48px; }
+    /* LA VITESSE DE TRAVAIL QUITTE LE BLOC DE LECTURE — et c'est une décision de MESURE, pas de
+       goût. Le bouton « 100 % » y pèse 46px ; la barre du bas n'avait que 19px de jeu à 320px et 42
+       à 390. Mesuré barre par barre AVEC lui : elle débordait de 56px à 320, 63 à 360, 33 à 390, et
+       ne tenait qu'à partir de 430. Les seuls pixels qu'il restait à reprendre étaient ceux de
+       Lecture/Stop (48px, arbitrés une fois à la mesure — voir juste au-dessus) et des cibles
+       tactiles : un réglage qu'on touche deux fois par séance ne se paie pas sur les deux boutons
+       les plus visés de l'application.
+       Le rang de valeurs rejoint donc le popover voisin, dont le bouton est DÉJÀ dans la barre — zéro
+       pixel de plus. C'est mot pour mot le raisonnement qui y a mis les loupes (voir plus bas), et
+       la même conclusion. Sélecteur composé, comme partout ici : il doit battre le `display:
+       inline-flex` de `.btn-transport-texte`. */
+    .btn-transport-texte.btn-vitesse { display: none; }
+    /* TROISIÈME SECTION DU POPOVER « AFFICHAGE », après les loupes et les chiffres : même filet
+       horizontal de séparation, même largeur pleine. Elle est la seule à porter une étiquette
+       visible, parce qu'elle est la seule dont les valeurs (« 100 75 50 25 % ») pourraient passer
+       pour celles d'une voisine — un second zoom, par exemple. */
+    .groupe-mesures-ligne.ouvert .bloc-vitesse {
+        display: block;
+        border-top: 1px solid var(--border-groupe); padding-top: 6px; width: 100%;
+    }
+    .groupe-mesures-ligne.ouvert .groupe-vitesse { flex-wrap: wrap; }
     .btn-transport-texte.btn-mesures-ligne-bascule { display: inline-flex; }
     .groupe-mesures-ligne { display: none; }
     .groupe-mesures-ligne.ouvert {

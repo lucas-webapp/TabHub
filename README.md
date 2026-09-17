@@ -343,6 +343,49 @@ réapparaissent dès que l'écran est assez large.
 
 ### Lecture
 
+#### Ralentir pour travailler — sans toucher au tempo du morceau
+
+Le bouton **« 100 % »** du bloc de lecture joue le morceau à **100, 75, 50 ou 25 %** de son tempo
+écrit. Ce n'est pas un doublon du champ *Tempo* : ce sont deux nombres qui ne servent pas à la même
+chose, et les confondre est précisément le défaut qu'on répare ici.
+
+| | ce qu'il est | où il va |
+|---|---|---|
+| **Tempo** | ce que dit la partition | le `.json`, le PDF, le MIDI, la prochaine ouverture |
+| **Vitesse** | ce que joue le lecteur maintenant | nulle part — il ne sort pas de la session |
+
+Baisser le champ *Tempo* de 120 à 60 pour déchiffrer un passage **réécrit le morceau** : la valeur
+part dans tous les exports et se retrouve à l'ouverture suivante comme si la pièce était lente. La
+vitesse, elle, ne multiplie que l'horloge (`tempo écrit × vitesse`, le seul endroit du code qui
+écrive sur l'horloge de Tone.js). Tout le reste suit gratuitement : la **tête de lecture** lit des
+tics convertis en noires, donc elle reste juste à n'importe quelle vitesse, et le **décompte** se
+calcule en secondes au tempo courant, donc il ralentit avec la musique — un décompte se compte à la
+vitesse de ce qui suit.
+
+On peut **ralentir sans arrêter** : Tone.js réétire son horloge et rien n'est reprogrammé, donc un
+passage qui tourne en boucle peut passer à 50 % pendant qu'il tourne. C'est la manière dont on
+travaille.
+
+**Le bouton se tait à 100 % et s'accentue en dessous.** Une lecture ralentie qui ne se voit pas est
+un piège : on rejoue un passage, on le trouve facile, et on ne comprend qu'à la scène qu'on ne l'a
+jamais joué au tempo. Pour la même raison la vitesse **n'est pas retenue d'une session à l'autre** —
+un 50 % qui survivrait en silence à un rechargement rouvrirait l'application en train de jouer
+lentement sans que rien ne l'explique. C'est le raisonnement déjà appliqué à la bande de boucle.
+
+**Sur téléphone, le réglage change de place, et c'est une décision de mesure.** Le bouton pèse 46px
+et la barre du bas n'a que 19px de jeu à 320px : posé dans le bloc de lecture il la faisait déborder
+de 56px à 320, 63 à 360 et 33 à 390 (mesuré largeur par largeur). Les seuls pixels qu'il restait à
+reprendre étaient ceux de Lecture/Stop, arbitrés une fois à la mesure — et un réglage qu'on touche
+deux fois par séance ne se paie pas sur les deux boutons les plus visés de l'application. Le rang des
+quatre valeurs rejoint donc le popover voisin, sous les loupes et les mesures par ligne, dont le
+bouton est *déjà* dans la barre : zéro pixel de plus. C'est mot pour mot le raisonnement qui avait mis
+les loupes dans ce même popover.
+
+**25 % en plancher, 100 % en plafond.** Au quart d'un tempo déjà lent, les notes cessent de former une
+phrase ; et ce réglage existe pour *ralentir* — jouer plus vite que l'écrit se fait en écrivant le bon
+tempo. Le plafond tient à une seule constante, mais le garder à 100 % laisse au bouton une lecture
+immédiate : il ne peut que ralentir.
+
 #### Le son — un piano échantillonné, qui glisse
 
 Les notes sont jouées par un **piano échantillonné** (Salamander, la bibliothèque publique

@@ -285,6 +285,12 @@ class TabHubApp {
             // a le droit de vider (les loupes sont ses voisines, pas ses filles — voir index.html).
             boutonsMesuresLigneHote: document.getElementById('groupe-mesures-ligne-boutons'),
             btnMesuresLigneBascule: document.getElementById('btn-mesures-ligne-bascule'),
+            btnVitesse: document.getElementById('btn-vitesse'),
+            groupeVitesse: document.getElementById('groupe-vitesse'),
+            // LE CONTENANT du rang, et non le rang : c'est lui qui devient popover sur ordinateur
+            // (voir style.css, .bloc-vitesse.ouvert — un enfant `fixed` sous un parent effacé ne se
+            // dessine pas), et lui que le popover de téléphone montre en troisième section.
+            blocVitesse: document.getElementById('groupe-vitesse-hote'),
             btnZoomMoins: document.getElementById('btn-zoom-moins'),
             btnZoomPlus: document.getElementById('btn-zoom-plus'),
             position: document.getElementById('info-position'),
@@ -727,6 +733,11 @@ class TabHubApp {
         if (raison === 'document' || raison === 'tempo') {
             this.el.tempo.value = this.editeur.partition.meta.tempo;
             this.lecteur.definirTempo(this.editeur.partition.meta.tempo);
+            // L'infobulle de la vitesse cite le tempo écrit (« 50 % — le morceau reste écrit à
+            // 120 bpm ») : elle doit donc se refaire quand ce tempo change. La VITESSE, elle, ne
+            // bouge pas d'un document à l'autre — on travaille souvent le même passage dans deux
+            // versions du morceau, et la remettre à 100 % à chaque ouverture serait à refaire.
+            this.rafraichirBoutonVitesse();
         }
         // CE QU'ON ENTEND SUIT CE QU'ON ÉCRIT (retour utilisateur : « lorsque je modifie une mesure,
         // la lecture audio n'est pas toujours à jour et garde les informations précédentes. Elle doit
@@ -1050,6 +1061,79 @@ class TabHubApp {
             ? 'Mesures par ligne : automatique — touchez pour changer'
             : `Mesures par ligne : ${this.mesuresParLigne} — touchez pour changer`;
         bascule.setAttribute('aria-label', bascule.title);
+    }
+
+    /**
+     * LES QUATRE VALEURS DE LA VITESSE DE TRAVAIL. Quatre, et celles-là : 100 % (le tempo écrit),
+     * 75 % (le dernier palier avant de jouer juste), 50 % (la moitié — le palier de déchiffrage) et
+     * 25 % (le plancher, voir audio/player.js#definirVitesse). Un curseur continu aurait offert
+     * l'illusion du choix : entre 62 et 65 % il n'y a rien à entendre, et viser un pourcentage au
+     * pixel près est plus long que de taper le palier voulu. Quatre boutons, quatre gestes.
+     */
+    construireBoutonsVitesse() {
+        const hote = this.el.groupeVitesse;
+        if (!hote) return;
+        hote.innerHTML = '';
+        this.boutonsVitesse = [100, 75, 50, 25].map((pourcent) => {
+            const b = document.createElement('button');
+            b.type = 'button';
+            // `.btn-vitesse-valeur` SEULE, sans `.btn-mesures-ligne` : le dessin est partagé en
+            // CSS (voir style.css), mais une valeur de vitesse n'est pas un bouton « mesures par
+            // ligne » et ne doit pas répondre aux requêtes qui cherchent ceux-là.
+            b.className = 'btn-vitesse-valeur';
+            b.textContent = `${pourcent} %`;
+            b.title = pourcent === 100
+                ? 'Jouer au tempo écrit'
+                : `Jouer à ${pourcent} % du tempo écrit — pour travailler un passage, sans changer le tempo du morceau`;
+            b.setAttribute('aria-label', b.title);
+            b.addEventListener('click', () => {
+                // `definirVitesse` s'applique À L'HORLOGE, donc AUSSI EN PLEINE LECTURE : Tone.js
+                // réétire son temps sans qu'on reprogramme quoi que ce soit (voir player.js). On peut
+                // ralentir un passage pendant qu'il tourne en boucle, ce qui est exactement la
+                // manière dont on travaille.
+                this.lecteur.definirVitesse(pourcent / 100);
+                this.rafraichirBoutonVitesse();
+                this.fermerGroupeVitesse();
+                this.el.zone.focus();
+            });
+            hote.appendChild(b);
+            return { pourcent, el: b };
+        });
+        this.rafraichirBoutonVitesse();
+    }
+
+    rafraichirBoutonVitesse() {
+        const pourcent = Math.round((this.lecteur?.vitesse ?? 1) * 100);
+        for (const { pourcent: p, el } of this.boutonsVitesse ?? []) el.classList.toggle('actif', p === pourcent);
+        const b = this.el.btnVitesse;
+        if (!b) return;
+        b.textContent = `${pourcent} %`;
+        // `.ralenti` PLUTÔT QUE `.actif` : ce bouton n'a pas d'état « choisi » — il a un état
+        // « anormal ». 100 % est le cas de tout le monde et doit se taire ; tout le reste doit se
+        // voir (voir style.css, .btn-vitesse.ralenti).
+        b.classList.toggle('ralenti', pourcent !== 100);
+        b.title = pourcent === 100
+            ? 'Vitesse de travail : tempo écrit — touchez pour ralentir'
+            : `Vitesse de travail : ${pourcent} % du tempo écrit (le morceau reste écrit à ${this.editeur.partition.meta.tempo} bpm) — touchez pour changer`;
+        b.setAttribute('aria-label', b.title);
+    }
+
+    basculerGroupeVitesse() {
+        const g = this.el.blocVitesse;
+        if (!g) return;
+        if (g.classList.contains('ouvert')) { this.fermerGroupeVitesse(); return; }
+        g.classList.add('ouvert');
+        this.el.btnVitesse.setAttribute('aria-expanded', 'true');
+        // Mesuré APRÈS l'ouverture, comme les autres popovers : `display: none` n'a pas de largeur.
+        this._positionnerPanneau(g, this.el.btnVitesse);
+        this._detacherGroupeVitesse = this._fermerAuClicAilleurs(g, () => this.fermerGroupeVitesse(), this.el.btnVitesse);
+    }
+
+    fermerGroupeVitesse() {
+        this.el.blocVitesse?.classList.remove('ouvert');
+        this.el.btnVitesse?.setAttribute('aria-expanded', 'false');
+        this._detacherGroupeVitesse?.();
+        this._detacherGroupeVitesse = null;
     }
 
     rafraichirInfos() {
@@ -2660,6 +2744,8 @@ class TabHubApp {
 
         surClic('btn-mesures-ligne-bascule', () => this.basculerGroupeMesuresLigne());
         this.construireBoutonsMesuresLigne();
+        surClic('btn-vitesse', () => this.basculerGroupeVitesse());
+        this.construireBoutonsVitesse();
         // Le zoom : deux crans, et un rafraîchissement d'entrée de jeu pour que la loupe déjà au
         // butoir (préférence retenue à ZOOM_MIN/ZOOM_MAX) arrive désactivée, sans attendre un clic.
         // Le popover reste OUVERT après un cran, à la différence d'un choix de mesures par ligne :

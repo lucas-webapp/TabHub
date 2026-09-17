@@ -173,6 +173,26 @@ export class Lecteur {
         // trop tôt. Persistance (localStorage) du ressort de main.js, comme le reste de ce bloc.
         this.volumeGeneral = 100;
         this.volumeMetronome = 80;
+        // VITESSE DE TRAVAIL — de 25 à 100 % du tempo écrit. Ralentir pour déchiffrer un passage est
+        // le geste le plus banal du travail instrumental, et c'est le SEUL moyen de le faire sans
+        // toucher au tempo du morceau : baisser le champ Tempo de 120 à 60 pour s'entraîner réécrit
+        // la partition, part dans le .json, dans le PDF et dans le MIDI, et se retrouve à l'ouverture
+        // suivante comme si le morceau était lent. D'où DEUX nombres distincts et non un seul :
+        //
+        //   tempoEcrit — ce que dit la partition, ce qui s'exporte, ce que le champ Tempo affiche ;
+        //   vitesse    — ce que joue le lecteur maintenant, qui ne sort jamais de cette session.
+        //
+        // Ce que l'horloge reçoit est leur PRODUIT (voir _appliquerTempo, seul endroit qui écrive sur
+        // Tone.Transport.bpm). Tout le reste suit gratuitement : la tête de lecture lit des TICS
+        // convertis en noires (voir _suivre), donc elle reste juste à toute vitesse ; et le décompte
+        // se calcule en secondes au tempo courant (voir _programmerDecompte), donc il ralentit avec
+        // la musique — un décompte se compte à la vitesse de ce qui suit.
+        //
+        // PAS PERSISTÉ, volontairement, et pour la raison exacte qui vaut pour la boucle ci-dessus :
+        // une vitesse de 50 % qui survivrait en silence à un rechargement rouvrirait l'application en
+        // train de jouer lentement sans que rien ne l'explique. On repart donc toujours à 100 %.
+        this.vitesse = 1;
+        this.tempoEcrit = 120;
     }
 
     surPosition(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
@@ -404,7 +424,10 @@ export class Lecteur {
     programmer(partition) {
         const Tone = globalThis.Tone;
         Tone.Transport.cancel();
-        Tone.Transport.bpm.value = partition.meta.tempo || 120;
+        // PAR `definirTempo` ET NON PAR `Tone.Transport.bpm` : reprogrammer ne doit pas effacer la
+        // vitesse de travail. C'est par ici que passe chaque lancement de lecture, donc une
+        // affectation directe la remettait silencieusement à 100 % à la première note.
+        this.definirTempo(partition.meta.tempo || 120);
 
         const plat = aplatir(partition);
         this.duree = dureeTotale(partition);
@@ -1138,10 +1161,35 @@ export class Lecteur {
         this._prevenir();
     }
 
-    /** Ajustement du tempo EN COURS de lecture : Tone.js réétire l'horloge, rien à reprogrammer. */
+    /** Ajustement du tempo EN COURS de lecture : Tone.js réétire l'horloge, rien à reprogrammer.
+     *  Vaut aussi pour la vitesse de travail — c'est la même horloge, le même étirement. */
     definirTempo(bpm) {
+        this.tempoEcrit = Math.max(20, Math.min(400, Number(bpm) || 120));
+        this._appliquerTempo();
+    }
+
+    /**
+     * Vitesse de travail, en fraction du tempo écrit (0,25 à 1). Voir le constructeur pour le
+     * pourquoi des deux nombres.
+     *
+     * LES BORNES : 25 % parce qu'au quart d'un tempo lent (60 bpm → 15) les notes cessent de former
+     * une phrase, et 100 % parce que ce réglage existe pour RALENTIR — jouer plus vite que l'écrit
+     * se fait en écrivant le bon tempo. Rien n'interdirait d'aller au-delà (une seule constante),
+     * mais un maximum à 100 % garde au bouton une lecture immédiate : il ne peut que ralentir.
+     */
+    definirVitesse(fraction) {
+        const v = Number(fraction);
+        this.vitesse = Math.max(0.25, Math.min(1, Number.isFinite(v) ? v : 1));
+        this._appliquerTempo();
+        return this.vitesse;
+    }
+
+    /** LE SEUL endroit qui écrive sur l'horloge : tempo écrit × vitesse de travail. Tout chemin qui
+     *  poserait `Tone.Transport.bpm` directement effacerait la vitesse sans le dire — c'est
+     *  exactement ce que faisait `programmer`, et ce que ce point de passage unique empêche. */
+    _appliquerTempo() {
         const Tone = globalThis.Tone;
-        if (Tone) Tone.Transport.bpm.value = Math.max(20, Math.min(400, bpm));
+        if (Tone?.Transport) Tone.Transport.bpm.value = this.tempoEcrit * this.vitesse;
     }
 
     /**

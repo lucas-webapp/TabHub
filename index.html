@@ -203,7 +203,24 @@
              index.html, le gabarit et le commentaire qui l'expliquait disparaissent tous les deux. -->
         <label class="info-transport etiquette-tempo" for="champ-tempo">Tempo</label>
         <input type="number" id="champ-tempo" class="champ" min="20" max="400" step="1" value="120" aria-label="Tempo en battements par minute">
-        <span class="info-transport etiquette-bpm">BPM</span>
+        <!-- VITESSE DE TRAVAIL, À LA PLACE DE L'UNITÉ « BPM ». Ralentir pour déchiffrer est le geste
+             le plus banal du travail instrumental, et il ne doit PAS passer par le champ Tempo :
+             baisser 120 à 60 pour s'entraîner réécrit la partition, part dans le .json, le PDF et le
+             MIDI, et se retrouve à l'ouverture suivante comme si le morceau était lent (voir
+             audio/player.js, la vitesse de travail et les deux nombres qu'elle sépare).
+             ICI, ET À LA PLACE DE « BPM » : c'est une commande de LECTURE, elle appartient donc au
+             bloc de lecture ; et la barre du bas n'a pas un pixel à donner (mesuré : 19px de jeu à
+             320px, 42px à 390). L'unité était le seul élément de ce bloc qui n'apprenait rien —
+             « 120 » dans un champ nommé « Tempo » se lit en bpm sans qu'on l'écrive, et le mot était
+             de toute façon masqué sur téléphone. Le bouton, lui, montre en permanence le seul état
+             qui puisse surprendre : à quelle vitesse ça va jouer.
+             UN POPOVER, PAS UN CYCLE : quatre valeurs derrière un bouton qui cycle obligeraient à
+             traverser 75 et 50 pour aller de 100 à 25. Et un RANG DE BOUTONS dans ce popover, jamais
+             un menu déroulant — même règle que « Affichage » juste à côté et que « Effets » dans la
+             barre d'outils. -->
+        <button type="button" id="btn-vitesse" class="btn-transport-texte btn-vitesse"
+            aria-haspopup="true" aria-expanded="false"></button>
+
         <!-- LE CLIC SUR LA SUBDIVISION N'EST PLUS ICI : il a rejoint Réglages > Son (voir
              #champ-metronome-subdivision plus bas). Ce n'est pas une commande de lecture mais une
              MANIÈRE dont le métronome se comporte — on la choisit une fois, pas à chaque essai — et
@@ -268,7 +285,7 @@
              CONTENU s'enrichit. Les chiffres, eux, vivent dans un sous-groupe propre : leur
              constructeur vide son hôte (`innerHTML = ''`, voir construireBoutonsMesuresLigne), et les
              loupes posées à côté d'eux dans le même élément auraient disparu au premier redessin. -->
-        <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Affichage de la partition">
+        <div class="groupe-mesures-ligne" id="groupe-mesures-ligne" role="group" aria-label="Affichage de la partition et vitesse de lecture">
             <!-- ZOOM DE LA PARTITION À L'ÉCRAN (retour utilisateur : « ajouter un zoom de la partition
                  à l'écran. À placer à l'endroit idéal avec des boutons loupes + et -, pas dans les
                  paramètres »). ICI, ET PAS DANS LES RÉGLAGES : c'est un geste qu'on refait sans cesse
@@ -296,6 +313,26 @@
                 </button>
             </div>
             <div class="groupe-compte" id="groupe-mesures-ligne-boutons" role="group" aria-label="Nombre de mesures par ligne"></div>
+            <!-- LA VITESSE DE TRAVAIL EST ICI DANS LE DOM, ET NULLE PART AILLEURS — un seul rang de
+                 boutons pour deux portes d'entrée, selon la place disponible :
+                   • ORDINATEUR — invisible à cet endroit, montrée en popover flottant sous le bouton
+                     « 100 % » du bloc de lecture, là où la commande appartient (voir #btn-vitesse).
+                   • TÉLÉPHONE — le bouton du bloc de lecture s'efface et ce rang apparaît dans le
+                     popover déjà ouvert par le bouton voisin, sous les loupes et les chiffres.
+                 POURQUOI PAS LE BLOC DE LECTURE SUR TÉLÉPHONE, puisque c'est sa place logique : parce
+                 qu'il n'y a pas 46px à y prendre. Mesuré, barre par barre : le bouton y faisait
+                 déborder la barre du bas de 63px à 360px et de 56 à 320px, et les seuls pixels à
+                 reprendre étaient ceux de Lecture/Stop (48px, arbitrés une fois à la mesure) et des
+                 cibles tactiles. Un réglage qu'on touche deux fois par séance ne se paie pas sur les
+                 deux boutons les plus visés de l'application. C'est EXACTEMENT le raisonnement qui a
+                 mis les loupes dans ce même popover, et la même conclusion.
+                 UNE ÉTIQUETTE VISIBLE, contrairement aux cadres de la barre d'outils : « 100 75 50
+                 25 % » dans un popover qui contient déjà un zoom se lirait comme un second zoom —
+                 même défaut que « Auto 2 3 4 6 8 » avant l'étiquette « Affichage ». -->
+            <div class="bloc-vitesse" id="groupe-vitesse-hote">
+                <span class="etiquette-popover">Vitesse de lecture</span>
+                <div class="groupe-vitesse" id="groupe-vitesse" role="group" aria-label="Vitesse de travail, en pourcentage du tempo écrit"></div>
+            </div>
         </div>
     </div>
 </div>
