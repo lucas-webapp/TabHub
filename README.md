@@ -191,13 +191,33 @@ droit, sur celle qu'on désigne.
 
 On choisit d'abord **où** : un pas-à-pas « ◀ 3 ▶ » désigne la mesure de départ, et une rangée de
 boutons **1 / 2 / 3 / 4** la longueur — les mesures visées sont décidées avant d'y poser quoi que ce
-soit. On pose ensuite les barres dans la grille : un clic pose une note d'une case, un glissé la
-pose tenue, un glissé sur un **bord** l'étire ou la raccourcit, un glissé sur son **corps** la
-déplace dans le temps, un clic ou un clic droit dessus l'enlève. Une note est **une pilule arrondie**
-d'un seul tenant, avec un repère d'attaque à son début — pas une file de carrés accolés. Les temps
-sont numérotés **sous** les cases, et séparés par un simple trait plus franc plutôt que par un cadre
-chacun. La subdivision est **globale** — un sélecteur *Binaire (4) / Ternaire (3)* pour toute la
-grille, plutôt qu'un réglage par temps qu'il fallait deviner.
+soit. L'aide **s'ouvre sur le rythme déjà écrit** dans ces mesures, et la division se déduit de ce
+qu'elle y lit : un passage en triolets rouvre en ternaire sans qu'on ait à le dire. Elle sert donc
+aussi à **corriger** un rythme, pas seulement à en créer un. Tant qu'on n'a rien dessiné, viser une
+autre mesure montre ce qu'elle contient ; dès qu'on a dessiné, c'est le dessin qui suit.
+
+Une rangée de **motifs** pose un rythme entier en un clic — *Noires, Croches, Doubles,
+Pointé–bref, Galop* en binaire, *Noires, Triolets, Swing* en ternaire, et d'autres en mesure
+composée. Reconnaître un motif demande moins que de savoir le dessiner, et c'est la réponse la plus
+directe à la difficulté de départ.
+
+On pose ensuite les barres dans la grille : un clic pose une note d'une case, un glissé la pose
+tenue, un glissé sur un **bord** l'étire ou la raccourcit, un glissé sur son **corps** la déplace
+dans le temps, un clic ou un clic droit dessus l'enlève. Une note peut **franchir la barre de
+mesure** : elle est alors dessinée en deux morceaux (le second sans repère d'attaque, les angles
+droits à la barre) et **écrite liée**. Tout cela existe aussi **au clavier** : les flèches déplacent
+le focus, Espace ou Entrée pose et enlève, Maj + flèches allonge et raccourcit, Suppr efface.
+
+Une note est **une pilule arrondie** d'un seul tenant, avec un repère d'attaque à son début — pas
+une file de carrés accolés. Les temps sont numérotés **sous** les cases, et séparés par un simple
+trait plus franc plutôt que par un cadre chacun. La division est **globale**, et ses deux choix
+**dépendent de la mesure** : *Binaire / Ternaire* là où le temps est une noire, *Croches / Doubles*
+en 6/8 où le temps est déjà ternaire par nature.
+
+**Changer la longueur ou la division ne jette plus le travail.** Le rythme est requantifié sur la
+nouvelle grille : les durées peuvent bouger — une double-croche n'existe pas en ternaire — mais
+aucune note ne disparaît, sauf celles qui sortent d'une grille raccourcie. Et l'insertion **demande**
+avant d'écraser des mesures qui portent déjà des notes.
 
 TabHub affiche la **vraie écriture** en dessous : chiffres de triolet, ligatures pointée + double,
 silences réécrits au plus court. C'est le moteur de gravure lui-même qui la produit, sur une
@@ -225,6 +245,15 @@ la syncope la plus banale du répertoire — garde ses noires entières, sans li
 note que faute de figure exacte, et on coupe alors **aux temps** : un tiers de temps tenu dans un
 temps binaire sort en croche de triolet liée à une double-croche. Le même code sert à l'import MIDI
 (`model/rythme.js`), donc les deux portes écrivent pareil.
+
+**Le chiffre de n-olet ne vient pas de la grille mais de la durée.** Une version antérieure le posait
+dès que la grille était en trois : en 6/8, où le temps est une noire pointée, les trois croches d'un
+temps — leur division *ordinaire* — se retrouvaient donc marquées d'un « 3 » qu'aucune édition
+n'écrit. La règle est maintenant qu'une durée exprimable par une figure simple s'écrit sans n-olet,
+et qu'un n-olet n'apparaît que là où aucune figure ne tombe juste. Du même coup, les divisions
+offertes suivent la signature : quatre ou trois à la noire, trois ou six en mesure composée, deux ou
+trois en 5/8 et 7/8 — diviser un temps de 6/8 en quatre produisait des **triples-croches**, que
+TabHub n'écrit nulle part ailleurs.
 
 Deux mesures se suivent **horizontalement** ; au-delà, elles passent à la ligne. Sur un téléphone
 elles s'**empilent** — deux fois seize cases dans 390px ramèneraient chaque colonne sous dix pixels.

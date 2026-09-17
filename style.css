@@ -1669,9 +1669,11 @@ body.avec-pave .dpad-flottant { display: grid; }
    supprime du même coup les deux flèches de défilement dont l'ancienne version avait besoin. */
 .fenetre-rythme { width: min(1040px, 100%); }
 
-/* La ligne de commandes au-dessus de la grille : elle enveloppe sur téléphone plutôt que de
-   pousser la grille hors de l'écran. */
-.ligne-cible-rythme { flex-wrap: wrap; row-gap: 8px; }
+/* Les deux lignes de commandes au-dessus de la grille : elles enveloppent sur téléphone plutôt que
+   de pousser la grille hors de l'écran. */
+.ligne-cible-rythme, .ligne-motifs-rythme { flex-wrap: wrap; row-gap: 8px; }
+/* La rangée des motifs se serre contre la grille : elle EN FAIT PARTIE, on y va pour la remplir. */
+.ligne-motifs-rythme { margin-top: -4px; }
 
 /* LE PAS-À-PAS de la mesure de départ : « ◀ 3 ▶ ». Un pas-à-pas et non une rangée de boutons comme
    pour la longueur — un morceau peut avoir cent mesures, et cent boutons ne tiennent pas. Les deux
@@ -1764,6 +1766,14 @@ body.avec-pave .dpad-flottant { display: grid; }
 /* Une note TENUE est un peu plus haute qu'une note d'une seule case : elle se lit comme une barre
    posée sur la grille, pas comme une case allumée. */
 .note-seq.tenue { margin-top: 2px; margin-bottom: 2px; }
+
+/* UNE NOTE QUI FRANCHIT LA BARRE est dessinée en DEUX morceaux, un par mesure (voir
+   model/rythme.js#coursesDeMesure). Le côté coupé par la barre garde un angle DROIT et perd sa
+   marge : les deux morceaux se lisent alors comme une seule note interrompue par la barre, et non
+   comme deux notes voisines. C'est le langage de tous les séquenceurs, et il évite d'avoir à
+   dessiner un signe de liaison dans la grille — la portée en dessous l'écrit déjà, elle. */
+.note-seq.sans-fin { border-top-right-radius: 0; border-bottom-right-radius: 0; margin-right: 0; border-right: none; }
+.note-seq.sans-debut { border-top-left-radius: 0; border-bottom-left-radius: 0; margin-left: 0; border-left: none; }
 
 /* Le repère d'attaque : la fine bande claire au tout début de la pilule, là où la note est
    réellement pincée. Sans elle, une note de quatre cases ne dit pas où elle attaque (reprise de

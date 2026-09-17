@@ -364,6 +364,186 @@ const EPS = 1e-9;
             'à l\'import aussi, une note de 0,5 à 1,5 est UNE noire — mesuré : '
             + figsSync.map(f => NOM[f.valeur]).join(' puis '));
 
+        // =====================================================================================
+        // H. LES DIVISIONS SUIVENT LA SIGNATURE
+        // Une version antérieure offrait 4 ou 3 partout. Mesuré : en 6/8 « 4 » donnait des cellules
+        // de 0,375 noire et écrivait des TRIPLES-croches (que l'application n'écrit nulle part
+        // ailleurs), et « 3 » donnait la bonne cellule mais la marquait d'un chiffre de TRIOLET
+        // alors que trois croches est la division ORDINAIRE d'un temps de 6/8. En 5/8 et 7/8, le
+        // temps est une croche : « 4 » ne produisait que des triples-croches.
+        // =====================================================================================
+        const ecrireGrille = (signature, sub) => {
+            const etat = R.etatInitial(1, signature);
+            R.changerSubdivisionGlobale(etat, sub);
+            etat.temps.forEach(t => { t.cellules[0] = R.ATTAQUE; });
+            return { etat, lignes: ecriture(etat) };
+        };
+
+        check(JSON.stringify(R.subdivisionsPour({ battements: 4, unite: 4 })) === '[4,3]'
+              && JSON.stringify(R.subdivisionsPour({ battements: 6, unite: 8 })) === '[3,6]'
+              && JSON.stringify(R.subdivisionsPour({ battements: 7, unite: 8 })) === '[2,3]',
+            'chaque famille de mesure a SES divisions : 4/3 à la noire, 3/6 en composée, 2/3 en x/8 '
+            + `irrégulier — mesuré ${JSON.stringify(R.subdivisionsPour({ battements: 6, unite: 8 }))} en 6/8`);
+
+        const triples = [];
+        const nolets = [];
+        for (const signature of [{ battements: 4, unite: 4 }, { battements: 3, unite: 4 },
+                                 { battements: 6, unite: 8 }, { battements: 9, unite: 8 },
+                                 { battements: 12, unite: 8 }, { battements: 5, unite: 8 },
+                                 { battements: 7, unite: 8 }]) {
+            for (const sub of R.subdivisionsPour(signature)) {
+                const { etat, lignes } = ecrireGrille(signature, sub);
+                const etiquette = `${signature.battements}/${signature.unite} sub${sub}`;
+                if (lignes.some(l => l.nom.startsWith('triple'))) triples.push(etiquette);
+                if (!R.mesuresJustes(etat)[0]) triples.push('somme fausse : ' + etiquette);
+                // En mesure COMPOSÉE, aucune figure ne doit porter de nolet : le temps y est pointé,
+                // donc déjà ternaire — une croche de 6/8 n'est pas un triolet.
+                const composee = signature.unite >= 8 && signature.battements % 3 === 0;
+                if (composee && lignes.some(l => l.nolet)) nolets.push(etiquette);
+            }
+        }
+        check(triples.length === 0,
+            'aucune division offerte, dans aucune des sept signatures essayées, ne produit de '
+            + 'TRIPLE-croche ni de mesure fausse'
+            + (triples.length ? ` — fautif(s) : ${triples.join(', ')}` : ''));
+        check(nolets.length === 0,
+            'et en mesure COMPOSÉE (6/8, 9/8, 12/8) aucune figure ne porte de chiffre de n-olet — '
+            + 'trois croches y sont la division ordinaire du temps, pas un triolet'
+            + (nolets.length ? ` — fautif(s) : ${nolets.join(', ')}` : ''));
+
+        // La croche de 6/8 s'écrit croche, et la croche de 4/4 en ternaire s'écrit triolet : c'est
+        // la MÊME durée relative au temps, et deux écritures justes différentes.
+        const en68 = ecrireGrille({ battements: 6, unite: 8 }, 3).lignes[0];
+        const en44 = ecrireGrille({ battements: 4, unite: 4 }, 3).lignes[0];
+        check(en68.nom === 'croche' && !en68.nolet && en44.nom === 'croche' && en44.nolet,
+            `un tiers de temps s'écrit croche SANS nolet en 6/8 et croche AVEC nolet en 4/4 — `
+            + `mesuré « ${resume([en68])} » et « ${resume([en44])} »`);
+
+        // =====================================================================================
+        // I. UNE NOTE FRANCHIT LA BARRE, ET RESSORT LIÉE
+        // Les courses vivent sur l'index GLOBAL de la grille. Une version antérieure raisonnait
+        // mesure par mesure : la note s'arrêtait à la barre, et une liaison par-dessus — écriture
+        // ordinaire, souvent la seule juste — était indessinable.
+        // =====================================================================================
+        const aCheval = R.etatInitial(2, SIG);
+        R.poserCourse(aCheval, R.indexDe(aCheval, 0, 14), R.indexDe(aCheval, 1, 2));
+        check(JSON.stringify(R.courses(aCheval)) === '[{"debut":14,"fin":18}]',
+            `une seule course couvre les deux mesures (${JSON.stringify(R.courses(aCheval))})`);
+        const m0 = R.coursesDeMesure(aCheval, 0), m1 = R.coursesDeMesure(aCheval, 1);
+        check(m0.length === 1 && m0[0].attaque && m0[0].continue
+              && m1.length === 1 && !m1[0].attaque && !m1[0].continue,
+            'le DESSIN la recoupe en deux morceaux : le premier porte l\'attaque et continue, le '
+            + 'second ne porte pas d\'attaque — un morceau de continuation n\'a rien à pincer');
+        const parM = R.evenementsParMesure(aCheval, { avecNotes: true });
+        const derniere = parM[0][parM[0].length - 1];
+        check(derniere.notes[0]?.lien === 'tie' && !derniere.silence,
+            'la CONVERSION la lie : la dernière figure de la mesure 1 porte la liaison — '
+            + `mesuré « ${resume(ecriture(aCheval, 0)).trim()} »`);
+        check(parM.every((evs, m) => Math.abs(evs.reduce((t, e) => t + D.dureeEnNoires(e.duree), 0)
+                                               - 4) < 1e-6),
+            'et les deux mesures somment exactement leur capacité, la liaison ne fait rien perdre');
+        // UN SILENCE, LUI, NE FRANCHIT JAMAIS LA BARRE : c'est lui qui montre la métrique, et la
+        // barre est la métrique la plus forte de toutes.
+        const vide2 = R.etatInitial(2, SIG);
+        R.poserCourse(vide2, 0, 0);
+        const silences = R.evenementsParMesure(vide2, { avecNotes: true });
+        check(silences[0].length >= 2 && silences[1].length === 1 && silences[1][0].silence,
+            'un silence, lui, s\'arrête à la barre : la mesure 2 vide reste UNE pause entière '
+            + `(${silences[1].length} figure(s)) plutôt que d'être avalée par celle d'avant`);
+
+        // =====================================================================================
+        // J. CHANGER LA GRILLE NE JETTE PLUS LE TRAVAIL
+        // Mesuré avant : trois pilules puis zéro en changeant de division, deux puis zéro en
+        // passant de une à deux mesures — sans avertissement et sans annulation dans la fenêtre.
+        // =====================================================================================
+        const base = R.etatInitial(1, SIG);
+        R.poserCourse(base, 0, 0); R.poserCourse(base, 4, 7); R.poserCourse(base, 8, 8);
+        const empreinte = JSON.stringify(R.courses(base));
+        check(JSON.stringify(R.courses(R.regrillerEtat(base, { nMesures: 2 }))) === empreinte,
+            'passer de une à deux mesures GARDE le rythme de la première — vouloir ajouter une '
+            + 'mesure ne fait plus perdre celle qu\'on avait');
+        const enTrois = R.regrillerEtat(base, { sub: 3 });
+        check(R.courses(enTrois).length === 3 && enTrois.temps[0].sub === 3,
+            `passer en ternaire garde les TROIS notes en les requantifiant (${JSON.stringify(R.courses(enTrois))}) — `
+            + 'les durées bougent, aucune note ne disparaît');
+        check(JSON.stringify(R.courses(R.regrillerEtat(enTrois, { sub: 4 }))) === empreinte,
+            'et l\'aller-retour binaire → ternaire → binaire retombe sur ses pieds quand les '
+            + 'positions existent des deux côtés');
+        // RACCOURCIR PERD CE QUI SORT, et il faut le vérifier sur une note qui SORT vraiment : une
+        // première version de ce contrôle étendait `base` à quatre mesures (dont trois vides) puis
+        // les rabattait à une, et mesurait donc 3 notes avant comme après — elle aurait passé même
+        // sans aucun recalage. On pose donc une quatrième note DANS la mesure 4.
+        const large = R.regrillerEtat(base, { nMesures: 4 });
+        R.poserCourse(large, R.indexDe(large, 3, 0), R.indexDe(large, 3, 3));
+        exiger(R.courses(large).length === 4, `préalable : quatre notes, dont une en mesure 4 (${R.courses(large).length})`);
+        const court = R.regrillerEtat(large, { nMesures: 1 });
+        check(R.courses(court).length === 3,
+            `raccourcir à une mesure garde les trois notes qui rentrent et perd la quatrième `
+            + `(${R.courses(court).length} restante(s)) — c'est le seul cas de perte, et il n'a pas `
+            + 'd\'autre réponse : on ne garde pas ce qui n\'a plus de place');
+
+        // =====================================================================================
+        // K. L'AIDE SAIT RELIRE UNE PARTITION — l'aller-retour complet
+        // Elle s'ouvrait toujours vierge : elle savait créer un rythme, jamais en corriger un.
+        // =====================================================================================
+        const allerRetour = (etat) => {
+            const p = { mesures: R.evenementsParMesure(etat, { avecNotes: true })
+                .map(evs => ({ voix: [{ evenements: evs }] })) };
+            return R.etatDepuisPartition(p, 0, etat.nMesures, SIG);
+        };
+        const cas = [
+            ['trois notes en binaire', base],
+            ['une note à cheval sur la barre', aCheval],
+            ['une grille vide', R.etatInitial(1, SIG)],
+        ];
+        const perdus = cas.filter(([, etat]) =>
+            JSON.stringify(R.courses(allerRetour(etat))) !== JSON.stringify(R.courses(etat)));
+        check(perdus.length === 0,
+            'grille → partition → grille rend EXACTEMENT la même grille, liaison par-dessus la '
+            + 'barre comprise' + (perdus.length ? ` — perdu(s) : ${perdus.map(c => c[0]).join(', ')}` : ''));
+        const ternaireRelu = allerRetour(R.regrillerEtat(base, { sub: 3 }));
+        check(ternaireRelu.temps[0].sub === 3,
+            `et la DIVISION se déduit de ce qu'on relit (${ternaireRelu.temps[0].sub}) : un passage `
+            + 'en triolets rouvre en ternaire sans qu\'on ait à le dire');
+
+        // =====================================================================================
+        // L. LES MOTIFS TOUT PRÊTS écrivent ce que leur nom annonce
+        // =====================================================================================
+        const motifsFautifs = [];
+        let motifsVus = 0;
+        for (const signature of [{ battements: 4, unite: 4 }, { battements: 6, unite: 8 },
+                                 { battements: 7, unite: 8 }]) {
+            for (const sub of R.subdivisionsPour(signature)) {
+                for (const motif of R.motifsPour(signature, sub)) {
+                    const etat = R.etatInitial(1, signature);
+                    R.changerSubdivisionGlobale(etat, sub);
+                    R.appliquerMotif(etat, motif.cases);
+                    motifsVus++;
+                    const etiquette = `${signature.battements}/${signature.unite} « ${motif.texte} »`;
+                    if (!R.mesuresJustes(etat)[0]) motifsFautifs.push('somme fausse : ' + etiquette);
+                    if (R.estVide(etat)) motifsFautifs.push('rien posé : ' + etiquette);
+                    const l = ecriture(etat);
+                    if (l.some(x => x.nom.startsWith('triple'))) motifsFautifs.push('triple-croche : ' + etiquette);
+                    if (enjambements(l).length) motifsFautifs.push('silence à cheval : ' + etiquette);
+                }
+            }
+        }
+        check(motifsVus === 19, `préalable : les dix-neuf motifs des trois familles ont été essayés (${motifsVus})`);
+        check(motifsFautifs.length === 0,
+            'chaque motif remplit sa grille, somme juste, et n\'écrit ni triple-croche ni silence '
+            + 'à cheval' + (motifsFautifs.length ? ` — ${motifsFautifs.join(' ; ')}` : ''));
+        // Et il nomme juste : « Noires » en 4/4 donne quatre noires, « Croches » en 6/8 six croches.
+        const e44 = R.etatInitial(1, SIG);
+        R.appliquerMotif(e44, R.motifsPour(SIG, 4)[0].cases);
+        const l44 = ecriture(e44);
+        const e68 = R.etatInitial(1, { battements: 6, unite: 8 });
+        R.appliquerMotif(e68, R.motifsPour({ battements: 6, unite: 8 }, 3)[1].cases);
+        const l68 = ecriture(e68);
+        check(l44.length === 4 && l44.every(x => x.nom === 'noire')
+              && l68.length === 6 && l68.every(x => x.nom === 'croche'),
+            `« Noires » en 4/4 donne quatre noires (${resume(l44)}) et « Croches » en 6/8 six `
+            + `croches (${resume(l68)}) — le libellé dit la vérité dans les deux mesures`);
+
         check(true, 'toutes les vérifications se sont exécutées sans exception');
     } catch (err) {
         check(false, 'le banc s\'est arrêté sur une exception — ' + (err && err.message));

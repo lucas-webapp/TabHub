@@ -601,6 +601,15 @@
                 <label id="etiquette-rythme-sub">Division</label>
                 <div class="groupe-compte" id="rythme-subdivision" role="radiogroup" aria-labelledby="etiquette-rythme-sub"></div>
             </div>
+            <!-- LES MOTIFS TOUT PRÊTS : un clic pose un rythme entier, qu'on retouche ensuite.
+                 C'est la réponse la plus directe à « des fois j'ai des difficultés à écrire la
+                 partition à cause du rythme » — reconnaître un motif demande moins que de savoir
+                 le dessiner. La liste dépend de la mesure et de la division (voir
+                 model/rythme.js#motifsPour). -->
+            <div class="ligne-champ ligne-motifs-rythme">
+                <label id="etiquette-rythme-motifs">Motif</label>
+                <div class="groupe-compte" id="rythme-motifs" role="group" aria-labelledby="etiquette-rythme-motifs"></div>
+            </div>
             <div class="grille-rythme" id="grille-rythme"></div>
             <div class="apercu-rythme" id="apercu-rythme" aria-label="Écriture proposée"></div>
         </div>

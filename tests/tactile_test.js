@@ -395,6 +395,14 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
 
         // LE GESTE LUI-MÊME, au doigt : un glissé sur la piste pose une note TENUE. C'est le geste
         // principal du séquenceur, et il part ici en `pointerType: 'touch'` comme sur l'appareil.
+        //
+        // ON VIDE LA GRILLE D'ABORD, et ce n'est pas une précaution de style : l'aide s'ouvre
+        // désormais sur le rythme DÉJÀ ÉCRIT dans les mesures visées (voir
+        // model/rythme.js#etatDepuisPartition), et ce banc a justement écrit des notes plus haut, au
+        // doigt. Sans ce clic, le glissé s'ajouterait à ce rythme-là — ce qui a fait échouer ce
+        // contrôle au premier passage, en mesurant une grille qu'on croyait vierge.
+        await page.click('#btn-rythme-effacer');
+        await page.waitForTimeout(250);
         const bornes = await page.evaluate(() => {
             const cases = [...document.querySelectorAll('.mesure-seq[data-mesure="0"] .case-seq')];
             const b = (i) => { const r = cases[i].getBoundingClientRect(); return { x: r.left + r.width / 2, y: r.top + r.height / 2 }; };

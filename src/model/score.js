@@ -112,6 +112,15 @@ export function creerEvenement(duree = { valeur: 4, points: 0, nolet: null }, no
         // Le marqueur tombe au premier chiffre tapé — il décrit une attente, pas une propriété du
         // rythme, et n'a donc aucune raison de survivre à sa satisfaction.
         aRemplir: false,
+        // `lienSuivant` — UNE LIAISON QUI N'A PAS ENCORE DE NOTE POUR LA PORTER.
+        //
+        // Une liaison vit normalement sur la note (`note.lien`). Mais une case à remplir n'a pas
+        // encore de note, et l'aide rythmique sait désormais faire franchir une barre à une note :
+        // elle l'écrit alors en deux figures LIÉES, donc deux évènements vides. L'intention doit
+        // survivre jusqu'au chiffre qu'on tapera, sans quoi une note tenue par-dessus la barre
+        // ressortirait en deux notes réattaquées. Posé par model/rythme.js#evenementsParMesure,
+        // consommé par edit/commands.js#_prolongerLiaison, et il tombe avec la case remplie.
+        lienSuivant: false,
         ...extra,
     };
 }
@@ -556,6 +565,10 @@ function normaliserEvenement(eb, cordes, fiche) {
         // enregistré rouvrirait SANS sa surbrillance ni sa protection de durée — on croirait le
         // remplir et on l'écraserait.
         aRemplir: !!eb?.aRemplir,
+        // Même raison : un rythme inséré, enregistré puis rouvert avant d'être rempli doit garder
+        // ses liaisons en attente, sinon la note à cheval sur la barre se casse en deux à la
+        // réouverture.
+        lienSuivant: !!eb?.lienSuivant,
     });
 }
 

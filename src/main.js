@@ -1234,13 +1234,41 @@ class TabHubApp {
             depart: Math.max(0, Math.min(partition.mesures.length - 1, mesureDepart)),
             signature: { ...signatureEffective(partition, mesureDepart) },
             nMesures: 1,
-            sub: 4,
             boucle: false,
         };
-        this._rythme.etat = Rythme.etatInitial(1, this._rythme.signature);
+        // LA DIVISION DE DÉPART EST CELLE DE LA SIGNATURE, jamais 4 en dur (voir
+        // model/rythme.js#subdivisionsPour) : en 6/8, un temps en quatre ne s'écrit pas.
+        this._rythme.sub = Rythme.subdivisionsPour(this._rythme.signature)[0];
+        this.chargerRythmeDepuisPartition();
         this.construireCommandesRythme();
         this.rebatirGrilleRythme();
         this.ouvrirFenetre('fenetre-rythme');
+    }
+
+    /**
+     * REMPLIT LA GRILLE AVEC LE RYTHME DÉJÀ ÉCRIT dans les mesures visées, et retient son empreinte.
+     *
+     * L'aide s'ouvrait toujours vierge : elle savait créer un rythme, jamais en corriger un. Elle
+     * part maintenant de ce qui existe — et la division se déduit de ce qu'elle lit (voir
+     * model/rythme.js#etatDepuisPartition), donc un passage en triolets rouvre en ternaire.
+     *
+     * L'EMPREINTE sert à répondre à une question que l'interface se pose ensuite : « l'utilisateur
+     * a-t-il touché à la grille ? ». Tant qu'il n'y a pas touché, viser une autre mesure recharge
+     * ce qu'il y a là-bas — c'est ce qu'on attend quand on se promène. Dès qu'il a dessiné, on garde
+     * son travail : le lui reprendre parce qu'il a bougé d'une mesure serait exactement le défaut
+     * qu'on vient de corriger ailleurs.
+     */
+    chargerRythmeDepuisPartition() {
+        if (!this._rythme) return;
+        const r = this._rythme;
+        r.etat = Rythme.etatDepuisPartition(this.editeur.partition, r.depart, r.nMesures, r.signature);
+        r.sub = r.etat.temps[0]?.sub ?? Rythme.subdivisionsPour(r.signature)[0];
+        r.empreinte = JSON.stringify(Rythme.courses(r.etat));
+    }
+
+    /** La grille est-elle encore celle qu'on a chargée, sans une retouche ? */
+    rythmeIntact() {
+        return !!this._rythme && JSON.stringify(Rythme.courses(this._rythme.etat)) === this._rythme.empreinte;
     }
 
     /** Les trois commandes de la ligne du haut, reconstruites ensemble : elles se contraignent l'une
@@ -1250,6 +1278,37 @@ class TabHubApp {
         this.construireDepartRythme();
         this.construireBoutonsNbMesuresRythme();
         this.construireSubdivisionRythme();
+        this.construireMotifsRythme();
+    }
+
+    /**
+     * LES MOTIFS TOUT PRÊTS — un clic pose un rythme entier sur la grille.
+     *
+     * Ils dépendent de la mesure ET de la division affichée : `x---` vaut une noire en 4/4 et une
+     * noire pointée en 6/8, donc la liste et ses libellés se refont à chaque changement de l'une ou
+     * de l'autre (voir model/rythme.js#motifsPour).
+     *
+     * ILS REMPLACENT, ils ne complètent pas : un motif est un point de départ. Mélanger le motif à
+     * ce qui traînait donnerait un rythme que personne n'a choisi, et « Tout effacer » puis un autre
+     * motif sont à un clic — le geste est donc sans regret.
+     */
+    construireMotifsRythme() {
+        const hote = document.getElementById('rythme-motifs');
+        if (!hote || !this._rythme) return;
+        hote.innerHTML = '';
+        for (const motif of Rythme.motifsPour(this._rythme.signature, this._rythme.sub)) {
+            const b = document.createElement('button');
+            b.type = 'button';
+            b.className = 'btn-mesures-ligne';
+            b.textContent = motif.texte;
+            b.title = `Poser « ${motif.texte} » sur tous les temps de la grille`;
+            b.dataset.motif = motif.cases;
+            b.addEventListener('click', () => {
+                Rythme.appliquerMotif(this._rythme.etat, motif.cases);
+                this.rebatirGrilleRythme();
+            });
+            hote.appendChild(b);
+        }
     }
 
     /**
@@ -1281,15 +1340,34 @@ class TabHubApp {
             b.setAttribute('aria-label', titre);
             b.disabled = sens < 0 ? this._rythme.depart <= 0 : this._rythme.depart >= max;
             b.addEventListener('click', () => {
+                const intact = this.rythmeIntact();
                 this._rythme.depart = Math.max(0, Math.min(max, this._rythme.depart + sens));
+                // TANT QU'ON N'A RIEN DESSINÉ, viser une autre mesure montre CE QU'ELLE CONTIENT :
+                // se promener dans le morceau avec l'aide ouverte devient alors une façon de le
+                // lire. Dès qu'on a dessiné, c'est le dessin qui suit — on ne reprend pas son
+                // travail à quelqu'un qui a bougé d'une mesure.
+                if (intact) {
+                    this.chargerRythmeDepuisPartition();
+                    this._rythme.signature = { ...signatureEffective(this.editeur.partition, this._rythme.depart) };
+                    this.construireCommandesRythme();
+                    this.rebatirGrilleRythme();
+                    return;
+                }
                 // LA SIGNATURE SUIT LA MESURE VISÉE : un rythme dessiné en 4/4 puis déposé dans une
-                // mesure en 3/4 ne voudrait rien dire. Elle change donc la grille, qui repart neuve.
+                // mesure en 3/4 ne voudrait rien dire. Elle change donc la grille.
                 const sig = signatureEffective(this.editeur.partition, this._rythme.depart);
                 if (sig.battements !== this._rythme.signature.battements
                     || sig.unite !== this._rythme.signature.unite) {
                     this._rythme.signature = { ...sig };
-                    this._rythme.etat = Rythme.etatInitial(this._rythme.nMesures, this._rythme.signature);
-                    Rythme.changerSubdivisionGlobale(this._rythme.etat, this._rythme.sub);
+                    // LA DIVISION EST RAMENÉE DANS CE QUE LA NOUVELLE SIGNATURE OFFRE : passer d'un
+                    // 4/4 à un 6/8 en gardant « 4 » laisserait le réglage hors de sa propre liste,
+                    // donc aucun bouton actif et une grille qui ne correspond à rien.
+                    const offertes = Rythme.subdivisionsPour(sig);
+                    if (!offertes.includes(this._rythme.sub)) this._rythme.sub = offertes[0];
+                    // Ce qui rentre dans la nouvelle mesure est gardé ; ce qui dépasse tombe, faute
+                    // de place (un rythme de 4/4 déposé dans du 3/4 perd son dernier temps).
+                    this._rythme.etat = Rythme.regrillerEtat(this._rythme.etat,
+                        { signature: this._rythme.signature, sub: this._rythme.sub });
                     this.construireCommandesRythme();
                     this.rebatirGrilleRythme();
                     return;
@@ -1325,12 +1403,17 @@ class TabHubApp {
             b.disabled = n > total;
             b.addEventListener('click', () => {
                 if (n === this._rythme.nMesures) return;
-                // ON REPART D'UNE GRILLE NEUVE : étendre une grille existante demanderait de décider
-                // ce que deviennent les temps déjà remplis, et toute réponse serait une surprise.
+                // LE RYTHME DÉJÀ POSÉ EST GARDÉ (voir model/rythme.js#regrillerEtat). Une version
+                // antérieure repartait d'une grille neuve : vouloir AJOUTER une deuxième mesure
+                // faisait perdre la première, sans avertissement et sans annulation possible.
+                const intact = this.rythmeIntact();
                 this._rythme.nMesures = n;
                 this._rythme.depart = Math.max(0, Math.min(total - n, this._rythme.depart));
-                this._rythme.etat = Rythme.etatInitial(n, this._rythme.signature);
-                Rythme.changerSubdivisionGlobale(this._rythme.etat, this._rythme.sub);
+                // Même règle que pour le pas-à-pas : intact, on montre ce que contiennent les
+                // mesures nouvellement visées ; retouché, on garde le dessin.
+                if (intact) this.chargerRythmeDepuisPartition();
+                else this._rythme.etat = Rythme.regrillerEtat(this._rythme.etat,
+                    { nMesures: n, sub: this._rythme.sub });
                 this.construireCommandesRythme();
                 this.rebatirGrilleRythme();
             });
@@ -1345,32 +1428,40 @@ class TabHubApp {
      * défiler en cliquant un « 4 » posé au-dessus de chaque temps — illisible (retour utilisateur :
      * « je n'ai pas besoin du "4" noté juste au-dessus des barres », et « j'ai l'impression que cet
      * outil est incohérent »). Il proposait 4, 3 et 2 ; or une grille en 2 produit une écriture
-     * RIGOUREUSEMENT identique à une grille en 4 — ce n'était pas un choix musical (voir
-     * model/rythme.js#SUBDIVISIONS). Reste la seule vraie question : moitiés ou tiers.
+     * RIGOUREUSEMENT identique à une grille en 4 — ce n'était pas un choix musical.
+     *
+     * LES DEUX CHOIX VIENNENT DE LA SIGNATURE, pas d'une constante : en 6/8 ce sont « Croches » et
+     * « Doubles », parce que le temps y est une noire pointée et qu'un binaire/ternaire n'y voudrait
+     * rien dire. Voir model/rythme.js#subdivisionsPour, qui raconte ce que l'ancienne constante
+     * écrivait de faux dans ces mesures-là.
      */
     construireSubdivisionRythme() {
         const hote = document.getElementById('rythme-subdivision');
         if (!hote || !this._rythme) return;
-        const LIBELLES = {
-            4: { texte: 'Binaire', titre: 'Chaque temps en quatre doubles-croches' },
-            3: { texte: 'Ternaire', titre: 'Chaque temps en trois croches de triolet' },
-        };
         hote.innerHTML = '';
-        for (const sub of Rythme.SUBDIVISIONS) {
+        for (const sub of Rythme.subdivisionsPour(this._rythme.signature)) {
             const actif = sub === this._rythme.sub;
+            const libelle = Rythme.libelleDivision(this._rythme.signature, sub);
             const b = document.createElement('button');
             b.type = 'button';
             b.className = 'btn-mesures-ligne' + (actif ? ' actif' : '');
-            b.textContent = LIBELLES[sub].texte;
-            b.title = LIBELLES[sub].titre;
+            b.textContent = libelle.texte;
+            b.title = libelle.titre;
             b.setAttribute('role', 'radio');
             b.setAttribute('aria-checked', String(actif));
             b.dataset.sub = String(sub);
             b.addEventListener('click', () => {
                 if (sub === this._rythme.sub) return;
                 this._rythme.sub = sub;
-                Rythme.changerSubdivisionGlobale(this._rythme.etat, sub);
+                // LE RYTHME EST REQUANTIFIÉ, pas jeté : les notes se recalent sur la case la plus
+                // proche de la nouvelle grille. On ne peut pas garder une double-croche en passant
+                // au ternaire, mais on peut ne perdre aucune note — et un aller-retour
+                // binaire → ternaire → binaire retombe sur ses pieds quand les positions existent
+                // des deux côtés (vérifié au banc).
+                this._rythme.etat = Rythme.regrillerEtat(this._rythme.etat, { sub });
                 this.construireSubdivisionRythme();
+                // Les motifs dépendent de la division : ils se refont avec elle.
+                this.construireMotifsRythme();
                 this.rebatirGrilleRythme();
             });
             hote.appendChild(b);
@@ -1405,10 +1496,16 @@ class TabHubApp {
             const f = this._rythme.depart + this._rythme.nMesures;
             cible.textContent = d === f ? `remplacera la mesure ${d}` : `remplacera les mesures ${d} à ${f}`;
         }
+        const vide = Rythme.estVide(this._rythme.etat);
         const inserer = document.getElementById('btn-rythme-inserer');
         // Un rythme vide n'a rien à insérer : le bouton le dit avant d'être cliqué, plutôt que de
         // poser quatre mesures de silence à qui a cliqué sans le vouloir.
-        if (inserer) inserer.disabled = Rythme.estVide(this._rythme.etat);
+        if (inserer) inserer.disabled = vide;
+        // ET RIEN À JOUER NON PLUS — le bouton restait actif et faisait tourner une mesure de
+        // silence, ce qui se lit comme une panne d'audio. Sauf s'il tourne déjà : le griser pendant
+        // qu'on efface la dernière note enlèverait le bouton « Arrêter » sous le doigt.
+        const boucler = document.getElementById('btn-rythme-boucle');
+        if (boucler) boucler.disabled = vide && !this._rythme.boucle;
         this.reprogrammerBoucleRythme();
     }
 
@@ -1501,9 +1598,40 @@ class TabHubApp {
         this.lecteur.reprogrammerSiEnCours(p);
     }
 
-    /** Insère le rythme dessiné dans la partition, en cases à remplir. */
-    insererRythme() {
+    /**
+     * Insère le rythme dessiné dans la partition, en cases à remplir.
+     *
+     * ON DEMANDE AVANT D'ÉCRASER DES NOTES. L'insertion REMPLACE les mesures visées : c'est ce
+     * qu'on veut quand on prépare un passage vierge, et une perte sèche quand on visait la mauvaise
+     * mesure (mesuré : une mesure portant la case 8 ressortait sans aucune frette). Ctrl+Z la
+     * rattrape, encore faut-il s'en apercevoir. La question n'est posée que s'il y a VRAIMENT
+     * quelque chose à perdre — sur des mesures vides, elle ne serait qu'un clic de plus.
+     */
+    async insererRythme() {
         if (!this._rythme || Rythme.estVide(this._rythme.etat)) return;
+        const notesEnJeu = this.editeur.partition.mesures
+            .slice(this._rythme.depart, this._rythme.depart + this._rythme.nMesures)
+            .reduce((t, m) => t + m.voix.reduce((u, v) =>
+                u + v.evenements.reduce((w, e) => w + e.notes.length, 0), 0), 0);
+        if (notesEnJeu > 0) {
+            const d = this._rythme.depart + 1;
+            const f = this._rythme.depart + this._rythme.nMesures;
+            const ou = d === f ? `la mesure ${d}` : `les mesures ${d} à ${f}`;
+            const choix = await demander({
+                titre: 'Remplacer ce qui est déjà écrit ?',
+                texte: `${ou} ${d === f ? 'contient' : 'contiennent'} ${notesEnJeu} note`
+                     + `${notesEnJeu > 1 ? 's' : ''}. Le rythme ${notesEnJeu > 1 ? 'les' : 'la'} `
+                     + `remplacera par des cases à remplir, et ${notesEnJeu > 1 ? 'les hauteurs '
+                        + 'seront perdues' : 'la hauteur sera perdue'}. Annuler (Ctrl+Z) `
+                     + `${notesEnJeu > 1 ? 'les' : 'la'} ramènera.`,
+                boutons: [
+                    { cle: 'annuler', libelle: 'Annuler' },
+                    { cle: 'remplacer', libelle: 'Remplacer', style: 'danger' },
+                ],
+            });
+            if (choix !== 'remplacer') return;
+            if (!this._rythme) return;   // la fenêtre a pu se fermer pendant la question
+        }
         const parMesure = Rythme.evenementsParMesure(this._rythme.etat, { aRemplir: true, avecNotes: false });
         const ok = this.editeur.remplacerMesuresPar(this._rythme.depart, parMesure, this._rythme.signature);
         if (!ok) {

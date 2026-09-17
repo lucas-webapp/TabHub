@@ -27,8 +27,8 @@
 //     (« l'étirement des notes fait une forme bizarre »). Les cases restent dessous et gardent les
 //     clics : la pilule n'est que du dessin (`pointer-events: none` en CSS).
 //   • LA SUBDIVISION EST GLOBALE, binaire ou ternaire, et se règle en un mot plutôt qu'en cliquant
-//     un « 4 » énigmatique au-dessus de chaque temps (voir model/rythme.js#SUBDIVISIONS, qui
-//     raconte pourquoi le « 2 » a disparu).
+//     un « 4 » énigmatique au-dessus de chaque temps. Les deux choix offerts DÉPENDENT de la
+//     signature (voir model/rythme.js#subdivisionsPour) : en 6/8 le temps est déjà ternaire.
 //   • DEUX MESURES PAR RANGÉE, les suivantes en dessous.
 //
 // LA PARTIE PURE EST DANS `model/rythme.js` — grille, courses, conversion en figures, partition
@@ -40,7 +40,7 @@ export * from '../model/rythme.js';
 import { mettreEnPage } from '../engine/layout.js';
 import { rendreSvg } from '../render/svg.js';
 import { partitionApercu, colonnesDeMesure, coursesDeMesure, courseA, poserCourse,
-         effacerCourse, deplacerCourse, colonneAuTemps } from '../model/rythme.js';
+         effacerCourse, deplacerCourse, colonneAuTemps, indexDe } from '../model/rythme.js';
 
 /**
  * Dessine l'aperçu dans `hote` : la vraie écriture du rythme, portée seule.
@@ -110,12 +110,15 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
     hote.innerHTML = '';
     hote.appendChild(pile);
 
-    /** La case sous un point, avec sa mesure et sa colonne — `null` ailleurs. */
+    /** La case sous un point, avec sa mesure, sa colonne locale et son index GLOBAL dans la grille
+     *  — `null` ailleurs. C'est l'index global qui sert aux gestes, pour qu'une note puisse franchir
+     *  la barre (voir model/rythme.js, la couche des courses). */
     const caseAuPoint = (x, y) => {
         const el = document.elementFromPoint(x, y);
         const b = el?.closest?.('[data-colonne]');
         if (!b || !hote.contains(b)) return null;
-        return { mesure: Number(b.dataset.mesure), colonne: Number(b.dataset.colonne), el: b };
+        const mesure = Number(b.dataset.mesure), colonne = Number(b.dataset.colonne);
+        return { mesure, colonne, i: indexDe(etat, mesure, colonne), el: b };
     };
 
     // -----------------------------------------------------------------------------------------
@@ -147,6 +150,13 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
             b.dataset.colonne = String(i);
             b.style.gridColumn = String(i + 1);
             b.setAttribute('role', 'button');
+            // UN SEUL TABINDEX À LA FOIS (« roving tabindex », le motif ARIA des grilles). Toutes
+            // les cases à 0 obligeraient à passer soixante-quatre fois sur Tab pour sortir de la
+            // grille ; toutes à -1, c'est ce qu'il y avait, et l'ARIA mentait alors : `role=button`
+            // et `aria-pressed` annonçaient un bouton qu'aucune touche n'atteignait (mesuré —
+            // tabIndex valait -1, et Entrée ne faisait rien). Une case est donc dans l'ordre de
+            // tabulation, les flèches déplacent le focus, et c'est cette case-là qui le porte.
+            b.tabIndex = -1;
             b.setAttribute('aria-label',
                 `Mesure ${m + 1}, temps ${Math.floor(i / c.sub) + 1}, case ${c.iCell + 1}`);
             piste.appendChild(b);
@@ -192,6 +202,9 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
             pile.appendChild(rangee);
         }
         rafraichir();
+        // La grille vient d'être refaite : le focus baladeur repart de la première case, faute de
+        // quoi aucune case ne serait dans l'ordre de tabulation (elles naissent toutes à -1).
+        poserFocus(Math.min(focusIndex, casesDuDom().length - 1), false);
     };
 
     // -----------------------------------------------------------------------------------------
@@ -208,17 +221,23 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
             const courses = coursesDeMesure(etat, m);
 
             for (const vieille of piste.querySelectorAll('.note-seq')) vieille.remove();
-            for (const { debut, fin } of courses) {
-                const longue = fin > debut;
+            for (const { debut, fin, attaque, continue: suite } of courses) {
+                // « Tenue » dès que la note dure plus d'une case — et un morceau de continuation
+                // l'est toujours, puisque la note a commencé avant cette mesure.
+                const longue = fin > debut || !attaque || suite;
                 const note = document.createElement('div');
-                note.className = 'note-seq' + (longue ? ' tenue' : '');
+                // `sans-debut` / `sans-fin` : le côté coupé par la barre garde un angle DROIT, ce qui
+                // se lit comme « ça continue » plutôt que comme deux notes distinctes (voir style.css).
+                note.className = 'note-seq' + (longue ? ' tenue' : '')
+                    + (attaque ? '' : ' sans-debut') + (suite ? ' sans-fin' : '');
                 note.style.gridColumn = `${debut + 1} / span ${fin - debut + 1}`;
                 note.dataset.debut = String(debut);
                 note.dataset.fin = String(fin);
                 // REPÈRE D'ATTAQUE : une fine bande plus claire au tout début de la pilule, pour
                 // distinguer d'un coup d'œil où la note est PINCÉE de sa partie tenue. Inutile sur
-                // une note d'une seule case — il n'y a rien à y distinguer.
-                if (longue) {
+                // une note d'une seule case — il n'y a rien à y distinguer — et FAUX sur un morceau
+                // de continuation, où rien n'est pincé.
+                if (longue && attaque) {
                     const a = document.createElement('span');
                     a.className = 'attaque-seq';
                     note.appendChild(a);
@@ -232,8 +251,10 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
                 const i = Number(b.dataset.colonne);
                 const c = courses.find(x => i >= x.debut && i <= x.fin);
                 b.classList.toggle('occupee', !!c);
-                b.classList.toggle('bord-gauche', !!c && c.fin > c.debut && i === c.debut);
-                b.classList.toggle('bord-droit', !!c && i === c.fin);
+                // Les poignées d'étirement ne sont posées que sur les VRAIS bouts de la note : un
+                // morceau coupé par la barre n'a pas de bord à cet endroit-là, la note continue.
+                b.classList.toggle('bord-gauche', !!c && c.attaque && (c.fin > c.debut || c.continue) && i === c.debut);
+                b.classList.toggle('bord-droit', !!c && !c.continue && i === c.fin);
                 b.setAttribute('aria-pressed', String(!!c));
             }
         }
@@ -257,6 +278,76 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
     };
 
     // -----------------------------------------------------------------------------------------
+    // LE CLAVIER
+    //
+    // POURQUOI IL EXISTE. Les cases portaient déjà `role="button"`, `aria-label` et `aria-pressed` —
+    // toute la promesse d'un bouton — sans qu'aucune touche ne puisse les atteindre. Une promesse
+    // d'accessibilité non tenue est pire que pas de promesse : un lecteur d'écran annonce un
+    // contrôle, et il ne répond pas.
+    //
+    // LES TOUCHES, et elles reprennent exactement les quatre gestes de la souris :
+    //   ← →            déplacent le focus d'une case, barres de mesure comprises ;
+    //   ↑ ↓            sautent d'une mesure, à la même place dedans ;
+    //   Espace/Entrée  posent ou enlèvent — le CLIC ;
+    //   Maj + ← →      allongent ou raccourcissent la note — l'ÉTIREMENT par le bord droit ;
+    //   Suppr          efface la note sous le focus.
+    // -----------------------------------------------------------------------------------------
+    let focusIndex = 0;
+
+    const casesDuDom = () => [...hote.querySelectorAll('[data-colonne]')];
+
+    /** Porte le focus (et le seul tabindex de la grille) sur la case d'index global `i`. */
+    const poserFocus = (i, donnerLeFocus = true) => {
+        const cases = casesDuDom();
+        if (!cases.length) return;
+        focusIndex = Math.max(0, Math.min(cases.length - 1, i));
+        cases.forEach((b, k) => { b.tabIndex = k === focusIndex ? 0 : -1; });
+        if (donnerLeFocus) cases[focusIndex].focus();
+    };
+
+    hote.addEventListener('keydown', (ev) => {
+        const cases = casesDuDom();
+        if (!cases.length) return;
+        const i = cases.indexOf(ev.target.closest?.('[data-colonne]'));
+        if (i < 0) return;
+        const parMesure = colonnesDeMesure(etat, 0).length || 1;
+        const course = courseA(etat, i);
+        let traite = true;
+        switch (ev.key) {
+            case 'ArrowRight':
+                if (ev.shiftKey) {
+                    // Allonger : la note sous le focus, ou une note neuve d'une case si le focus est
+                    // sur du vide — c'est le même geste qu'un glissé vers la droite.
+                    if (course) poserCourse(etat, course.debut, Math.min(cases.length - 1, course.fin + 1));
+                    else poserCourse(etat, i, i);
+                } else poserFocus(i + 1);
+                break;
+            case 'ArrowLeft':
+                if (ev.shiftKey) {
+                    // Raccourcir, jamais jusqu'à rien : une note d'une case reste une case, on
+                    // l'enlève avec Suppr. Sinon un Maj+← de trop la ferait disparaître sans le dire.
+                    if (course && course.fin > course.debut) poserCourse(etat, course.debut, course.fin - 1);
+                } else poserFocus(i - 1);
+                break;
+            case 'ArrowDown': poserFocus(i + parMesure); break;
+            case 'ArrowUp': poserFocus(i - parMesure); break;
+            case 'Home': poserFocus(i - (i % parMesure)); break;
+            case 'End': poserFocus(i - (i % parMesure) + parMesure - 1); break;
+            case ' ': case 'Enter':
+                if (course) effacerCourse(etat, course.debut); else poserCourse(etat, i, i);
+                break;
+            case 'Delete': case 'Backspace':
+                if (course) effacerCourse(etat, course.debut); else traite = false;
+                break;
+            default: traite = false;
+        }
+        if (!traite) return;
+        ev.preventDefault();
+        rafraichir();
+        surChangement?.();
+    });
+
+    // -----------------------------------------------------------------------------------------
     // LES GESTES — un seul branchement, par délégation sur l'hôte
     //
     // La grille se reconstruit quand la subdivision ou le nombre de mesures change ; rebrancher
@@ -267,7 +358,7 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         const c = caseAuPoint(ev.clientX, ev.clientY);
         if (!c) return;
         ev.preventDefault();
-        const course = courseA(etat, c.mesure, c.colonne);
+        const course = courseA(etat, c.i);
         // QUEL GESTE ? Sur une case vide, on peint. Sur une note, le BORD étire et le CORPS déplace.
         //
         // LE CAS DE LA NOTE D'UNE SEULE CASE, qui n'a ni corps ni deux bords distincts. Une première
@@ -285,12 +376,14 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         if (course) {
             const seule = course.fin === course.debut;
             if (seule) mode = 'bordSelonLeSens';
-            else if (c.colonne === course.debut) mode = 'bordGauche';
-            else if (c.colonne === course.fin) mode = 'bordDroit';
+            else if (c.i === course.debut) mode = 'bordGauche';
+            else if (c.i === course.fin) mode = 'bordDroit';
             else mode = 'deplacer';
         }
-        geste = { mode, course, mesure: c.mesure, colonne: c.colonne,
-                  x0: ev.clientX, y0: ev.clientY, bouge: false };
+        geste = { mode, course, i: c.i, x0: ev.clientX, y0: ev.clientY, bouge: false };
+        // Le focus suit le pointeur : reprendre au clavier après un clic repart de là où on a
+        // cliqué, et non du début de la grille.
+        poserFocus(c.i, false);
         // La capture garde le geste sur cette case même si le doigt sort de la grille. Elle jette
         // quand le pointeur n'est plus actif (il a déjà été relâché, ou l'évènement est synthétique
         // comme dans un banc d'essai) : l'échec est sans conséquence — `geste` est déjà posé et
@@ -315,24 +408,26 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         // case de DÉPART pendant tout le glissement — on ne saurait jamais qu'on en a traversé
         // d'autres.
         const c = caseAuPoint(ev.clientX, ev.clientY);
-        // ON RESTE DANS SA MESURE. Une note appartient à une mesure : la laisser glisser dans la
-        // suivante demanderait de décider ce qu'elle devient à cheval sur la barre, et toute réponse
-        // serait une surprise. Un geste qui sort est ignoré, la note reste où elle est.
-        if (!c || c.mesure !== geste.mesure) return;
+        // LA BARRE DE MESURE NE BLOQUE PLUS RIEN. Une version antérieure ignorait tout geste qui
+        // sortait de la mesure de départ, si bien qu'une note LIÉE par-dessus la barre — une
+        // écriture ordinaire, et souvent la seule juste — était indessinable (mesuré : un glissé de
+        // la colonne 14 vers la colonne 2 de la mesure suivante s'arrêtait à « 15 / span 2 »). Les
+        // courses vivent maintenant sur la grille entière, et c'est la conversion qui lie à la barre.
+        if (!c || c.i < 0) return;
 
         if (geste.mode === 'peindre') {
-            poserCourse(etat, geste.mesure, geste.colonne, c.colonne);
+            poserCourse(etat, geste.i, c.i);
         } else if (geste.mode === 'bordDroit') {
-            poserCourse(etat, geste.mesure, geste.course.debut, Math.max(geste.course.debut, c.colonne));
+            poserCourse(etat, geste.course.debut, Math.max(geste.course.debut, c.i));
         } else if (geste.mode === 'bordGauche') {
-            effacerCourse(etat, geste.mesure, geste.course.debut);
-            poserCourse(etat, geste.mesure, Math.min(c.colonne, geste.course.fin), geste.course.fin);
+            effacerCourse(etat, geste.course.debut);
+            poserCourse(etat, Math.min(c.i, geste.course.fin), geste.course.fin);
         } else {
-            deplacerCourse(etat, geste.mesure, geste.course.debut, c.colonne - geste.colonne);
+            deplacerCourse(etat, geste.course.debut, c.i - geste.i);
             // La course a bougé : le geste la suit, sinon le mouvement suivant repartirait de
             // l'ancien emplacement et la note ferait des bonds.
-            const bougee = courseA(etat, geste.mesure, c.colonne);
-            if (bougee) { geste.course = bougee; geste.colonne = c.colonne; }
+            const bougee = courseA(etat, c.i);
+            if (bougee) { geste.course = bougee; geste.i = c.i; }
         }
         rafraichir();
         surChangement?.();
@@ -346,8 +441,8 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         // note. C'est le même geste au doigt, où l'on remue toujours de deux ou trois pixels sans
         // le vouloir — d'où le seuil plutôt qu'une égalité stricte.
         if (g.bouge) return;
-        if (g.mode === 'peindre') poserCourse(etat, g.mesure, g.colonne, g.colonne);
-        else effacerCourse(etat, g.mesure, g.colonne);
+        if (g.mode === 'peindre') poserCourse(etat, g.i, g.i);
+        else effacerCourse(etat, g.i);
         rafraichir();
         surChangement?.();
     };
@@ -365,8 +460,8 @@ export function construireGrille(hote, etat, { surChangement } = {}) {
         const c = caseAuPoint(ev.clientX, ev.clientY);
         if (!c) return;
         ev.preventDefault();
-        if (!courseA(etat, c.mesure, c.colonne)) return;
-        effacerCourse(etat, c.mesure, c.colonne);
+        if (!courseA(etat, c.i)) return;
+        effacerCourse(etat, c.i);
         rafraichir();
         surChangement?.();
     });

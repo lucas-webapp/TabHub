@@ -21,22 +21,68 @@ import { tonaliteDe, LETTRE_VERS_PC } from './theory.js';
 import { hauteurDeCase } from './instruments.js';
 
 /**
- * LES DEUX SUBDIVISIONS PROPOSÉES — et il n'y en a que deux parce qu'il n'y a qu'une question
- * musicale : ce temps se divise-t-il en MOITIÉS ou en TIERS ? 4 (doubles-croches) pour le binaire,
- * 3 (croches de triolet) pour le ternaire.
+ * LES DEUX DIVISIONS PROPOSÉES — et il n'y en a que deux parce qu'il n'y a qu'une question
+ * musicale : ce temps se divise-t-il en MOITIÉS ou en TIERS ?
  *
- * POURQUOI « 2 » A DISPARU. Il y était, et il ne servait à rien : une grille en deux est un
- * sous-ensemble strict d'une grille en quatre, et les deux produisent une écriture RIGOUREUSEMENT
- * identique (vérifié — deux croches sur une grille en 2 et sur une grille en 4 rendent les mêmes
- * figures, octet pour octet). Ce n'était donc pas un choix musical mais une finesse de clic déguisée
- * en choix musical, et c'est une bonne part de ce qui rendait le réglage illisible — retour
- * utilisateur : « théoriquement parlant, j'ai l'impression que cet outil est incohérent ».
+ * MAIS LE TEMPS N'EST PAS TOUJOURS UNE NOIRE, et une version antérieure l'oubliait : elle offrait
+ * 4 ou 3 partout. Mesuré, le résultat était faux dans deux familles de mesures sur trois —
+ *
+ *   • EN 6/8 (et 9/8, 12/8), le temps est une noire POINTÉE, déjà ternaire par nature. Le diviser
+ *     en quatre donne des cellules de 0,375 noire, et la conversion écrivait alors
+ *     « double pointée + TRIPLE-croche + croche » — des triples-croches, que cette application
+ *     n'écrit nulle part ailleurs. Le diviser en trois donne la bonne cellule (une croche), mais
+ *     l'ancienne conversion la marquait d'un chiffre de TRIOLET, alors que trois croches dans un
+ *     temps de 6/8 est justement sa division ordinaire. Les deux choix étaient donc mauvais.
+ *   • EN 5/8 ET 7/8 (x/8 non composé), le temps est une CROCHE. Le diviser en quatre donne des
+ *     cellules de 0,125 noire : rien que des triples-croches, sur toute la mesure.
+ *
+ * D'où un choix qui suit la signature. Le libellé des boutons suit avec (voir `libelleDivision`) :
+ * « binaire / ternaire » n'a de sens que là où le temps est simple.
  *
  * L'ordre de `PREFERENCE_SUB` plus bas est différent et garde le 2 : il ne décrit pas un choix
  * offert, mais la subdivision qu'un import MIDI DÉDUIT de ce qu'il entend, où « le plus simple qui
  * explique aussi bien » est la bonne réponse.
+ *
+ * POURQUOI « 2 » N'EST PAS OFFERT EN MESURE SIMPLE. Il y était, et il ne servait à rien : une grille
+ * en deux est un sous-ensemble strict d'une grille en quatre, et les deux produisent une écriture
+ * RIGOUREUSEMENT identique (vérifié — deux croches sur une grille en 2 et sur une grille en 4
+ * rendent les mêmes figures, octet pour octet). Ce n'était donc pas un choix musical mais une
+ * finesse de clic déguisée en choix musical.
  */
-export const SUBDIVISIONS = [4, 3];
+export function subdivisionsPour(signature) {
+    const { battements = 4, unite = 4 } = signature || {};
+    // Mesure composée : le temps est pointé, sa division naturelle est en trois.
+    if (unite >= 8 && battements % 3 === 0) return [3, 6];
+    // Mesure simple à la noire (4/4, 3/4, 2/4, 2/2…).
+    if (unite <= 4) return [4, 3];
+    // x/8 non composé : le temps est une croche, on ne descend pas sous la double.
+    return [2, 3];
+}
+
+/**
+ * LE LIBELLÉ D'UN BOUTON DE DIVISION, et son infobulle — la figure qu'une cellule vaudra.
+ *
+ * « Binaire / Ternaire » ne veut rien dire là où le temps est DÉJÀ ternaire : en 6/8, les deux
+ * choix sont « la croche » et « la double-croche », et c'est ce qu'on écrit sur les boutons. Le
+ * libellé vient donc de la famille de mesure, et l'infobulle nomme toujours la cellule.
+ */
+export function libelleDivision(signature, sub) {
+    const unite = uniteDeGroupement(signature);
+    const cellule = unite / sub;
+    const NOMS = [[1, 'noire'], [0.75, 'croche pointée'], [0.5, 'croche'], [0.375, 'double pointée'],
+                  [0.25, 'double-croche'], [0.125, 'triple-croche']];
+    const nom = NOMS.find(([d]) => Math.abs(d - cellule) < 1e-6)?.[1];
+    const figure = nom ? `une ${nom}` : 'un tiers de temps (n-olet)';
+    const offertes = subdivisionsPour(signature);
+    // En mesure composée les deux divisions sont deux FIGURES, pas deux caractères de mesure.
+    // Le caractère se lit sur la division elle-même, pas sur son rang dans la liste : en 5/8 et 7/8
+    // les deux choix sont 2 et 3, donc le PLUS GRAND est le ternaire — l'inverse de 4/4, où c'est le
+    // plus petit. Un multiple de trois divise en tiers, point.
+    const texte = offertes[0] === 3 && offertes[1] === 6
+        ? (sub === 3 ? 'Croches' : 'Doubles')
+        : (sub % 3 === 0 ? 'Ternaire' : 'Binaire');
+    return { texte, titre: `Chaque temps en ${sub} — une cellule vaut ${figure}` };
+}
 
 /** Le triolet, une fois pour toutes : trois figures pour la valeur de deux. */
 const T3 = { dans: 3, valent: 2 };
@@ -56,9 +102,12 @@ export function etatInitial(nMesures, signature) {
     const unite = uniteDeGroupement(signature);
     const capacite = (signature.battements || 4) * (4 / (signature.unite || 4));
     const parMesure = Math.max(1, Math.round(capacite / unite));
+    // LA DIVISION DE DÉPART VIENT DE LA SIGNATURE, jamais d'un 4 en dur : en 6/8 un temps découpé
+    // en quatre vaut des cellules de 0,375 noire, que rien ne sait écrire (voir subdivisionsPour).
+    const sub = subdivisionsPour(signature)[0];
     const temps = [];
     for (let m = 0; m < nMesures; m++) {
-        for (let t = 0; t < parMesure; t++) temps.push({ mesure: m, sub: 4, cellules: Array(4).fill(VIDE) });
+        for (let t = 0; t < parMesure; t++) temps.push({ mesure: m, sub, cellules: Array(sub).fill(VIDE) });
     }
     return { nMesures, signature, unite, tempsParMesure: parMesure, temps };
 }
@@ -68,7 +117,7 @@ export function etatInitial(nMesures, signature) {
  *  demandé — mieux vaut un temps propre à re-remplir qu'un rythme deviné de travers. */
 export function changerSubdivision(etat, iTemps, sub) {
     const t = etat.temps[iTemps];
-    if (!t || !SUBDIVISIONS.includes(sub) || t.sub === sub) return etat;
+    if (!t || !subdivisionsPour(etat.signature).includes(sub) || t.sub === sub) return etat;
     t.sub = sub;
     t.cellules = Array(sub).fill(VIDE);
     return etat;
@@ -88,34 +137,8 @@ export function changerSubdivision(etat, iTemps, sub) {
  * grille propre à re-remplir qu'un rythme deviné de travers.
  */
 export function changerSubdivisionGlobale(etat, sub) {
-    if (!SUBDIVISIONS.includes(sub)) return etat;
+    if (!subdivisionsPour(etat.signature).includes(sub)) return etat;
     for (const t of etat.temps) { t.sub = sub; t.cellules = Array(sub).fill(VIDE); }
-    return etat;
-}
-
-/** Un clic sur une cellule : vide → attaque, attaque → vide. Une cellule `tenue` redevient une
- *  attaque (on coupe la note en deux à cet endroit), ce qui est le geste qu'on attend en cliquant au
- *  milieu d'une note tenue. */
-export function basculerCellule(etat, iTemps, iCell) {
-    const t = etat.temps[iTemps];
-    if (!t) return etat;
-    const avant = t.cellules[iCell];
-    t.cellules[iCell] = avant === ATTAQUE ? VIDE : ATTAQUE;
-    return etat;
-}
-
-/** Étire une note depuis `iCell` du temps `iTemps` sur `n` cellules consécutives (le glisser).
- *  Les cellules suivantes deviennent `tenue` — la note dure, sans qu'on nomme sa figure. */
-export function etirerCellule(etat, iTemps, iCell, nCellules) {
-    const plat = aplatirCellules(etat);
-    const depart = plat.findIndex(c => c.iTemps === iTemps && c.iCell === iCell);
-    if (depart < 0) return etat;
-    etat.temps[iTemps].cellules[iCell] = ATTAQUE;
-    for (let k = 1; k < Math.max(1, nCellules); k++) {
-        const c = plat[depart + k];
-        if (!c) break;
-        etat.temps[c.iTemps].cellules[c.iCell] = TENUE;
-    }
     return etat;
 }
 
@@ -146,13 +169,22 @@ export function aplatirCellules(etat) {
 // LES COURSES, EN COLONNES — ce dont la grille à l'écran a besoin
 //
 // POURQUOI CETTE COUCHE EXISTE. Le modèle range ses cellules par TEMPS (`etat.temps[i].cellules[j]`),
-// ce qui est la bonne forme pour convertir en figures. La grille, elle, voit une mesure comme une
-// RANGÉE de colonnes numérotées de 0 à n-1 : c'est ainsi qu'un geste s'exprime (« de la colonne 3 à
-// la colonne 6 »), et la traduction ne doit pas vivre dans l'interface, qui n'a pas à connaître le
+// ce qui est la bonne forme pour convertir en figures. La grille, elle, voit la fenêtre comme une
+// RANGÉE de colonnes numérotées : c'est ainsi qu'un geste s'exprime (« de la colonne 3 à la
+// colonne 6 »), et la traduction ne doit pas vivre dans l'interface, qui n'a pas à connaître le
 // découpage interne.
 //
 // UNE COURSE est une note et sa tenue : une ATTAQUE suivie de ses TENUE. C'est l'objet que
 // l'utilisateur manipule — il étire une NOTE, il ne peint pas des cases une par une.
+//
+// LES INDEX SONT GLOBAUX À LA GRILLE, pas locaux à une mesure, et ce choix est le cœur d'un
+// correctif. Une première version raisonnait mesure par mesure : une course ne pouvait donc pas
+// franchir une barre, et un glissé de la mesure 1 vers la mesure 2 s'arrêtait net à la barre
+// (mesuré : de la colonne 14 vers la colonne 2 de la suivante, on obtenait « 15 / span 2 »). Or une
+// note LIÉE par-dessus la barre est une écriture ordinaire, et souvent la seule juste. Les courses
+// vivent donc sur la grille entière ; c'est le DESSIN (`coursesDeMesure`) et la CONVERSION
+// (`evenementsParMesure`) qui les recoupent à la barre, chacun à sa façon — un morceau de pilule
+// par mesure d'un côté, des figures LIÉES de l'autre.
 // ---------------------------------------------------------------------------------------------
 
 /** Les cellules d'UNE mesure, à plat et dans l'ordre : la vue en colonnes. */
@@ -160,40 +192,63 @@ export function colonnesDeMesure(etat, mesure) {
     return aplatirCellules(etat).filter(c => c.mesure === mesure);
 }
 
-/** Écrit l'état d'une colonne, en passant par le rangement réel (temps, cellule). */
-function ecrireColonne(etat, cols, i, valeur) {
-    const c = cols[i];
+/** L'index GLOBAL de la colonne `colonne` de la mesure `mesure`, ou -1 si elle n'existe pas. */
+export function indexDe(etat, mesure, colonne) {
+    const plat = aplatirCellules(etat);
+    let rang = 0;
+    for (let i = 0; i < plat.length; i++) {
+        if (plat[i].mesure !== mesure) continue;
+        if (rang === colonne) return i;
+        rang++;
+    }
+    return -1;
+}
+
+/** L'inverse : la mesure et la colonne locale d'un index global, ou `null`. */
+export function repereDe(etat, i) {
+    const plat = aplatirCellules(etat);
+    if (!plat[i]) return null;
+    const mesure = plat[i].mesure;
+    let colonne = 0;
+    for (let k = 0; k < i; k++) if (plat[k].mesure === mesure) colonne++;
+    return { mesure, colonne };
+}
+
+/** Écrit l'état d'une colonne GLOBALE, en passant par le rangement réel (temps, cellule). */
+function ecrireColonne(etat, plat, i, valeur) {
+    const c = plat[i];
     if (c) etat.temps[c.iTemps].cellules[c.iCell] = valeur;
 }
 
 /**
- * LA COURSE QUI COUVRE la colonne `i`, ou `null` si cette colonne est vide.
+ * LA COURSE QUI COUVRE la colonne globale `i`, ou `null` si cette colonne est vide.
  *
  * On remonte jusqu'à l'attaque : c'est ce qui fait qu'un geste pris au MILIEU d'une note tenue
- * manipule la note ENTIÈRE, et non la cellule sous le doigt. Une tenue orpheline (sans attaque
- * devant elle, ce qu'aucun geste ne produit mais qu'un fichier malformé pourrait contenir) ne rend
- * rien plutôt que de faire croire à une note.
+ * manipule la note ENTIÈRE, et non la cellule sous le doigt — y compris quand cette attaque est
+ * dans la mesure précédente. Une tenue orpheline (sans attaque devant elle, ce qu'aucun geste ne
+ * produit mais qu'un fichier malformé pourrait contenir) ne rend rien plutôt que de faire croire à
+ * une note.
  */
-export function courseA(etat, mesure, i) {
-    const cols = colonnesDeMesure(etat, mesure);
-    if (!cols[i] || cols[i].etat === VIDE) return null;
+export function courseA(etat, i) {
+    const plat = aplatirCellules(etat);
+    if (!plat[i] || plat[i].etat === VIDE) return null;
     let debut = i;
-    while (debut > 0 && cols[debut].etat === TENUE) debut--;
-    if (cols[debut].etat !== ATTAQUE) return null;
+    while (debut > 0 && plat[debut].etat === TENUE) debut--;
+    if (plat[debut].etat !== ATTAQUE) return null;
     let fin = debut;
-    while (fin + 1 < cols.length && cols[fin + 1].etat === TENUE) fin++;
+    while (fin + 1 < plat.length && plat[fin + 1].etat === TENUE) fin++;
     return { debut, fin };
 }
 
-/** Toutes les courses d'une mesure, dans l'ordre — la liste que la grille dessine en pilules. */
-export function coursesDeMesure(etat, mesure) {
-    const cols = colonnesDeMesure(etat, mesure);
+/** Toutes les courses de la grille, en index GLOBAUX et dans l'ordre. */
+export function courses(etat) {
+    const plat = aplatirCellules(etat);
     const sortie = [];
     let i = 0;
-    while (i < cols.length) {
-        if (cols[i].etat !== ATTAQUE) { i++; continue; }
+    while (i < plat.length) {
+        if (plat[i].etat !== ATTAQUE) { i++; continue; }
         let fin = i;
-        while (fin + 1 < cols.length && cols[fin + 1].etat === TENUE) fin++;
+        while (fin + 1 < plat.length && plat[fin + 1].etat === TENUE) fin++;
         sortie.push({ debut: i, fin });
         i = fin + 1;
     }
@@ -201,7 +256,33 @@ export function coursesDeMesure(etat, mesure) {
 }
 
 /**
- * POSE une course de `debut` à `fin` (colonnes incluses), en écrasant ce qu'elle recouvre.
+ * LES MORCEAUX DE COURSE À DESSINER DANS UNE MESURE — en colonnes LOCALES, recoupés à la barre.
+ *
+ * Une course qui franchit la barre donne DEUX morceaux, un par mesure, et c'est ainsi que tout
+ * séquenceur la montre : la pilule s'arrête au bord de sa mesure et reprend au début de la suivante.
+ * Chaque morceau dit ce qu'il est —
+ *   `attaque`  : l'attaque de la note est DANS cette mesure (le morceau porte donc le repère
+ *                d'attaque ; un morceau de continuation n'en porte pas, il n'y a rien à y pincer) ;
+ *   `continue` : la note se prolonge APRÈS cette mesure (le morceau est coupé à droite).
+ */
+export function coursesDeMesure(etat, mesure) {
+    const plat = aplatirCellules(etat);
+    const indices = [];
+    plat.forEach((c, i) => { if (c.mesure === mesure) indices.push(i); });
+    if (!indices.length) return [];
+    const premier = indices[0], dernier = indices[indices.length - 1];
+    return courses(etat)
+        .filter(c => c.fin >= premier && c.debut <= dernier)
+        .map(c => ({
+            debut: Math.max(c.debut, premier) - premier,
+            fin: Math.min(c.fin, dernier) - premier,
+            attaque: c.debut >= premier,
+            continue: c.fin > dernier,
+        }));
+}
+
+/**
+ * POSE une course de `debut` à `fin` (colonnes GLOBALES incluses), en écrasant ce qu'elle recouvre.
  *
  * ÉCRASER PLUTÔT QUE REFUSER, et c'est un choix : étirer une note par-dessus sa voisine absorbe la
  * voisine. Refuser le geste obligerait à effacer d'abord, pour un résultat que l'utilisateur voit
@@ -211,42 +292,268 @@ export function coursesDeMesure(etat, mesure) {
  * qu'elle laissait derrière `fin` n'appartiendraient plus à rien, et se liraient comme un
  * prolongement fantôme de la nouvelle note. On les vide.
  */
-export function poserCourse(etat, mesure, debut, fin) {
-    const cols = colonnesDeMesure(etat, mesure);
-    const a = Math.max(0, Math.min(cols.length - 1, Math.min(debut, fin)));
-    const b = Math.max(0, Math.min(cols.length - 1, Math.max(debut, fin)));
-    ecrireColonne(etat, cols, a, ATTAQUE);
-    for (let i = a + 1; i <= b; i++) ecrireColonne(etat, cols, i, TENUE);
-    for (let i = b + 1; i < cols.length && cols[i].etat === TENUE; i++) ecrireColonne(etat, cols, i, VIDE);
+export function poserCourse(etat, debut, fin) {
+    const plat = aplatirCellules(etat);
+    const a = Math.max(0, Math.min(plat.length - 1, Math.min(debut, fin)));
+    const b = Math.max(0, Math.min(plat.length - 1, Math.max(debut, fin)));
+    ecrireColonne(etat, plat, a, ATTAQUE);
+    for (let i = a + 1; i <= b; i++) ecrireColonne(etat, plat, i, TENUE);
+    for (let i = b + 1; i < plat.length && plat[i].etat === TENUE; i++) ecrireColonne(etat, plat, i, VIDE);
     return etat;
 }
 
-/** EFFACE la course qui couvre la colonne `i` — le geste « supprimer cette note ». */
-export function effacerCourse(etat, mesure, i) {
-    const course = courseA(etat, mesure, i);
+/** EFFACE la course qui couvre la colonne globale `i` — le geste « supprimer cette note ». */
+export function effacerCourse(etat, i) {
+    const course = courseA(etat, i);
     if (!course) return etat;
-    const cols = colonnesDeMesure(etat, mesure);
-    for (let k = course.debut; k <= course.fin; k++) ecrireColonne(etat, cols, k, VIDE);
+    const plat = aplatirCellules(etat);
+    for (let k = course.debut; k <= course.fin; k++) ecrireColonne(etat, plat, k, VIDE);
     return etat;
 }
 
 /**
- * DÉPLACE une course de `delta` colonnes, sans la déformer ni la faire sortir de sa mesure.
+ * DÉPLACE une course de `delta` colonnes, sans la déformer ni la faire sortir de LA GRILLE.
  *
  * Le glissement est BORNÉ plutôt que refusé quand il pousse contre un bord : une note traînée trop
  * loin se colle au bord et y reste, au lieu de disparaître ou d'ignorer le geste. C'est ce que fait
- * tout séquenceur, et c'est ce qui permet de viser le dernier temps sans précision.
+ * tout séquenceur, et c'est ce qui permet de viser le dernier temps sans précision. La borne est
+ * celle de la GRILLE et non de la mesure, depuis qu'une note peut franchir la barre.
  */
-export function deplacerCourse(etat, mesure, i, delta) {
-    const course = courseA(etat, mesure, i);
+export function deplacerCourse(etat, i, delta) {
+    const course = courseA(etat, i);
     if (!course) return etat;
-    const n = colonnesDeMesure(etat, mesure).length;
-    const longueur = course.fin - course.debut;
+    const n = aplatirCellules(etat).length;
     const d = Math.max(-course.debut, Math.min(n - 1 - course.fin, delta));
     if (d === 0) return etat;
-    effacerCourse(etat, mesure, course.debut);
-    poserCourse(etat, mesure, course.debut + d, course.fin + d);
+    effacerCourse(etat, course.debut);
+    poserCourse(etat, course.debut + d, course.fin + d);
     return etat;
+}
+
+/**
+ * LES MOTIFS TOUT PRÊTS — un clic pose un rythme entier sur toute la grille.
+ *
+ * POURQUOI ILS EXISTENT. C'est la réponse la plus directe à la phrase qui a fait naître cette
+ * fenêtre : « des fois j'ai des difficultés à écrire la partition à cause du rythme ». Poser case
+ * par case suppose qu'on sait déjà ce qu'on veut ; partir d'un motif connu et le retoucher suppose
+ * seulement qu'on le RECONNAÎT. C'est la différence entre écrire et choisir.
+ *
+ * ILS SONT DÉFINIS PAR DIVISION, et pas calculés : une même chaîne de cases ne vaut pas la même
+ * figure selon la mesure. `x---` sur un temps divisé en quatre vaut une noire en 4/4 ; sur un temps
+ * de 6/8 divisé en trois, `x--` vaut une noire POINTÉE. Nommer les motifs juste demande donc de
+ * connaître la famille de mesure, exactement comme les libellés de division (voir libelleDivision).
+ * Trois familles, deux divisions chacune : six petites tables, lisibles d'un coup d'œil.
+ *
+ * `cases` : une chaîne d'un caractère par cellule d'UN temps — `x` attaque, `-` tenue, `.` vide.
+ * Le motif est répété sur tous les temps de la grille.
+ */
+const MOTIFS = {
+    'simple:4': [
+        { texte: 'Noires', cases: 'x---' },
+        { texte: 'Croches', cases: 'x-x-' },
+        { texte: 'Doubles', cases: 'xxxx' },
+        { texte: 'Pointé–bref', cases: 'x--x' },
+        { texte: 'Galop', cases: 'x-xx' },
+    ],
+    'simple:3': [
+        { texte: 'Noires', cases: 'x--' },
+        { texte: 'Triolets', cases: 'xxx' },
+        { texte: 'Swing', cases: 'x-x' },
+    ],
+    'composee:3': [
+        { texte: 'Noires pointées', cases: 'x--' },
+        { texte: 'Croches', cases: 'xxx' },
+        { texte: 'Noire + croche', cases: 'x-x' },
+    ],
+    'composee:6': [
+        { texte: 'Noires pointées', cases: 'x-----' },
+        { texte: 'Croches', cases: 'x-x-x-' },
+        { texte: 'Doubles', cases: 'xxxxxx' },
+        { texte: 'Noire + croche', cases: 'x---x-' },
+    ],
+    'irreguliere:2': [
+        { texte: 'Croches', cases: 'x-' },
+        { texte: 'Doubles', cases: 'xx' },
+    ],
+    'irreguliere:3': [
+        { texte: 'Croches', cases: 'x--' },
+        { texte: 'Triolets', cases: 'xxx' },
+    ],
+};
+
+/** La famille de mesure — celle qui décide des divisions offertes comme des motifs. */
+function familleDe(signature) {
+    const { battements = 4, unite = 4 } = signature || {};
+    if (unite >= 8 && battements % 3 === 0) return 'composee';
+    return unite <= 4 ? 'simple' : 'irreguliere';
+}
+
+/** Les motifs proposés pour cette signature et cette division — jamais vide en usage normal. */
+export function motifsPour(signature, sub) {
+    return MOTIFS[`${familleDe(signature)}:${sub}`] || [];
+}
+
+/**
+ * POSE un motif sur TOUS les temps de la grille, en remplaçant ce qui s'y trouvait.
+ *
+ * Remplacer et non compléter : un motif est un point de DÉPART, et le mélanger à ce qui traîne
+ * donnerait un rythme que personne n'a choisi. « Tout effacer » et un second motif sont à un clic,
+ * ce qui rend le geste sans regret.
+ */
+export function appliquerMotif(etat, cases) {
+    const sub = etat.temps[0]?.sub;
+    if (!cases || cases.length !== sub) return etat;
+    const suite = [...cases].map(ch => (ch === 'x' ? ATTAQUE : ch === '-' ? TENUE : VIDE));
+    for (const t of etat.temps) t.cellules = [...suite];
+    return etat;
+}
+
+/**
+ * LA GRILLE QUI CORRESPOND AU RYTHME DÉJÀ ÉCRIT dans `nMesures` mesures de la partition.
+ *
+ * POURQUOI. L'aide s'ouvrait toujours VIERGE : elle servait à créer un rythme, jamais à en corriger
+ * un. Or « ce passage ne tombe pas juste, je voudrais décaler la troisième note » est au moins aussi
+ * fréquent que « je pars de rien » — et c'était le seul geste que l'outil ne savait pas rendre.
+ * Elle s'ouvre maintenant sur ce qui est écrit, et l'on repart de là.
+ *
+ * LA DIVISION EST DÉDUITE, pas demandée : on essaie chaque division offerte par la signature (voir
+ * subdivisionsPour) et on garde LA PREMIÈRE qui sait exprimer exactement toutes les positions. Un
+ * passage en doubles-croches tombe donc en binaire, un passage en triolets en ternaire, sans que
+ * personne ait à le dire. Si aucune ne tombe juste — un rythme écrit à la main que la grille ne peut
+ * pas représenter — on prend la première et on cale au plus proche : mieux vaut un point de départ
+ * approché qu'une grille vide qui fait croire qu'il n'y avait rien.
+ *
+ * UNE SEULE VOIX, la première : l'aide ne produit qu'une suite de durées et n'a jamais su faire
+ * autrement (voir l'en-tête de ui/rythme.js). Lire deux voix pour n'en rendre qu'une mentirait.
+ *
+ * @returns {object} une grille, vide si les mesures visées le sont.
+ */
+export function etatDepuisPartition(partition, depart, nMesures, signature) {
+    const essai = (sub, tolerant) => {
+        const etat = etatInitial(nMesures, signature);
+        changerSubdivisionGlobale(etat, sub);
+        const plat = aplatirCellules(etat);
+        const parMesure = etat.tempsParMesure * etat.unite;
+        const absolu = (c) => c.mesure * parMesure + c.debut;
+        const debuts = plat.map(absolu);
+        const finGrille = nMesures * parMesure;
+        /** L'index de la case qui COMMENCE à `x` — ou la plus proche si on tolère l'à-peu-près. */
+        const caseA = (x) => {
+            let meilleur = -1, ecart = Infinity;
+            debuts.forEach((d, i) => { const e = Math.abs(d - x); if (e < ecart - 1e-9) { ecart = e; meilleur = i; } });
+            if (ecart > 1e-6 && !tolerant) return -1;
+            return meilleur;
+        };
+        /** La case où s'arrête une note. UNE NOTE PEUT FINIR AU BOUT DE LA GRILLE, et il n'y a alors
+         *  aucune case qui commence là : on rend l'index d'APRÈS la dernière, pour que `b - 1`
+         *  désigne bien la dernière case. Sans ce cas, la note la plus tardive de la grille perdait
+         *  sa dernière case à chaque relecture (mesuré : une course 24-31 relue 24-30). */
+        const caseFin = (x) => (Math.abs(x - finGrille) < 1e-6 ? debuts.length : caseA(x));
+
+        // `ouverte` VIT HORS DE LA BOUCLE DES MESURES : une liaison franchit justement la barre,
+        // et la remettre à zéro à chaque mesure relisait une note tenue comme deux notes
+        // réattaquées (mesuré : une course 14-18 relue en 14-15 puis 16-18).
+        let ouverte = -1;
+        for (let k = 0; k < nMesures; k++) {
+            const mesure = partition.mesures?.[depart + k];
+            const evenements = mesure?.voix?.[0]?.evenements || [];
+            let position = k * parMesure;
+            for (const ev of evenements) {
+                const duree = dureeEnNoires(ev.duree);
+                // UNE CASE À REMPLIR EST UN RYTHME, pas un silence : c'est justement ce que
+                // l'insertion vient de poser, et rouvrir l'aide dessus doit montrer ce rythme-là
+                // plutôt qu'une grille vide (sans quoi l'outil ne saurait pas relire son propre
+                // travail tant qu'on n'a pas tapé les hauteurs).
+                if ((!ev.silence && ev.notes?.length) || ev.aRemplir) {
+                    const a = ouverte >= 0 ? ouverte : caseA(position);
+                    const b = caseFin(position + duree);
+                    if (a < 0 || b < 0) return null;
+                    // `b` est la case qui COMMENCE à la fin de la note : elle couvre jusqu'à b-1.
+                    poserCourse(etat, a, Math.max(a, b - 1));
+                    // UNE LIAISON NE RÉATTAQUE PAS. Sans ce report, une note tenue par-dessus une
+                    // barre — ce que l'aide sait maintenant écrire — se relirait en DEUX notes, et
+                    // l'aller-retour partition → grille → partition la casserait en deux.
+                    ouverte = (ev.lienSuivant || ev.notes.some(n => n.lien === 'tie')) ? a : -1;
+                } else {
+                    ouverte = -1;
+                }
+                position += duree;
+            }
+        }
+        return etat;
+    };
+
+    for (const sub of subdivisionsPour(signature)) {
+        const etat = essai(sub, false);
+        if (etat) return etat;
+    }
+    return essai(subdivisionsPour(signature)[0], true);
+}
+
+/**
+ * REBÂTIT LA GRILLE — autre longueur, autre division — EN GARDANT LE RYTHME DÉJÀ POSÉ.
+ *
+ * LE DÉFAUT QUE ÇA CORRIGE, mesuré : changer de division effaçait tout (trois pilules, puis zéro),
+ * et passer de une à deux mesures aussi (deux pilules, puis zéro). Vouloir AJOUTER une mesure
+ * faisait donc perdre la première, et rien ne prévenait — il n'y a pas d'annulation dans cette
+ * fenêtre. Le motif « les cellules repartent vides, un rythme deviné de travers serait pire » se
+ * défendait tant que le réglage était par temps ; il ne se défend plus pour un réglage GLOBAL, qu'on
+ * touche justement en cours de travail.
+ *
+ * COMMENT ON GARDE. Une course n'est pas une suite de cases mais un INSTANT et une DURÉE : on la
+ * mémorise en noires depuis le début de la grille, on rebâtit, puis on la recale sur la case la plus
+ * proche. C'est une REQUANTIFICATION, pas une promesse d'identité — passer d'une grille en quatre à
+ * une grille en trois ne peut pas conserver une double-croche, elle n'existe pas là-bas. Ce qui est
+ * garanti, c'est qu'aucune note ne disparaît et que l'ordre est respecté ; l'utilisateur rectifie
+ * ensuite d'un glissé, ce qui est infiniment moins coûteux que de tout refaire.
+ *
+ * CE QUI SORT DE LA GRILLE EST PERDU, et c'est le seul cas : raccourcir de quatre mesures à deux
+ * jette ce qui vivait dans les mesures 3 et 4. Il n'y a pas d'autre réponse — on ne peut pas garder
+ * ce qui n'a plus de place.
+ *
+ * @param {object} etat la grille actuelle (jamais modifiée).
+ * @param {{nMesures?:number, sub?:number}} cible ce qui change.
+ * @returns {object} une grille NEUVE.
+ */
+export function regrillerEtat(etat, { nMesures = etat.nMesures, sub, signature = etat.signature } = {}) {
+    const plat = aplatirCellules(etat);
+    const parMesure = etat.tempsParMesure * etat.unite;
+    const absolu = (c) => c.mesure * parMesure + c.debut;
+    // 1. Les courses, en instants absolus : la forme qui survit au changement de grille.
+    const gardees = courses(etat).map(({ debut, fin }) => ({
+        debut: absolu(plat[debut]),
+        fin: absolu(plat[fin]) + plat[fin].duree,
+    }));
+
+    // 2. La grille neuve.
+    const neuf = etatInitial(nMesures, signature);
+    if (sub) changerSubdivisionGlobale(neuf, sub);
+    if (!gardees.length) return neuf;
+
+    // 3. Le recalage. `plusProche` rend l'index de la case dont le DÉBUT est le plus près d'un
+    //    instant donné — pas celle qui le contient : une attaque aux deux tiers d'un temps est plus
+    //    fidèlement rendue par la case qui commence aux trois quarts que par celle qui commence à la
+    //    moitié, et c'est bien une attaque qu'on replace.
+    const platN = aplatirCellules(neuf);
+    // LA NOUVELLE MESURE PEUT ÊTRE PLUS COURTE (un 4/4 devenu 3/4) : les instants se lisent alors sur
+    // SA capacité, et ce qui dépassait tombe — il n'y a plus de place pour l'accueillir.
+    const parMesureN = neuf.tempsParMesure * neuf.unite;
+    const debuts = platN.map(c => c.mesure * parMesureN + c.debut);
+    const finGrille = nMesures * parMesureN;
+    const plusProche = (x) => {
+        let meilleur = 0, ecart = Infinity;
+        debuts.forEach((d, i) => { const e = Math.abs(d - x); if (e < ecart - 1e-9) { ecart = e; meilleur = i; } });
+        return meilleur;
+    };
+    for (const c of gardees) {
+        if (c.debut >= finGrille - EPS) continue;        // la course ne rentre plus
+        const a = plusProche(c.debut);
+        // La fin est recalée sur la case qui COMMENCE là où la note s'arrête : la note couvre donc
+        // les cases jusqu'à celle d'avant. Au minimum une case, sinon la note disparaîtrait.
+        const b = Math.max(a, plusProche(Math.min(c.fin, finGrille)) - 1);
+        poserCourse(neuf, a, b);
+    }
+    return neuf;
 }
 
 /**
@@ -298,10 +605,11 @@ export function colonneAuTemps(etat, noiresDepuisLeDebut) {
  *   1. LA COURSE COUVRE DES TEMPS ENTIERS (elle part d'un temps et retombe sur un temps). Aucun
  *      nolet n'est nécessaire, même sur des temps ternaires : trois croches de triolet tenues font
  *      une noire, six font une blanche. Le découpeur aligné fait le reste.
- *   2. ELLE TIENT DANS UN SEUL TEMPS. Si ce temps est ternaire et qu'elle ne le couvre pas, c'est le
- *      seul cas où le modèle a besoin de `nolet` : un tiers de temps n'est pas une somme de figures
- *      binaires (mesuré — `figuresPour(2/3)` ne rend que 0,625 sur 0,667 demandé, puis renonce).
- *      Sinon, le découpeur aligné.
+ *   2. ELLE TIENT DANS UN SEUL TEMPS. Les figures ordinaires d'abord ; un `nolet` SEULEMENT si
+ *      aucune suite de figures ne tombe juste (mesuré — `figuresPour(2/3)` ne rend que 0,625 sur
+ *      0,667 demandé, puis renonce). Le critère est la DURÉE, jamais « la grille est en trois » :
+ *      une croche dans un temps de 6/8 vaut un tiers de temps et n'est pas un triolet pour autant,
+ *      puisque le temps composé se divise en trois par nature. Voir `figureDeNolet`.
  *   3. ELLE SONNE ET UNE SUITE DE FIGURES EXACTE EXISTE. C'est la syncope : on l'écrit telle quelle,
  *      sans regarder où elle commence. Une note tenue de la deuxième croche du temps 1 à la
  *      deuxième croche du temps 2 est UNE noire. Ce cas ne s'applique jamais à un silence.
@@ -314,6 +622,25 @@ export function colonneAuTemps(etat, noiresDepuisLeDebut) {
  * Les frontières de temps se lisent sur `iCell === 0` plutôt que sur une comparaison de flottants :
  * les cellules pavent leur temps exactement, donc la première cellule d'un temps EST la frontière.
  */
+/**
+ * LA FIGURE ÉCRITE D'UN N-OLET qui doit sonner `total` noires — ou `null` s'il n'y en a pas.
+ *
+ * LE RAISONNEMENT, et c'est ce qui remplace un ancien « une cellule = croche, deux = noire » qui ne
+ * valait qu'en 4/4 sur une grille en trois. Un n-olet `{dans, valent}` fait tenir `dans` figures
+ * dans le temps de `valent` : une figure écrite y sonne donc `valent/dans` de sa durée ordinaire.
+ * À l'inverse, pour sonner `total`, il faut ÉCRIRE la figure qui vaut `total × dans/valent` — un
+ * tiers de temps s'écrit croche en triolet, parce qu'une croche vaut la moitié du temps.
+ *
+ * Rendre `null` plutôt qu'un à-peu-près quand aucune figure ne tombe juste : l'appelant retombe
+ * alors sur le découpage ordinaire, qui écrira au moins une durée honnête.
+ */
+function figureDeNolet(total, nolet) {
+    const plaine = total * (nolet.dans / nolet.valent);
+    const figs = figuresPour(plaine);
+    if (figs.length !== 1 || Math.abs(dureeEnNoires(figs[0]) - plaine) > 1e-6) return null;
+    return { valeur: figs[0].valeur, points: figs[0].points, nolet: { ...nolet } };
+}
+
 function figuresDeCourse(cellules, unite, silence = false) {
     if (!cellules.length) return [];
     const EPS = 1e-9;
@@ -326,15 +653,16 @@ function figuresDeCourse(cellules, unite, silence = false) {
     // 1. Des temps entiers : pas de nolet à écrire, même en ternaire.
     if (surTemps(debut) && surTemps(debut + total)) return decouper();
 
-    // 2. Un seul temps.
+    // 2. Un seul temps. Les figures ordinaires d'abord ; un n-olet SEULEMENT si aucune ne tombe
+    //    juste — et c'est la règle générale qui remplace un ancien « si la grille est en trois ».
     const dernier = cellules[cellules.length - 1];
     if (cellules.every(c => c.iTemps === cellules[0].iTemps)) {
-        if (cellules[0].sub === 3) {
-            // Une cellule = croche de triolet ; deux = noire de triolet. La valeur double quand la
-            // durée double, exactement comme entre une croche et une noire.
-            return [{ valeur: cellules.length === 1 ? 8 : 4, points: 0, nolet: { ...T3 } }];
-        }
-        return decouper();
+        const figs = decouper();
+        const somme = figs.reduce((t, f) => t + dureeEnNoires(f), 0);
+        if (figs.length && Math.abs(somme - total) < 1e-6) return figs;
+        const nolet = figureDeNolet(total, T3);
+        if (nolet) return [nolet];
+        return figs;
     }
 
     // 3. Ce qui SONNE et tombe juste s'écrit tel quel : c'est la syncope, et elle ne se lie pas.
@@ -377,36 +705,64 @@ function figuresDeCourse(cellules, unite, silence = false) {
 export function evenementsParMesure(etat, options = {}) {
     const { corde = 2, frette = 0, aRemplir = false, avecNotes = true } = options;
     const plat = aplatirCellules(etat);
-    const parMesure = [];
-    for (let m = 0; m < etat.nMesures; m++) {
-        const cellules = plat.filter(c => c.mesure === m);
-        const evenements = [];
-        let i = 0;
-        while (i < cellules.length) {
-            const depart = cellules[i];
-            if (depart.etat === VIDE) {
-                let n = 1;
-                while (i + n < cellules.length && cellules[i + n].etat === VIDE) n++;
-                for (const f of figuresDeCourse(cellules.slice(i, i + n), etat.unite, true)) {
-                    evenements.push(creerEvenement(f, [], { silence: true }));
-                }
-                i += n;
-            } else {
-                // Une attaque, prolongée par toutes les `tenue` qui suivent.
-                let n = 1;
-                while (i + n < cellules.length && cellules[i + n].etat === TENUE) n++;
-                const figs = figuresDeCourse(cellules.slice(i, i + n), etat.unite);
-                figs.forEach((f, k) => {
-                    // Plusieurs figures pour une seule note : elles sont LIÉES, sauf la dernière.
-                    const notes = avecNotes ? [creerNote(corde, frette, k < figs.length - 1 ? { lien: 'tie' } : {})] : [];
-                    evenements.push(creerEvenement(f, notes, {
-                        silence: !avecNotes, ...(aRemplir ? { aRemplir: true } : {}),
-                    }));
-                });
-                i += n;
+    const parMesure = Array.from({ length: etat.nMesures }, () => []);
+
+    /** Une figure posée dans sa mesure. `lie` : elle se prolonge dans la figure suivante. */
+    const poser = (mesure, figure, lie) => {
+        const notes = avecNotes ? [creerNote(corde, frette, lie ? { lien: 'tie' } : {})] : [];
+        parMesure[mesure].push(creerEvenement(figure, notes, {
+            silence: !avecNotes,
+            // `lienSuivant` PORTE LA LIAISON QUAND IL N'Y A PAS DE NOTE POUR LA PORTER. Une
+            // insertion pose des cases à remplir (`avecNotes: false`), donc des évènements SANS
+            // note — et une liaison vit sur la note, pas sur l'évènement. Sans ce champ, une note
+            // liée insérée puis remplie ressortait en DEUX notes distinctes au lieu d'une tenue
+            // (voir edit/commands.js#saisirChiffre, qui le lit pour remplir tout le groupe d'un
+            // seul chiffre).
+            ...(lie ? { lienSuivant: true } : {}),
+            ...(aRemplir ? { aRemplir: true } : {}),
+        }));
+    };
+
+    let i = 0;
+    while (i < plat.length) {
+        const depart = plat[i];
+        if (depart.etat === VIDE) {
+            // UN SILENCE NE FRANCHIT JAMAIS LA BARRE : on l'arrête à la mesure, là où une note a
+            // désormais le droit de continuer. Un silence sert à montrer la métrique ; l'étendre
+            // par-dessus une barre la cacherait, et la barre est la métrique la plus forte de toutes.
+            let n = 1;
+            while (i + n < plat.length && plat[i + n].etat === VIDE && plat[i + n].mesure === depart.mesure) n++;
+            for (const f of figuresDeCourse(plat.slice(i, i + n), etat.unite, true)) {
+                parMesure[depart.mesure].push(creerEvenement(f, [], { silence: true }));
             }
+            i += n;
+        } else {
+            // Une attaque, prolongée par toutes les `tenue` qui suivent — barres comprises.
+            let n = 1;
+            while (i + n < plat.length && plat[i + n].etat === TENUE) n++;
+            const course = plat.slice(i, i + n);
+            // DÉCOUPÉE PAR MESURE : aucune figure ne peut être à cheval sur une barre, donc une
+            // course qui la franchit devient une figure par mesure, et elles sont LIÉES. Les
+            // positions que `figuresDeCourse` lit (`debut`) sont relatives à LA MESURE, ce qui
+            // n'aurait aucun sens sur une tranche à cheval.
+            const tranches = [];
+            for (let k = 0; k < course.length;) {
+                let j = k + 1;
+                while (j < course.length && course[j].mesure === course[k].mesure) j++;
+                tranches.push(course.slice(k, j));
+                k = j;
+            }
+            tranches.forEach((tranche, it) => {
+                const figs = figuresDeCourse(tranche, etat.unite);
+                const derniere = it === tranches.length - 1;
+                figs.forEach((f, k) => {
+                    // Plusieurs figures pour une seule note : elles sont LIÉES, sauf la toute dernière
+                    // de la toute dernière tranche.
+                    poser(tranche[0].mesure, f, !(derniere && k === figs.length - 1));
+                });
+            });
+            i += n;
         }
-        parMesure.push(evenements);
     }
     return parMesure;
 }
@@ -519,7 +875,7 @@ export function mesuresJustes(etat) {
 /**
  * L'ORDRE DE PRÉFÉRENCE quand deux subdivisions expliquent le temps aussi bien : 2, puis 4, puis 3.
  *
- * Ce n'est PAS l'ordre de `SUBDIVISIONS` (qui décrit un cycle de clics), et la différence compte.
+ * Ce n'est PAS la liste de `subdivisionsPour` (les choix OFFERTS), et la différence compte.
  * Deux croches se lisent aussi bien sur une grille en deux que sur une grille en quatre : autant
  * prendre la plus simple. Et le TRIOLET vient en dernier parce qu'une erreur y coûte le plus cher —
  * un triolet inventé là où le musicien a joué deux doubles un peu tard défigure la partition, alors

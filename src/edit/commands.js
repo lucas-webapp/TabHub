@@ -329,6 +329,42 @@ export class Editeur {
     // -- Saisie des notes -------------------------------------------------------------------------
 
     /**
+     * PROLONGE une note liée insérée par l'aide rythmique : la même case, sur tous les évènements de
+     * la chaîne, avec la liaison qui les relie.
+     *
+     * POURQUOI `lienSuivant` ET NON LA LIAISON ELLE-MÊME. Une liaison vit sur la NOTE (`note.lien`),
+     * et une case à remplir n'a justement pas encore de note — l'aide pose des évènements vides.
+     * L'intention est donc portée par l'évènement, et consommée ici (voir
+     * model/rythme.js#evenementsParMesure, qui l'écrit).
+     *
+     * LA CHAÎNE PEUT TRAVERSER UNE BARRE : on avance d'évènement en évènement, et de mesure en
+     * mesure quand la voix courante est épuisée, tant que le maillon précédent annonce une suite.
+     */
+    _prolongerLiaison(depart, corde, frette) {
+        const iVoix = this.curseur.voix;
+        let iM = this.curseur.mesure, iE = this.curseur.evenement;
+        let courant = depart;
+        let garde = 0;
+        while (courant.lienSuivant && garde++ < 64) {
+            const note = courant.notes.find(n => n.corde === corde);
+            if (note) note.lien = 'tie';
+            // Le maillon suivant : l'évènement d'après dans cette voix, ou le premier de la mesure
+            // suivante quand on vient d'écrire le dernier.
+            const voix = this.partition.mesures[iM]?.voix[iVoix];
+            if (!voix) break;
+            if (iE + 1 < voix.evenements.length) { iE++; } else { iM++; iE = 0; }
+            const suivant = this.partition.mesures[iM]?.voix[iVoix]?.evenements[iE];
+            if (!suivant) break;
+            suivant.silence = false;
+            suivant.aRemplir = false;
+            const dejaLa = suivant.notes.find(n => n.corde === corde);
+            if (dejaLa) dejaLa.frette = frette;
+            else suivant.notes.push(creerNote(corde, frette));
+            courant = suivant;
+        }
+    }
+
+    /**
      * Saisie d'un chiffre de case.
      *
      * LE CAS À DEUX CHIFFRES. Une guitare va jusqu'à la case 24 : taper « 1 » puis « 2 » doit donner
@@ -388,6 +424,13 @@ export class Editeur {
         // une seule vérité pour les deux, donc jamais l'une sans l'autre.
         const rythmeImpose = !!evenement.aRemplir;
         if (rythmeImpose) evenement.aRemplir = false;
+        // UNE NOTE LIÉE SE REMPLIT D'UN SEUL CHIFFRE, et c'est la contrepartie du droit qu'a
+        // l'aide rythmique de faire franchir la barre à une note (voir model/rythme.js). Une note
+        // tenue par-dessus une barre s'écrit en DEUX figures liées, donc en deux évènements — mais
+        // c'est UNE note, et la réclamer deux fois à l'utilisateur serait à la fois pénible et
+        // faux : deux chiffres tapés séparément donnent deux notes réattaquées, pas une tenue.
+        // On propage donc la case à toute la chaîne, en posant la liaison au passage.
+        if (rythmeImpose && evenement.lienSuivant) this._prolongerLiaison(evenement, c.corde, frette);
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
         if (evenement.notes.length === 1 && !enchaine && !rythmeImpose) {

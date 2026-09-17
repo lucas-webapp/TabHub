@@ -29,7 +29,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
 
 (async () => {
-    plan(47);
+    plan(73);
     const { page, erreurs, fermer } = await ouvrirApp({ viewport: { width: 1320, height: 950 } });
     try {
         /** L'écriture proposée, lue dans le MODÈLE de la partition d'aperçu — la même que celle qui
@@ -45,8 +45,11 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         const justes = () => page.evaluate(() => window.__rythme.mesuresJustes(window.app._rythme.etat));
         /** Pose une course directement dans le modèle — pour éprouver la CONVERSION sans dépendre
          *  d'un geste de souris, lequel est éprouvé à part plus bas. */
+        // Les index des courses sont GLOBAUX à la grille depuis qu'une note peut franchir la barre
+        // (voir model/rythme.js) : le banc continue de parler en (mesure, colonne), et traduit ici.
         const poserCourse = (m, a, b) => page.evaluate(([m, a, b]) => {
-            window.__rythme.poserCourse(window.app._rythme.etat, m, a, b);
+            const R = window.__rythme, etat = window.app._rythme.etat;
+            R.poserCourse(etat, R.indexDe(etat, m, a), R.indexDe(etat, m, b));
             window.app._rythme.grille.rafraichir();
             window.app.rafraichirApercuRythme();
         }, [m, a, b]);
@@ -311,12 +314,27 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
             `une note du 3e tiers du temps 1 tenue dans le temps 2 est COUPÉE au temps et LIÉE (${enjambe})`);
         check((await justes())[0] === true,
             'et la mesure somme toujours exactement sa capacité — c\'est l\'invariant que l\'aide ne doit jamais casser');
+        // ET LE RETOUR EN BINAIRE NE JETTE PAS LE TRAVAIL. Une version antérieure repartait d'une
+        // grille vide à chaque changement de division (mesuré : trois pilules, puis zéro) — et
+        // pareil en changeant le nombre de mesures, si bien que vouloir AJOUTER une mesure faisait
+        // perdre la première. Le rythme est maintenant REQUANTIFIÉ sur la nouvelle grille : les
+        // durées peuvent bouger (une croche de triolet n'existe pas en binaire), aucune note ne
+        // disparaît. C'est ce que ce contrôle fige, du côté de la fenêtre.
         await page.click('#rythme-subdivision button[data-sub="4"]');
         await page.waitForTimeout(350);
+        const apresRetour = await page.evaluate(() => ({
+            pilules: document.querySelectorAll('.mesure-seq[data-mesure="0"] .note-seq').length,
+            cases: document.querySelectorAll('.case-seq').length,
+        }));
+        check(apresRetour.pilules === 1 && apresRetour.cases === 16,
+            `la note posée en ternaire SURVIT au retour en binaire (${apresRetour.pilules} pilule(s) `
+            + `sur ${apresRetour.cases} cases) — changer de division ne jette plus le travail`);
 
         // =====================================================================================
         // 8. LA BOUCLE QUI SUIT LES MODIFICATIONS EN DIRECT, et sa tête de lecture
         // =====================================================================================
+        await viderGrille();
+        await page.waitForTimeout(200);
         await poserCourse(0, 0, 1);
         await poserCourse(0, 8, 9);
         await page.waitForTimeout(200);
@@ -491,6 +509,238 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         check(largeur.toucheEnDur === 'none',
             'la piste garde `touch-action: none` — le GLISSER est son geste principal, sans quoi le '
             + 'navigateur le prendrait pour un défilement et la note ne s\'allongerait jamais');
+
+        // =====================================================================================
+        // 14. LE CLAVIER — les cases portaient déjà toute la promesse d'un bouton
+        // `role="button"`, `aria-label`, `aria-pressed`… et `tabIndex = -1` : mesuré, Entrée ne
+        // faisait rien. Une promesse d'accessibilité non tenue est pire que pas de promesse.
+        // Motif ARIA de grille : UN seul tabindex à la fois, les flèches déplacent le focus.
+        // =====================================================================================
+        await page.click('#btn-rythme-effacer');
+        await page.waitForTimeout(250);
+        const auClavier = () => page.evaluate(() => ({
+            pilules: [...document.querySelectorAll('.mesure-seq[data-mesure="0"] .note-seq')]
+                .map(n => n.style.gridColumn).join(' '),
+            focus: document.activeElement?.getAttribute?.('aria-label') || '(hors grille)',
+            tabulables: [...document.querySelectorAll('.case-seq')].filter(c => c.tabIndex === 0).length,
+        }));
+        check((await auClavier()).tabulables === 1,
+            'UNE seule case est dans l\'ordre de tabulation : soixante-quatre cases à 0 obligeraient '
+            + 'à autant d\'appuis sur Tab pour sortir de la grille, et toutes à -1 étaient le défaut');
+        await page.evaluate(() => document.querySelector('.case-seq').focus());
+        await page.keyboard.press('ArrowRight');
+        await page.keyboard.press('ArrowRight');
+        const focus3 = await auClavier();
+        check(/case 3/.test(focus3.focus),
+            `les FLÈCHES déplacent le focus de case en case (« ${focus3.focus} »)`);
+        await page.keyboard.press('Enter');
+        await page.waitForTimeout(200);
+        check((await auClavier()).pilules === '3 / span 1',
+            `Entrée POSE la note sous le focus (${(await auClavier()).pilules}) — le clic, au clavier`);
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.keyboard.press('Shift+ArrowRight');
+        await page.waitForTimeout(200);
+        check((await auClavier()).pilules === '3 / span 3',
+            `Maj + flèche droite l'ALLONGE (${(await auClavier()).pilules}) — l'étirement, au clavier`);
+        await page.keyboard.press('Shift+ArrowLeft');
+        await page.waitForTimeout(200);
+        check((await auClavier()).pilules === '3 / span 2',
+            `et Maj + gauche la raccourcit (${(await auClavier()).pilules})`);
+        // LA NOTE EST POSÉE PAR LE MODÈLE avant d'éprouver Suppr, et pas par les touches d'au-dessus :
+        // sans ça, le contrôle passait À VIDE quand le clavier était neutralisé (rien n'avait été
+        // posé, donc « plus de pilule » était vrai d'avance). Un contrôle qui réussit par absence
+        // ne protège rien.
+        await poserCourse(0, 2, 3);
+        await page.waitForTimeout(200);
+        exiger((await auClavier()).pilules !== '', 'préalable : une note est bien là avant d\'appuyer sur Suppr');
+        await page.evaluate(() => document.querySelectorAll('.case-seq')[2].focus());
+        await page.keyboard.press('Delete');
+        await page.waitForTimeout(200);
+        check((await auClavier()).pilules === '', 'Suppr l\'efface — les quatre gestes de la souris ont tous leur touche');
+        const apresFin = await page.evaluate(async () => {
+            document.querySelector('.case-seq').focus();
+            return null;
+        });
+        void apresFin;
+        await page.keyboard.press('End');
+        check(/temps 4, case 4/.test((await auClavier()).focus),
+            `Fin saute au bout de la mesure (« ${(await auClavier()).focus} »)`);
+
+        // =====================================================================================
+        // 15. LES MOTIFS TOUT PRÊTS — un clic pose un rythme entier
+        // « Des fois j'ai des difficultés à écrire la partition à cause du rythme » : reconnaître un
+        // motif demande moins que de savoir le dessiner.
+        // =====================================================================================
+        const motifs = () => page.evaluate(() => [...document.querySelectorAll('#rythme-motifs button')]
+            .map(b => b.textContent));
+        const libelles = await motifs();
+        check(libelles.join(' ') === 'Noires Croches Doubles Pointé–bref Galop',
+            `en 4/4 binaire, cinq motifs sont offerts (${libelles.join(', ')})`);
+        await page.evaluate(() => [...document.querySelectorAll('#rythme-motifs button')]
+            .find(b => b.textContent === 'Croches').click());
+        await page.waitForTimeout(300);
+        const enCroches = await ecriture();
+        check(enCroches[0] === 'x:croche x:croche x:croche x:croche x:croche x:croche x:croche x:croche',
+            `« Croches » remplit la mesure de huit croches (${enCroches[0]})`);
+        check((await justes())[0] === true, 'et la mesure somme exactement sa capacité');
+        await page.click('#rythme-subdivision button[data-sub="3"]');
+        await page.waitForTimeout(400);
+        const libellesTernaires = await motifs();
+        check(libellesTernaires.join(' ') === 'Noires Triolets Swing',
+            `la liste SUIT la division : en ternaire, « ${libellesTernaires.join(', ')} » — `
+            + 'un motif en doubles-croches n\'a pas de sens sur une grille en trois');
+        await page.evaluate(() => [...document.querySelectorAll('#rythme-motifs button')]
+            .find(b => b.textContent === 'Swing').click());
+        await page.waitForTimeout(300);
+        const enSwing = await ecriture();
+        check(/^x:noire~3 x:croche~3/.test(enSwing[0]),
+            `« Swing » écrit la paire longue-brève du swing (${enSwing[0].slice(0, 40)}…)`);
+        await page.click('#rythme-subdivision button[data-sub="4"]');
+        await page.waitForTimeout(350);
+
+        // =====================================================================================
+        // 16. UNE NOTE FRANCHIT LA BARRE — dessinée en deux morceaux, écrite LIÉE
+        // Mesuré avant : un glissé de la colonne 14 vers la colonne 2 de la mesure suivante
+        // s'arrêtait à « 15 / span 2 ». Une liaison par-dessus la barre était indessinable.
+        // =====================================================================================
+        await page.click('#btn-rythme-effacer');
+        await page.waitForTimeout(200);
+        await page.click('#rythme-nb-mesures button:nth-child(2)');
+        await page.waitForTimeout(400);
+        await glisser(laCase(0, 14), laCase(1, 2));
+        await page.waitForTimeout(300);
+        const cheval = await page.evaluate(() => [...document.querySelectorAll('.mesure-seq')]
+            .map(m => [...m.querySelectorAll('.note-seq')].map(n => ({
+                col: n.style.gridColumn,
+                attaque: !!n.querySelector('.attaque-seq'),
+                coupeeADroite: n.classList.contains('sans-fin'),
+                coupeeAGauche: n.classList.contains('sans-debut'),
+            }))));
+        check(cheval[0].length === 1 && cheval[1].length === 1,
+            `le GLISSÉ traverse la barre : un morceau dans chaque mesure (${cheval[0].length} et ${cheval[1].length})`);
+        check(cheval[0][0]?.attaque && cheval[0][0]?.coupeeADroite
+              && !cheval[1][0]?.attaque && cheval[1][0]?.coupeeAGauche,
+            'le premier morceau porte le repère d\'attaque et un angle droit à la barre, le second '
+            + 'n\'a pas d\'attaque — il n\'y a rien à pincer dans une continuation');
+        const ecritCheval = await ecriture();
+        check(/x⌒:\S+$/.test(ecritCheval[0]),
+            `et l'écriture LIE par-dessus la barre (${ecritCheval[0]})`);
+        check((await justes()).every(j => j === true),
+            'les deux mesures somment toujours exactement leur capacité');
+
+        // =====================================================================================
+        // 17. L'AIDE S'OUVRE SUR LE RYTHME DÉJÀ ÉCRIT
+        // Elle repartait d'une grille vierge à chaque ouverture : elle savait créer un rythme,
+        // jamais en corriger un. C'était le seul geste que l'outil ne rendait pas.
+        // =====================================================================================
+        await page.click('#btn-rythme-effacer');
+        await page.waitForTimeout(200);
+        await page.click('#rythme-nb-mesures button:nth-child(1)');
+        await page.waitForTimeout(350);
+        await page.evaluate(() => [...document.querySelectorAll('#rythme-motifs button')]
+            .find(b => b.textContent === 'Pointé–bref').click());
+        await page.waitForTimeout(300);
+        const avantInsertion = await ecriture();
+        await page.evaluate(() => window.app.insererRythme());
+        await page.waitForTimeout(600);
+        // La mesure visée était vide : aucune confirmation à donner, l'insertion passe seule.
+        exiger(!(await page.locator('#fenetre-rythme').isVisible()),
+            'préalable : l\'insertion sur une mesure vide se fait sans question et referme la fenêtre');
+        await page.click('[data-action="aideRythme"]');
+        await page.waitForTimeout(500);
+        const rouvert = await ecriture();
+        check(rouvert[0] === avantInsertion[0],
+            `rouvrir l'aide montre EXACTEMENT le rythme inséré (${rouvert[0]}) — l'outil sait relire `
+            + 'son propre travail, et sert donc aussi à corriger');
+        // « Pointé–bref » pose DEUX attaques par temps, donc huit pilules sur une mesure de 4/4 :
+        // on compte ce que le motif produit, plutôt qu'un nombre deviné.
+        const pilulesRouvert = await page.evaluate(() => document.querySelectorAll('.note-seq').length);
+        check(pilulesRouvert === 8,
+            `et la grille porte ses huit pilules (${pilulesRouvert}) — deux attaques par temps, comme `
+            + 'le motif les a posées, et non une grille vide qui ferait croire à rien');
+
+        // =====================================================================================
+        // 18. LES DEUX GARDE-FOUS : Boucler à vide, et l'écrasement de notes
+        // =====================================================================================
+        await page.click('#btn-rythme-effacer');
+        await page.waitForTimeout(250);
+        check(await page.evaluate(() => document.getElementById('btn-rythme-boucle').disabled),
+            'sur une grille VIDE, « Boucler » est éteint — il faisait tourner une mesure de silence, '
+            + 'ce qui se lit comme une panne d\'audio');
+        await poserCourse(0, 0, 1);
+        await page.waitForTimeout(200);
+        check(!(await page.evaluate(() => document.getElementById('btn-rythme-boucle').disabled)),
+            'et il se rallume dès qu\'il y a quelque chose à jouer');
+
+        // L'insertion sur des mesures qui portent des notes DEMANDE avant d'écraser. Ctrl+Z les
+        // ramène, encore faut-il s'apercevoir qu'on les a perdues.
+        //
+        // LA NOTE VA DANS LA MESURE VISÉE, lue sur l'état de la fenêtre et non supposée : l'aide
+        // s'ouvre sur la mesure du CURSEUR, qui a bougé avec l'insertion précédente — une première
+        // version de ce contrôle écrivait dans la mesure 1 pendant que la fenêtre visait la 3, et
+        // ne mesurait donc rien du tout.
+        const mesureVisee = await page.evaluate(() => {
+            const ed = window.app.editeur;
+            const m = window.app._rythme.depart;
+            ed.placerCurseur(m, 0, 2, 0);   // (mesure, évènement, corde, voix)
+            ed.saisirChiffre(7);
+            return m;
+        });
+        await page.waitForTimeout(250);
+        exiger((await page.evaluate((m) => window.app.editeur.partition.mesures[m].voix[0]
+            .evenements.some(e => e.notes.some(n => n.frette === 7)), mesureVisee)) === true,
+            `préalable : la mesure visée (${mesureVisee + 1}) porte bien une note à écraser`);
+        await page.evaluate(() => { window.app.insererRythme(); });
+        await page.waitForTimeout(500);
+        const question = await page.evaluate(() => {
+            const v = [...document.querySelectorAll('.voile')]
+                .find(x => !x.hidden && /Remplacer/.test(x.querySelector('h2')?.textContent || ''));
+            return v ? { texte: v.querySelector('p')?.textContent || '',
+                         boutons: [...v.querySelectorAll('button')].map(b => b.textContent.trim()) } : null;
+        });
+        check(!!question && /note/.test(question.texte) && question.boutons.includes('Remplacer'),
+            `elle DEMANDE avant d'écraser des notes (« ${question?.texte || 'aucune question'} »)`);
+        await page.evaluate(() => [...document.querySelectorAll('.voile:not([hidden]) button')]
+            .find(b => b.textContent.trim() === 'Annuler')?.click());
+        await page.waitForTimeout(350);
+        check((await page.evaluate((m) => window.app.editeur.partition.mesures[m].voix[0].evenements
+            .some(e => e.notes.some(n => n.frette === 7)), mesureVisee)) === true,
+            'et « Annuler » laisse la note en place — la question n\'est pas décorative');
+
+        // =====================================================================================
+        // 19. UNE NOTE LIÉE SE REMPLIT D'UN SEUL CHIFFRE
+        //
+        // C'est la contrepartie du droit qu'a l'aide de faire franchir une barre à une note : liée,
+        // elle s'écrit en DEUX évènements, mais c'est UNE note. La réclamer deux fois serait à la
+        // fois pénible et faux — deux chiffres tapés séparément donnent deux notes réattaquées, pas
+        // une tenue. L'insertion pose donc une liaison EN ATTENTE sur l'évènement (il n'y a pas
+        // encore de note pour la porter) et le premier chiffre la propage à toute la chaîne.
+        //
+        // SANS PASSER PAR LA FENÊTRE : on éprouve le chemin modèle → éditeur, sur une partition
+        // neuve. La fenêtre pose sa question d'écrasement, et une modale ouverte bloquerait les
+        // clics du banc — c'est ce qui a fait expirer une première version de ce contrôle.
+        const liee = await page.evaluate(() => {
+            const R = window.__rythme, ed = window.app.editeur;
+            ed.nouveau('guitare');
+            const etat = R.etatInitial(2, { battements: 4, unite: 4 });
+            R.poserCourse(etat, R.indexDe(etat, 0, 14), R.indexDe(etat, 1, 2));
+            const parMesure = R.evenementsParMesure(etat, { aRemplir: true, avecNotes: false });
+            if (!ed.remplacerMesuresPar(0, parMesure, { battements: 4, unite: 4 })) return { echec: true };
+            const voix = ed.partition.mesures[0].voix[0];
+            const iE = voix.evenements.findIndex(e => e.lienSuivant);
+            const pose = voix.evenements.map(e => e.duree.valeur + (e.aRemplir ? '*' : '') + (e.lienSuivant ? '~' : '')).join(' ');
+            if (iE >= 0) { ed.placerCurseur(0, iE, 2, 0); ed.saisirChiffre(9); }
+            const lire = (m) => ed.partition.mesures[m].voix[0].evenements
+                .map(e => (e.notes.length ? e.notes.map(n => n.frette + (n.lien === 'tie' ? '~' : '')).join() : '-'))
+                .join(' ');
+            return { attente: iE >= 0, iE, pose, avant: lire(0), apres: lire(1) };
+        });
+        exiger(!liee.echec && liee.attente,
+            'préalable : l\'insertion pose bien une liaison EN ATTENTE sur l\'évènement qui franchit la barre');
+        check(/9~/.test(liee.avant) && /(^|\s)9(\s|$)/.test(liee.apres),
+            `UN seul chiffre remplit toute la note liée : « ${liee.avant} » puis « ${liee.apres} » `
+            + `[insertion « ${liee.pose} », liaison en attente à l'index ${liee.iE}] — `
+            + 'la note franchit la barre en une frappe, et ressort TENUE plutôt que réattaquée');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }
