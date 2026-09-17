@@ -627,6 +627,13 @@ export function mettreEnPage(partition, options = {}) {
     // --- 4. Poser ------------------------------------------------------------------------------
     const primitives = [];
     const ancrages = { evenements: [], mesures: [], systemes: [] };
+    // Une entrée par voix : la liaison qu'une mesure laisse ouverte, que la suivante refermera
+    // (voir reporterLiaison).
+    const liaisons = new Map();
+    // LES MESURES QUI COMMENCENT UN SYSTÈME, connues AVANT la pose : c'est ce qui permet de savoir,
+    // en posant une mesure, si un saut de ligne la sépare de la suivante — donc s'il faut tracer un
+    // demi-arc de départ tout de suite, dans la tranche de primitives de CE système.
+    const debutsDeSysteme = new Set(systemes.map(sys => sys.mesures[0]?.index).filter(i => i != null));
     let y = geo.yDepart ?? 0;
     // Le décalage s'applique AUSSI à l'en-tête : l'indication de tempo se pose depuis la marge
     // gauche (voir poserEnTete) et doit rester alignée sur le début des portées, pas sur le bord de
@@ -692,6 +699,8 @@ export function mettreEnPage(partition, options = {}) {
                 x, largeurMesure, facteur: facteurEffectif, finMesure,
                 yPortee, yTab, yAnnotation, yAccords, yRepere, S, ST, cordes, clef, geo, iSys, avecPortee,
                 premiereDuSysteme: iDansSys === 0,
+                liaisons, coupeApres: debutsDeSysteme.has(m.index + 1),
+                xDebutSysteme: xDebut, xFinSysteme: xFin,
             });
         });
 
@@ -808,6 +817,13 @@ function mettreEnPagePiano(partition, geo) {
     // --- 3. Poser --------------------------------------------------------------------------------
     const primitives = [];
     const ancrages = { evenements: [], mesures: [], systemes: [] };
+    // Une entrée par voix : la liaison qu'une mesure laisse ouverte, que la suivante refermera
+    // (voir reporterLiaison).
+    const liaisons = new Map();
+    // LES MESURES QUI COMMENCENT UN SYSTÈME, connues AVANT la pose : c'est ce qui permet de savoir,
+    // en posant une mesure, si un saut de ligne la sépare de la suivante — donc s'il faut tracer un
+    // demi-arc de départ tout de suite, dans la tranche de primitives de CE système.
+    const debutsDeSysteme = new Set(systemes.map(sys => sys.mesures[0]?.index).filter(i => i != null));
     let y = geo.yDepart ?? 0;
     const decalage = decalageDeCentrage(systemes, geo, S);   // voir decalageDeCentrage
     const geoDecalee = decalage ? { ...geo, margeGauche: geo.margeGauche + decalage } : geo;
@@ -833,6 +849,8 @@ function mettreEnPagePiano(partition, geo) {
             const finMesure = x + largeurMesure;
             x = poserMesurePiano(primitives, ancrages, partition, m, {
                 x, finMesure, yPortee, yPorteeFa, S, iSys, premiereDuSysteme: iDansSys === 0, geo, facteur: 1,
+                liaisons, coupeApres: debutsDeSysteme.has(m.index + 1),
+                xDebutSysteme: xDebut, xFinSysteme: xFin,
             });
         });
 
@@ -992,6 +1010,8 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
         poserArticulations(out, poses, S);
         poserNolets(out, poses, groupes, S, staff.yPortee, m.signature);
         poserLiaisons(out, poses, S, undefined);
+        // Voir son pendant guitare/basse. `ST` absent : un grand-portée n'a pas de tablature.
+        reporterLiaison(out, ctx, iVoix, m.index, poses, S, undefined, !!ctx.coupeApres);
     });
 
     // Voix 1 absente (mesure jamais jouée à la main gauche) : la portée de fa garde son silence de
@@ -1571,6 +1591,9 @@ function poserMesure(out, ancrages, partition, m, ctx) {
         poserArticulations(out, poses, S);
         poserNolets(out, poses, groupes, S, yPortee, m.signature);
         poserLiaisons(out, poses, S, ST);
+        // LA LIAISON QUI FRANCHIT LA BARRE — refermée ici si la mesure précédente en a laissé une,
+        // reportée à la suivante si celle-ci en laisse une (voir reporterLiaison).
+        reporterLiaison(out, ctx, iVoix, m.index, poses, S, ST, !!ctx.coupeApres);
     });
 
     // Barre de fin de mesure — SUR LA PORTÉE seulement si elle existe (avecPortee) ; sur la TAB,
@@ -2173,6 +2196,267 @@ function poserNolets(out, poses, groupes, S, yPortee, signature) {
  * tablature ni palm mute (une technique de main droite sur cordes, sans équivalent au clavier) —
  * seul l'arc de liaison sur la PORTÉE (déjà générique, indépendant de ST) reste tracé.
  */
+/**
+ * UNE liaison entre deux poses — l'arc de tenue, le trait de slide, la lettre du hammer/pull.
+ *
+ * EXTRAITE DE `poserLiaisons` pour être appelée DEUX FOIS : depuis la boucle d'une mesure, et depuis
+ * le report qui relie une mesure à la suivante (voir reporterLiaison). Une liaison qui
+ * franchit une barre est une écriture ordinaire — souvent la seule juste — et elle n'était pas
+ * tracée : `poserLiaisons` travaille sur les poses d'UNE mesure et s'arrête à `length - 1`. Mesuré :
+ * une liaison interne rendait 2 primitives de courbe, une liaison par-dessus la barre en rendait 0.
+ * Le son était juste depuis toujours (le lecteur lit `note.lien`), seul le SIGNE manquait.
+ *
+ * Rien de son contenu n'a changé en devenant une fonction : les coordonnées sont celles des deux
+ * poses, qui vivent déjà dans le même repère de page d'un bout à l'autre d'un système.
+ */
+function poserUneLiaison(out, a, na, b, nb, S, ST) {
+    // UN SLIDE NE S'ÉCRIT PAS COMME UNE LIAISON (retour utilisateur : « le slide n'a pas
+    // marché sur ma partition, entre le 6 et 8 de la troisième corde »). Il ne s'agissait pas
+    // du son — le glissando s'entendait déjà (voir audio/player.js#_jouerSlide) — mais du
+    // SIGNE : la table d'étiquettes rendait une chaîne VIDE pour `slide`, et l'arc tracé était
+    // exactement celui d'une liaison de tenue. À l'écran, un slide était donc un tie muet :
+    // rien ne distinguait « glisse du 6 au 8 » de « tiens la même note ». D'où, ici, deux
+    // écritures séparées plutôt qu'une seule paramétrée par une lettre.
+    const glisse = na.note.lien === 'slide';
+    // Le sens, lu sur la HAUTEUR et non sur la frette seule : deux notes de même corde se
+    // comparent bien par leur frette, mais `hauteurVoulue` (note hors manche, voir
+    // model/score.js) peut la contredire, et sur la portée seule il n'y a pas de frette.
+    const monte = (na.yPortee != null && nb.yPortee != null)
+        ? nb.yPortee < na.yPortee
+        : (nb.note.frette ?? 0) > (na.note.frette ?? 0);
+
+    // LA CONDITION PORTE SUR `yTab`, ET NON SUR `ST` — corrigé après un banc rouge. `ST`
+    // (l'interligne de tablature) est TOUJOURS défini sur le chemin guitare/basse, même quand
+    // il n'y a pas de tablature à dessiner (`avecTab: false`, voir mettreEnPage) ; il ne dit
+    // donc rien de l'existence d'une TAB. Ce qui la dit, c'est l'ordonnée des notes dessus :
+    // sans tablature, `poserEvenement` range ses notes SANS `yTab` (voir le garde
+    // `ctx.cordes > 0`), et le calcul sortait « M NaN NaN C NaN… » — un chemin SVG invalide,
+    // que le navigateur refusait en console. Le piano passait, lui, parce que son appelant met
+    // `ST` à `undefined` ; l'aide rythmique, non.
+    if (na.yTab != null && nb.yTab != null && ST != null) {
+        const x1 = a.x + na.demiLargeurTab, x2 = b.x - nb.demiLargeurTab;
+        if (glisse) {
+            // LE TRAIT OBLIQUE, entre les deux chiffres, montant ou descendant selon le sens
+            // — le signe qu'emploient les vraies tablatures. Les deux chiffres étant sur la
+            // MÊME ligne de corde, ils partagent leur ordonnée : c'est l'obliquité seule qui
+            // porte le sens, d'où une amplitude toujours visible.
+            //
+            // Sur une double-croche, l'écart entre deux chiffres se réduit à quelques pixels :
+            // une amplitude fixe y ferait un trait quasi VERTICAL, illisible et trompeur (il
+            // ressemblerait à une barre de mesure). L'amplitude se plafonne donc à la moitié
+            // de l'écart disponible — la pente reste sous 45°, le trait reste un trait.
+            const marge = 0.16 * S;
+            const xa = x1 + marge, xb = x2 - marge;
+            if (xb > xa) {
+                const amp = Math.min(0.30 * ST, (xb - xa) * 0.5);
+                const y1 = na.yTab + (monte ? amp : -amp);
+                const y2 = nb.yTab + (monte ? -amp : amp);
+                out.push(ligne(xa, y1, xb, y2, G.EPAISSEURS.glisse * S));
+            }
+            // ET L'ARC, ET « sl. » AU-DESSUS — la notation que l'utilisateur a apportée en
+            // image (« peux-tu modifier sa notation comme sur l'image ? C'est plus clair »),
+            // et celle des éditions imprimées : « 8⁄10 » sous un arc, « sl. » en italique
+            // au-dessus de l'arc.
+            //
+            // CELA REVIENT SUR UN CHOIX ANTÉRIEUR, et c'est assumé : l'arc avait été RETIRÉ
+            // parce qu'il rendait un slide indiscernable d'une liaison de tenue — le trait
+            // oblique était alors le seul signe. Mais le trait oblique EXISTE maintenant, et
+            // c'est lui qui porte la distinction ; l'arc ne fait plus que grouper les deux
+            // chiffres, et « sl. » nomme le geste sans laisser place au doute. Les trois
+            // ensemble, il n'y a plus d'ambiguïté possible — c'est bien plus lisible qu'un
+            // trait oblique seul, que rien n'annonce.
+            // L'ARC ENJAMBE LES DEUX CHIFFRES, il ne se glisse pas entre eux : il part du
+            // bord GAUCHE du premier et arrive au bord DROIT du second (x1/x2, eux, sont les
+            // bords INTÉRIEURS, ceux que le trait oblique relie). Un premier essai les
+            // utilisait, et l'arc se réduisait à une petite bosse coincée entre « 8 » et
+            // « 10 » — il ne groupait visiblement rien, ce qui est tout son rôle.
+            const xArcA = a.x - na.demiLargeurTab, xArcB = b.x + nb.demiLargeurTab;
+            const yArc = na.yTab - ST * 0.8;
+            out.push(courbe(arcLiaison(xArcA, yArc, xArcB, nb.yTab - ST * 0.8, -1, 0.42 * S),
+                G.EPAISSEURS.liaison * S));
+            out.push(texte((xArcA + xArcB) / 2, yArc - ST * 0.95, 'sl.', {
+                taille: S * 1.05, police: 'serif', poids: '600', italique: true,
+            }));
+        } else {
+            // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
+            const yT = na.yTab + ST * 0.42;
+            out.push(courbe(arcLiaison(x1, yT, x2, nb.yTab + ST * 0.42, 1, 0.34 * S), G.EPAISSEURS.liaison * S));
+            const etiquette = { hammer: 'H', pull: 'P', tie: '' }[na.note.lien];
+            if (etiquette) {
+                out.push(texte((x1 + x2) / 2, na.yTab - ST * 0.42, etiquette, {
+                    taille: S * 1.1, police: 'serif', poids: '700', italique: true,
+                }));
+            }
+        }
+    }
+    if (na.yPortee != null && nb.yPortee != null) {
+        const dA = (a.demiTete ?? 0.59) * S, dB = (b.demiTete ?? 0.59) * S;
+        if (glisse) {
+            // Sur la portée, le glissando joint les deux TÊTES en ligne droite — et les joint
+            // vraiment, d'une tête à l'autre, là où l'arc de liaison contourne par-dessus ou
+            // par-dessous. Les deux notes différant de hauteur, la droite est naturellement
+            // oblique : rien à forcer. Un léger retrait à chaque bout pour ne pas entamer les
+            // têtes elles-mêmes.
+            const dx = (b.x - dB) - (a.x + dA), dy = nb.yPortee - na.yPortee;
+            const long = Math.hypot(dx, dy) || 1;
+            const retrait = Math.min(0.28 * S, long * 0.22);
+            const ux = dx / long, uy = dy / long;
+            out.push(ligne(
+                a.x + dA + ux * retrait, na.yPortee + uy * retrait,
+                b.x - dB - ux * retrait, nb.yPortee - uy * retrait,
+                G.EPAISSEURS.glisse * S));
+            // L'ARC ET « sl. » AU-DESSUS, comme sur la tablature (voir là-haut le pourquoi).
+            // TOUJOURS AU-DESSUS des têtes, et non du côté opposé aux hampes comme le fait un
+            // arc de liaison : « sl. » est une indication de JEU, qui se lit au-dessus de la
+            // portée avec les autres (P.M., les articulations) — pas un signe de liaison dont
+            // la place dépend de la direction des hampes. C'est aussi ce que montre l'image.
+            // AU-DESSUS DE TOUT CE QUI DÉPASSE, hampes comprises : quand elles montent, un
+            // arc posé sur les seules têtes leur passerait au travers. `yHampe` (posé par la
+            // passe des hampes, qui précède celle-ci) donne le bout réel de chacune ; on
+            // prend le point le plus haut des deux notes, tête ou hampe selon le sens.
+            const sommetDe = (p, n) => (p.sensHampe < 0 && p.yHampe != null
+                ? Math.min(p.yHampe, n.yPortee) : n.yPortee);
+            const hautArc = Math.min(sommetDe(a, na), sommetDe(b, nb)) - 0.7 * S;
+            // Et l'arc enjambe les deux TÊTES, comme sur la tablature il enjambe les deux
+            // chiffres : un arc pincé entre elles ne grouperait rien.
+            out.push(courbe(arcLiaison(a.x - dA, hautArc, b.x + dB, hautArc, -1, 0.42 * S),
+                G.EPAISSEURS.liaison * S));
+            out.push(texte((a.x + b.x) / 2, hautArc - 1.05 * S, 'sl.', {
+                taille: S * 1.05, police: 'serif', poids: '600', italique: true,
+            }));
+        } else {
+            // Sur la portée : l'arc se place du côté opposé aux hampes.
+            const sens = a.sensHampe < 0 ? 1 : -1;
+            out.push(courbe(arcLiaison(a.x + dA, na.yPortee + sens * 0.55 * S, b.x - dB, nb.yPortee + sens * 0.55 * S, sens, 0.38 * S), G.EPAISSEURS.liaison * S));
+        }
+    }
+}
+
+/**
+ * LES LIAISONS QUI FRANCHISSENT UNE BARRE DE MESURE.
+ *
+ * LE TROU. `poserLiaisons` travaille sur les poses d'UNE mesure : la seconde note d'une liaison qui
+ * franchit la barre n'existe pas encore quand la première est posée. Mesuré, le signe manquait
+ * complètement — 0 primitive de courbe là où une liaison interne en rend 2 — alors que le son était
+ * juste depuis toujours. Le séquenceur rythmique sait désormais écrire ce cas couramment, ce qui
+ * rendait le trou visible tous les jours.
+ *
+ * POURQUOI CE N'EST PAS UNE PASSE FINALE, et c'est le piège qui a coûté une première version. Une
+ * passe posée APRÈS tous les systèmes émettait bien ses arcs — je les ai comptés dans le tableau de
+ * primitives — mais AUCUN n'arrivait à l'écran. Les deux rendus, SVG et PDF, ne dessinent pas le
+ * tableau entier : ils le DÉCOUPENT par système (`ancrages.systemes[].debutPrimitives/
+ * finPrimitives`, voir render/svg.js et io/pdf.js), pour ne peindre que les lignes visibles et pour
+ * paginer. Tout ce qui est ajouté après la dernière tranche n'appartient à aucune, et disparaît.
+ * Chaque primitive doit donc naître DANS la tranche de son système.
+ *
+ * D'OÙ CE REPORT DE MESURE À MESURE. Une voix qui finit sa mesure sur une note liée laisse son
+ * dernier geste « en attente » (`ctx.liaisons`, une entrée par voix) ; la mesure suivante le trouve
+ * et referme l'arc — les deux poses étant alors connues, et dans le même système.
+ *
+ * ET LE SAUT DE LIGNE. Un arc unique traverserait la page de part en part, ce qu'aucune édition ne
+ * fait : la convention est DEUX DEMI-ARCS, l'un qui s'échappe à droite après la première note,
+ * l'autre qui arrive par la gauche avant la seconde. Le départ doit être tracé pendant la mesure qui
+ * PART (sa tranche se referme avec son système), l'arrivée pendant celle qui ARRIVE. On sait lequel
+ * des deux cas s'applique parce que le découpage en systèmes est décidé AVANT la pose (voir
+ * `debutsDeSysteme`).
+ */
+
+/** La longueur d'un demi-arc de liaison coupé par un saut de ligne, en interlignes. */
+const DEMI_LIAISON = 2.6;
+
+/**
+ * Un demi-arc. `vers` valant +1 il s'échappe à droite de `x`, -1 il arrive par la gauche ; `borne`
+ * est le bord du système, qu'il ne franchit pas — sinon l'arc partirait dans la marge, ou
+ * par-dessus la clé. Rend l'abscisse de son milieu (où poser une étiquette), ou `null` s'il n'y
+ * avait pas la place : mieux vaut rien qu'un moignon de deux pixels.
+ */
+function demiArc(out, x, y, sens, vers, borne, S) {
+    const xBout = vers > 0 ? Math.min(x + DEMI_LIAISON * S, borne) : Math.max(x - DEMI_LIAISON * S, borne);
+    if (Math.abs(xBout - x) < 0.6 * S) return null;
+    const x1 = Math.min(x, xBout), x2 = Math.max(x, xBout);
+    // Le demi-arc s'aplatit vers son bout LIBRE : on tire l'ordonnée de ce bout vers la ligne, ce
+    // qui donne la moitié d'arc des éditions plutôt qu'une bosse symétrique qui se lirait comme une
+    // liaison complète miniature.
+    const yLibre = y + sens * 0.34 * S;
+    out.push(courbe(arcLiaison(x1, vers > 0 ? y : yLibre, x2, vers > 0 ? yLibre : y, sens, 0.38 * S),
+        G.EPAISSEURS.liaison * S));
+    return (x1 + x2) / 2;
+}
+
+/**
+ * CHAQUE SURFACE PORTE SES PROPRES ÉTIQUETTES, comme à l'intérieur d'une mesure (voir
+ * poserUneLiaison) : « H »/« P » sont une notation de TABLATURE et ne s'écrivent pas sur la portée,
+ * « sl. » est une indication de jeu et s'écrit sur les deux. Et elles ne s'écrivent QU'AU DÉPART :
+ * c'est là que le geste commence, et les répéter en début de ligne les ferait lire comme un second
+ * hammer-on.
+ */
+function etiquettesDe(lien) {
+    return { portee: lien === 'slide' ? 'sl.' : '',
+             tab: { hammer: 'H', pull: 'P', slide: 'sl.', tie: '' }[lien] ?? '' };
+}
+
+/** Le demi-arc de DÉPART, tracé dans la mesure qui part — avec son étiquette. */
+function poserDemiLiaisonDepart(out, a, na, S, ST, xFinSysteme) {
+    const { portee, tab } = etiquettesDe(na.note.lien);
+    if (na.yPortee != null) {
+        const dA = (a.demiTete ?? 0.59) * S;
+        const sens = a.sensHampe < 0 ? 1 : -1;
+        const cx = demiArc(out, a.x + dA, na.yPortee + sens * 0.55 * S, sens, 1, xFinSysteme, S);
+        if (portee && cx != null) {
+            out.push(texte(cx, na.yPortee + sens * 1.6 * S, portee,
+                { taille: S * 1.05, police: 'serif', poids: '600', italique: true }));
+        }
+    }
+    if (na.yTab != null && ST != null) {
+        const cx = demiArc(out, a.x + na.demiLargeurTab, na.yTab + ST * 0.42, 1, 1, xFinSysteme, S);
+        if (tab && cx != null) {
+            out.push(texte(cx, na.yTab - ST * 0.42, tab,
+                { taille: S * 1.1, police: 'serif', poids: '700', italique: true }));
+        }
+    }
+}
+
+/** Le demi-arc d'ARRIVÉE, tracé dans la mesure qui arrive — muet, l'étiquette est au départ. */
+function poserDemiLiaisonArrivee(out, d, nb, S, ST, xDebutSysteme) {
+    if (nb.yPortee != null) {
+        const dB = (d.demiTete ?? 0.59) * S;
+        const sens = d.sensHampe < 0 ? 1 : -1;
+        demiArc(out, d.x - dB, nb.yPortee + sens * 0.55 * S, sens, -1, xDebutSysteme, S);
+    }
+    if (nb.yTab != null && ST != null) {
+        demiArc(out, d.x - nb.demiLargeurTab, nb.yTab + ST * 0.42, 1, -1, xDebutSysteme, S);
+    }
+}
+
+/**
+ * LE REPORT, appelé par chaque voix de chaque mesure une fois ses propres liaisons posées.
+ *
+ * Il fait les deux moitiés du travail : refermer ce que la mesure précédente a laissé en attente,
+ * puis laisser en attente ce que celle-ci laisse ouvert. `coupe` dit qu'un saut de ligne sépare
+ * cette mesure de la suivante — l'information vient du découpage en systèmes, décidé avant la pose.
+ */
+function reporterLiaison(out, ctx, iVoix, iMesure, poses, S, ST, coupe) {
+    const attentes = ctx.liaisons;
+    if (!attentes) return;
+    const attente = attentes.get(iVoix);
+    attentes.delete(iVoix);
+    // 1. Refermer.
+    if (attente && attente.mesure === iMesure - 1 && poses.length) {
+        const d = poses[0];
+        const nb = d.notes.find(n => n.note.corde === attente.na.note.corde);
+        if (nb) {
+            if (attente.iSys === ctx.iSys) poserUneLiaison(out, attente.pose, attente.na, d, nb, S, ST);
+            else poserDemiLiaisonArrivee(out, d, nb, S, ST, ctx.xDebutSysteme ?? -Infinity);
+        }
+    }
+    // 2. Laisser en attente — ou, si la ligne se coupe ici, tracer tout de suite le départ.
+    const derniere = poses[poses.length - 1];
+    const na = derniere?.notes?.find(n => n.note.lien);
+    if (!na) return;
+    if (coupe) poserDemiLiaisonDepart(out, derniere, na, S, ST, ctx.xFinSysteme ?? Infinity);
+    attentes.set(iVoix, { mesure: iMesure, iSys: ctx.iSys, pose: derniere, na });
+}
+
 function poserLiaisons(out, poses, S, ST) {
     for (let i = 0; i < poses.length - 1; i++) {
         const a = poses[i], b = poses[i + 1];
@@ -2180,127 +2464,7 @@ function poserLiaisons(out, poses, S, ST) {
             if (!na.note.lien) continue;
             const nb = b.notes.find(n => n.note.corde === na.note.corde);
             if (!nb) continue;
-
-            // UN SLIDE NE S'ÉCRIT PAS COMME UNE LIAISON (retour utilisateur : « le slide n'a pas
-            // marché sur ma partition, entre le 6 et 8 de la troisième corde »). Il ne s'agissait pas
-            // du son — le glissando s'entendait déjà (voir audio/player.js#_jouerSlide) — mais du
-            // SIGNE : la table d'étiquettes rendait une chaîne VIDE pour `slide`, et l'arc tracé était
-            // exactement celui d'une liaison de tenue. À l'écran, un slide était donc un tie muet :
-            // rien ne distinguait « glisse du 6 au 8 » de « tiens la même note ». D'où, ici, deux
-            // écritures séparées plutôt qu'une seule paramétrée par une lettre.
-            const glisse = na.note.lien === 'slide';
-            // Le sens, lu sur la HAUTEUR et non sur la frette seule : deux notes de même corde se
-            // comparent bien par leur frette, mais `hauteurVoulue` (note hors manche, voir
-            // model/score.js) peut la contredire, et sur la portée seule il n'y a pas de frette.
-            const monte = (na.yPortee != null && nb.yPortee != null)
-                ? nb.yPortee < na.yPortee
-                : (nb.note.frette ?? 0) > (na.note.frette ?? 0);
-
-            // LA CONDITION PORTE SUR `yTab`, ET NON SUR `ST` — corrigé après un banc rouge. `ST`
-            // (l'interligne de tablature) est TOUJOURS défini sur le chemin guitare/basse, même quand
-            // il n'y a pas de tablature à dessiner (`avecTab: false`, voir mettreEnPage) ; il ne dit
-            // donc rien de l'existence d'une TAB. Ce qui la dit, c'est l'ordonnée des notes dessus :
-            // sans tablature, `poserEvenement` range ses notes SANS `yTab` (voir le garde
-            // `ctx.cordes > 0`), et le calcul sortait « M NaN NaN C NaN… » — un chemin SVG invalide,
-            // que le navigateur refusait en console. Le piano passait, lui, parce que son appelant met
-            // `ST` à `undefined` ; l'aide rythmique, non.
-            if (na.yTab != null && nb.yTab != null && ST != null) {
-                const x1 = a.x + na.demiLargeurTab, x2 = b.x - nb.demiLargeurTab;
-                if (glisse) {
-                    // LE TRAIT OBLIQUE, entre les deux chiffres, montant ou descendant selon le sens
-                    // — le signe qu'emploient les vraies tablatures. Les deux chiffres étant sur la
-                    // MÊME ligne de corde, ils partagent leur ordonnée : c'est l'obliquité seule qui
-                    // porte le sens, d'où une amplitude toujours visible.
-                    //
-                    // Sur une double-croche, l'écart entre deux chiffres se réduit à quelques pixels :
-                    // une amplitude fixe y ferait un trait quasi VERTICAL, illisible et trompeur (il
-                    // ressemblerait à une barre de mesure). L'amplitude se plafonne donc à la moitié
-                    // de l'écart disponible — la pente reste sous 45°, le trait reste un trait.
-                    const marge = 0.16 * S;
-                    const xa = x1 + marge, xb = x2 - marge;
-                    if (xb > xa) {
-                        const amp = Math.min(0.30 * ST, (xb - xa) * 0.5);
-                        const y1 = na.yTab + (monte ? amp : -amp);
-                        const y2 = nb.yTab + (monte ? -amp : amp);
-                        out.push(ligne(xa, y1, xb, y2, G.EPAISSEURS.glisse * S));
-                    }
-                    // ET L'ARC, ET « sl. » AU-DESSUS — la notation que l'utilisateur a apportée en
-                    // image (« peux-tu modifier sa notation comme sur l'image ? C'est plus clair »),
-                    // et celle des éditions imprimées : « 8⁄10 » sous un arc, « sl. » en italique
-                    // au-dessus de l'arc.
-                    //
-                    // CELA REVIENT SUR UN CHOIX ANTÉRIEUR, et c'est assumé : l'arc avait été RETIRÉ
-                    // parce qu'il rendait un slide indiscernable d'une liaison de tenue — le trait
-                    // oblique était alors le seul signe. Mais le trait oblique EXISTE maintenant, et
-                    // c'est lui qui porte la distinction ; l'arc ne fait plus que grouper les deux
-                    // chiffres, et « sl. » nomme le geste sans laisser place au doute. Les trois
-                    // ensemble, il n'y a plus d'ambiguïté possible — c'est bien plus lisible qu'un
-                    // trait oblique seul, que rien n'annonce.
-                    // L'ARC ENJAMBE LES DEUX CHIFFRES, il ne se glisse pas entre eux : il part du
-                    // bord GAUCHE du premier et arrive au bord DROIT du second (x1/x2, eux, sont les
-                    // bords INTÉRIEURS, ceux que le trait oblique relie). Un premier essai les
-                    // utilisait, et l'arc se réduisait à une petite bosse coincée entre « 8 » et
-                    // « 10 » — il ne groupait visiblement rien, ce qui est tout son rôle.
-                    const xArcA = a.x - na.demiLargeurTab, xArcB = b.x + nb.demiLargeurTab;
-                    const yArc = na.yTab - ST * 0.8;
-                    out.push(courbe(arcLiaison(xArcA, yArc, xArcB, nb.yTab - ST * 0.8, -1, 0.42 * S),
-                        G.EPAISSEURS.liaison * S));
-                    out.push(texte((xArcA + xArcB) / 2, yArc - ST * 0.95, 'sl.', {
-                        taille: S * 1.05, police: 'serif', poids: '600', italique: true,
-                    }));
-                } else {
-                    // Sur la tablature : l'arc relie les deux chiffres, en passant SOUS eux.
-                    const yT = na.yTab + ST * 0.42;
-                    out.push(courbe(arcLiaison(x1, yT, x2, nb.yTab + ST * 0.42, 1, 0.34 * S), G.EPAISSEURS.liaison * S));
-                    const etiquette = { hammer: 'H', pull: 'P', tie: '' }[na.note.lien];
-                    if (etiquette) {
-                        out.push(texte((x1 + x2) / 2, na.yTab - ST * 0.42, etiquette, {
-                            taille: S * 1.1, police: 'serif', poids: '700', italique: true,
-                        }));
-                    }
-                }
-            }
-            if (na.yPortee != null && nb.yPortee != null) {
-                const dA = (a.demiTete ?? 0.59) * S, dB = (b.demiTete ?? 0.59) * S;
-                if (glisse) {
-                    // Sur la portée, le glissando joint les deux TÊTES en ligne droite — et les joint
-                    // vraiment, d'une tête à l'autre, là où l'arc de liaison contourne par-dessus ou
-                    // par-dessous. Les deux notes différant de hauteur, la droite est naturellement
-                    // oblique : rien à forcer. Un léger retrait à chaque bout pour ne pas entamer les
-                    // têtes elles-mêmes.
-                    const dx = (b.x - dB) - (a.x + dA), dy = nb.yPortee - na.yPortee;
-                    const long = Math.hypot(dx, dy) || 1;
-                    const retrait = Math.min(0.28 * S, long * 0.22);
-                    const ux = dx / long, uy = dy / long;
-                    out.push(ligne(
-                        a.x + dA + ux * retrait, na.yPortee + uy * retrait,
-                        b.x - dB - ux * retrait, nb.yPortee - uy * retrait,
-                        G.EPAISSEURS.glisse * S));
-                    // L'ARC ET « sl. » AU-DESSUS, comme sur la tablature (voir là-haut le pourquoi).
-                    // TOUJOURS AU-DESSUS des têtes, et non du côté opposé aux hampes comme le fait un
-                    // arc de liaison : « sl. » est une indication de JEU, qui se lit au-dessus de la
-                    // portée avec les autres (P.M., les articulations) — pas un signe de liaison dont
-                    // la place dépend de la direction des hampes. C'est aussi ce que montre l'image.
-                    // AU-DESSUS DE TOUT CE QUI DÉPASSE, hampes comprises : quand elles montent, un
-                    // arc posé sur les seules têtes leur passerait au travers. `yHampe` (posé par la
-                    // passe des hampes, qui précède celle-ci) donne le bout réel de chacune ; on
-                    // prend le point le plus haut des deux notes, tête ou hampe selon le sens.
-                    const sommetDe = (p, n) => (p.sensHampe < 0 && p.yHampe != null
-                        ? Math.min(p.yHampe, n.yPortee) : n.yPortee);
-                    const hautArc = Math.min(sommetDe(a, na), sommetDe(b, nb)) - 0.7 * S;
-                    // Et l'arc enjambe les deux TÊTES, comme sur la tablature il enjambe les deux
-                    // chiffres : un arc pincé entre elles ne grouperait rien.
-                    out.push(courbe(arcLiaison(a.x - dA, hautArc, b.x + dB, hautArc, -1, 0.42 * S),
-                        G.EPAISSEURS.liaison * S));
-                    out.push(texte((a.x + b.x) / 2, hautArc - 1.05 * S, 'sl.', {
-                        taille: S * 1.05, police: 'serif', poids: '600', italique: true,
-                    }));
-                } else {
-                    // Sur la portée : l'arc se place du côté opposé aux hampes.
-                    const sens = a.sensHampe < 0 ? 1 : -1;
-                    out.push(courbe(arcLiaison(a.x + dA, na.yPortee + sens * 0.55 * S, b.x - dB, nb.yPortee + sens * 0.55 * S, sens, 0.38 * S), G.EPAISSEURS.liaison * S));
-                }
-            }
+            poserUneLiaison(out, a, na, b, nb, S, ST);
         }
     }
 

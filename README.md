@@ -784,14 +784,13 @@ La règle qui tient l'ensemble : **une dépendance ne remonte jamais**. `model/`
 
 Dit franchement, pour que la suite se décide sur des faits :
 
-- **Une seule voix par mesure.** Le modèle prévoit la place, mais le rendu ne grave pas encore deux
-  voix superposées. Sur une pièce comme *Jeux interdits*, la basse tenue et la mélodie partagent donc
-  un même évènement et une même hampe, là où une édition gravée les séparerait.
+- **La seconde voix n'a pas d'entrée dans la palette guitare/basse.** Le moteur la GRAVE (hampes
+  opposées, silences décalés, ligatures et liaisons par voix), et `Tab` navigue entre les voix d'un
+  fichier qui en a deux — mais les boutons « + Voix »/« − Voix » ont été retirés pour la guitare et
+  la basse (« je ne comprends pas les boutons voix+/voix-, à quoi cela sert-il ? »), et rien ne les
+  remplace encore. Une pièce comme *Jeux interdits* est donc gravable mais pas saisissable.
 - **Pas de dépliage des reprises à la lecture.** Les barres de reprise s'écrivent et s'exportent,
   mais la lecture parcourt la partition écrite, une fois.
-- **Les liaisons ne franchissent pas les barres de mesure.** Une note liée à la première note de la
-  mesure suivante s'entend correctement, mais son signe n'est pas tracé — ni l'arc d'une liaison ni
-  le trait oblique d'un slide : la pose des liaisons travaille mesure par mesure.
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
