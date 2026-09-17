@@ -376,7 +376,10 @@ function margeBasRequise(partition, margeBasDefaut) {
  * partitions bruyantes : un riff chromatique répétant la même note afficherait un dièse devant
  * chacune de ses occurrences. Cet objet retient, mesure par mesure, ce qui a déjà été annoncé.
  */
-function memoireAlterations(armure) {
+// EXPORTÉE, et pour une seule raison : l'export MusicXML doit écrire LES MÊMES altérations que
+// celles qu'on voit à l'écran (voir io/musicxml.js). Recopier la règle là-bas aurait donné deux
+// vérités pour une notation vieille de trois siècles, et elles auraient fini par diverger.
+export function memoireAlterations(armure) {
     const parArmure = alterationsDeLArmure(armure);
     // L'armure voyage AVEC la mémoire : l'orthographe d'une note (fa♯ ou sol♭) et la décision de
     // dessiner ou non l'altération sont deux facettes de la même règle, et les séparer en deux

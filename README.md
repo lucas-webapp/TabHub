@@ -670,7 +670,7 @@ hauteurs cliquées au même instant construisent un accord.
 
 ### Fichiers
 
-Nouveau, Ouvrir, Exporter, PDF et MIDI vivent groupés derrière un seul bouton **Fichiers** (barre du
+Nouveau, Ouvrir, Exporter, PDF, MIDI et MusicXML vivent groupés derrière un seul bouton **Fichiers** (barre du
 haut) plutôt qu'en icônes séparées — six pictogrammes à deviner un par un s'est révélé peu clair à
 l'usage, un menu à libellés en toutes lettres ne laisse rien à deviner. **Enregistrer** reste seul,
 à part : c'est le geste le plus fréquent (persistance locale immédiate, pas un téléchargement), il
@@ -681,7 +681,7 @@ garde donc son propre bouton vert toujours visible plutôt que de se noyer dans 
 - **Exporter** télécharge, lui, un `.json` indenté qui est le modèle tel quel — lisible et modifiable
   à la main ; c'est le fichier à archiver ou à faire circuler.
 
-Tous les fichiers exportés portent le nom **« Titre - Artiste »** (`.json`, `.pdf`, `.mid`, et
+Tous les fichiers exportés portent le nom **« Titre - Artiste »** (`.json`, `.pdf`, `.mid`, `.musicxml`, et
 « Titre - Artiste - Partie.mid » pour un fichier par section) : un dossier de relevés où tout
 s'appelle « Sans titre.json » ne se trie pas. Un seul endroit décide de ce nom
 (`io/json.js#nomDuMorceau`). Les accents y sont repliés en ASCII — « Étude » donne « Etude » —
@@ -706,6 +706,46 @@ un nom qu'on reconnaît.
   **sections** (les annotations « Couplet »/« Refrain »…, voir plus haut) propose, comme HarmoHub, un
   seul fichier — avec un REPÈRE MIDI par section même alors — ou un fichier PAR section, chacune sur
   sa propre timeline à 0, pour les retravailler indépendamment dans un DAW.
+- **Exporter en MusicXML** écrit un `.musicxml` que MuseScore, Finale, Sibelius, Dorico et Guitar
+  Pro lisent tous — et c'est le seul des quatre exports qui transporte l'**écriture**. Le `.json`
+  n'est relu que par TabHub, le PDF est une image, le `.mid` ne porte que des hauteurs et des durées.
+  MusicXML, lui, porte la *tablature* : la corde et la case de chaque note y sont des éléments de
+  première classe (`<string>`, `<fret>`), pas une astuce. C'est donc le fichier qu'on envoie à un
+  professeur, à un arrangeur ou à un copiste.
+
+  **Ce qui part** : deux portées liées (notation + tablature, avec sa clé `TAB` et ses lignes), les
+  figures avec leurs points et leurs n-olets, les liaisons de prolongation *même par-dessus une barre
+  de mesure*, les hammer-on / pull-off (un arc sur la portée, un `<hammer-on>` dans la tablature),
+  les slides, les bends en demi-tons, les deux voix avec leurs hampes opposées, l'armure et son mode,
+  les signatures y compris un changement en cours de morceau, le tempo, les reprises et leur nombre
+  de fois, les barres doubles et finales, les six repères de navigation, les noms d'accords en
+  **vraies `<harmony>`** (« F#m7 » devient fa-dièse septième mineure, donc transposable et jouable,
+  et non une étiquette de texte), les annotations de section, les nuances, l'accent, le staccato, le
+  palm mute, les notes fantômes, l'accordage corde par corde et le capodastre.
+
+  **Les altérations viennent de la même règle que la gravure à l'écran**
+  (`engine/layout.js#memoireAlterations`, exportée pour cela) : une altération vaut jusqu'à la barre,
+  pour toutes les notes de même nom et même octave. C'est ce qui fait qu'un *si naturel en fa
+  majeur* reçoit son bécarre — le cas qui condamne la solution naïve, puisque l'altération de cette
+  note vaut zéro.
+
+  **Ce qui ne part pas, dit franchement.** Le **swing** n'a pas d'élément standard en MusicXML 3.1
+  (MuseScore le range dans son propre format) : il sort en texte au-dessus de la première mesure
+  (« Swing ♫ = ♩♪ »), lisible par un humain, ignoré par la machine — les notes, elles, partent
+  droites, ce qui est l'écriture juste. La **mise en page** n'est pas imposée, sauf les retours à la
+  ligne demandés explicitement : le nombre de mesures par ligne de TabHub est un réglage d'écran, pas
+  une propriété du morceau, et l'imposer serait dicter au lecteur une gravure qu'il sait faire mieux
+  sur son format de papier.
+
+  **Version 3.1 et non 4.0** : la 4.0 n'apporte rien dont cet export ait besoin, et 3.1 est la
+  version que tout lecteur en service accepte — y compris les Finale et Sibelius d'il y a quelques
+  années, qui sont précisément ceux d'un professeur à qui l'on envoie un fichier.
+
+  *Réserve honnête* : le fichier est vérifié bien formé et conforme aux ordres d'éléments que le
+  format impose, et 44 vérifications permanentes l'éprouvent jusqu'à l'invariant « corde + case +
+  capodastre redonne la hauteur écrite » (voir `tests/musicxml_test.js`). Il n'a pas pu être validé
+  contre le schéma officiel ni ouvert dans MuseScore depuis l'environnement de développement, dont la
+  sortie réseau est fermée : un premier aller-retour dans un vrai éditeur reste à faire.
 - **Importer un fichier MIDI** relit un `.mid` dans l'instrument/accordage/capodastre en place : une
   note hors de portée du manche est abandonnée (jamais une case inventée), et le résultat est compté
   dans le message de fin d'import. Vient-il REMPLACER le morceau en cours, ou s'AJOUTER à sa suite
@@ -858,7 +898,10 @@ Dit franchement, pour que la suite se décide sur des faits :
   mais la lecture parcourt la partition écrite, une fois.
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
-- **Pas d'import Guitar Pro** (`.gp5`, `.gpx`) ni de MusicXML.
+- **Pas d'IMPORT Guitar Pro** (`.gp5`, `.gpx`) **ni MusicXML.** L'export MusicXML existe (voir
+  *Fichiers*) ; le sens inverse est un autre travail — un fichier venu d'ailleurs peut porter dix
+  portées, des instruments que TabHub ne connaît pas et une notation dont il n'écrit rien, et décider
+  quoi en faire ne se règle pas par un analyseur.
 - **L'import MIDI fond tout dans une seule voix.** Deux lignes indépendantes qui sonnent ensemble
   deviennent une suite d'accords : séparer les voix d'un fichier source est un problème autrement
   plus dur, et l'import ne pose jamais la seconde voix que TabHub sait pourtant graver. Le rythme, lui,

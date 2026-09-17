@@ -855,6 +855,12 @@
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
+    <!-- MUSICXML SOUS LE MIDI, et c'est leur différence qui décide de l'ordre : le MIDI porte ce que
+         le morceau SONNE (des hauteurs et des durées, pour un DAW), MusicXML ce qu'il est ÉCRIT —
+         cordes, cases, liaisons, hammer-on, noms d'accords, deux voix, la tablature elle-même. C'est
+         donc lui qu'on envoie à un professeur, un arrangeur ou un copiste, et lui qu'on ouvre dans
+         MuseScore, Finale ou Sibelius pour continuer le travail ailleurs. -->
+    <button type="button" data-action="musicxml-exporter">Exporter en MusicXML (.musicxml)</button>
 </div>
 
 <!-- ÉDITION DE L'EN-TÊTE AU CLIC — s'ouvre sur le titre, le sous-titre ou l'artiste gravés sur la

@@ -35,6 +35,7 @@ import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, MAX_VERSIONS } from './io/versions.js';
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
+import { exporterMusicXML } from './io/musicxml.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
@@ -2285,6 +2286,21 @@ class TabHubApp {
         }
     }
 
+    /**
+     * Exporter en MusicXML — la partition ÉCRITE, pour la rouvrir dans MuseScore, Finale, Sibelius,
+     * Dorico ou Guitar Pro (voir io/musicxml.js, qui porte le détail de ce qui part et de ce qui ne
+     * part pas). Pas de choix à faire ici, contrairement au MIDI : un fichier, le morceau entier.
+     */
+    exporterMusicXMLFichier() {
+        try {
+            const nom = exporterMusicXML(this.editeur.partition);
+            this.message(`Exporté → ${nom}`);
+        } catch (err) {
+            console.error(err);
+            this.message('Échec de l\'export MusicXML : ' + err.message);
+        }
+    }
+
     /** Importer un .mid — dans l'instrument/accordage/capodastre ACTUELS : un fichier MIDI ne dit
      *  rien de la lutherie, ce sont les réglages déjà en place qui décident où poser les notes. */
     ouvrirMidi() { this.el.entreeFichierMidi.click(); }
@@ -2682,6 +2698,7 @@ class TabHubApp {
         const actionsFichiers = {
             nouveau: () => this.nouveau(), ouvrir: () => this.ouvrir(), 'exporter-json': () => this.exporterJson(),
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
+            'musicxml-exporter': () => this.exporterMusicXMLFichier(),
             versions: () => this.ouvrirVersions(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {
