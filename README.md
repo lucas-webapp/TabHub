@@ -791,6 +791,21 @@ le disque » divergent en silence, et l'on croit avoir sauvegardé ce qui n'est 
 
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
+
+  **Ouvrir le *même* morceau n'est pas ouvrir un autre morceau.** Réouvrir « Étude » alors qu'« Étude »
+  est déjà ouvert n'est presque jamais une demande d'écrasement : c'est qu'on ne sait plus laquelle des
+  deux versions est la bonne. TabHub montre alors ce qui les distingue — date de dernière
+  modification, nombre de mesures, laquelle est la plus récente — et propose **ne rien changer**,
+  **garder les deux** ou **remplacer**. Deux morceaux sont « le même » s'ils partagent leur date de
+  création, ou à défaut leur **titre** (casse et espaces indifférentes, mais « Étude (2) » reste
+  distinct). Ce repli par le titre répare un vrai défaut : un fichier reçu d'ailleurs n'a pas la même
+  date de création, aucun conflit n'était donc détecté, et l'on empilait un morceau de plus sous le
+  même titre.
+
+  **« Garder les deux » ouvre un onglet**, et c'est l'adaptation propre à TabHub : là où HarmoHub doit
+  poser une copie renommée au milieu de sa bibliothèque — « Titre (import du 14/09/2025) », et deux
+  imports plus tard on ne sait plus lequel est le bon — les deux versions s'ouvrent ici côte à côte et
+  se comparent à l'œil. Rien n'est renommé, rien n'est enterré.
 - **Exporter PDF** ouvre d'abord un **aperçu de la mise en page**, et n'écrit le fichier qu'ensuite.
   Six réglages y agissent en direct, dans l'ordre de leur effet sur le nombre de pages : taille de la
   portée (de loin le plus fort — 2,1 → 1,6 mm fait passer un morceau de deux pages à une), mesures

@@ -1440,6 +1440,47 @@ class TabHubApp {
         return null;   // annulé : rien n'a été écrit, et c'est le but
     }
 
+    /**
+     * Est-ce LE MÊME MORCEAU ? Deux réponses, dans cet ordre, et l'ordre compte.
+     *
+     * 1. LA DATE DE CRÉATION. C'est l'identité la plus sûre : elle naît avec le document, survit aux
+     *    renommages, et deux morceaux distincts ne la partagent jamais.
+     * 2. LE TITRE, à défaut. C'est l'identité de REPLI, et elle répare un vrai défaut : un fichier
+     *    reçu d'ailleurs, ou reconstruit, n'a pas la même date de création — l'appli ne voyait donc
+     *    aucun conflit et empilait un morceau de plus sous le même titre. C'est la racine du
+     *    « beaucoup de fois le même titre, seules les dates changent » relevé côté HarmoHub.
+     *    La casse et les espaces ne comptent pas ; « Étude (2) » reste DISTINCT, parce que c'est un
+     *    nom qu'on a choisi.
+     */
+    memeMorceau(ici, venu) {
+        const a = ici?.meta || {}, b = venu?.meta || {};
+        if (a.creeLe && b.creeLe && a.creeLe === b.creeLe) return 'creation';
+        const net = (x) => String(x || '').trim().replace(/\s+/g, ' ').toLowerCase();
+        if (net(a.titre) && net(a.titre) === net(b.titre)) return 'titre';
+        return null;
+    }
+
+    /** Montre les deux versions côte à côte, puis demande laquelle garder. */
+    demanderVersionAOuvrir(ici, venu, raison) {
+        const quand = (x) => { const d = new Date(x); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('fr-FR'); };
+        const compte = (p) => p.mesures.length;
+        const plusRecent = (Date.parse(venu.meta.modifieLe || '') || 0) > (Date.parse(ici.meta.modifieLe || '') || 0);
+        return demander({
+            titre: raison === 'creation' ? 'Ce morceau est déjà ouvert' : 'Un morceau porte déjà ce titre',
+            // CE QUI LES DISTINGUE, ET RIEN D'AUTRE : la date de dernière modification et le nombre
+            // de mesures. Demander « écraser ? » sans montrer laquelle est la plus récente oblige à
+            // deviner, et l'on devine mal — c'est ainsi qu'on écrase le bon fichier.
+            texte: `Ici : modifié le ${quand(ici.meta.modifieLe)}, ${compte(ici)} mesures.\n`
+                 + `Fichier : modifié le ${quand(venu.meta.modifieLe)}, ${compte(venu)} mesures.\n`
+                 + (plusRecent ? 'Le fichier est le plus récent des deux.' : 'La version ouverte ici est la plus récente des deux.'),
+            boutons: [
+                { cle: 'ignorer', libelle: 'Ne rien changer' },
+                { cle: 'deuxCopies', libelle: 'Garder les deux (nouvel onglet)' },
+                { cle: 'ecraser', libelle: 'Remplacer par le fichier', style: plusRecent ? 'plein' : 'danger' },
+            ],
+        });
+    }
+
     /** La fenêtre comparative. Elle MONTRE ce qui distingue les deux versions avant de demander. */
     async demanderConflitFichier(etat, racine) {
         const quand = (x) => { const d = new Date(x); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('fr-FR'); };
@@ -2160,6 +2201,29 @@ class TabHubApp {
     async chargerFichier(fichier) {
         try {
             const partition = await lireFichierPartition(fichier);
+            // OUVRIR LE MÊME MORCEAU N'EST PAS OUVRIR UN AUTRE MORCEAU, et jusqu'ici les deux
+            // passaient par la même porte. Réouvrir « Étude » alors qu'« Étude » est déjà ouvert
+            // n'est presque jamais une demande d'écrasement : c'est qu'on ne sait plus laquelle des
+            // deux versions est la bonne. La question à poser est donc « laquelle ? », pas « êtes-vous
+            // sûr ? ».
+            const meme = this.memeMorceau(this.editeur.partition, partition);
+            if (meme) {
+                const choix = await this.demanderVersionAOuvrir(this.editeur.partition, partition, meme);
+                if (choix === 'ignorer' || choix == null) { this.message('Ouverture annulée'); return; }
+                if (choix === 'deuxCopies') {
+                    // GARDER LES DEUX : TabHub a les ONGLETS, et c'est ce qu'ils servent à faire. Là
+                    // où HarmoHub doit poser une copie dans sa bibliothèque — « Titre (import du
+                    // 14/09/2025) », au milieu des autres, et deux imports plus tard on ne sait plus
+                    // lequel est le bon —, ici les deux versions s'ouvrent côte à côte et se
+                    // comparent à l'œil. Rien n'est renommé, rien n'est enterré.
+                    this.nouvelOnglet();
+                    this.editeur.remplacer(partition);
+                    this.dessiner();
+                    this.message(`Ouvert dans un nouvel onglet : ${partition.meta.titre}`);
+                    return;
+                }
+                // « ecraser » : on continue par le chemin normal, garde-fou compris.
+            }
             // MÊME GARDE-FOU QUE « NOUVEAU », et pour la même raison : ouvrir un fichier REMPLACE le
             // morceau en cours et écrase le brouillon du navigateur. Ce geste-là n'avertissait de
             // rien du tout, alors que « Nouveau » posait au moins un confirm() — deux gestes aussi

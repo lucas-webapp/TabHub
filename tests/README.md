@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**54 bancs, 1626 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**55 bancs, 1639 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -23,6 +23,7 @@ utilisateur devenus des cas permanents.
 | `rangement_fichiers_test.js` | L'étage du HAUT : écrire dans un dossier choisi. L'arborescence créée d'un coup, les quatre routes qui écrivent chacune dans son dossier sans que le NOM change, le fichier relisible — et surtout les QUATRE PANNES, jouées pour de vrai : dossier disparu en cours de route, navigateur sans l'API, sélecteur refermé, dossier oublié. Le sélecteur système est remplacé par un dossier OPFS de même interface, donc c'est le vrai code qui est éprouvé |
 | `garde_fous_fichiers_test.js` | Lire le disque avant de l'écraser : un nom CANONIQUE (un seul fichier après trois enregistrements, pas trois candidats), les états précédents poussés dans `_versions/` et datés à la SECONDE (à la minute ils s'écrasaient entre eux — onze enregistrements, une seule archive), la rotation à dix, et les deux conflits qui n'écrivent RIEN : un fichier plus récent que la version ouverte ici, et un AUTRE morceau au même titre (distingué par sa date de création) |
 | `protections_fichiers_test.js` | Ce qui protège le travail quand le navigateur, lui, ne promet rien : `persist()` demandé au démarrage, le rappel de fraîcheur au-delà de cinq jours sans fichier (une fois par jour au plus, et jamais pour quelqu'un qui n'a pas travaillé depuis), le repère posé sur `visibilitychange` et non `beforeunload` — absent d'iOS — et la feuille de partage système proposée avant de télécharger à l'aveugle, en ne passant QUE `files` |
+| `ouverture_decision_test.js` | Ouvrir le MÊME morceau n'est pas ouvrir un autre morceau : l'identité par date de création puis, à défaut, par TITRE (casse et espaces indifférentes, « Étude (2) » restant distinct) — sans ce repli, un fichier reçu d'ailleurs ne déclenchait aucun conflit et empilait un morceau de plus sous le même titre. La fenêtre MONTRE ce qui distingue les deux versions, et « garder les deux » ouvre un ONGLET au lieu de renommer une copie |
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio, et LE CHEMIN DE CHARGEMENT RÉUSSI du piano — échantillons servis par le banc, car le réseau bloqué ne le joue jamais |
 | `effets_test.js` | Les effets, de la commande au SON : un slide fusionne ses deux notes, et sa hauteur glisse sur un échantillon de PIANO (la voix synthétisée ne servant plus que hors ligne) |
