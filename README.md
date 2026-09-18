@@ -681,13 +681,39 @@ garde donc son propre bouton vert toujours visible plutôt que de se noyer dans 
 - **Exporter** télécharge, lui, un `.json` indenté qui est le modèle tel quel — lisible et modifiable
   à la main ; c'est le fichier à archiver ou à faire circuler.
 
-Tous les fichiers exportés portent le nom **« Titre - Artiste »** (`.json`, `.pdf`, `.mid`, `.musicxml`, et
-« Titre - Artiste - Partie.mid » pour un fichier par section) : un dossier de relevés où tout
-s'appelle « Sans titre.json » ne se trie pas. Un seul endroit décide de ce nom
-(`io/json.js#nomDuMorceau`). Les accents y sont repliés en ASCII — « Étude » donne « Etude » —
-parce que tout caractère non-ASCII posé dans l'attribut `download` d'un lien fait retomber le
-navigateur sur son nom par défaut : le fichier arrivait nommé « download ». Un accent en moins reste
-un nom qu'on reconnaît.
+#### Le nom des fichiers — la règle de HarmoHub, portée ici
+
+Tous les fichiers exportés portent la forme **« TabHub - Morceau - Type - Date Heure.ext »** :
+
+```
+TabHub - Blackbird - Beatles - Morceau - 2026-09-18 1432.json
+TabHub - Blackbird - Beatles - Partition - 2026-09-18 1432.pdf
+TabHub - Blackbird - Beatles - Refrain - MIDI - 2026-09-18 1432.mid
+```
+
+C'est **la règle de HarmoHub**, reprise sans être réinventée : le module qui la porte là-bas annonce
+dès sa première ligne qu'il est prévu pour les deux applications, avec le nom de l'appli en
+paramètre. Chaque segment règle une chose précise :
+
+- **l'appli en tête**, pour que les fichiers des deux ne se mélangent jamais dans un même dossier de
+  téléchargement ;
+- **le morceau ensuite**, parce que c'est par morceau qu'on se perd : toutes ses pièces se retrouvent
+  côte à côte dans un explorateur trié par nom ;
+- **le type puis la date**, pour que les versions d'un même document s'empilent chronologiquement ;
+- **l'heure**, qui n'est pas décorative : sans elle, deux exports le même jour donnent « (1) » et
+  « (2) » ajoutés par le navigateur — précisément ce qui fait perdre le fil. Les deux-points étant
+  interdits sous Windows, elle s'écrit « 1432 ».
+
+Un seul endroit décide de ce nom (`io/fichiers.js`), pour les cinq routes d'export — elles
+interpolaient chacune la leur, et avaient déjà divergé une fois. L'assainissement y gagne ce qui
+manquait : caractères de contrôle retirés, longueur bornée, et surtout **les points et espaces en fin
+de nom supprimés**, que Windows efface silencieusement à la création — un fichier ne porte alors pas
+le nom qu'on croit lui avoir donné.
+
+**Une divergence assumée avec HarmoHub** : le repli en ASCII. « Étude » donne « Etude », parce que
+tout caractère non-ASCII posé dans l'attribut `download` d'un lien fait retomber le navigateur sur son
+nom par défaut — le fichier arrivait nommé « download ». Mesuré caractère par caractère ici ; HarmoHub
+ne le fait pas. Un accent en moins reste un nom qu'on reconnaît.
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
 - **Exporter PDF** ouvre d'abord un **aperçu de la mise en page**, et n'écrit le fichier qu'ensuite.

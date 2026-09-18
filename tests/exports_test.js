@@ -97,8 +97,12 @@ const empreinte = (page) => page.evaluate(() => {
         // LE NOM PORTE LE TITRE **ET** L'ARTISTE (retour utilisateur : « lorsque je télécharge le JSON,
         // je veux avoir le nom de l'artiste également. Nom du fichier = Titre - Nom artiste.json »).
         // Un dossier de relevés où tout s'appelle « Blackbird.json » sans savoir de qui ne se trie pas.
-        exiger(telJson.suggestedFilename() === 'Banc des exports - Anonyme.json',
-            `le fichier se nomme « Titre - Artiste.json » (reçu : ${telJson.suggestedFilename()})`);
+        // LA FORME A CHANGÉ (portage du nommage de HarmoHub, voir nommage_fichiers_test.js) :
+        // « TabHub - Morceau - Type - Date Heure.ext ». Ce que cette vérification protège n'a pas
+        // bougé — le nom porte le titre ET l'artiste — mais il vit maintenant dans le segment du
+        // MORCEAU, entre le nom de l'appli et celui du type.
+        exiger(/^TabHub - Banc des exports - Anonyme - Morceau - \d{4}-\d{2}-\d{2} \d{4}\.json$/.test(telJson.suggestedFilename()),
+            `le fichier porte « TabHub - Titre - Artiste - Morceau - date.json » (reçu : ${telJson.suggestedFilename()})`);
         // Les deux moitiés sont facultatives : ce qui compte est qu'un artiste manquant ne laisse pas
         // un tiret orphelin derrière lui (« Blackbird - .json » a l'air d'un nom tronqué), et qu'un
         // morceau sans rien du tout retombe sur un nom de secours plutôt que sur « .json » seul.
@@ -196,8 +200,8 @@ const empreinte = (page) => page.evaluate(() => {
         // .json le faisait déjà, le PDF et le MIDI portaient encore le titre seul — trois
         // interpolations à la main pour un seul besoin, qui avaient divergé. Tout passe maintenant
         // par io/json.js#nomDuMorceau, et ce banc vérifie les deux formats côte à côte.
-        check(telPdf.suggestedFilename() === 'Banc des exports - Anonyme.pdf',
-            `le PDF se nomme lui aussi « Titre - Artiste.pdf » (reçu : ${telPdf.suggestedFilename()})`);
+        check(/^TabHub - Banc des exports - Anonyme - Partition - \d{4}-\d{2}-\d{2} \d{4}\.pdf$/.test(telPdf.suggestedFilename()),
+            `le PDF porte la MÊME forme, au type près : c'est ce qui les range côte à côte dans un explorateur trié par nom (reçu : ${telPdf.suggestedFilename()})`);
 
         // TOUT DOIT ÊTRE VECTORIEL. C'est la raison d'être du double moteur de rendu : une partition
         // rastérisée devient grise à l'impression. La présence d'une seule image dans le fichier

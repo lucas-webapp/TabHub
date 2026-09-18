@@ -46,7 +46,8 @@ import {
 import { ecrireHauteur } from '../model/theory.js';
 import { memoireAlterations } from '../engine/layout.js';
 import { INSTRUMENTS } from '../model/instruments.js';
-import { nomDeFichierSur, nomDuMorceau, telecharger } from './json.js';
+import { telecharger } from './json.js';
+import { nomPour } from './fichiers.js';
 
 // DIVISIONS PAR NOIRE. 480, comme le PPQ de l'export MIDI, et pour la même raison : toute durée que
 // TabHub sait écrire doit y tomber sur un ENTIER, puisque MusicXML n'accepte pas autre chose. La
@@ -684,7 +685,7 @@ export function genererMusicXML(partition) {
 /** Le téléchargement — le seul endroit de ce module qui connaisse le navigateur. */
 export function exporterMusicXML(partition) {
     const xml = genererMusicXML(partition);
-    const nom = nomDeFichierSur(nomDuMorceau(partition.meta), '.musicxml');
+    const nom = nomPour(partition, 'musicxml', 'musicxml');
     telecharger(xml, nom, 'application/vnd.recordare.musicxml+xml');
     return nom;
 }

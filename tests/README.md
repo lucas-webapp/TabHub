@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**50 bancs, 1541 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**51 bancs, 1569 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -19,6 +19,7 @@ utilisateur devenus des cas permanents.
 | `rendu_double_portee_test.js` | Cinq lignes + six cordes, alignement des deux portées, découpage en systèmes |
 | `accordages_test.js` | Trois instruments, accordages prédéfinis et personnalisés, capodastre |
 | `musicxml_test.js` | L'export MusicXML, en trois familles : que c'est du XML bien formé et l'arbre annoncé (l'ORDRE des éléments, que le format impose dans `<attributes>` et `<note>` — une permutation rend le fichier invalide) ; les invariants qui ne se devinent pas (corde + case + capodastre redonne la hauteur écrite, et les `<backup>` ramènent exactement au début de la mesure) ; et ce que l'utilisateur verra vraiment — liaisons par-dessus la barre, n-olets et leur crochet, hammer-on en arc ET en technique, slides en `<glissando>` et non en `<slide>`, deux voix aux hampes opposées, reprises, repères, noms d'accords en vraies `<harmony>`, accordage, capodastre, et le bécarre d'un si naturel en fa majeur. Deux de ses vérifications portent une décision prise HORS banc, par validation contre le schéma officiel du W3C et relecture par un moteur de gravure tiers : le capodastre fondu dans l'accordage (sans quoi le fichier se contredisait d'une portée à l'autre) et les hammer-on/pull-off/bend posés sur la notation (sans quoi un lecteur les jette) |
+| `nommage_fichiers_test.js` | La forme « TabHub - Morceau - Type - Date Heure.ext », reprise de HarmoHub : l'ordre des segments et ce que chacun règle, l'horodatage qui se trie tout seul et sépare deux exports du même jour, l'assainissement complet (caractères interdits, caractères de contrôle, points et espaces en FIN de nom que Windows efface en silence, longueur bornée), le repli ASCII propre à TabHub, le nom du morceau relu depuis le nom de fichier même quand il contient lui-même « - », le piège du préfixe (« Étude » contre « Étude - live ») et les cinq routes d'export qui passent toutes par là |
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio, et LE CHEMIN DE CHARGEMENT RÉUSSI du piano — échantillons servis par le banc, car le réseau bloqué ne le joue jamais |
 | `effets_test.js` | Les effets, de la commande au SON : un slide fusionne ses deux notes, et sa hauteur glisse sur un échantillon de PIANO (la voix synthétisée ne servant plus que hors ligne) |

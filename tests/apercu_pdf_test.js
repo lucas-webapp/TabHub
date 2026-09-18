@@ -235,9 +235,13 @@ const { check, exiger, plan, bilan } = creerHarnais('aperçu avant export PDF');
         await page.click('#pdf-enregistrer');
         const tel = await attente;
         // « Etude », pas « Étude » : tout caractère non-ASCII dans l'attribut `download` d'un lien
-        // fait retomber le navigateur sur « download » (mesuré — voir io/json.js#nomDeFichierSur).
-        check(tel.suggestedFilename() === 'Etude en la mineur - Fernando Sor.pdf',
-            `le fichier porte « Titre - Artiste.pdf », accents repliés en ASCII (${tel.suggestedFilename()})`);
+        // fait retomber le navigateur sur « download » (mesuré — voir io/fichiers.js).
+        // LE NOM A CHANGÉ DE FORME avec le portage du nommage de HarmoHub : « TabHub - Morceau -
+        // Type - Date Heure.ext ». Ce qui est éprouvé ici reste le repli ASCII, qui, lui, n'a pas
+        // changé — c'est une mesure propre à TabHub, que HarmoHub ne fait pas.
+        const nomPdf = tel.suggestedFilename();
+        check(/^TabHub - Etude en la mineur - Fernando Sor - Partition - \d{4}-\d{2}-\d{2} \d{4}\.pdf$/.test(nomPdf),
+            `le fichier porte la forme commune, accents repliés en ASCII (${nomPdf})`);
         await page.waitForTimeout(300);
         check(await page.evaluate(() => document.getElementById('fenetre-pdf').hidden),
             'et la fenêtre se referme d\'elle-même une fois le PDF écrit');

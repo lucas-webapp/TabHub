@@ -8,7 +8,7 @@
 
 import { mettreEnPage } from '../engine/layout.js';
 import { dessinerPrimitives, PALETTE_PDF } from '../render/pdf.js';
-import { nomDeFichierSur, nomDuMorceau } from './json.js';
+import { nomPour, nomDuMorceau } from './fichiers.js';
 
 /**
  * Formats de page, en millimètres. La mise en page est calculée DIRECTEMENT dans cette unité — un
@@ -175,11 +175,12 @@ export function construirePdf(partition, options = {}) {
         }
     });
 
-    // « Titre - Artiste.pdf », comme le .json et le .mid : voir nomDuMorceau dans io/json.js, le seul
-    // endroit qui décide d'un nom de fichier. Les PROPRIÉTÉS du document, elles, gardent les deux
-    // champs séparés (title/author ci-dessus) — c'est la place prévue pour chacun dans un PDF, et un
-    // lecteur qui affiche « Titre - Artiste » dans sa barre de titre aurait perdu la distinction.
-    return { pdf, nbPages: feuilles.length, nomFichier: nomDeFichierSur(nomDuMorceau(partition.meta), '.pdf') };
+    // « TabHub - Titre - Artiste - Partition - 2026-09-18 1432.pdf » : la forme commune aux cinq
+    // routes d'export, décidée par io/fichiers.js (voir là-bas le pourquoi de chaque segment). Les
+    // PROPRIÉTÉS du document, elles, gardent les deux champs séparés (title/author ci-dessus) —
+    // c'est la place prévue pour chacun dans un PDF, et un lecteur qui afficherait « Titre - Artiste »
+    // dans sa barre de titre aurait perdu la distinction.
+    return { pdf, nbPages: feuilles.length, nomFichier: nomPour(partition, 'partition', 'pdf') };
 }
 
 /**

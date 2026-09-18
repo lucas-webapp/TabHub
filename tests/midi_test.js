@@ -282,10 +282,10 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         await telMidi.saveAs(cheminMidi);
         exiger(fs.existsSync(cheminMidi), 'le clic sur « Exporter en MIDI » télécharge bien un fichier');
         check(/\.mid$/.test(telMidi.suggestedFilename()), 'le fichier porte l\'extension .mid');
-        // « Titre - Artiste.mid », comme le .json et le .pdf (voir io/json.js#nomDuMorceau, le seul
-        // endroit qui décide d'un nom de fichier) : le MIDI portait le titre seul.
-        check(telMidi.suggestedFilename() === 'Export MIDI test - Anonyme.mid',
-            `et il est nommé « Titre - Artiste.mid » (reçu : ${telMidi.suggestedFilename()})`);
+        // La forme commune aux cinq routes (voir io/fichiers.js et nommage_fichiers_test.js) :
+        // « TabHub - Morceau - Type - Date Heure.ext ».
+        check(/^TabHub - Export MIDI test - Anonyme - MIDI - \d{4}-\d{2}-\d{2} \d{4}\.mid$/.test(telMidi.suggestedFilename()),
+            `et il porte la forme commune (reçu : ${telMidi.suggestedFilename()})`);
         check(fs.readFileSync(cheminMidi).slice(0, 4).toString() === 'MThd', 'le fichier écrit sur disque commence bien par « MThd »');
 
         // Même INSTRUMENT qu'à l'export (guitare) : au delà de ce banc, changer d'instrument avant de
@@ -492,12 +492,16 @@ const { check, exiger, plan, bilan } = creerHarnais('MIDI');
         // rédaction : je l'avais supposé, le banc a rendu « Sans titre - Partie 1.mid » et avait
         // raison).
         const prefixe = await page.evaluate(async () => {
-            const { nomDuMorceau } = await import('/src/io/json.js');
-            return nomDuMorceau(window.app.editeur.partition.meta);
+            const { prefixeMorceau, morceauDe } = await import('/src/io/fichiers.js');
+            return prefixeMorceau(morceauDe(window.app.editeur.partition));
         });
-        check(telechargementsPartie.every(n => n.startsWith(prefixe + ' - '))
+        // LA SECTION EST DANS LE SEGMENT DU MORCEAU, pas dans celui du type : « TabHub - Titre -
+        // Artiste - Refrain - MIDI - date.mid ». C'est ce qui rattache le fichier au bon morceau
+        // quand on relit le dossier (voir io/fichiers.js#morceauDepuisNomFichier, dont l'analyse
+        // prend TOUT ce qui précède le dernier segment comme nom).
+        check(telechargementsPartie.every(n => n.startsWith(prefixe) && / - MIDI - /.test(n))
               && new Set(telechargementsPartie).size === 2,
-            `chacun porte « ${prefixe} - Partie.mid », et deux noms distincts (${telechargementsPartie.join(', ')})`);
+            `chacun part de « ${prefixe}… » avec sa section, et deux noms distincts (${telechargementsPartie.join(', ')})`);
         check(!(await page.locator('#fenetre-choix-export-midi').isVisible()), 'et la fenêtre se referme d\'elle-même une fois le choix fait');
 
         // --- NOTES DE MÊME HAUTEUR QUI SE CHEVAUCHENT -------------------------------------------------
