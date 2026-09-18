@@ -551,6 +551,26 @@
     </div>
 </div>
 
+<!-- FICHIERS DU DISQUE (voir main.js#ouvrirFichiersDuDisque). La liste est peuplée à l'ouverture,
+     jamais d'avance : le disque peut avoir changé sans que l'appli en sache rien — c'est même le cas
+     normal, puisque l'utilisateur peut y déplacer ou y effacer des fichiers à la main. -->
+<div class="voile" id="fenetre-disque" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-disque">
+        <div class="fenetre-tete">
+            <h2 id="titre-disque">Fichiers du disque</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer">×</button>
+        </div>
+        <div class="fenetre-corps">
+            <p class="note-reglage" id="note-disque"></p>
+            <div id="liste-disque" class="liste-disque"></div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-plein" data-fermer>Terminé</button>
+        </div>
+    </div>
+</div>
+
 <div class="voile" id="fenetre-aide" hidden>
     <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-aide">
         <div class="fenetre-tete">
@@ -870,6 +890,13 @@
          quand l'historique est éteint (voir main.js#rafraichirEntreeVersions) plutôt que de rester là
          en grisé : un menu ne doit pas faire la liste de ce qu'on a décidé de ne pas avoir. -->
     <button type="button" data-action="versions">Versions précédentes…</button>
+    <!-- LES FICHIERS DU DISQUE — il LIT LE DOSSIER, pas ce que l'appli connaît, et c'est toute sa
+         raison d'être. TabHub n'a pas de bibliothèque : un morceau exporté il y a trois mois n'existe
+         plus nulle part dans l'application, mais son fichier est toujours là. Un panneau qui lirait
+         l'état de l'appli ne montrerait jamais celui qu'on cherche.
+         À CÔTÉ DES VERSIONS, et pas ailleurs : les deux répondent à « où est passé mon travail ? »,
+         l'une dans le navigateur, l'autre sur le disque. -->
+    <button type="button" data-action="disque">Fichiers du disque…</button>
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>

@@ -822,6 +822,21 @@ le disque » divergent en silence, et l'on croit avoir sauvegardé ce qui n'est 
   **sections** (les annotations « Couplet »/« Refrain »…, voir plus haut) propose, comme HarmoHub, un
   seul fichier — avec un REPÈRE MIDI par section même alors — ou un fichier PAR section, chacune sur
   sa propre timeline à 0, pour les retravailler indépendamment dans un DAW.
+- **Fichiers du disque…** ouvre un panneau qui lit le **dossier**, pas ce que l'application connaît —
+  et c'est toute sa raison d'être. TabHub n'a pas de bibliothèque : un morceau exporté il y a trois
+  mois n'existe plus nulle part dans l'application, mais son fichier est toujours là. Le panneau le
+  montre, groupé par morceau avec tous ses fichiers (`.json`, PDF, MIDI, MusicXML et archives), et
+  permet de le **reprendre** — dans un nouvel onglet, pour ne rien remplacer — ou de l'**effacer**.
+
+  « Ouvrir » reste grisé pour un morceau dont il ne reste qu'un PDF : une image ne se rouvre pas, et
+  proposer le bouton quand même serait promettre ce qu'on ne peut pas tenir.
+
+  **La suppression montre la liste exacte avant de demander**, chemin par chemin. Le regroupement se
+  fait sur le **nom de fichier** et jamais sur le contenu : un PDF n'a rien d'interrogeable, et un
+  `.json` renommé à la main doit quand même rester avec ses frères. Le piège n'est pas théorique —
+  les fichiers d'« Étude » et ceux d'« Étude - live » commencent par la même chaîne, et sans
+  précaution supprimer le premier emporterait le second. Une règle l'évite, mais la sûreté ne vient
+  pas d'elle : elle vient de ce que la liste est sous les yeux.
 - **Exporter en MusicXML** écrit un `.musicxml` que MuseScore, Finale, Sibelius, Dorico et Guitar
   Pro lisent tous — et c'est le seul des quatre exports qui transporte l'**écriture**. Le `.json`
   n'est relu que par TabHub, le PDF est une image, le `.mid` ne porte que des hauteurs et des durées.

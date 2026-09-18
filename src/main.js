@@ -38,7 +38,8 @@ import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZones
 import { exporterMusicXML } from './io/musicxml.js';
 import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, rangementDisponible,
          messageEnregistrement, cheminDossier, DOSSIERS, ecrireMorceau, etatFichierSurDisque,
-         lireMorceauSurDisque, listerVersions, demanderStockageDurable } from './io/fichiers.js';
+         lireMorceauSurDisque, listerVersions, demanderStockageDurable, morceauxSurDisque,
+         fichiersDuMorceau, supprimerFichiers } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
@@ -1438,6 +1439,114 @@ class TabHubApp {
             return r;
         }
         return null;   // annulé : rien n'a été écrit, et c'est le but
+    }
+
+    /**
+     * FICHIERS DU DISQUE — il lit le DOSSIER, pas ce que l'application connaît.
+     *
+     * C'est toute sa raison d'être : TabHub n'a pas de bibliothèque, seulement des onglets et un
+     * brouillon. Un morceau exporté il y a trois mois n'existe plus nulle part dans l'application,
+     * mais son fichier est toujours là. Ce panneau permet de le REPRENDRE ou de l'EFFACER sans avoir
+     * à le faire exister ici d'abord.
+     */
+    async ouvrirFichiersDuDisque() {
+        const hote = document.getElementById('liste-disque');
+        const note = document.getElementById('note-disque');
+        this.ouvrirFenetre('fenetre-disque');
+        hote.innerHTML = '';
+        note.textContent = 'Lecture du dossier…';
+        const racine = await preparerRangement({ demander: true });
+        if (!racine) {
+            note.textContent = rangementDisponible()
+                ? 'Aucun dossier de rangement n\'est configuré : voir Réglages > Fichiers.'
+                : 'Ce navigateur ne permet pas de lire un dossier choisi (Safari, Firefox, iPhone, Android).';
+            return;
+        }
+        const morceaux = await morceauxSurDisque(racine);
+        const tous = morceaux.map(m => m.nom);
+        note.textContent = `${racine.name} — ${morceaux.length} morceau${morceaux.length > 1 ? 'x' : ''} `
+                         + `(${morceaux.reduce((n, m) => n + m.fichiers.length, 0)} fichiers, archives comprises).`;
+        for (const m of morceaux) {
+            const bloc = document.createElement('div');
+            bloc.className = 'disque-morceau';
+            const tete = document.createElement('div');
+            tete.className = 'disque-tete';
+            const nom = document.createElement('span');
+            nom.className = 'disque-nom';
+            nom.textContent = m.nom;
+            const compte = document.createElement('span');
+            compte.className = 'disque-compte';
+            const archives = m.fichiers.filter(f => f.archive).length;
+            compte.textContent = `${m.fichiers.length - archives} fichier${m.fichiers.length - archives > 1 ? 's' : ''}`
+                               + (archives ? ` + ${archives} archive${archives > 1 ? 's' : ''}` : '');
+            const ouvrir = document.createElement('button');
+            ouvrir.type = 'button'; ouvrir.className = 'btn-neutre'; ouvrir.textContent = 'Ouvrir';
+            // OUVRIR N'EST PROPOSÉ QUE S'IL Y A UN .json : un morceau dont il ne reste qu'un PDF ne se
+            // rouvre pas — le PDF est une image. Proposer le bouton quand même serait promettre ce
+            // qu'on ne peut pas tenir.
+            ouvrir.disabled = !m.aUnJson;
+            ouvrir.title = m.aUnJson ? 'Ouvrir ce morceau dans un nouvel onglet'
+                                     : 'Aucun .json pour ce morceau — un PDF ou un MIDI ne se rouvre pas dans TabHub';
+            ouvrir.addEventListener('click', () => this.reprendreDuDisque(racine, m));
+            const effacer = document.createElement('button');
+            effacer.type = 'button'; effacer.className = 'btn-neutre'; effacer.textContent = 'Supprimer…';
+            effacer.addEventListener('click', () => this.supprimerDuDisque(racine, m, tous));
+            tete.append(nom, compte, ouvrir, effacer);
+            const liste = document.createElement('div');
+            liste.className = 'disque-fichiers';
+            for (const f of m.fichiers.slice().sort((a, b) => b.quand - a.quand)) {
+                const l = document.createElement('div');
+                l.textContent = `${f.dossier}/${f.nom}`;
+                liste.appendChild(l);
+            }
+            bloc.append(tete, liste);
+            hote.appendChild(bloc);
+        }
+    }
+
+    /** Rouvrir un morceau lu sur le disque — dans un NOUVEL onglet, pour ne rien remplacer. */
+    async reprendreDuDisque(racine, morceau) {
+        const json = morceau.fichiers.find(f => f.cle === 'morceaux' && !f.archive);
+        if (!json) return;
+        try {
+            const brut = await lireMorceauSurDisque(racine, json.nom);
+            this.nouvelOnglet();
+            this.editeur.remplacer(brut);
+            this.dessiner();
+            this.fermerFenetres();
+            this.message(`Repris du disque : ${this.editeur.partition.meta.titre}`);
+        } catch (err) {
+            this.message('Impossible de lire ce fichier : ' + err.message);
+        }
+    }
+
+    /**
+     * Supprimer les fichiers d'un morceau — après avoir MONTRÉ la liste exacte.
+     *
+     * LE PIÈGE DU PRÉFIXE n'est pas théorique : les fichiers d'« Étude » et ceux d'« Étude - live »
+     * commencent par la même chaîne, et sans précaution supprimer le premier emporterait le second.
+     * La règle l'évite (voir io/fichiers.js#estFichierDuMorceau) — mais la sûreté ne vient PAS d'elle.
+     * Elle vient de ce que la liste est sous les yeux avant qu'on demande quoi que ce soit.
+     */
+    async supprimerDuDisque(racine, morceau, tousLesNoms) {
+        const liste = await fichiersDuMorceau(racine, morceau.nom, tousLesNoms);
+        if (!liste.length) { this.message('Plus aucun fichier pour ce morceau'); return; }
+        const apercu = liste.slice(0, 12).map(f => `${f.dossier}/${f.nom}`).join('\n');
+        const reste = liste.length - Math.min(12, liste.length);
+        const choix = await demander({
+            titre: `Supprimer ${liste.length} fichier${liste.length > 1 ? 's' : ''} ?`,
+            texte: `Ces fichiers vont être effacés du disque, définitivement :\n\n${apercu}`
+                 + (reste ? `\n… et ${reste} de plus.` : '')
+                 + `\n\nLe morceau ouvert dans TabHub, lui, n'est pas touché.`,
+            boutons: [
+                { cle: 'annuler', libelle: 'Annuler' },
+                { cle: 'oui', libelle: 'Supprimer', style: 'danger' },
+            ],
+        });
+        if (choix !== 'oui') return;
+        const retires = await supprimerFichiers(racine, liste);
+        this.message(`${retires.length} fichier${retires.length > 1 ? 's' : ''} supprimé${retires.length > 1 ? 's' : ''}`);
+        this.ouvrirFichiersDuDisque();
     }
 
     /**
@@ -2956,6 +3065,7 @@ class TabHubApp {
             nouveau: () => this.nouveau(), ouvrir: () => this.ouvrir(), 'exporter-json': () => this.exporterJson(),
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
             'musicxml-exporter': () => this.exporterMusicXMLFichier(),
+            disque: () => this.ouvrirFichiersDuDisque(),
             versions: () => this.ouvrirVersions(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {

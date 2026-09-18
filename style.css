@@ -860,6 +860,22 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    place : `:empty` la referme plutôt que de laisser une gouttière fantôme. */
 .note-reglage { margin: -2px 0 8px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45; }
 .note-reglage:empty { display: none; margin: 0; }
+
+/* LA LISTE DES FICHIERS DU DISQUE — une ligne par MORCEAU, ses fichiers en dessous quand on déplie.
+   Bornée en hauteur et défilante : un dossier de travail de deux ans en compte des centaines, et une
+   fenêtre qui s'allonge sans fin sort de l'écran par le bas, boutons compris. */
+.liste-disque { max-height: 46vh; overflow-y: auto; display: flex; flex-direction: column; gap: 6px; }
+.disque-morceau {
+    border: 1px solid var(--border-groupe); border-radius: 9px; padding: 8px 10px;
+    background: var(--fond-bouton-sombre);
+}
+.disque-tete { display: flex; align-items: center; gap: 8px; }
+.disque-nom { font-weight: 700; color: var(--text-main); }
+.disque-compte { font-size: var(--fs-xs); color: var(--text-muted); margin-left: auto; }
+.disque-fichiers { margin: 6px 0 0; padding: 6px 0 0; border-top: 1px solid var(--border-groupe);
+    font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.disque-fichiers div { padding: 1px 0; }
+.liste-disque:empty::after { content: 'Aucun fichier dans ce dossier.'; color: var(--text-muted); font-size: var(--fs-xs); }
 .info-transport strong { color: var(--text-main); font-weight: 700; }
 
 /* ============================================================

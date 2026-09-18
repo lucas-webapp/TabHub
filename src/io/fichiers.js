@@ -711,3 +711,87 @@ export async function demanderStockageDurable() {
         return await navigator.storage.persist();
     } catch (e) { return false; }
 }
+
+// =====================================================================================
+// LE DISQUE COMME SOURCE — inventorier, rouvrir, supprimer.
+// =====================================================================================
+//
+// POURQUOI LIRE LE DOSSIER PLUTÔT QUE CE QUE L'APPLI CONNAÎT. TabHub n'a pas de bibliothèque : il a
+// des onglets et un brouillon. Un morceau exporté il y a trois mois n'existe plus nulle part dans
+// l'application — mais son fichier, lui, est toujours là. Un panneau qui lirait l'état de l'appli ne
+// le montrerait donc jamais, alors que c'est précisément celui qu'on cherche.
+//
+// ET C'EST AUSSI CE QUI REND LA SUPPRESSION SÛRE. On n'efface pas « le morceau Étude » : on efface
+// une LISTE DE FICHIERS, qu'on a lue sur le disque et qu'on affiche avant de demander quoi que ce
+// soit. La règle de préfixe ci-dessous protège du cas « Étude » contre « Étude - live », mais la
+// sûreté ne vient pas d'elle — elle vient de ce que la liste exacte est sous les yeux.
+
+/** Tous les fichiers du dossier, par sous-dossier, `_versions/` compris. */
+export async function inventaireDisque(racine) {
+    if (!racine) return [];
+    const tout = [];
+    for (const cle of Object.keys(DOSSIERS)) {
+        let dossier;
+        try { dossier = await sousDossier(racine, cle, false); } catch (e) { continue; }
+        for await (const [nom, h] of dossier.entries()) {
+            if (h.kind === 'file') {
+                let taille = 0, quand = 0;
+                try { const f = await h.getFile(); taille = f.size; quand = f.lastModified; } catch (e) {}
+                tout.push({ cle, dossier: cheminDossier(cle), nom, taille, quand, archive: false });
+            } else if (h.kind === 'directory' && nom === DOSSIER_VERSIONS) {
+                for await (const [nomA, hA] of h.entries()) {
+                    if (hA.kind !== 'file') continue;
+                    let taille = 0, quand = 0;
+                    try { const f = await hA.getFile(); taille = f.size; quand = f.lastModified; } catch (e) {}
+                    tout.push({ cle, dossier: `${cheminDossier(cle)}/${DOSSIER_VERSIONS}`, nom: nomA, taille, quand, archive: true });
+                }
+            }
+        }
+    }
+    return tout;
+}
+
+/**
+ * L'inventaire GROUPÉ PAR MORCEAU. Le regroupement se fait sur le NOM DE FICHIER et non sur le
+ * contenu : un PDF n'a aucun contenu interrogeable, et un .json renommé à la main doit quand même
+ * rester avec ses frères. C'est le défaut que le banc de HarmoHub a trouvé chez lui — la suppression
+ * y déduisait le nom du morceau du CONTENU du .json.
+ */
+export async function morceauxSurDisque(racine) {
+    const tout = await inventaireDisque(racine);
+    const parMorceau = new Map();
+    for (const f of tout) {
+        const nom = morceauDepuisNomFichier(f.nom) || '(inconnu)';
+        if (!parMorceau.has(nom)) parMorceau.set(nom, { nom, fichiers: [], quand: 0, aUnJson: false });
+        const g = parMorceau.get(nom);
+        g.fichiers.push(f);
+        g.quand = Math.max(g.quand, f.quand);
+        if (f.cle === 'morceaux' && !f.archive) g.aUnJson = true;
+    }
+    return [...parMorceau.values()].sort((a, b) => b.quand - a.quand);
+}
+
+/**
+ * La liste EXACTE des fichiers d'un morceau, `autresNoms` servant à écarter ceux qui appartiennent à
+ * un morceau plus spécifique — « Étude » et « Étude - live » commencent par la même chaîne, et sans
+ * cette précaution supprimer le premier emporterait les fichiers du second.
+ */
+export async function fichiersDuMorceau(racine, nom, autresNoms = []) {
+    const prefixe = prefixeMorceau(nom);
+    const prefixesAutres = autresNoms.filter(n => n !== nom).map(n => prefixeMorceau(n));
+    return (await inventaireDisque(racine)).filter(f => estFichierDuMorceau(f.nom, prefixe, prefixesAutres));
+}
+
+/** Supprime une liste de fichiers, et rend ce qui a réellement été retiré. */
+export async function supprimerFichiers(racine, liste) {
+    const retires = [];
+    for (const f of liste) {
+        try {
+            let dossier = await sousDossier(racine, f.cle, false);
+            if (f.archive) dossier = await dossier.getDirectoryHandle(DOSSIER_VERSIONS, { create: false });
+            await dossier.removeEntry(f.nom);
+            retires.push(f.nom);
+        } catch (e) { console.error('Suppression impossible :', f.nom, e); }
+    }
+    return retires;
+}
