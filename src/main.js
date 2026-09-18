@@ -340,6 +340,10 @@ class TabHubApp {
         // établie une fois pour toutes au démarrage.
         this.onglets = [{ etat: null }];
         this.ongletActif = 0;
+        // TOUT MORCEAU QUE CETTE FENÊTRE A TENU, à un moment ou à un autre (voir
+        // _fusionnerBrouillon) : c'est ce qui distingue « je ne l'ai pas » de « je l'ai fermé », et
+        // donc ce qui empêche un onglet fermé de revenir à la première écriture suivante.
+        this._connusIci = new Set();
 
         this.restaurerBrouillon();
         this.poserIcones();
@@ -2234,6 +2238,49 @@ class TabHubApp {
      * @returns {Error|null} l'erreur, s'il y en a une — `enregistrer` la dit, `planifierBrouillon`
      *   l'avale : un brouillon différé qui échoue n'a pas à interrompre la frappe pour l'annoncer.
      */
+    /**
+     * La clé d'identité d'un morceau DANS LE BROUILLON — sa date de création, comme pour le
+     * garde-fou du disque (voir memeMorceau). Le repli sur le titre existe pour un brouillon écrit
+     * par une version antérieure, qui pouvait ne pas porter `creeLe`.
+     */
+    _cleMorceau(p) {
+        return p?.meta?.creeLe || `titre:${p?.meta?.titre || ''}`;
+    }
+
+    /**
+     * LE BROUILLON EST PARTAGÉ PAR TOUTES LES FENÊTRES DE L'APPLICATION, et c'est ce qui le rendait
+     * dangereux : `localStorage` est commun à l'origine entière. Deux fenêtres ouvertes, chacune
+     * écrivant « ses » onglets par-dessus les autres, et la dernière à écrire gagnait — au
+     * rechargement suivant, le travail de l'autre fenêtre avait disparu sans un mot. C'est une perte
+     * silencieuse, exactement ce que le brouillon existe pour empêcher.
+     *
+     * LA RÈGLE : on FUSIONNE au lieu d'écraser. Avant d'écrire, on relit ce qui est là et on garde
+     * les morceaux qu'on n'a pas — ils appartiennent à une autre fenêtre, encore ouverte.
+     *
+     * ET ON NE RESSUSCITE PAS CE QU'ON A FERMÉ. `_connusIci` retient tout morceau que CETTE fenêtre a
+     * tenu à un moment ou à un autre : s'il n'est plus dans nos onglets, c'est qu'on l'a fermé ou
+     * remplacé, délibérément. Sans cette mémoire, fermer un onglet le verrait revenir à la première
+     * écriture suivante — et une seule règle couvre les deux gestes (fermer, remplacer) sans rien
+     * avoir à noter à chaque appel.
+     */
+    _fusionnerBrouillon(miens) {
+        for (const p of miens) this._connusIci.add(this._cleMorceau(p));
+        let etrangers = [];
+        try {
+            const brut = localStorage.getItem(CLE_BROUILLON);
+            const lu = brut ? JSON.parse(brut) : null;
+            const stockes = Array.isArray(lu?.onglets) ? lu.onglets : (lu?.mesures ? [lu] : []);
+            const cles = new Set(miens.map(p => this._cleMorceau(p)));
+            etrangers = stockes.filter(p => {
+                const c = this._cleMorceau(p);
+                return !cles.has(c) && !this._connusIci.has(c);
+            });
+        } catch (e) { /* brouillon illisible : on écrit le nôtre, c'est déjà mieux que rien */ }
+        // LES NÔTRES D'ABORD : `actif` est un index, et il doit continuer de désigner l'onglet qu'on
+        // regarde. Les morceaux des autres fenêtres viennent après, sans changer notre numérotation.
+        return { onglets: [...miens, ...etrangers], etrangers: etrangers.length };
+    }
+
     _ecrireBrouillon() {
         try {
             // TOUS LES ONGLETS DANS LE BROUILLON, pas seulement celui qu'on regarde : rouvrir
@@ -2245,10 +2292,14 @@ class TabHubApp {
             // L'historique d'annulation n'y va PAS, comme il n'y allait pas avant : un Ctrl+Z qui
             // traverserait un rechargement de navigateur n'a jamais été promis, et les piles pèsent
             // une copie complète de la partition chacune.
+            const miens = this.onglets
+                .map((o, i) => (i === this.ongletActif ? this.editeur.partition : o.etat?.partition))
+                .filter(Boolean);
+            const { onglets } = this._fusionnerBrouillon(miens);
             localStorage.setItem(CLE_BROUILLON, JSON.stringify({
                 v: 2,
                 actif: this.ongletActif,
-                onglets: this.onglets.map((o, i) => (i === this.ongletActif ? this.editeur.partition : o.etat?.partition)).filter(Boolean),
+                onglets,
             }));
             this._brouillonEcritLe = new Date();
             this.rafraichirEtatBrouillon();
@@ -2894,6 +2945,9 @@ class TabHubApp {
                 };
             });
             this.editeur.remplacer(partitions[this.ongletActif]);
+            // CE QU'ON VIENT DE RESTAURER EST « CONNU ICI » : sans quoi fermer un onglet restauré le
+            // ferait revenir, la fusion le prenant pour le morceau d'une autre fenêtre.
+            for (const p of partitions) this._connusIci.add(this._cleMorceau(p));
         } catch (err) {
             // Brouillon illisible : on repart d'une partition neuve, sans rien dire — mais l'état des
             // onglets doit redevenir cohérent, sans quoi la barre montrerait des onglets qui ne

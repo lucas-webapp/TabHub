@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**56 bancs, 1655 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**57 bancs, 1670 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.
@@ -25,6 +25,7 @@ utilisateur devenus des cas permanents.
 | `protections_fichiers_test.js` | Ce qui protège le travail quand le navigateur, lui, ne promet rien : `persist()` demandé au démarrage, le rappel de fraîcheur au-delà de cinq jours sans fichier (une fois par jour au plus, et jamais pour quelqu'un qui n'a pas travaillé depuis), le repère posé sur `visibilitychange` et non `beforeunload` — absent d'iOS — et la feuille de partage système proposée avant de télécharger à l'aveugle, en ne passant QUE `files` |
 | `ouverture_decision_test.js` | Ouvrir le MÊME morceau n'est pas ouvrir un autre morceau : l'identité par date de création puis, à défaut, par TITRE (casse et espaces indifférentes, « Étude (2) » restant distinct) — sans ce repli, un fichier reçu d'ailleurs ne déclenchait aucun conflit et empilait un morceau de plus sous le même titre. La fenêtre MONTRE ce qui distingue les deux versions, et « garder les deux » ouvre un ONGLET au lieu de renommer une copie |
 | `disque_test.js` | Le panneau qui lit le DOSSIER et non l'application : l'inventaire groupé par morceau d'après le NOM de fichier (un PDF n'a aucun contenu interrogeable), reprendre un morceau que TabHub ne connaît plus, et la suppression — dont la sûreté vient de ce que la liste exacte est AFFICHÉE avant de demander. La neutralisation du garde-fou de préfixe montre le désastre : supprimer « Etude » emporte les fichiers d'« Etude - live » |
+| `deux_fenetres_test.js` | LA MÊME APPLICATION OUVERTE DEUX FOIS — deux vraies pages dans un même contexte, seule façon de partager `localStorage` et le dossier. Le brouillon FUSIONNE au lieu de s'écraser (et un onglet fermé ne ressuscite pas), et le garde-fou du disque est joué de bout en bout : la seconde fenêtre est arrêtée, le travail de la première reste intact, « garder les deux » pose le sien à côté, et écraser archive l'ancien |
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio, et LE CHEMIN DE CHARGEMENT RÉUSSI du piano — échantillons servis par le banc, car le réseau bloqué ne le joue jamais |
 | `effets_test.js` | Les effets, de la commande au SON : un slide fusionne ses deux notes, et sa hauteur glisse sur un échantillon de PIANO (la voix synthétisée ne servant plus que hors ligne) |

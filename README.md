@@ -336,6 +336,22 @@ encore avec Alt.
 Le **brouillon du navigateur porte tous les onglets** : un rechargement les retrouve tous, avec celui
 sur lequel on travaillait. Un brouillon écrit avant l'arrivée des onglets se relit en un seul.
 
+**Plusieurs FENÊTRES de l'application, elles, sont un autre sujet** — et le seul endroit où deux
+copies de TabHub peuvent se marcher dessus. Tout ce qui vit hors de la page est partagé par l'origine
+entière : le brouillon, les préférences, le dossier de rangement.
+
+- **Le brouillon fusionne au lieu de s'écraser.** `localStorage` n'a qu'une clé pour toutes les
+  fenêtres. Chacune y écrivant « ses » onglets, la dernière à écrire gagnait, et au rechargement
+  suivant le travail de l'autre avait disparu sans un mot. Avant d'écrire, TabHub relit donc ce qui
+  est là et garde les morceaux qu'il n'a pas — ils appartiennent à une fenêtre encore ouverte. Et il
+  ne **ressuscite** pas ce qu'on a fermé : chaque fenêtre retient les morceaux qu'elle a tenus, ce qui
+  distingue « je ne l'ai pas » de « je l'ai fermé » et couvre d'une seule règle la fermeture et le
+  remplacement.
+- **Le fichier sur le disque est protégé par le garde-fou**, et c'est le cas pour lequel il a été
+  écrit : deux fenêtres sur le même morceau visent le même fichier canonique. La seconde à enregistrer
+  est arrêtée, le travail de la première reste intact, et la fenêtre comparative propose de recharger,
+  de garder les deux ou d'écraser — auquel cas l'ancien part quand même dans `_versions/`.
+
 **Rien de tout cela sur téléphone** ni sur un écran de moins de 720px : « cette option prend trop de
 place à l'écran ». La rangée se referme alors entièrement — pas un pixel de hauteur perdu. Les
 onglets déjà ouverts ne sont pas effacés pour autant : ils restent en mémoire et dans le brouillon, et
