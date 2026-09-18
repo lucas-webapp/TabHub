@@ -36,6 +36,8 @@ import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, 
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
 import { exporterMusicXML } from './io/musicxml.js';
+import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, rangementDisponible,
+         messageEnregistrement, cheminDossier, DOSSIERS } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
@@ -286,6 +288,10 @@ class TabHubApp {
             // a le droit de vider (les loupes sont ses voisines, pas ses filles — voir index.html).
             boutonsMesuresLigneHote: document.getElementById('groupe-mesures-ligne-boutons'),
             btnMesuresLigneBascule: document.getElementById('btn-mesures-ligne-bascule'),
+            etatDossier: document.getElementById('etat-dossier'),
+            btnDossierChoisir: document.getElementById('btn-dossier-choisir'),
+            btnDossierOublier: document.getElementById('btn-dossier-oublier'),
+            noteDossier: document.getElementById('note-dossier'),
             btnVitesse: document.getElementById('btn-vitesse'),
             groupeVitesse: document.getElementById('groupe-vitesse'),
             // LE CONTENANT du rang, et non le rang : c'est lui qui devient popover sur ordinateur
@@ -727,6 +733,7 @@ class TabHubApp {
         if (raison !== 'lecture') this.suivreLeCurseur();
         this.rafraichirBoutonsHistorique();
         if (raison === 'document' || raison === 'instrument') this.remplirReglages();
+        if (raison === 'document') this.rafraichirDossierRangement();
         // Le titre s'affiche désormais SUR la partition (voir engine/layout.js#poserEnTete), que
         // `dessiner()` vient de redessiner juste au-dessus : il n'y a plus de champ à resynchroniser
         // dans la barre du haut. Le panneau d'édition, lui, se remplit à son ouverture.
@@ -1101,6 +1108,34 @@ class TabHubApp {
             return { pourcent, el: b };
         });
         this.rafraichirBoutonVitesse();
+    }
+
+    /**
+     * L'état du dossier de rangement, dans les Réglages.
+     *
+     * TROIS ÉTATS, ET LE TROISIÈME EST LE PLUS IMPORTANT : un dossier configuré, aucun dossier, ou
+     * un navigateur QUI N'EN VEUT PAS. Ce dernier cas n'est pas marginal — File System Access
+     * n'existe ni sur Safari (Mac et iPhone), ni sur Firefox, ni sur Chrome Android. La ligne reste
+     * alors visible et DIT pourquoi, au lieu de disparaître : une commande absente sans explication
+     * se cherche longtemps, et le nommage (voir io/fichiers.js) continue de faire son travail.
+     */
+    rafraichirDossierRangement() {
+        const e = this.el;
+        if (!e.etatDossier) return;
+        const possible = rangementDisponible();
+        const nom = possible ? nomRacineAffiche() : '';
+        e.etatDossier.textContent = !possible ? 'Indisponible' : (nom || 'Téléchargements');
+        e.btnDossierChoisir.disabled = !possible;
+        e.btnDossierChoisir.textContent = nom ? 'Changer…' : 'Choisir…';
+        e.btnDossierOublier.hidden = !nom;
+        e.noteDossier.textContent = !possible
+            ? 'Ce navigateur ne permet pas à un site d\'écrire dans un dossier choisi — c\'est le cas de '
+              + 'Safari, Firefox, iPhone et Android. Les exports vont dans Téléchargements, où leur nom '
+              + 'suffit à les regrouper et à les trier.'
+            : (nom
+                ? `Les exports se rangent par type : ${Object.keys(DOSSIERS).map(cheminDossier).join(', ')}.`
+                : 'Choisissez un dossier et les exports s\'y rangeront par type, au lieu d\'atterrir en vrac '
+                  + 'dans Téléchargements.');
     }
 
     rafraichirBoutonVitesse() {
@@ -1967,16 +2002,20 @@ class TabHubApp {
     }
 
     /** Exporter : un fichier .json portable, téléchargé — l'ancien sens d'« Enregistrer ». */
-    exporterJson() {
+    async exporterJson() {
         try {
-            const nom = enregistrerPartition(this.editeur.partition);
+            const resultat = await enregistrerPartition(this.editeur.partition);
             // LE SEUL EXPORT QUI COMPTE COMME UNE MISE À L'ABRI, et il faut être précis là-dessus :
             // le .json est le modèle tel quel, donc le seul fichier que TabHub sait ROUVRIR. Un PDF
             // et un .mid sont des sorties — le premier ne se réimporte pas du tout, le second perd
             // les doigtés, les effets et la tablature. Les compter ici donnerait une fausse
             // assurance : « c'est exporté » alors que le travail n'est pas récupérable.
             this.travailExporte = true;
-            this.message(`Exporté → ${nom}`);
+            // LA DESTINATION EST ANNONCÉE PAR UN SEUL ENDROIT (voir io/fichiers.js#messageEnregistrement) :
+            // « → Téléchargements » écrit en dur dans chaque route deviendrait faux dès qu'un dossier
+            // est configuré, et une destination annoncée à tort est exactement ce qui fait perdre un
+            // fichier.
+            this.message(messageEnregistrement(resultat, 'Exporté'));
         } catch (err) {
             this.message('Échec de l\'export : ' + err.message);
         }
@@ -2137,12 +2176,18 @@ class TabHubApp {
     }
 
     /** Enregistre le PDF avec les réglages de l'aperçu, puis referme la fenêtre. */
-    enregistrerPdf() {
+    async enregistrerPdf() {
         try {
+            // LA PERMISSION SE DEMANDE ICI, AVANT LE RENDU, et l'ordre n'est pas indifférent : la
+            // gravure d'un PDF passe plusieurs secondes dans jsPDF et Bravura, après quoi le
+            // navigateur juge le geste expiré et n'affiche plus aucune demande. On retomberait alors
+            // en silence dans Téléchargements alors qu'un dossier est configuré. C'est le deuxième
+            // des trois pièges relevés par HarmoHub en posant cette couche.
+            const racine = await preparerRangement({ demander: true });
             this.message('Génération du PDF…', 20000);
-            const { nomFichier, nbPages } = exporterPdf(this.editeur.partition, this._optionsPdf());
+            const { nomFichier, nbPages, resultat } = await exporterPdf(this.editeur.partition, this._optionsPdf(), racine);
             this.fermerFenetres();
-            this.message(`PDF téléchargé → ${nomFichier} (${nbPages} page${nbPages > 1 ? 's' : ''})`);
+            this.message(`${messageEnregistrement(resultat, 'PDF')} (${nbPages} page${nbPages > 1 ? 's' : ''})`);
         } catch (err) {
             console.error(err);
             this.message('Échec de l\'export PDF : ' + err.message);
@@ -2273,12 +2318,16 @@ class TabHubApp {
                 if (choix == null) return;   // annulé
                 parPartie = choix === 'partie';
             }
+            // La racine est préparée UNE fois pour tout le lot : demander la permission à chaque
+            // fichier d'une série ferait apparaître autant de demandes, et la deuxième arriverait de
+            // toute façon hors geste.
+            const racine = await preparerRangement({ demander: true });
             if (parPartie) {
-                const n = exporterMidiParPartie(this.editeur.partition);
-                this.message(`${n} fichiers MIDI téléchargés`);
+                const { nombre, resultat } = await exporterMidiParPartie(this.editeur.partition, racine);
+                this.message(messageEnregistrement(resultat, `${nombre} fichiers MIDI`));
             } else {
-                const nom = exporterMidi(this.editeur.partition);
-                this.message(`Exporté → ${nom}`);
+                const resultat = await exporterMidi(this.editeur.partition, racine);
+                this.message(messageEnregistrement(resultat, 'Exporté'));
             }
         } catch (err) {
             console.error(err);
@@ -2291,10 +2340,10 @@ class TabHubApp {
      * Dorico ou Guitar Pro (voir io/musicxml.js, qui porte le détail de ce qui part et de ce qui ne
      * part pas). Pas de choix à faire ici, contrairement au MIDI : un fichier, le morceau entier.
      */
-    exporterMusicXMLFichier() {
+    async exporterMusicXMLFichier() {
         try {
-            const nom = exporterMusicXML(this.editeur.partition);
-            this.message(`Exporté → ${nom}`);
+            const resultat = await exporterMusicXML(this.editeur.partition);
+            this.message(messageEnregistrement(resultat, 'Exporté'));
         } catch (err) {
             console.error(err);
             this.message('Échec de l\'export MusicXML : ' + err.message);
@@ -2437,7 +2486,11 @@ class TabHubApp {
                 { cle: 'exporter', libelle: 'Exporter puis continuer', style: 'plein' },
             ],
         });
-        if (choix === 'exporter') { this.exporterJson(); return this._archiverAvantRemplacement(demanderVersion); }
+        // `await` ET NON UN APPEL LÂCHÉ : « Exporter puis continuer » le dit dans son libellé, et
+        // depuis que l'export peut ÉCRIRE DANS UN DOSSIER (donc demander une permission et attendre
+        // le disque), le remplacement partait avant que le fichier n'existe. L'ordre était déjà
+        // discutable avec un simple téléchargement ; il devient faux ici.
+        if (choix === 'exporter') { await this.exporterJson(); return this._archiverAvantRemplacement(demanderVersion); }
         if (choix !== 'sans') return false;
         return this._archiverAvantRemplacement(demanderVersion);
     }
@@ -2761,6 +2814,19 @@ class TabHubApp {
 
         surClic('btn-mesures-ligne-bascule', () => this.basculerGroupeMesuresLigne());
         this.construireBoutonsMesuresLigne();
+        // LE CHOIX DU DOSSIER EST APPELÉ DIRECTEMENT DEPUIS LE CLIC, sans rien attendre avant : tout
+        // `await` placé en amont consomme le geste, et le navigateur rejette alors l'ouverture du
+        // sélecteur. C'est le troisième piège relevé par HarmoHub.
+        surClic('btn-dossier-choisir', async () => {
+            const racine = await choisirDossier();
+            this.rafraichirDossierRangement();
+            if (racine) this.message(`Les exports iront dans « ${racine.name} »`);
+        });
+        surClic('btn-dossier-oublier', async () => {
+            await oublierRacine();
+            this.rafraichirDossierRangement();
+            this.message('Les exports repartent dans le dossier Téléchargements');
+        });
         surClic('btn-vitesse', () => this.basculerGroupeVitesse());
         this.construireBoutonsVitesse();
         // Le zoom : deux crans, et un rafraîchissement d'entrée de jeu pour que la loupe déjà au
@@ -4456,6 +4522,9 @@ class TabHubApp {
 
     /** Peuple la fenêtre « Instrument et accordage » depuis l'état courant. */
     remplirReglages() {
+        // Le dossier de rangement se rafraîchit AVEC le reste du panneau : c'est là qu'il s'affiche,
+        // et son état peut avoir changé depuis (dossier oublié dans un autre onglet, par exemple).
+        this.rafraichirDossierRangement();
         const piste = this.editeur.partition.piste;
         const selInstrument = document.getElementById('champ-instrument');
         const selAccordage = document.getElementById('champ-accordage');

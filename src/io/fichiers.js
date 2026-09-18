@@ -238,3 +238,258 @@ export function estFichierDuMorceau(nomFichier, prefixe, prefixesAutres = []) {
     if (!String(nomFichier).startsWith(prefixe)) return false;
     return !prefixesAutres.some(p => p.length > prefixe.length && String(nomFichier).startsWith(p));
 }
+
+// =====================================================================================
+// COUCHE RANGEMENT — écrire dans un dossier choisi plutôt que dans Téléchargements.
+// =====================================================================================
+//
+// LE BESOIN, tel qu'il a été exprimé côté HarmoHub : « les exports se font directement dans les
+// téléchargements, puis je dois les ranger correctement moi-même. Je me perds rapidement dans les
+// versions. » Le nommage ci-dessus règle le « je m'y perds » ; il reste le « je dois les ranger
+// moi-même ».
+//
+// CE QUI EST POSSIBLE, ET CE QUI NE L'EST PAS. Aucun site web ne peut écrire où il veut sur un
+// disque — ce serait une faille béante. La seule porte est File System Access : l'utilisateur DÉSIGNE
+// un dossier une fois, et le navigateur nous y laisse écrire. Cette porte n'existe que sur Chrome et
+// Edge en version bureau : ni Safari (Mac ET iPhone), ni Firefox, ni Chrome Android ne l'ont.
+// D'où les deux étages, et le second ne remplace JAMAIS le premier : si quoi que ce soit échoue —
+// dossier débranché, permission refusée, clé USB retirée — on RETOMBE sur le téléchargement au lieu
+// de perdre le fichier. Un export qui ne produit rien serait bien pire qu'un export mal rangé.
+//
+// LA RACINE EST LE DOSSIER DE L'APPLI, pas un parent : « deux dossiers frères plutôt, je ne vais pas
+// les utiliser pour les mêmes musiques ». TabHub et HarmoHub gardent donc chacun leur propre racine,
+// d'où la clé par nom d'appli.
+//
+// L'ARBORESCENCE EST À PLAT PAR TYPE. Quatre dossiers, et c'est la première adaptation à TabHub : là
+// où HarmoHub en a huit (Bibliotheque, Morceaux, PDF/Accords, PDF/Paroles, MIDI, Audio, Texte),
+// TabHub n'a ni bibliothèque de morceaux, ni paroles, ni export audio. Créer les dossiers d'un
+// classement qu'on ne remplira jamais serait exactement ce que HarmoHub a fini par retirer chez lui
+// (« PDF/Structure était créé et ne se remplirait jamais. Retiré. ») : un dossier vide est une
+// invitation à y chercher quelque chose qui n'y sera pas.
+//
+// LE LIEN ENTRE LES PIÈCES D'UN MÊME MORCEAU est porté par le NOM, pas par l'emplacement — et le nom
+// voyage partout, y compris sur les téléphones qui n'ont pas cette couche.
+export const DOSSIERS = {
+    morceaux: ['Morceaux'],       // les .json — ce qu'on rouvre dans TabHub
+    pdf: ['PDF'],                 // la partition gravée
+    midi: ['MIDI'],
+    musicxml: ['MusicXML'],       // l'échange vers MuseScore, Finale, Sibelius
+};
+
+/** Chemin affichable. Le navigateur ne donne JAMAIS le chemin absolu du dossier choisi (seulement
+ *  son nom) : inutile d'essayer d'afficher « C:\… » — on montre ce qu'on connaît. */
+export function cheminDossier(cle) {
+    return (DOSSIERS[cle] || [String(cle)]).join('/');
+}
+
+export function rangementDisponible() {
+    return typeof globalThis !== 'undefined' && typeof globalThis.showDirectoryPicker === 'function';
+}
+
+// ---------- Mémoire de la racine ----------
+// Une poignée de dossier n'est pas du texte : localStorage ne peut pas la garder. IndexedDB, si —
+// c'est le seul magasin du navigateur qui sache sérialiser un FileSystemHandle. Sans cela il faudrait
+// redésigner le dossier à chaque session, ce qui viderait la fonctionnalité de son sens.
+// ATTENTION : la poignée survit, mais PAS la permission. Chrome la redemande à chaque session, et
+// seulement pendant un geste de l'utilisateur (voir preparerRangement).
+//
+// LES MÊMES NOMS DE BASE QUE HARMOHUB, et c'est voulu : les deux applications seront servies depuis
+// la même origine, donc depuis la même IndexedDB. Une base par appli marcherait aussi (les clés sont
+// déjà séparées par appli), mais le jour où TabHub sera servi à côté de HarmoHub et chargera LE
+// module commun, un nom différent ferait silencieusement oublier le dossier déjà désigné.
+const BDD = 'harmohub_fichiers';
+const BDD_STORE = 'racines';
+const CLE_NOM_RACINE = 'harmohub_dossier_rangement';
+
+function ouvrirBdd() {
+    return new Promise((resolve, reject) => {
+        if (typeof indexedDB === 'undefined') return reject(new Error('IndexedDB indisponible'));
+        const req = indexedDB.open(BDD, 1);
+        req.onupgradeneeded = () => {
+            if (!req.result.objectStoreNames.contains(BDD_STORE)) req.result.createObjectStore(BDD_STORE);
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+    });
+}
+
+function transaction(mode, action) {
+    return ouvrirBdd().then((bdd) => new Promise((resolve, reject) => {
+        const tx = bdd.transaction(BDD_STORE, mode);
+        const req = action(tx.objectStore(BDD_STORE));
+        tx.oncomplete = () => { bdd.close(); resolve(req && req.result); };
+        tx.onerror = () => { bdd.close(); reject(tx.error); };
+    }));
+}
+
+const cleRacine = (appli) => `racine:${appli || NOM_APPLI}`;
+
+/**
+ * Le NOM du dossier est doublé dans localStorage. Pas par redondance : lire IndexedDB demande un
+ * `await`, or un panneau de réglages se construit d'un trait, sans attente. Sans ce doublon, il ne
+ * pourrait pas dire quel dossier est configuré au moment où il s'affiche. Le nom seul ne donne aucun
+ * accès — la poignée, elle, reste dans IndexedDB.
+ */
+export function nomRacineAffiche(appli) {
+    try { return localStorage.getItem(`${CLE_NOM_RACINE}:${appli || NOM_APPLI}`) || ''; } catch (e) { return ''; }
+}
+function retenirNomRacine(nom, appli) {
+    try {
+        const cle = `${CLE_NOM_RACINE}:${appli || NOM_APPLI}`;
+        if (nom) localStorage.setItem(cle, nom); else localStorage.removeItem(cle);
+    } catch (e) { /* mode privé saturé : le rangement marche quand même, seul l'affichage du nom se tait */ }
+}
+
+async function lireRacineMemorisee(appli) {
+    try { return (await transaction('readonly', (s) => s.get(cleRacine(appli)))) || null; }
+    catch (e) { console.error('Lecture du dossier mémorisé impossible :', e); return null; }
+}
+
+export async function oublierRacine(appli) {
+    retenirNomRacine('', appli);
+    try { await transaction('readwrite', (s) => s.delete(cleRacine(appli))); return true; }
+    catch (e) { console.error('Oubli du dossier impossible :', e); return false; }
+}
+
+/** `demander` n'est vrai que dans un geste de l'utilisateur : hors geste, Chrome REFUSE la demande au
+ *  lieu de l'afficher, et on aurait brûlé notre unique occasion de la poser. */
+async function permissionEcriture(handle, demander) {
+    if (!handle) return false;
+    if (typeof handle.queryPermission !== 'function') return true;   // OPFS, ou doublure de banc
+    const options = { mode: 'readwrite' };
+    try {
+        if ((await handle.queryPermission(options)) === 'granted') return true;
+        if (!demander || typeof handle.requestPermission !== 'function') return false;
+        return (await handle.requestPermission(options)) === 'granted';
+    } catch (e) { console.error('Vérification de la permission impossible :', e); return false; }
+}
+
+/**
+ * La racine utilisable, ou `null`. À APPELER EN PREMIER dans chaque export, tant que le clic est
+ * encore « chaud » : le rendu d'un PDF de partition passe plusieurs secondes dans jsPDF et Bravura,
+ * après quoi le navigateur considère le geste expiré et n'affiche plus aucune demande de permission.
+ * On retomberait alors en silence dans Téléchargements alors qu'un dossier est configuré.
+ */
+export async function preparerRangement({ demander = true, appli } = {}) {
+    if (!rangementDisponible()) return null;
+    const racine = await lireRacineMemorisee(appli);
+    if (!racine) return null;
+    if (!(await permissionEcriture(racine, demander))) return null;
+    return racine;
+}
+
+/** Ouvre le sélecteur de dossier. DOIT être appelé directement depuis un gestionnaire de clic : tout
+ *  `await` placé avant consomme le geste et le navigateur rejette l'ouverture. */
+export async function choisirDossier(appli) {
+    if (!rangementDisponible()) return null;
+    let racine;
+    try {
+        racine = await globalThis.showDirectoryPicker({ id: `racine-${appli || NOM_APPLI}`, mode: 'readwrite', startIn: 'documents' });
+    } catch (e) {
+        if (e && e.name === 'AbortError') return null;   // sélecteur fermé : ce n'est pas une panne
+        console.error('Choix du dossier impossible :', e);
+        return null;
+    }
+    if (!(await permissionEcriture(racine, true))) return null;
+    // L'ARBORESCENCE EST CRÉÉE TOUT DE SUITE, au lieu d'attendre le premier export de chaque type. Un
+    // dossier vide n'inspire pas confiance : voir les quatre sous-dossiers apparaître dit ce que
+    // l'appli va faire, et laisse y déposer des fichiers à la main dès maintenant.
+    try { for (const cle of Object.keys(DOSSIERS)) await sousDossier(racine, cle, true); }
+    catch (e) { console.error('Création de l\'arborescence incomplète :', e); }
+    try { await transaction('readwrite', (s) => s.put(racine, cleRacine(appli))); }
+    catch (e) { console.error('Mémorisation du dossier impossible :', e); }
+    retenirNomRacine(racine.name || '', appli);
+    return racine;
+}
+
+async function sousDossier(racine, cle, creer) {
+    let courant = racine;
+    for (const nom of (DOSSIERS[cle] || [String(cle)])) {
+        courant = await courant.getDirectoryHandle(nom, { create: !!creer });
+    }
+    return courant;
+}
+
+async function ecrireDansRacine(racine, cle, nomFichier, blob) {
+    const dossier = await sousDossier(racine, cle, true);
+    const fichier = await dossier.getFileHandle(nomFichier, { create: true });
+    const flux = await fichier.createWritable();
+    try { await flux.write(blob); } finally { await flux.close(); }
+    return fichier;
+}
+
+/**
+ * Les fichiers réellement présents dans un sous-dossier, du plus récent au plus ancien. Lit le
+ * DISQUE, et rien d'autre : c'est lui qui fait foi, puisque l'utilisateur peut déplacer ou effacer un
+ * fichier à la main sans que l'appli en sache rien. HarmoHub a d'abord écrit un `_index.json` à
+ * chaque export pour tenir cette comptabilité, puis l'a retiré — RIEN NE LE LISAIT, et une
+ * comptabilité parallèle qui peut diverger de la réalité est un passif : le jour où elle ment, elle
+ * ment avec assurance.
+ */
+export async function listerDossier(cle, { appli } = {}) {
+    const racine = await preparerRangement({ demander: false, appli });
+    if (!racine) return [];
+    try {
+        const dossier = await sousDossier(racine, cle, false);
+        const noms = [];
+        for await (const [nom, handle] of dossier.entries()) {
+            if (handle.kind === 'file') noms.push(nom);
+        }
+        // Les noms portent « aaaa-mm-jj hhmm » : le tri alphabétique décroissant EST le tri
+        // chronologique inverse. Pas besoin de lire les dates du système.
+        return noms.sort().reverse();
+    } catch (e) { return []; }
+}
+
+/**
+ * LE POINT DE PASSAGE UNIQUE de tout export. Range dans le dossier si possible, retombe sur le
+ * téléchargement sinon, et rend de quoi dire à l'utilisateur OÙ le fichier a atterri.
+ *
+ * `racine` peut être fournie par l'appelant qui l'a déjà préparée pendant le geste (voir
+ * preparerRangement) ; `undefined` = on s'en charge, `null` explicite = « j'ai déjà regardé, il n'y
+ * a pas de dossier », et on ne redemande pas.
+ */
+export async function enregistrerFichier(contenu, { morceau, type, extension, dossier, nom, date, appli, racine, typeMime } = {}) {
+    const blob = contenu instanceof Blob ? contenu : new Blob([contenu], { type: typeMime || 'application/octet-stream' });
+    const nomFichier = nom || nomExport({ morceau, type, extension, date, appli });
+    const cle = dossier || 'morceaux';
+    let cible = racine;
+    if (cible === undefined) cible = await preparerRangement({ demander: true, appli });
+    if (cible) {
+        try {
+            await ecrireDansRacine(cible, cle, nomFichier, blob);
+            return { range: true, nom: nomFichier, dossier: cheminDossier(cle),
+                     chemin: `${cheminDossier(cle)}/${nomFichier}`, racine: cible.name || '' };
+        } catch (e) {
+            // Dossier débranché, disque plein, permission retirée en cours de route : on ne perd pas
+            // le fichier pour autant.
+            console.error('Rangement impossible, repli sur le téléchargement :', e);
+        }
+    }
+    telechargerBlob(blob, nomFichier);
+    return { range: false, nom: nomFichier, dossier: null, chemin: null, racine: '' };
+}
+
+/** Le téléchargement classique — le repli, et l'unique chemin sur Safari, Firefox et les téléphones. */
+function telechargerBlob(blob, nomFichier) {
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = nomFichier;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+}
+
+/**
+ * Le message à afficher après un export. UN SEUL ENDROIT, parce qu'une destination annoncée à tort
+ * est exactement ce qui fait perdre un fichier : « Exporté → Téléchargements » écrit en dur dans
+ * chaque route deviendrait faux dès qu'un dossier est configuré.
+ */
+export function messageEnregistrement(resultat, quoi) {
+    if (!resultat) return quoi;
+    return resultat.range
+        ? `${quoi} → ${resultat.racine ? resultat.racine + '/' : ''}${resultat.dossier}`
+        : `${quoi} → dossier Téléchargements`;
+}

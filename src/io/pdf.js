@@ -8,7 +8,7 @@
 
 import { mettreEnPage } from '../engine/layout.js';
 import { dessinerPrimitives, PALETTE_PDF } from '../render/pdf.js';
-import { nomPour, nomDuMorceau } from './fichiers.js';
+import { nomPour, nomDuMorceau, enregistrerFichier, TYPES, morceauDe } from './fichiers.js';
 
 /**
  * Formats de page, en millimètres. La mise en page est calculée DIRECTEMENT dans cette unité — un
@@ -184,13 +184,22 @@ export function construirePdf(partition, options = {}) {
 }
 
 /**
- * Construit le PDF et déclenche son téléchargement. `pdf.save()` pose un lien `download` : le
- * navigateur ouvre « Enregistrer sous », sans boîte d'impression ni onglet intermédiaire.
+ * Construit le PDF et l'écrit — dans le dossier choisi si l'on en a un, en téléchargement sinon
+ * (voir io/fichiers.js#enregistrerFichier, le point de passage unique des cinq routes).
+ * `racine` est préparée PAR L'APPELANT, pendant le geste, et pour une raison qui ne se devine pas :
+ * voir le commentaire dans le corps.
  */
-export function exporterPdf(partition, options = {}) {
+export async function exporterPdf(partition, options = {}, racine) {
     const { pdf, nomFichier, nbPages } = construirePdf(partition, options);
-    pdf.save(nomFichier);
-    return { nomFichier, nbPages };
+    // ON DEMANDE LES OCTETS, on ne laisse pas jsPDF les enregistrer lui-même : sa méthode
+    // d'enregistrement pose son propre lien de téléchargement et ne rend RIEN — il n'y aurait donc
+    // rien à ranger dans le dossier choisi. C'est le premier des trois pièges relevés par HarmoHub
+    // en posant cette couche chez lui.
+    const resultat = await enregistrerFichier(pdf.output('blob'), {
+        nom: nomFichier, dossier: 'pdf', typeMime: 'application/pdf', racine,
+        morceau: morceauDe(partition), type: TYPES.partition, extension: 'pdf',
+    });
+    return { nomFichier, nbPages, resultat };
 }
 
 export { PALETTE_PDF };

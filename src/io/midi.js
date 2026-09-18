@@ -17,8 +17,7 @@ import { grilleDesTemps, deduireSubdivisions, callerSurGrille, bordSuivant, figu
          detecterSwing } from '../model/rythme.js';
 import { noiresParMesure } from '../model/duration.js';
 import { INSTRUMENTS, hauteurDeCase, accordageParDefaut } from '../model/instruments.js';
-import { telecharger } from './json.js';
-import { nomPour } from './fichiers.js';
+import { nomPour, enregistrerFichier } from './fichiers.js';
 
 /** Résolution du fichier écrit — indépendante du PPQ de Tone.Transport (voir audio/player.js),
  *  qui ne concerne que la LECTURE en mémoire. 480 est la valeur la plus répandue dans l'écosystème
@@ -227,15 +226,14 @@ function titreSection(section, index) {
  * naviguer par section dans un DAW sans pour autant avoir demandé un fichier PAR section (voir
  * exporterMidiParPartie, l'autre choix proposé par main.js quand il y en a plus d'une).
  */
-export function exporterMidi(partition) {
+export async function exporterMidi(partition, racine) {
     const sections = sectionsDe(partition);
     const marqueurs = sections.length > 1
         ? sections.map((s, i) => ({ tic: Math.round(positionDebutMesure(partition, s.debut) * PPQ), titre: titreSection(s, i) }))
         : undefined;
     const octets = genererMidi(partition, { marqueurs });
     const nom = nomPour(partition, 'midi', 'mid');   // voir io/fichiers.js, qui décide de la forme
-    telecharger(octets, nom, 'audio/midi');
-    return nom;
+    return enregistrerFichier(octets, { nom, dossier: 'midi', typeMime: 'audio/midi', racine });
 }
 
 /**
@@ -268,10 +266,19 @@ export function genererMidiSections(partition) {
  * navigateur, comme HarmoHub : plusieurs téléchargements déclenchés d'un coup peuvent être
  * bloqués/regroupés) — largement assez pour les laisser tous passer.
  */
-export function exporterMidiParPartie(partition) {
+export async function exporterMidiParPartie(partition, racine) {
     const fichiers = genererMidiSections(partition);
-    fichiers.forEach((f, i) => setTimeout(() => telecharger(f.octets, f.nom, 'audio/midi'), i * 200));
-    return fichiers.length;
+    // EN SÉRIE, ET NON EN PARALLÈLE. Le délai de 200 ms existait pour le TÉLÉCHARGEMENT (plusieurs
+    // déclenchés d'un coup peuvent être bloqués ou regroupés par le navigateur) ; il n'a aucun sens
+    // pour une écriture dans un dossier, où deux écritures concurrentes sur la même arborescence se
+    // marchent dessus. `await` en série règle les deux cas d'un coup, et le repli garde son délai
+    // puisque chaque téléchargement attend la fin du précédent.
+    let dernier = null;
+    for (const f of fichiers) {
+        dernier = await enregistrerFichier(f.octets, { nom: f.nom, dossier: 'midi', typeMime: 'audio/midi', racine });
+        if (!dernier.range) await new Promise(r => setTimeout(r, 200));
+    }
+    return { nombre: fichiers.length, resultat: dernier };
 }
 
 // ---------------------------------------------------------------------------------------------

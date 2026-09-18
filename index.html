@@ -519,6 +519,24 @@
                         <span class="interrupteur-curseur"></span>
                     </button>
                 </div>
+                <!-- LE DOSSIER DE RANGEMENT — l'étage du haut (voir io/fichiers.js).
+                     ICI ET PAS AILLEURS : c'est un réglage qu'on pose UNE FOIS, comme un accordage
+                     ou un volume, pas un geste qu'on refait en travaillant. Le menu Fichiers, lui,
+                     porte les actions.
+                     LA LIGNE EXISTE TOUJOURS, même sur un navigateur qui n'a pas l'API : elle dit
+                     alors pourquoi, au lieu de disparaître. Une fonctionnalité absente sans
+                     explication se cherche longtemps — et celle-ci manque sur Safari, Firefox,
+                     iPhone et Android, c'est-à-dire chez beaucoup de monde.
+                     LE NOM DU DOSSIER est posé par main.js#rafraichirDossierRangement, qui le lit
+                     dans localStorage : la poignée, elle, vit dans IndexedDB et demanderait un
+                     `await` que la construction d'un panneau n'a pas. -->
+                <div class="ligne-champ">
+                    <label id="etiquette-dossier">Dossier de rangement</label>
+                    <span class="valeur-etat" id="etat-dossier" aria-live="polite">—</span>
+                    <button type="button" id="btn-dossier-choisir" class="btn-neutre" aria-labelledby="etiquette-dossier">Choisir…</button>
+                    <button type="button" id="btn-dossier-oublier" class="btn-neutre" hidden>Oublier</button>
+                </div>
+                <p class="note-reglage" id="note-dossier"></p>
                 <!-- LES RÉGLAGES DE MISE EN PAGE DU PDF NE SONT PAS ICI, et c'est délibéré : ils
                      vivent dans la fenêtre d'aperçu (voir #fenetre-pdf), là où l'on VOIT ce qu'ils
                      changent. Un « nombre de mesures par ligne » réglé à l'aveugle dans un panneau,

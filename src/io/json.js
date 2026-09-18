@@ -13,7 +13,7 @@ import { normaliser } from '../model/score.js';
 // `json.js` depuis le premier jour — casser ces chemins n'apporterait rien, et le commentaire qui
 // disait « le seul endroit qui décide d'un nom de fichier » est simplement devenu vrai ailleurs.
 export { nomDeFichierSur, nomDuMorceau } from './fichiers.js';
-import { nomPour } from './fichiers.js';
+import { nomPour, enregistrerFichier, TYPES, morceauDe } from './fichiers.js';
 
 /**
  * Déclenche le téléchargement d'un contenu. Un lien `download` synthétique plutôt qu'une nouvelle
@@ -34,12 +34,15 @@ export function telecharger(contenu, nomFichier, typeMime) {
     setTimeout(() => URL.revokeObjectURL(url), 4000);
 }
 
-/** Exporte la partition dans un .json téléchargé. Renvoie le nom du fichier écrit. */
-export function enregistrerPartition(partition) {
-    const nom = nomPour(partition, 'morceau', 'json');
+/** Exporte la partition. Rangée dans le dossier choisi si possible, téléchargée sinon — voir
+ * io/fichiers.js#enregistrerFichier, le point de passage unique. Rend le RÉSULTAT (où le fichier a
+ * atterri), pas seulement son nom : c'est ce qui permet d'annoncer la bonne destination. */
+export async function enregistrerPartition(partition, racine) {
     const contenu = JSON.stringify({ ...partition, meta: { ...partition.meta, modifieLe: new Date().toISOString() } }, null, 2);
-    telecharger(contenu, nom, 'application/json');
-    return nom;
+    return enregistrerFichier(contenu, {
+        morceau: morceauDe(partition) || 'tablature', type: TYPES.morceau, extension: 'json',
+        dossier: 'morceaux', typeMime: 'application/json', racine,
+    });
 }
 
 /**

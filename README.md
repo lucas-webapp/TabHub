@@ -714,6 +714,41 @@ le nom qu'on croit lui avoir donné.
 tout caractère non-ASCII posé dans l'attribut `download` d'un lien fait retomber le navigateur sur son
 nom par défaut — le fichier arrivait nommé « download ». Mesuré caractère par caractère ici ; HarmoHub
 ne le fait pas. Un accent en moins reste un nom qu'on reconnaît.
+
+#### Ranger les exports dans un dossier choisi
+
+Par-dessus le nommage vient un second étage : **désigner un dossier une fois** (Réglages → Fichiers),
+et les exports s'y classent par type — `Morceaux`, `PDF`, `MIDI`, `MusicXML`. L'arborescence est créée
+au moment du choix, pas au premier export de chaque type : un dossier vide n'inspire pas confiance.
+
+**Quatre dossiers et non les huit de HarmoHub**, et c'est la principale adaptation : TabHub n'a ni
+bibliothèque de morceaux, ni paroles, ni export audio. Créer le classement de ce qu'on ne rangera
+jamais est exactement ce que HarmoHub a fini par retirer chez lui — un dossier vide est une invitation
+à y chercher quelque chose qui n'y sera pas.
+
+**Le second étage ne remplace jamais le premier.** File System Access n'existe que sur Chrome et Edge
+en version bureau : ni Safari (Mac *et* iPhone), ni Firefox, ni Chrome Android. Et même là où elle
+existe, tout peut échouer — dossier débranché, permission retirée, clé USB ôtée. Dans tous ces cas
+l'export **repart en téléchargement** au lieu de disparaître : un export qui ne produit rien serait
+bien pire qu'un export mal rangé. La ligne de réglage reste visible sur les navigateurs sans l'API et
+dit pourquoi, plutôt que de s'effacer.
+
+**Trois pièges, relevés par HarmoHub et retrouvés ici :**
+
+- la permission se demande **avant** le rendu du PDF, pas après : la gravure passe plusieurs secondes
+  dans jsPDF et Bravura, après quoi le navigateur juge le geste expiré et n'affiche plus rien — on
+  retomberait en silence dans Téléchargements alors qu'un dossier est configuré ;
+- on demande à jsPDF **les octets**, pas d'enregistrer lui-même : sa méthode d'enregistrement pose son
+  propre lien de téléchargement et ne rend rien, il n'y aurait donc rien à ranger ;
+- le **nom** du dossier est doublé dans `localStorage`, parce que lire IndexedDB demande un `await` et
+  qu'un panneau de réglages se construit d'un trait : sans ce doublon il ne pourrait pas annoncer la
+  destination au moment où il s'affiche. La poignée, elle, reste dans IndexedDB — seul magasin du
+  navigateur qui sache la sérialiser.
+
+Enfin, **la destination affichée après un export vient d'un seul endroit** : « → Téléchargements »
+écrit en dur dans chaque route deviendrait faux dès qu'un dossier existe, et une destination annoncée
+à tort est exactement ce qui fait perdre un fichier.
+
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
 - **Exporter PDF** ouvre d'abord un **aperçu de la mise en page**, et n'écrit le fichier qu'ensuite.

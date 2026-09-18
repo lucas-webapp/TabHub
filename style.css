@@ -854,6 +854,12 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    lisent d'emblée comme deux choses différentes, la première ne pouvant pas se cliquer. */
 .valeur-etat { margin-left: auto; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .valeur-etat-alerte { color: var(--btn-red-border-hover); }
+/* NOTE SOUS UNE LIGNE DE RÉGLAGE — une phrase qui explique, pas une valeur. Elle dit ce que le
+   réglage au-dessus fait ou pourquoi il est indisponible ; discrète, mais en toutes lettres, parce
+   qu'une fonctionnalité absente sans explication se cherche longtemps. Vide, elle ne prend aucune
+   place : `:empty` la referme plutôt que de laisser une gouttière fantôme. */
+.note-reglage { margin: -2px 0 8px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45; }
+.note-reglage:empty { display: none; margin: 0; }
 .info-transport strong { color: var(--text-main); font-weight: 700; }
 
 /* ============================================================
