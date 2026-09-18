@@ -493,3 +493,168 @@ export function messageEnregistrement(resultat, quoi) {
         ? `${quoi} → ${resultat.racine ? resultat.racine + '/' : ''}${resultat.dossier}`
         : `${quoi} → dossier Téléchargements`;
 }
+
+// =====================================================================================
+// GARDE-FOUS — lire le disque avant de l'écraser.
+// =====================================================================================
+//
+// LE DÉFAUT QU'ILS RÉPARENT, et il faut le nommer précisément parce qu'il ne ressemble pas à un
+// défaut. Jusqu'ici rien n'écrasait jamais rien : chaque export porte son horodatage, donc chaque
+// export crée un fichier de plus. C'est une sûreté PAR ACCUMULATION — et le prix en est que rien
+// n'est jamais REMPLACÉ. Dix exports d'« Étude » donnent dix fichiers sans qu'aucun soit LE fichier
+// d'Étude. C'est exactement le « je me perds rapidement dans les versions » qui a lancé tout ce
+// chantier côté HarmoHub.
+//
+// D'OÙ DEUX NOMS POUR UN MÊME DOCUMENT :
+//   - dans le DOSSIER choisi, le nom CANONIQUE, stable : « TabHub - Étude - Dyens - Morceau.json ».
+//     Toujours le même, donc toujours à la même place, et l'ancien contenu part dans `_versions/`.
+//   - en TÉLÉCHARGEMENT, le nom horodaté : dans Téléchargements il n'y a ni rotation ni dossier de
+//     versions, et deux fichiers de même nom y deviennent « (1) », « (2) ».
+//
+// ET LE GARDE-FOU PROPREMENT DIT : avant d'écrire, on LIT le fichier en place. S'il est plus récent
+// que la version ouverte ici, ou s'il appartient à un autre morceau portant le même nom, on n'écrit
+// RIEN et on rend de quoi poser la question à l'utilisateur.
+const DOSSIER_VERSIONS = '_versions';
+const VERSIONS_GARDEES = 10;
+
+/**
+ * LES ARCHIVES SE DATENT À LA SECONDE, pas à la minute comme les noms d'export.
+ *
+ * Défaut trouvé par le banc de HarmoHub, et il vaut la peine d'être gardé écrit : à la minute,
+ * quatre enregistrements rapprochés ne laissaient qu'UNE archive — les quatre portaient le même nom
+ * et s'écrasaient l'une l'autre. Le filet de sécurité se vidait tout seul, en silence, exactement
+ * dans le cas où l'on en a le plus besoin : des essais successifs en quelques minutes. Deux Ctrl+S
+ * d'affilée suffisaient.
+ */
+function horodatageVersion(date = new Date()) {
+    const deux = (n) => String(n).padStart(2, '0');
+    return `${horodatage(date)}${deux(date.getSeconds())}`;
+}
+
+const separeNom = (nomFichier) => {
+    const i = nomFichier.lastIndexOf('.');
+    return i > 0 ? { base: nomFichier.slice(0, i), ext: nomFichier.slice(i) } : { base: nomFichier, ext: '' };
+};
+
+/** Le fichier en place, recopié dans `_versions/` sous SA date de dernière écriture — pas sous
+ *  maintenant. Une archive doit dire quand elle a été faite, sinon les dix portent toutes l'heure du
+ *  jour où l'on a archivé et ne servent plus à se repérer. */
+async function archiverVersion(racine, cle, nomFichier) {
+    let dossier, existant;
+    try {
+        dossier = await sousDossier(racine, cle, false);
+        existant = await dossier.getFileHandle(nomFichier, { create: false });
+    } catch (e) { return null; }   // rien à archiver : premier enregistrement
+    const fichier = await existant.getFile();
+    const { base, ext } = separeNom(nomFichier);
+    const archives = await dossier.getDirectoryHandle(DOSSIER_VERSIONS, { create: true });
+    const nomArchive = `${base} - ${horodatageVersion(new Date(fichier.lastModified))}${ext}`;
+    const cible = await archives.getFileHandle(nomArchive, { create: true });
+    const flux = await cible.createWritable();
+    try { await flux.write(await fichier.arrayBuffer()); } finally { await flux.close(); }
+    return nomArchive;
+}
+
+/** Ne garde que les `nbGardees` archives les plus récentes d'un document. */
+async function purgerVersions(racine, cle, nomFichier, nbGardees = VERSIONS_GARDEES) {
+    const { base } = separeNom(nomFichier);
+    let archives;
+    try {
+        const dossier = await sousDossier(racine, cle, false);
+        archives = await dossier.getDirectoryHandle(DOSSIER_VERSIONS, { create: false });
+    } catch (e) { return 0; }
+    const noms = [];
+    for await (const [nom, h] of archives.entries()) {
+        if (h.kind === 'file' && nom.startsWith(base + ' - ')) noms.push(nom);
+    }
+    // Le nom porte « aaaa-mm-jj hhmmss » : le tri alphabétique EST le tri chronologique.
+    noms.sort().reverse();
+    let retires = 0;
+    for (const nom of noms.slice(nbGardees)) {
+        try { await archives.removeEntry(nom); retires++; } catch (e) { /* déjà parti */ }
+    }
+    return retires;
+}
+
+/** Les archives d'un document, la plus récente d'abord. */
+export async function listerVersions(racine, cle, nomFichier) {
+    const { base } = separeNom(nomFichier);
+    try {
+        const dossier = await sousDossier(racine, cle, false);
+        const archives = await dossier.getDirectoryHandle(DOSSIER_VERSIONS, { create: false });
+        const noms = [];
+        for await (const [nom, h] of archives.entries()) {
+            if (h.kind === 'file' && nom.startsWith(base + ' - ')) noms.push(nom);
+        }
+        return noms.sort().reverse();
+    } catch (e) { return []; }
+}
+
+/**
+ * L'état du fichier en place pour CE morceau. Quatre réponses, et la quatrième est celle qui compte :
+ *
+ *   absent    — rien sur le disque, on écrit sans rien demander ;
+ *   aJour     — le même document, et le disque n'est pas plus récent : on écrit ;
+ *   enAvance  — le MÊME document, mais le fichier est PLUS RÉCENT que ce qui est ouvert ici. Deux
+ *               onglets, deux machines, ou simplement une version qu'on a oubliée : écraser
+ *               perdrait un travail qu'on n'a jamais vu ;
+ *   autre     — un AUTRE document au même nom. Deux morceaux différents peuvent porter le même titre
+ *               et le même artiste ; c'est leur date de CRÉATION qui les distingue, et elle voyage
+ *               dans le fichier depuis le premier jour (`meta.creeLe`).
+ */
+export async function etatFichierSurDisque(racine, partition, cle = 'morceaux') {
+    const nomFichier = nomCanonique({ morceau: morceauDe(partition) || 'tablature',
+                                      type: TYPES.morceau, extension: 'json' });
+    if (!racine) return { etat: 'absent', nomFichier };
+    let fichier;
+    try {
+        const dossier = await sousDossier(racine, cle, false);
+        fichier = await (await dossier.getFileHandle(nomFichier, { create: false })).getFile();
+    } catch (e) { return { etat: 'absent', nomFichier }; }
+    let disque = null;
+    try { disque = JSON.parse(await fichier.text()); } catch (e) { /* illisible : traité comme un autre document */ }
+    const metaDisque = disque?.meta || {};
+    const meta = partition?.meta || {};
+    if (!disque || (metaDisque.creeLe && meta.creeLe && metaDisque.creeLe !== meta.creeLe)) {
+        return { etat: 'autre', nomFichier, disque: metaDisque, quand: fichier.lastModified };
+    }
+    const surDisque = Date.parse(metaDisque.modifieLe || '') || fichier.lastModified;
+    const ici = Date.parse(meta.modifieLe || '') || 0;
+    // UNE SECONDE DE TOLÉRANCE : `modifieLe` est posé à l'écriture et le système de fichiers arrondit
+    // sa propre date. Sans cette marge, un fichier qu'on vient d'écrire se déclare « plus récent que
+    // lui-même » au tout premier enregistrement suivant.
+    if (surDisque > ici + 1000) return { etat: 'enAvance', nomFichier, disque: metaDisque, quand: surDisque };
+    return { etat: 'aJour', nomFichier, disque: metaDisque, quand: surDisque };
+}
+
+/**
+ * Écrit le morceau dans le dossier, garde-fou compris. Rend `{conflit}` SANS RIEN ÉCRIRE quand le
+ * fichier en place demande une décision — c'est l'appelant qui pose la question, parce que lui seul
+ * sait poser une fenêtre.
+ */
+export async function ecrireMorceau(partition, { racine, forcer = false, cle = 'morceaux' } = {}) {
+    if (!racine) return { range: false, ignore: true };
+    const etat = await etatFichierSurDisque(racine, partition, cle);
+    if (!forcer && (etat.etat === 'enAvance' || etat.etat === 'autre')) {
+        return { range: false, conflit: etat.etat, etat };
+    }
+    const contenu = JSON.stringify({ ...partition, meta: { ...partition.meta, modifieLe: new Date().toISOString() } }, null, 2);
+    // L'ANCIEN EST MIS DE CÔTÉ AVANT D'ÉCRIRE LE NOUVEAU : si l'écriture échoue à mi-chemin, la copie
+    // d'archive existe déjà et rien n'est perdu. L'ordre inverse laisserait une fenêtre où ni l'ancien
+    // ni le nouveau ne seraient complets.
+    let archive = null;
+    try { archive = await archiverVersion(racine, cle, etat.nomFichier); }
+    catch (e) { console.error('Version précédente non archivée :', e); }
+    await ecrireDansRacine(racine, cle, etat.nomFichier, new Blob([contenu], { type: 'application/json' }));
+    try { await purgerVersions(racine, cle, etat.nomFichier); }
+    catch (e) { console.error('Purge des versions impossible :', e); }
+    return { range: true, nom: etat.nomFichier, dossier: cheminDossier(cle),
+             chemin: `${cheminDossier(cle)}/${etat.nomFichier}`, racine: racine.name || '', archive };
+}
+
+/** Relit le morceau tel qu'il est sur le disque — pour « recharger depuis le disque ». */
+export async function lireMorceauSurDisque(racine, nomFichier, cle = 'morceaux') {
+    const dossier = await sousDossier(racine, cle, false);
+    const fichier = await (await dossier.getFileHandle(nomFichier, { create: false })).getFile();
+    return JSON.parse(await fichier.text());
+}

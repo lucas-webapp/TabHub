@@ -749,6 +749,46 @@ Enfin, **la destination affichée après un export vient d'un seul endroit** : �
 écrit en dur dans chaque route deviendrait faux dès qu'un dossier existe, et une destination annoncée
 à tort est exactement ce qui fait perdre un fichier.
 
+
+#### Deux noms pour un même morceau, et un garde-fou
+
+Jusqu'ici rien n'écrasait jamais rien : chaque export porte son horodatage, donc chaque export crée un
+fichier de plus. C'est une sûreté **par accumulation**, et son prix est que rien n'est jamais
+*remplacé* — dix exports d'« Étude » donnent dix fichiers sans qu'aucun soit **le** fichier d'Étude.
+
+D'où deux noms pour un même document :
+
+- dans le **dossier** choisi, un nom **canonique** et stable (`TabHub - Étude - Dyens - Morceau.json`).
+  Toujours le même, donc toujours à la même place, et le contenu précédent part dans `_versions/` ;
+- en **téléchargement**, le nom horodaté : là il n'y a ni rotation ni dossier de versions, et deux
+  fichiers de même nom deviennent « (1) », « (2) ».
+
+**Les archives sont datées à la seconde**, et c'est un défaut trouvé au banc qui l'a imposé : à la
+minute, quatre enregistrements rapprochés portaient le même nom et s'écrasaient l'un l'autre. Le filet
+de sécurité se vidait tout seul, en silence, exactement dans le cas où l'on en a le plus besoin — des
+essais successifs en quelques minutes. Deux `Ctrl+S` d'affilée suffisaient. Dix archives sont gardées.
+
+**Le garde-fou lit le fichier en place avant d'écrire.** S'il est plus récent que la version ouverte
+ici — un autre onglet, une autre machine, une version oubliée — ou s'il appartient à un *autre*
+morceau portant le même titre, **rien n'est écrit** et une fenêtre comparative s'ouvre :
+
+| | |
+|---|---|
+| **Recharger depuis le disque** | reprendre la version qui est là |
+| **Garder les deux** | la nôtre part sous son nom horodaté, à côté |
+| **Écraser** | et l'ancien fichier part quand même dans `_versions/` |
+| **Annuler** | rien n'est écrit |
+
+Quatre issues et non trois : sans « recharger », il faudrait annuler puis rouvrir le fichier à la
+main — exactement le temps qu'on cherche à faire gagner.
+
+Deux morceaux différents peuvent porter le même titre *et* le même artiste. C'est leur **date de
+création** qui les distingue, et elle voyage dans le fichier depuis le premier jour.
+
+Enfin, **`Ctrl+S` écrit aussi le fichier** quand un dossier est configuré — sans jamais bloquer
+l'enregistrement local, qui reste la vraie sauvegarde. Sans cela, « Enregistrer » et « le fichier sur
+le disque » divergent en silence, et l'on croit avoir sauvegardé ce qui n'est que dans le navigateur.
+
 - **Ouvrir** relit un `.json`. Tout champ y est borné à la relecture : un fichier abîmé s'ouvre
   réparé plutôt que de faire planter le rendu.
 - **Exporter PDF** ouvre d'abord un **aperçu de la mise en page**, et n'écrit le fichier qu'ensuite.

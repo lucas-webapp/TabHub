@@ -37,7 +37,8 @@ import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
 import { exporterMusicXML } from './io/musicxml.js';
 import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, rangementDisponible,
-         messageEnregistrement, cheminDossier, DOSSIERS } from './io/fichiers.js';
+         messageEnregistrement, cheminDossier, DOSSIERS, ecrireMorceau, etatFichierSurDisque,
+         lireMorceauSurDisque, listerVersions } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
@@ -1323,14 +1324,86 @@ class TabHubApp {
      * explicite n'écrit rien de plus, elle écrit MAINTENANT, sans attendre le débit habituel, et le
      * confirme par un message : le geste de HarmoHub, transposé à une appli sans serveur.
      */
-    enregistrer() {
+    async enregistrer() {
         clearTimeout(this._minuterieBrouillon);
         const err = this._ecrireBrouillon();
         // AVANT le message, et seulement si le brouillon a réussi : annoncer « Enregistré » alors que
         // rien n'a pu s'écrire serait le pire des deux mondes. Une version qui échoue, elle, reste
         // muette — c'est un confort (voir io/versions.js), le brouillon est la vraie sauvegarde.
         if (!err) this._archiverVersion();
-        this.message(err ? 'Échec de l\'enregistrement local : ' + err.message : 'Enregistré');
+        if (err) { this.message('Échec de l\'enregistrement local : ' + err.message); return; }
+        // ENREGISTRER ÉCRIT AUSSI LE FICHIER, quand un dossier est configuré — sans JAMAIS bloquer
+        // l'enregistrement local, qui vient d'avoir lieu et reste la vraie sauvegarde. C'est le geste
+        // que HarmoHub a étendu de la même façon : sans cela, « Enregistrer » et « le fichier sur le
+        // disque » divergent en silence, et l'on croit avoir sauvegardé ce qui n'est que dans le
+        // navigateur.
+        const resultat = await this.ecrireMorceauSurDisque({ silencieuxSiPasDeDossier: true });
+        this.message(resultat && resultat.range ? messageEnregistrement(resultat, 'Enregistré') : 'Enregistré');
+    }
+
+    /**
+     * Écrit le morceau dans le dossier choisi, garde-fou compris.
+     *
+     * LE GARDE-FOU N'EST PAS UNE FORMALITÉ : il LIT le fichier en place avant d'écrire. S'il est plus
+     * récent que ce qui est ouvert ici (deux onglets, deux machines, une version oubliée) ou s'il
+     * appartient à un autre morceau du même nom, rien n'est écrit et la question est posée.
+     *
+     * QUATRE ISSUES ET NON TROIS. « Recharger depuis le disque » compte autant que les autres : sans
+     * elle, il faudrait annuler puis rouvrir le fichier à la main — soit exactement le temps qu'on
+     * cherche à faire gagner.
+     */
+    async ecrireMorceauSurDisque({ silencieuxSiPasDeDossier = false, forcer = false } = {}) {
+        const racine = await preparerRangement({ demander: !silencieuxSiPasDeDossier });
+        if (!racine) {
+            if (!silencieuxSiPasDeDossier) this.message('Aucun dossier de rangement : voir Réglages > Fichiers');
+            return null;
+        }
+        const resultat = await ecrireMorceau(this.editeur.partition, { racine, forcer });
+        if (!resultat.conflit) return resultat;
+        const choix = await this.demanderConflitFichier(resultat.etat, racine);
+        if (choix === 'ecraser') return this.ecrireMorceauSurDisque({ silencieuxSiPasDeDossier, forcer: true });
+        if (choix === 'recharger') {
+            // PAR `remplacer` (donc par `normaliser`), jamais par une assignation : un fichier relu
+            // du disque est une entrée non fiable, exactement comme un .json ouvert à la main.
+            const brut = await lireMorceauSurDisque(racine, resultat.etat.nomFichier);
+            this.editeur.remplacer(brut);
+            this.dessiner();
+            this.message('Rechargé depuis le disque');
+            return null;
+        }
+        if (choix === 'deuxCopies') {
+            // GARDER LES DEUX : le nôtre part sous son nom HORODATÉ, à côté du fichier canonique, qui
+            // n'est pas touché. Rien n'est perdu, et les deux se distinguent à l'œil dans le dossier.
+            const r = await enregistrerPartition(this.editeur.partition, racine);
+            this.message(messageEnregistrement(r, 'Gardé à part'));
+            return r;
+        }
+        return null;   // annulé : rien n'a été écrit, et c'est le but
+    }
+
+    /** La fenêtre comparative. Elle MONTRE ce qui distingue les deux versions avant de demander. */
+    async demanderConflitFichier(etat, racine) {
+        const quand = (x) => { const d = new Date(x); return Number.isNaN(d.getTime()) ? '—' : d.toLocaleString('fr-FR'); };
+        const versions = await listerVersions(racine, 'morceaux', etat.nomFichier);
+        const ici = this.editeur.partition.meta;
+        const texte = etat.etat === 'autre'
+            ? `Le fichier « ${etat.nomFichier} » existe déjà et contient un AUTRE morceau : `
+              + `« ${etat.disque.titre || 'sans titre'} », créé le ${quand(etat.disque.creeLe)}. `
+              + `Celui-ci a été créé le ${quand(ici.creeLe)}.`
+            : `Le fichier sur le disque est PLUS RÉCENT que la version ouverte ici : `
+              + `disque ${quand(etat.quand)}, ici ${quand(ici.modifieLe)}. `
+              + `Il a peut-être été enregistré depuis un autre onglet ou une autre machine.`
+              + (versions.length ? ` (${versions.length} version${versions.length > 1 ? 's' : ''} archivée${versions.length > 1 ? 's' : ''})` : '');
+        return demander({
+            titre: 'Ce fichier existe déjà',
+            texte,
+            boutons: [
+                { cle: 'annuler', libelle: 'Annuler' },
+                { cle: 'recharger', libelle: 'Recharger depuis le disque' },
+                { cle: 'deuxCopies', libelle: 'Garder les deux' },
+                { cle: 'ecraser', libelle: 'Écraser', style: 'danger' },
+            ],
+        });
     }
 
     // ==========================================================================================
