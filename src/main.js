@@ -38,7 +38,7 @@ import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZones
 import { exporterMusicXML } from './io/musicxml.js';
 import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, rangementDisponible,
          messageEnregistrement, cheminDossier, DOSSIERS, ecrireMorceau, etatFichierSurDisque,
-         lireMorceauSurDisque, listerVersions } from './io/fichiers.js';
+         lireMorceauSurDisque, listerVersions, demanderStockageDurable } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
@@ -124,6 +124,19 @@ const PRISE_POIGNEE_BOUCLE_TACTILE = 2.4;   // × S — au doigt
 function prisePoigneeBoucle() { return (appareilTactile() ? PRISE_POIGNEE_BOUCLE_TACTILE : PRISE_POIGNEE_BOUCLE); }
 
 const CLE_BROUILLON = 'tabhub.brouillon';
+// LE REPÈRE DE FRAÎCHEUR : quand le travail a-t-il été mis à l'abri dans un FICHIER pour la dernière
+// fois ? Distinct du brouillon, qui n'est qu'un état du navigateur (voir _ecrireBrouillon) : c'est
+// justement la différence entre les deux qu'on rappelle.
+const CLE_DERNIER_FICHIER = 'tabhub.dernierFichier';
+const CLE_DERNIER_RAPPEL = 'tabhub.dernierRappelFraicheur';
+// CINQ JOURS, et UN RAPPEL PAR JOUR AU PLUS. Au-delà de cinq jours sans fichier, la perte devient
+// réelle ; en deçà, le rappel serait du bruit. Et le plafond quotidien existe parce qu'un rappel qui
+// revient à chaque ouverture cesse d'être lu au bout de deux fois.
+const JOURS_FRAICHEUR = 5;
+// LA DERNIÈRE SÉANCE — posée quand la page passe en arrière-plan (voir le bas de ce fichier), lue au
+// démarrage suivant. Elle sert à ne PAS avertir quelqu'un qui n'a pas travaillé depuis : cinq jours
+// sans fichier alors qu'on n'a pas ouvert l'application n'est pas un risque, c'est des vacances.
+const CLE_DERNIERE_SEANCE = 'tabhub.derniereSeance';
 const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
@@ -1139,6 +1152,51 @@ class TabHubApp {
                   + 'dans Téléchargements.');
     }
 
+    /**
+     * LE RAPPEL DE FRAÎCHEUR — « ton travail n'est nulle part ailleurs que dans ce navigateur ».
+     *
+     * POURQUOI IL EXISTE. Le brouillon protège d'un rechargement accidentel, pas d'un navigateur qui
+     * vide son stockage, d'un mode privé, ou d'un téléphone qu'on change. Et rien ne le dit : tout
+     * marche, jusqu'au jour où plus rien n'est là. Ce rappel est le seul endroit de l'application qui
+     * pose la question à la place de l'utilisateur.
+     *
+     * LE REPÈRE EST POSÉ SUR `visibilitychange` ET NON SUR `beforeunload` : ce dernier n'arrive PAS
+     * sur iOS, où l'on ne « ferme » pas un onglet mais où l'on passe à autre chose. Un repère qui ne
+     * serait posé qu'à la fermeture ne le serait jamais là où il compte le plus.
+     */
+    verifierFraicheur() {
+        let dernier = 0, rappel = 0;
+        try {
+            dernier = Number(localStorage.getItem(CLE_DERNIER_FICHIER) || 0);
+            rappel = Number(localStorage.getItem(CLE_DERNIER_RAPPEL) || 0);
+        } catch (e) { return false; }
+        const jour = 86400000;
+        const maintenant = Date.now();
+        // JAMAIS DE FICHIER : on pose le repère au lieu d'alerter tout de suite. Quelqu'un qui vient
+        // d'ouvrir l'application n'a rien à mettre à l'abri, et l'accueillir par un avertissement
+        // serait le meilleur moyen de le lui faire ignorer pour toujours.
+        if (!dernier) { try { localStorage.setItem(CLE_DERNIER_FICHIER, String(maintenant)); } catch (e) {} return false; }
+        if (maintenant - dernier < JOURS_FRAICHEUR * jour) return false;
+        if (maintenant - rappel < jour) return false;
+        // ON N'AVERTIT PAS QUELQU'UN QUI N'A PAS TRAVAILLÉ. Le repère de séance (posé à chaque mise
+        // en arrière-plan) dit quand l'application a servi pour la dernière fois : s'il est plus
+        // ANCIEN que le dernier fichier, rien n'a été écrit depuis l'export, et il n'y a rien à
+        // sauver. Cinq jours sans fichier après des vacances ne sont pas un risque.
+        let seance = 0;
+        try { seance = Number(localStorage.getItem(CLE_DERNIERE_SEANCE) || 0); } catch (e) {}
+        if (seance && seance <= dernier) return false;
+        try { localStorage.setItem(CLE_DERNIER_RAPPEL, String(maintenant)); } catch (e) {}
+        const jours = Math.floor((maintenant - dernier) / jour);
+        this.message(`Aucun fichier exporté depuis ${jours} jours — ce travail n'existe que dans ce navigateur. `
+                   + `Fichiers > Exporter en .json le met à l'abri.`, 9000);
+        return true;
+    }
+
+    /** Le repère de fraîcheur, posé à chaque fois qu'un FICHIER est réellement écrit. */
+    marquerFichierEcrit() {
+        try { localStorage.setItem(CLE_DERNIER_FICHIER, String(Date.now())); } catch (e) {}
+    }
+
     rafraichirBoutonVitesse() {
         const pourcent = Math.round((this.lecteur?.vitesse ?? 1) * 100);
         for (const { pourcent: p, el } of this.boutonsVitesse ?? []) el.classList.toggle('actif', p === pourcent);
@@ -1338,6 +1396,7 @@ class TabHubApp {
         // disque » divergent en silence, et l'on croit avoir sauvegardé ce qui n'est que dans le
         // navigateur.
         const resultat = await this.ecrireMorceauSurDisque({ silencieuxSiPasDeDossier: true });
+        if (resultat && resultat.range) this.marquerFichierEcrit();
         this.message(resultat && resultat.range ? messageEnregistrement(resultat, 'Enregistré') : 'Enregistré');
     }
 
@@ -2084,6 +2143,7 @@ class TabHubApp {
             // les doigtés, les effets et la tablature. Les compter ici donnerait une fausse
             // assurance : « c'est exporté » alors que le travail n'est pas récupérable.
             this.travailExporte = true;
+            this.marquerFichierEcrit();
             // LA DESTINATION EST ANNONCÉE PAR UN SEUL ENDROIT (voir io/fichiers.js#messageEnregistrement) :
             // « → Téléchargements » écrit en dur dans chaque route deviendrait faux dès qu'un dossier
             // est configuré, et une destination annoncée à tort est exactement ce qui fait perdre un
@@ -2627,6 +2687,13 @@ class TabHubApp {
     }
 
     restaurerBrouillon() {
+        // LE BROUILLON EST LU AVANT D'ÊTRE RÉÉCRIT, et ce drapeau le garantit. Défaut trouvé par le
+        // banc des onglets : l'écriture posée sur `visibilitychange` (voir le bas de ce fichier)
+        // pouvait partir AVANT cette lecture — un rechargement fait passer la page par `hidden`, et
+        // l'application écrivait alors son état par défaut PAR-DESSUS le brouillon qu'elle s'apprêtait
+        // à relire. Un brouillon d'avant les onglets était détruit au premier rechargement, en
+        // silence, et c'est exactement le travail que ce mécanisme existe pour sauver.
+        this._brouillonLu = true;
         try {
             const brut = localStorage.getItem(CLE_BROUILLON);
             if (!brut) return;
@@ -4810,3 +4877,33 @@ function escapeHtml(s) {
 const arrondi = (n) => Math.round(n * 100) / 100;
 
 window.app = new TabHubApp();
+
+// ── PROTECTIONS DU TRAVAIL, au démarrage et à la mise en veille ──────────────────────────────────
+//
+// APRÈS la construction de l'application, jamais dedans : ce sont des gestes de la PAGE, pas de
+// l'éditeur, et les mêler au constructeur ferait échouer l'application entière si l'un d'eux levait.
+//
+// `persist()` demande au navigateur de garder le stockage plutôt que de le vider pour faire de la
+// place. Le rappel de fraîcheur, lui, attend une seconde : au chargement, le message d'accueil et le
+// premier dessin ont la priorité, et un avertissement qui apparaît pendant que la page se monte n'est
+// pas lu.
+demanderStockageDurable();
+setTimeout(() => window.app.verifierFraicheur(), 1200);
+
+// LE REPÈRE SE POSE SUR `visibilitychange`, ET NON SUR `beforeunload` : ce dernier n'arrive PAS sur
+// iOS, où l'on ne ferme pas un onglet mais où l'on passe à autre chose. Un repère qui ne serait posé
+// qu'à la fermeture ne le serait jamais là où il compte le plus.
+document.addEventListener('visibilitychange', () => {
+    // LE BROUILLON EST ÉCRIT AVANT DE PARTIR, sans attendre la minuterie de 700 ms : sur iOS, passer
+    // à une autre application peut geler celle-ci, et les 700 ms n'arriveraient jamais.
+    // ON POSE UN REPÈRE, ON N'ÉCRIT PAS LE BROUILLON. La distinction n'est pas un détail : j'avais
+    // d'abord écrit le brouillon ici, et le banc des onglets l'a fait tomber. Un rechargement fait
+    // passer la page par `hidden`, donc l'ancienne page écrivait son état PAR-DESSUS le brouillon que
+    // la nouvelle s'apprêtait à relire — un brouillon d'avant les onglets était détruit au premier
+    // rechargement, en silence, et c'est précisément le travail que ce mécanisme existe pour sauver.
+    // Le repère, lui, ne peut rien écraser : c'est une date, lue au démarrage suivant. Le brouillon
+    // garde sa minuterie de 700 ms (voir planifierBrouillon), qui suffit à tout ce qu'on écrit.
+    if (document.visibilityState === 'hidden') {
+        try { localStorage.setItem(CLE_DERNIERE_SEANCE, String(Date.now())); } catch (e) {}
+    }
+});

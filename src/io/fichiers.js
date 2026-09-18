@@ -449,7 +449,7 @@ export async function listerDossier(cle, { appli } = {}) {
  * preparerRangement) ; `undefined` = on s'en charge, `null` explicite = « j'ai déjà regardé, il n'y
  * a pas de dossier », et on ne redemande pas.
  */
-export async function enregistrerFichier(contenu, { morceau, type, extension, dossier, nom, date, appli, racine, typeMime } = {}) {
+export async function enregistrerFichier(contenu, { morceau, type, extension, dossier, nom, date, appli, racine, typeMime, partage } = {}) {
     const blob = contenu instanceof Blob ? contenu : new Blob([contenu], { type: typeMime || 'application/octet-stream' });
     const nomFichier = nom || nomExport({ morceau, type, extension, date, appli });
     const cle = dossier || 'morceaux';
@@ -466,8 +466,44 @@ export async function enregistrerFichier(contenu, { morceau, type, extension, do
             console.error('Rangement impossible, repli sur le téléchargement :', e);
         }
     }
+    // AVANT DE TÉLÉCHARGER À L'AVEUGLE : proposer la feuille de partage, là où elle existe.
+    // `partage: false` la refuse explicitement (écriture de fond, sans geste de l'utilisateur).
+    if (partage !== false) {
+        const r = await partagerFichier(blob, nomFichier);
+        if (r === true) return { range: 'partage', nom: nomFichier, dossier: null, chemin: null, racine: '' };
+        if (r === 'annule') return { range: false, annule: true, nom: nomFichier, dossier: null, chemin: null, racine: '' };
+    }
     telechargerBlob(blob, nomFichier);
     return { range: false, nom: nomFichier, dossier: null, chemin: null, racine: '' };
+}
+
+/**
+ * LA FEUILLE DE PARTAGE DU SYSTÈME, proposée AVANT de télécharger à l'aveugle.
+ *
+ * POURQUOI ELLE COMPTE, ET PRÉCISÉMENT OÙ : File System Access n'existe ni sur Safari ni sur Chrome
+ * Android — c'est-à-dire exactement sur les appareils où rien ne range automatiquement. Mais l'iPhone
+ * a la feuille de partage, donc « Enregistrer dans Fichiers », donc iCloud Drive. Le seul endroit où
+ * le rangement manque est aussi celui où le partage existe.
+ *
+ * ON NE PASSE QUE `files`. Ajouter `title` ou `text` fait ÉCHOUER le partage sur iOS — le système
+ * refuse la combinaison au lieu de laisser tomber ce qu'il ne sait pas faire.
+ *
+ * ET RENONCER N'EST PAS UNE PANNE : fermer la feuille sans choisir ne doit PAS déclencher un
+ * téléchargement furtif derrière. On rend 'annule', et l'appelant se tait.
+ */
+function partagePossible(fichier) {
+    return typeof navigator !== 'undefined' && typeof navigator.share === 'function'
+        && typeof navigator.canShare === 'function' && navigator.canShare({ files: [fichier] });
+}
+
+async function partagerFichier(blob, nomFichier) {
+    if (typeof File !== 'function') return false;
+    let fichier;
+    try { fichier = new File([blob], nomFichier, { type: blob.type || 'application/octet-stream' }); }
+    catch (e) { return false; }
+    if (!partagePossible(fichier)) return false;
+    try { await navigator.share({ files: [fichier] }); return true; }
+    catch (e) { return (e && e.name === 'AbortError') ? 'annule' : false; }
 }
 
 /** Le téléchargement classique — le repli, et l'unique chemin sur Safari, Firefox et les téléphones. */
@@ -489,6 +525,8 @@ function telechargerBlob(blob, nomFichier) {
  */
 export function messageEnregistrement(resultat, quoi) {
     if (!resultat) return quoi;
+    if (resultat.annule) return `${quoi} : annulé, rien n'a été enregistré`;
+    if (resultat.range === 'partage') return `${quoi} → choisissez « Enregistrer dans Fichiers »`;
     return resultat.range
         ? `${quoi} → ${resultat.racine ? resultat.racine + '/' : ''}${resultat.dossier}`
         : `${quoi} → dossier Téléchargements`;
@@ -657,4 +695,19 @@ export async function lireMorceauSurDisque(racine, nomFichier, cle = 'morceaux')
     const dossier = await sousDossier(racine, cle, false);
     const fichier = await (await dossier.getFileHandle(nomFichier, { create: false })).getFile();
     return JSON.parse(await fichier.text());
+}
+
+
+/**
+ * DEMANDER AU NAVIGATEUR DE GARDER LE STOCKAGE. Sans cela, le brouillon et l'historique des versions
+ * vivent dans un stockage « au mieux » (best-effort) que le navigateur peut vider pour faire de la
+ * place — silencieusement, et sans que rien ne le dise. `persist()` demande le statut durable ; il
+ * est accordé ou non selon l'usage que le navigateur observe, et rendre `false` n'est pas une panne.
+ */
+export async function demanderStockageDurable() {
+    try {
+        if (!navigator.storage || typeof navigator.storage.persist !== 'function') return false;
+        if (typeof navigator.storage.persisted === 'function' && await navigator.storage.persisted()) return true;
+        return await navigator.storage.persist();
+    } catch (e) { return false; }
 }
