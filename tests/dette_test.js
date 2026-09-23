@@ -50,11 +50,13 @@ const { check, exiger, plan, bilan } = creerHarnais('la dette');
         const forme = (ed, m = 0, v = 0) => ed.partition.mesures[m].voix[v].evenements
             .map(e => `${dureeEnNoires(e.duree).toFixed(2)}${(e.silence || !e.notes.length) ? '_' : '♪'}`).join(' ');
 
-        /** Une mesure de 4/4 portant `n` croches, écrite comme on l'écrit vraiment. */
+        /** Une mesure de 4/4 portant `n` croches, écrite comme on l'écrit vraiment — une frappe
+         *  par note, l'avance automatique se chargeant du déplacement (voir Editeur.saisirChiffre). */
         const croches = (n = 8) => {
             const ed = new Editeur(); ed.nouveau('guitare');
             ed.dureeCourante = { valeur: 8, points: 0, nolet: null };
-            for (let i = 0; i < n; i++) { if (i) ed.deplacerEvenement(1); ed.saisirChiffre(i % 10); }
+            for (let i = 0; i < n; i++) ed.saisirChiffre(i % 10);
+            ed.placerCurseur(0, 0, 0, 0);
             return ed;
         };
 

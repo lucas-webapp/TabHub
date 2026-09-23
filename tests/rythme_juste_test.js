@@ -56,12 +56,14 @@ const T3 = { dans: 3, valent: 2 };
         // =====================================================================================
         // A. LE TRIOLET — la reproduction exacte du défaut
         // =====================================================================================
+        // LE TRIOLET SE CHOISIT AVANT D'ÉCRIRE, comme la durée : avec l'avance automatique, le
+        // curseur a quitté la note dès qu'elle est posée. C'est aussi la façon dont on écrit dans
+        // MuseScore et Dorico — on règle la figure, puis on la remplit.
         const ed = neuf();
-        ed.dureeCourante = { valeur: 8, points: 0, nolet: null };
+        ed.dureeCourante = { valeur: 8, points: 0, nolet: { dans: 3, valent: 2 } };
         ed.saisirChiffre(1);
-        ed.basculerTriolet();
-        ed.deplacerEvenement(1); ed.saisirChiffre(2);
-        ed.deplacerEvenement(1); ed.saisirChiffre(3);
+        ed.saisirChiffre(2);
+        ed.saisirChiffre(3);
 
         exiger(notes(ed).length === 3 && notes(ed).every(e => e.duree.nolet),
             'préalable : trois croches de triolet sont bien écrites, chacune marquée n-olet');
@@ -81,9 +83,8 @@ const T3 = { dans: 3, valent: 2 };
         // B. DOUZE CROCHES DE TRIOLET — le cas qui débordait d'un temps
         // =====================================================================================
         const ed2 = neuf();
-        ed2.dureeCourante = { valeur: 8, points: 0, nolet: null };
-        ed2.saisirChiffre(0); ed2.basculerTriolet();
-        for (let i = 1; i < 12; i++) { ed2.deplacerEvenement(1); if (ed2.curseur.mesure !== 0) break; ed2.saisirChiffre(i % 10); }
+        ed2.dureeCourante = { valeur: 8, points: 0, nolet: { dans: 3, valent: 2 } };
+        for (let i = 0; i < 12; i++) { if (ed2.curseur.mesure !== 0) break; ed2.saisirChiffre(i % 10); }
         const n12 = notes(ed2);
         check(n12.length === 12,
             `douze croches de triolet tiennent bien dans la mesure (${n12.length}/12)`);
@@ -99,7 +100,7 @@ const T3 = { dans: 3, valent: 2 };
         // =====================================================================================
         const ed3 = neuf();
         ed3.dureeCourante = { valeur: 32, points: 0, nolet: null };
-        for (let i = 0; i < 8; i++) { if (i) ed3.deplacerEvenement(1); ed3.saisirChiffre(i); }
+        for (let i = 0; i < 8; i++) ed3.saisirChiffre(i);
         check(notes(ed3).length === 8 && notes(ed3).every(e => Math.abs(dureeEnNoires(e.duree) - 0.125) < 1e-9)
               && Math.abs(total(ed3) - 4) < 1e-9,
             `huit triples-croches remplissent le premier temps et la mesure reste juste `
@@ -108,7 +109,6 @@ const T3 = { dans: 3, valent: 2 };
         const ed4 = neuf();
         ed4.dureeCourante = { valeur: 4, points: 0, nolet: null };
         ed4.saisirChiffre(1);
-        ed4.deplacerEvenement(1);
         ed4.dureeCourante = { valeur: 32, points: 0, nolet: null };
         ed4.saisirChiffre(2);
         const apres4 = durees(ed4).slice(2);
@@ -120,11 +120,10 @@ const T3 = { dans: 3, valent: 2 };
             + 'sur un multiple de sa propre durée, ce qu\'écrirait un copiste');
 
         const ed5 = neuf();
-        ed5.dureeCourante = { valeur: 8, points: 0, nolet: null };
-        ed5.saisirChiffre(0); ed5.basculerTriolet();
-        ed5.deplacerEvenement(1); ed5.saisirChiffre(1);
-        ed5.deplacerEvenement(1); ed5.saisirChiffre(2);
-        ed5.deplacerEvenement(1);
+        ed5.dureeCourante = { valeur: 8, points: 0, nolet: { dans: 3, valent: 2 } };
+        ed5.saisirChiffre(0);
+        ed5.saisirChiffre(1);
+        ed5.saisirChiffre(2);
         ed5.dureeCourante = { valeur: 32, points: 0, nolet: null };
         ed5.saisirChiffre(7);
         check(Math.abs(total(ed5) - 4) < 1e-9 && notes(ed5).length === 4,
@@ -217,6 +216,7 @@ const T3 = { dans: 3, valent: 2 };
         const ed8 = neuf();
         ed8.dureeCourante = { valeur: 4, points: 0, nolet: null };
         ed8.saisirChiffre(5);
+        ed8.placerCurseur(0, 0, 0, 0);
         ed8.appliquerDuree(8);          // la mesure est alors INCOMPLÈTE ? non : le temps est rendu
         check(Math.abs(S.longueurMesure(ed8.partition, 0) - 4) < 1e-9,
             'et une mesure qui ne serait PAS complète garde sa capacité — le silence manquant '
@@ -248,20 +248,21 @@ const T3 = { dans: 3, valent: 2 };
         // =====================================================================================
         const ed10 = neuf();
         ed10.dureeCourante = { valeur: 8, points: 0, nolet: null };
-        for (let i = 0; i < 8; i++) { if (i) ed10.deplacerEvenement(1); ed10.saisirChiffre(i); }
+        for (let i = 0; i < 8; i++) ed10.saisirChiffre(i);
         check(notes(ed10).length === 8 && Math.abs(total(ed10) - 4) < 1e-9,
             'huit croches ordinaires : huit notes, quatre noires — le chemin le plus fréquent de tous '
             + 'ne doit rien devoir à la grille déduite');
         const ed11 = neuf();
         ed11.dureeCourante = { valeur: 4, points: 0, nolet: null };
         ed11.saisirChiffre(3);
+        ed11.placerCurseur(0, 0, 0, 0);
         ed11.appliquerDuree(2);
         check(Math.abs(total(ed11) - 4) < 1e-9 && Math.abs(durees(ed11)[0] - 2) < 1e-9,
             'allonger une noire en blanche quand le silence suit : toujours accepté, mesure toujours juste');
         const ed12 = neuf();
         ed12.dureeCourante = { valeur: 4, points: 0, nolet: null };
-        for (let i = 0; i < 4; i++) { ed12.curseur.evenement = i; ed12.saisirChiffre(i); }
-        ed12.curseur.evenement = 1;
+        for (let i = 0; i < 4; i++) ed12.saisirChiffre(i);
+        ed12.placerCurseur(0, 1, 0, 0);
         ed12.supprimerEvenement();
         check(Math.abs(total(ed12) - 4) < 1e-9,
             'supprimer un évènement au milieu (Ctrl+Suppr) laisse la mesure juste');

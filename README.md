@@ -285,6 +285,36 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Une frappe par note
+
+Le curseur **avance tout seul** après chaque case tapée. Écrire huit croches demandait **seize
+frappes** — un chiffre, une flèche, un chiffre, une flèche — et c'est le geste le plus répété de
+toute l'application. Il en demande huit. MuseScore et Dorico avancent de la même façon, et c'est ce
+qui fait qu'on y écrit au fil de la pensée plutôt qu'en remplissant un formulaire.
+
+**Ce que ça coûte, honnêtement.** Un accord et une case à deux chiffres paient une frappe de retour
+(`←`), là où chaque note isolée en gagne une. À la guitare les notes isolées dominent largement, et
+l'avance s'éteint dans *Réglages → Affichage → Avancer après chaque case* pour qui écrit surtout des
+accords.
+
+**La règle des cases 10 à 24 a dû changer, et c'est le piège qu'il a fallu mesurer pour le voir.**
+L'ancienne était « le second chiffre complète le premier s'il arrive dans les 950 ms ». Elle ne
+tenait que tant que le curseur ne bougeait pas tout seul : avec l'avance, huit croches tapées à
+vitesse humaine tombent toutes dans cette fenêtre, et **huit frappes donnaient une seule note**.
+Aucun délai ne peut distinguer « 1 puis 2 = case 12 » de « 1 puis 2 = deux notes » quand le curseur
+avance entre les deux. C'est donc la **position** qui tranche : le chiffre complète la case
+précédente seulement si le curseur y est resté. Avance éteinte, il y est — tout se comporte comme
+avant. Avance allumée, on revient d'un `←`.
+
+**On n'a pas tenté de deviner.** Une version envisagée revenait seule sur la note quand on changeait
+de corde juste après l'avoir écrite — « ça ne peut être qu'un accord ». C'est faux : une mélodie qui
+saute d'une corde à l'autre est tout aussi courante, et un geste qui devine se trompe la moitié du
+temps.
+
+**L'avance ne crée jamais rien.** `→` garde le droit de prolonger la mesure et d'ajouter une mesure
+au bout du morceau ; une frappe de saisie non. Sans cette distinction, la dernière note d'un morceau
+laisserait derrière elle une mesure vide que personne n'a demandée.
+
 | Touche | Effet |
 |---|---|
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |
@@ -297,6 +327,7 @@ Un message qui se déclenche sans motif apprend à ignorer les messages.
 | `Ctrl`+`↑` `↓` | Monter / descendre la note d'une case |
 | `+` / `-` | Durée plus longue / plus courte |
 | `.` | Note pointée · `Alt`+`3` triolet · `R` silence |
+| `Alt`+`A` / `Alt`+`R` | Absorber / déverser le débordement d'une mesure (n'apparaissent que sur une mesure qui déborde) |
 | `H` `P` `S` `T` | Hammer-on, pull-off, slide, liaison de prolongation |
 | `M` `B` `X` `A` | Palm mute, bend, note fantôme, accent |
 | `Alt`+`M` | Ajouter une mesure |

@@ -142,6 +142,10 @@ const CLE_MESURES_LIGNE = 'tabhub.mesuresParLigne';
 const CLE_POSITION_OUTILS = 'tabhub.positionOutils';
 const CLE_PAVE = 'tabhub.pave';
 const CLE_TAB_SEULE = 'tabhub.tabSeule';
+/** Avance automatique du curseur après une case tapée (voir Editeur.saisirChiffre). Par DÉFAUT
+ *  activée : écrire huit croches y coûte huit frappes au lieu de seize, et les notes isolées
+ *  dominent largement le répertoire de tablature. Qui écrit surtout des accords l'éteint ici. */
+const CLE_AVANCE_AUTO = 'tabhub.avanceAuto';
 const CLE_METRONOME = 'tabhub.metronome';
 const CLE_METRONOME_SUBDIVISION = 'tabhub.metronomeSubdivision';
 const CLE_VOLUME_GENERAL = 'tabhub.volumeGeneral';
@@ -256,6 +260,10 @@ class TabHubApp {
         // reste masqué là (voir remplirReglages) plutôt que d'exposer un interrupteur qui ne ferait
         // jamais rien — même principe que le pavé tactile juste au-dessus.
         this.tabSeule = localStorage.getItem(CLE_TAB_SEULE) === '1';
+        // `!== '0'` et non `=== '1'` : l'absence de réglage vaut ACTIVÉ, à la différence de
+        // `tabSeule` juste au-dessus. Un nouvel arrivant doit profiter de l'avance sans avoir à la
+        // trouver dans les réglages.
+        this.editeur.avanceAuto = localStorage.getItem(CLE_AVANCE_AUTO) !== '0';
         // Volumes : appliqués au lecteur dès la construction (voir Lecteur, qui les rejoue lui-même
         // au premier `demarrer()`, avant même que Réglages n'ait été ouvert une seule fois).
         const volGeneral = parseInt(localStorage.getItem(CLE_VOLUME_GENERAL), 10);
@@ -4898,6 +4906,13 @@ class TabHubApp {
         requestAnimationFrame(() => this.dessiner());
     }
 
+    /** Avance automatique après une case tapée (voir Editeur.saisirChiffre). Portée par l'ÉDITEUR
+     *  et non par l'interface : c'est lui qui décide, et un seul éditeur sert tous les onglets. */
+    appliquerAvanceAuto(actif) {
+        this.editeur.avanceAuto = !!actif;
+        localStorage.setItem(CLE_AVANCE_AUTO, this.editeur.avanceAuto ? '1' : '0');
+    }
+
     /** TAB seule (voir dessiner, engine/layout.js#mettreEnPage option `avecPortee`). */
     appliquerTabSeule(actif) {
         this.tabSeule = !!actif;
@@ -5008,6 +5023,15 @@ class TabHubApp {
         const repliAvance = document.getElementById('repli-instrument-avance');
         if (ligneAccordage) ligneAccordage.hidden = clavier;
         if (repliAvance) repliAvance.hidden = clavier;
+
+        const btnAvance = document.getElementById('champ-avance-auto');
+        if (btnAvance) {
+            btnAvance.setAttribute('aria-checked', String(this.editeur.avanceAuto));
+            btnAvance.onclick = () => {
+                this.appliquerAvanceAuto(!this.editeur.avanceAuto);
+                btnAvance.setAttribute('aria-checked', String(this.editeur.avanceAuto));
+            };
+        }
 
         const ligneTabSeule = document.getElementById('ligne-tab-seule');
         const btnTabSeule = document.getElementById('champ-tab-seule');

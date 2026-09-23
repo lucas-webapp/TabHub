@@ -281,7 +281,8 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             // bout de la mesure (« quatre croches, puis du silence pour le reste »).
             ed.nouveau('guitare');
             ed.dureeCourante = { valeur: 8, points: 0, nolet: null };
-            for (const f of [5, 7, 5, 3]) { ed.saisirChiffre(f); ed.deplacerEvenement(1); }
+            // L'avance automatique se charge du déplacement (voir Editeur.saisirChiffre).
+            for (const f of [5, 7, 5, 3]) ed.saisirChiffre(f);
             const ecartApresQuatreM = ed.ecartMesure();
             const contenuApresQuatreM = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
 
@@ -432,7 +433,10 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
             ed.appliquerDuree(8);
-            for (let i = 0; i < 8; i++) { ed.placerCurseur(0, i, 0, 0); ed.saisirChiffre(i + 1); }
+            for (let i = 0; i < 8; i++) ed.saisirChiffre(i + 1);
+            // La huitième croche remplit la mesure : l'avance automatique a franchi la barre.
+            // On revient, sans quoi la suite travaillerait sur la mesure SUIVANTE.
+            ed.placerCurseur(0, 0, 0, 0);
             for (;;) {
                 const evts = ed.mesureCourante().voix[0].evenements;
                 const avecNote = evts.map((e, i) => ({ e, i })).filter(x => x.e.notes.length).map(x => x.i);
@@ -482,7 +486,10 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
             ed.appliquerDuree(8);
-            for (let i = 0; i < 8; i++) { ed.placerCurseur(0, i, 0, 0); ed.saisirChiffre(i + 1); }
+            for (let i = 0; i < 8; i++) ed.saisirChiffre(i + 1);
+            // La huitième croche remplit la mesure : l'avance automatique a franchi la barre.
+            // On revient, sans quoi la suite travaillerait sur la mesure SUIVANTE.
+            ed.placerCurseur(0, 0, 0, 0);
             // on efface les six du milieu, en laissant la première et la dernière
             ed.effacerNotes([1, 2, 3, 4, 5, 6].map(i => ({ mesure: 0, voix: 0, evenement: i, corde: 0 })));
             return ed.mesureCourante().voix[0].evenements
@@ -501,7 +508,10 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
             ed.appliquerDuree(16);
-            for (let i = 0; i < 8; i++) { ed.placerCurseur(0, i, 0, 0); ed.saisirChiffre(i + 1); }
+            for (let i = 0; i < 8; i++) ed.saisirChiffre(i + 1);
+            // La huitième croche remplit la mesure : l'avance automatique a franchi la barre.
+            // On revient, sans quoi la suite travaillerait sur la mesure SUIVANTE.
+            ed.placerCurseur(0, 0, 0, 0);
             for (;;) {
                 const evts = ed.mesureCourante().voix[0].evenements;
                 const avecNote = evts.map((e, i) => ({ e, i })).filter(x => x.e.notes.length).map(x => x.i);

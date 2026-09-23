@@ -73,7 +73,7 @@ const { check, exiger, plan, bilan } = creerHarnais('repères, mise en page, en-
         check(bas.etiquette === 'Affichage' && bas.visible,
             'et une étiquette « Affichage » dit enfin de quoi parlent les chiffres Auto/2/3/4/6/8');
         // La hauteur de la note, elle, doit RESTER : c'est le seul endroit où elle se lit en clair.
-        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0); ed.saisirChiffre(5); });
+        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0); ed.saisirChiffre(5); ed.placerCurseur(0, 0, 0); });
         await page.waitForTimeout(300);
         check(/case 5/.test(await page.evaluate(() => document.getElementById('info-selection').textContent)),
             'la case et la hauteur sonnée restent affichées — la tablature dit « case 5 », pas « la »');

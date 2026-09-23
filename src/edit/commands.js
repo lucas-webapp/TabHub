@@ -51,7 +51,10 @@ export class Editeur {
         // faudrait redire « croche » à chaque note d'un trait de croches — de loin le geste le plus
         // répété de la saisie.
         this.dureeCourante = { valeur: 8, points: 0, nolet: null };
-        this._dernierChiffre = null;   // { temps, mesure, evenement, corde, valeur }
+        // LA DERNIÈRE CASE TAPÉE, pour les cases à deux chiffres (voir saisirChiffre) :
+        // { temps, cible, valeur }. Le chiffre suivant ne la complète que si le curseur est encore
+        // SUR cette cible — la position tranche ce que le délai seul ne peut pas trancher.
+        this._dernierChiffre = null;
         // Message de la DERNIÈRE commande refusée (ex. appliquerDuree faute de place) — l'éditeur ne
         // touche jamais au DOM, donc jamais de toast d'ici ; l'appelant (main.js) lit ce champ juste
         // après avoir invoqué une commande et l'affiche si besoin.
@@ -76,6 +79,10 @@ export class Editeur {
         // emporte ce qu'elle portait. Un geste explicitement destructeur (« supprimer la mesure »,
         // « effacer la note ») n'a rien à déclarer : son nom l'a déjà fait.
         this.dernierBilan = null;
+        // L'AVANCE AUTOMATIQUE après une case tapée (voir saisirChiffre). Posé par l'interface
+        // depuis les réglages ; l'éditeur en porte la valeur pour que la commande reste testable
+        // sans navigateur, comme tout le reste de ce fichier.
+        this.avanceAuto = true;
         // PRESSE-PAPIER D'UNE MESURE (voir copierMesure/collerMesure). Volontairement porté par
         // l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à un
         // `nouveau()` comme à un changement d'instrument — copier une mesure de guitare pour la
@@ -369,7 +376,12 @@ export class Editeur {
         this.curseur.mesure = mesure;
         this.curseur.voix = Math.min(iVoixPreferee, this.partition.mesures[mesure].voix.length - 1);
         this.curseur.evenement = evenement;
-        this._dernierChiffre = null;
+        // ON NE CASSE PLUS LA CHAÎNE ICI, et c'est ce qui rend la case à deux chiffres utilisable
+        // avec l'avance automatique : « 1 », « ← », « 2 » doit donner 12. C'est la POSITION du
+        // curseur qui décide désormais (voir saisirChiffre), et revenir dessus est justement le
+        // geste par lequel on dit « je complète cette case-là ». Les mutations de structure, elles,
+        // continuent d'oublier la dernière case : après elles, l'indice mémorisé ne désigne plus la
+        // même chose.
         this.prevenir('curseur');
         return true;
     }
@@ -563,20 +575,40 @@ export class Editeur {
         const precedent = this._dernierChiffre;
         const maintenant = Date.now();
 
+        // UNE CASE À DEUX CHIFFRES SE COMPLÈTE LÀ OÙ ELLE A ÉTÉ ÉCRITE — et c'est la seule règle,
+        // que l'avance automatique soit allumée ou éteinte.
+        //
+        // LE PIÈGE QU'ELLE ÉVITE, et il a fallu le mesurer pour le voir. La règle précédente était
+        // « le second chiffre complète le premier s'il arrive dans les 950 ms ». Elle tenait tant que
+        // le curseur ne bougeait pas tout seul. Avec l'avance automatique, huit croches tapées à la
+        // vitesse normale d'un humain — bien en deçà de 950 ms d'écart — s'enchaînaient TOUTES sur la
+        // même case : mesuré, huit frappes donnaient UNE note. Aucun délai ne peut distinguer
+        // « 1 puis 2 = case 12 » de « 1 puis 2 = deux notes » quand le curseur avance entre les deux.
+        //
+        // LA POSITION TRANCHE CE QUE LE TEMPS NE PEUT PAS. Le chiffre complète la case précédente
+        // seulement si le curseur est resté SUR cette case. Avance éteinte, il y est : tout se
+        // comporte exactement comme avant. Avance allumée, il en est parti : deux chiffres donnent
+        // deux notes, et l'on revient d'un « ← » quand on veut vraiment une case à deux chiffres —
+        // une frappe de plus pour les cases 10 à 24, qui sont rares, contre une frappe de moins pour
+        // toutes les autres.
+        const memeCase = !!precedent
+            && precedent.cible.mesure === c.mesure && precedent.cible.voix === c.voix
+            && precedent.cible.evenement === c.evenement && precedent.cible.corde === c.corde;
+        const enchaine = memeCase && maintenant - precedent.temps < DELAI_DEUXIEME_CHIFFRE;
+        const cible = { mesure: c.mesure, voix: c.voix, evenement: c.evenement, corde: c.corde };
+
         let frette = chiffre;
-        let fusion = 'saisie-' + c.mesure + '-' + c.evenement + '-' + c.corde;
-        const enchaine = precedent
-            && maintenant - precedent.temps < DELAI_DEUXIEME_CHIFFRE
-            && precedent.mesure === c.mesure && precedent.evenement === c.evenement && precedent.corde === c.corde;
         if (enchaine) {
             const combine = precedent.valeur * 10 + chiffre;
             if (combine <= casesMax) frette = combine;
         }
+        const fusion = 'saisie-' + cible.mesure + '-' + cible.evenement + '-' + cible.corde;
 
         this.memoriser(fusion);
-        const evenement = this.evenementCourant();
+        const evenement = this.partition.mesures[cible.mesure]?.voix[cible.voix]?.evenements[cible.evenement];
+        if (!evenement) return null;
         evenement.silence = false;
-        const existante = evenement.notes.find(n => n.corde === c.corde);
+        const existante = evenement.notes.find(n => n.corde === cible.corde);
         // REDÉFINIR une case efface la marque « hors du manche » posée par une transposition (voir
         // transposerMorceau) : c'est précisément le geste par lequel on répare une de ces notes, et
         // elle doit cesser d'être signalée dès qu'on lui a donné une case jouable.
@@ -586,7 +618,7 @@ export class Editeur {
         // invisible. Donner une case, c'est donner une hauteur déterminée : l'exact contraire d'un
         // fantôme (voir model/score.js, EFFETS.ghost, « hauteur indéterminée »).
         if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; delete existante.ghost; }
-        else evenement.notes.push(creerNote(c.corde, frette));
+        else evenement.notes.push(creerNote(cible.corde, frette));
         // RYTHME IMPOSÉ : LA DURÉE COLLANTE NE S'APPLIQUE PAS (voir model/score.js,
         // `Évènement#aRemplir`, et ui/rythme.js). L'aide rythmique a posé ce rythme exprès ; le
         // remplir doit lui donner des hauteurs, pas le réécrire.
@@ -606,7 +638,7 @@ export class Editeur {
         // c'est UNE note, et la réclamer deux fois à l'utilisateur serait à la fois pénible et
         // faux : deux chiffres tapés séparément donnent deux notes réattaquées, pas une tenue.
         // On propage donc la case à toute la chaîne, en posant la liaison au passage.
-        if (rythmeImpose && evenement.lienSuivant) this._prolongerLiaison(evenement, c.corde, frette);
+        if (rythmeImpose && evenement.lienSuivant) this._prolongerLiaison(evenement, cible.corde, frette);
         // La durée collante s'applique à un évènement encore VIERGE seulement : retaper une case sur
         // un accord déjà écrit ne doit pas en changer le rythme.
         if (evenement.notes.length === 1 && !enchaine && !rythmeImpose) {
@@ -632,9 +664,54 @@ export class Editeur {
             this._essaierNouvelleDuree({ ...this.dureeCourante }, { dejaMemorise: true });
             this.derniereErreur = null;
         }
-        this._dernierChiffre = { temps: maintenant, mesure: c.mesure, evenement: c.evenement, corde: c.corde, valeur: frette };
+        // L'AVANCE AUTOMATIQUE — après l'écriture et le redimensionnement, jamais avant.
+        //
+        // POURQUOI ELLE EXISTE. Sans elle, écrire huit croches demande SEIZE frappes : un chiffre,
+        // une flèche, un chiffre, une flèche. C'est le geste le plus répété de toute l'application,
+        // payé le double. MuseScore et Dorico avancent, et c'est ce qui fait qu'on y écrit au fil de
+        // la pensée plutôt qu'en remplissant un formulaire.
+        //
+        // CE QU'ELLE COÛTE, honnêtement : un accord y perd une frappe (il faut revenir d'un « ← »
+        // avant de changer de corde) là où une mélodie en gagne une par note. À la guitare les
+        // notes isolées dominent largement — et qui écrit surtout des accords peut l'éteindre dans
+        // les réglages. On n'a PAS tenté de deviner l'intention (revenir tout seul quand on change
+        // de corde juste après) : une mélodie qui saute d'une corde à l'autre est tout aussi
+        // courante, et un geste qui devine se trompe la moitié du temps.
+        //
+        // JAMAIS SUR UN ENCHAÎNEMENT : le second chiffre d'une case à deux chiffres complète la
+        // précédente, le curseur a déjà avancé pour elle.
+        //
+        // ET ELLE NE CRÉE RIEN (voir _avancerSansCreer) : « → » a le droit de prolonger la mesure ou
+        // d'ajouter une mesure au bout du morceau, une frappe de saisie non. Sans quoi la dernière
+        // note d'un morceau laisserait derrière elle une mesure vide que personne n'a demandée.
+        if (!enchaine && this.avanceAuto) this._avancerSansCreer();
+        this._dernierChiffre = { temps: maintenant, cible, valeur: frette };
         this.prevenir('saisie');
         return frette;
+    }
+
+    /**
+     * Avance d'un évènement SANS JAMAIS MODIFIER LE DOCUMENT — l'avance qui suit une case tapée.
+     *
+     * Le pendant restreint de `deplacerEvenement`, qui lui a le droit de prolonger la mesure courante
+     * et d'ajouter une mesure au bout du morceau. La distinction est volontaire : un geste de
+     * NAVIGATION explicite peut faire grandir le morceau, une frappe de SAISIE non. Elle évite aussi
+     * un second point d'annulation — `deplacerEvenement` mémorise quand il crée, et défaire « une
+     * case tapée » aurait alors demandé deux Ctrl+Z.
+     *
+     * @returns {boolean} faux si l'on était déjà au tout dernier évènement du morceau.
+     */
+    _avancerSansCreer() {
+        const c = this.curseur;
+        const voix = this.voixCourante();
+        if (c.evenement + 1 < voix.evenements.length) { c.evenement += 1; return true; }
+        if (c.mesure + 1 < this.partition.mesures.length) {
+            c.mesure += 1;
+            c.voix = Math.min(c.voix, this.partition.mesures[c.mesure].voix.length - 1);
+            c.evenement = 0;
+            return true;
+        }
+        return false;
     }
 
     /**
@@ -1054,6 +1131,11 @@ export class Editeur {
 
     /** Transforme l'évènement courant en silence (ou le repeuple s'il l'était déjà). */
     basculerSilence() {
+        // CURSEUR HORS BORNES : on ne fait rien plutôt que de planter. Le cas ne se produit pas par
+        // les chemins normaux (corrigerCurseur veille), mais supprimerEvenement délègue ici quand il
+        // ne reste qu'un évènement — et un banc l'a atteint en posant le curseur à la main. Une
+        // commande d'édition ne doit jamais jeter une exception sur un état simplement inattendu.
+        if (!this.evenementCourant()) return false;
         this.memoriser();
         const e = this.evenementCourant();
         if (e.silence || !e.notes.length) { e.silence = false; }
@@ -1474,6 +1556,7 @@ export class Editeur {
      */
     supprimerEvenement() {
         const voix = this.voixCourante();
+        if (!voix?.evenements[this.curseur.evenement]) return false;
         if (voix.evenements.length <= 1) return this.basculerSilence();
         this.memoriser();
         const [enleve] = voix.evenements.splice(this.curseur.evenement, 1);
@@ -2035,7 +2118,21 @@ export class Editeur {
         if (note) return this.basculerGhost();
         // Rien ici : on l'écrit. `saisirChiffre` renvoie null quand il a refusé (piano) — il a alors
         // déjà posé `derniereErreur`, rien à ajouter.
-        if (this.saisirChiffre(0) === null) return false;
+        //
+        // ET L'AVANCE AUTOMATIQUE EST SUSPENDUE LE TEMPS DE CET APPEL. `saisirChiffre` déplace le
+        // curseur quand elle est active (voir son docblock) ; or la ligne suivante relit
+        // `noteCourante()` pour marquer la note qu'on vient d'écrire. Sans cette suspension, elle
+        // désignait déjà la case SUIVANTE et le fantôme n'était jamais posé — le bouton « ✕ » ne
+        // faisait plus rien du tout. Trouvé par le banc au premier essai, et c'est précisément ce
+        // qu'on attend d'un banc qui rejoue le geste réel.
+        //
+        // UN BOUTON À BASCULE NE DOIT PAS AVANCER DE TOUTE FAÇON : le second appui retire le
+        // fantôme, et il faut être resté dessus pour ça.
+        const avance = this.avanceAuto;
+        this.avanceAuto = false;
+        const pose = this.saisirChiffre(0);
+        this.avanceAuto = avance;
+        if (pose === null) return false;
         const posee = this.noteCourante();
         if (!posee) return false;
         posee.ghost = true;

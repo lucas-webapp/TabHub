@@ -64,21 +64,28 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         await page.waitForTimeout(150);
 
         const caseDu = (n) => page.locator(`#pave-tactile .btn-case:has-text("${n}")`).first();
-        const noteCourante = () => page.evaluate(() => {
-            const e = window.app.editeur.evenementCourant();
-            return (e.silence || !e.notes.length) ? null : e.notes[0].frette;
-        });
+        // LA CASE ÉCRITE, PAS CELLE SOUS LE CURSEUR. Le chiffre fait avancer le curseur (voir
+        // Editeur.saisirChiffre) : lire `evenementCourant()` après coup regarderait la case suivante,
+        // encore vide. On vise donc explicitement l'évènement écrit.
+        const noteEn = (i) => page.evaluate((i) => {
+            const e = window.app.editeur.partition.mesures[0].voix[0].evenements[i];
+            return (!e || e.silence || !e.notes.length) ? null : e.notes[0].frette;
+        }, i);
+        const revenir = () => page.evaluate(() => window.app.editeur.deplacerEvenement(-1));
 
         await caseDu(5).tap();
         await page.waitForTimeout(120);
-        check(await noteCourante() === 5, 'taper « 5 » sur le pavé pose bien la case 5');
+        check(await noteEn(0) === 5, 'taper « 5 » sur le pavé pose bien la case 5');
 
         // Les cases à DEUX chiffres : le pavé passe par le même saisirChiffre que le clavier, donc la
-        // fenêtre de regroupement (DELAI_DEUXIEME_CHIFFRE) joue à l'identique au doigt.
+        // même règle joue au doigt — le second chiffre ne complète la case que si l'on est REVENU
+        // dessus (la croix flottante sert à ça), sans quoi deux chiffres font deux notes.
         await caseDu(1).tap();
+        await page.waitForTimeout(60);
+        await revenir();
         await caseDu(2).tap();
         await page.waitForTimeout(120);
-        check(await noteCourante() === 12, 'deux chiffres tapés à la suite donnent la case 12, comme au clavier');
+        check(await noteEn(1) === 12, 'deux chiffres à la suite, en revenant sur la case, donnent 12 comme au clavier');
 
         // --- La case posée se voit, en toutes lettres, sur le pavé lui-même ------------------------
         // Sans ce repère, rien au doigt n'indique qu'on peut dépasser 9 : le `title` qui l'explique
@@ -120,12 +127,13 @@ const { check, exiger, plan, bilan } = creerHarnais('tactile');
         check(apresDroite.evenement === apresBas.evenement + 1, 'la flèche « droite » avance bien d\'un évènement');
 
         // --- Effacer au doigt ------------------------------------------------------------------------
-        await page.evaluate(() => { window.app.editeur.placerCurseur(0, 0, 0); });
+        // La case 12 est sur le DEUXIÈME évènement : le « 5 » du début occupe le premier.
+        await page.evaluate(() => { window.app.editeur.placerCurseur(0, 1, 0); });
         await page.waitForTimeout(100);
-        exiger(await noteCourante() === 12, 'la case 12 est bien là avant l\'effacement');
+        exiger(await noteEn(1) === 12, 'la case 12 est bien là avant l\'effacement');
         await page.locator('#pave-tactile button[aria-label="Effacer la note"]').first().tap();
         await page.waitForTimeout(120);
-        check(await noteCourante() === null, '« Effacer » du pavé vide bien la case visée');
+        check(await noteEn(1) === null, '« Effacer » du pavé vide bien la case visée');
 
         // --- Le TAP sur la partition place le curseur ------------------------------------------------
         await page.evaluate(async () => {

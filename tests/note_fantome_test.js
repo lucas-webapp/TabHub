@@ -89,7 +89,9 @@ const { check, exiger, plan, bilan } = creerHarnais('note fantôme : une écritu
         await page.waitForTimeout(200);
         await b.evaluate(e => e.click());
         await page.waitForTimeout(120);
-        await page.evaluate(() => window.app.editeur.saisirChiffre(5));
+        // On revient sur la case : le chiffre a fait avancer le curseur (avance automatique), et
+        // c'est bien la note écrite qu'on vient inspecter juste après.
+        await page.evaluate(() => { const ed = window.app.editeur; ed.saisirChiffre(5); ed.placerCurseur(0, 0, 0, 0); });
         await page.waitForTimeout(200);
         const enchaine = await etatNote();
         check(enchaine.note !== null && enchaine.note.frette === 5 && !enchaine.note.ghost

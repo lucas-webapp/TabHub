@@ -467,6 +467,17 @@
                      (retour utilisateur : « je ne comprends pas ces paramètres »). remplirReglages()
                      ne le démasque QUE sur un appareil tactile, seul contexte où la question se pose
                      — et alors un simple interrupteur, plus jamais un choix à trois branches. -->
+                <!-- AVANCE AUTOMATIQUE : un réglage de SAISIE posé dans « Affichage », auprès du pavé
+                     tactile qui en est un aussi. Une rubrique « Écriture » pour deux interrupteurs
+                     coûterait plus qu'elle ne rapporte, et les séparer — l'un ici, l'autre ailleurs —
+                     serait pire que le nom de groupe imparfait : on cherche « pourquoi mon curseur
+                     saute » à côté de « pourquoi ce pavé ». -->
+                <div class="ligne-champ">
+                    <label for="champ-avance-auto">Avancer après chaque case</label>
+                    <button type="button" id="champ-avance-auto" class="interrupteur" role="switch" aria-checked="true">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
+                </div>
                 <div class="ligne-champ" id="ligne-pave" hidden>
                     <label for="champ-pave">Pavé de saisie tactile</label>
                     <button type="button" id="champ-pave" class="interrupteur" role="switch" aria-checked="true">

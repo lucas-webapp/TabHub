@@ -46,9 +46,11 @@ const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
         const deuxLiees = (lien = 'tie') => {
             const ed = new Editeur(); ed.nouveau('guitare');
             ed.dureeCourante = { valeur: 4, points: 0, nolet: null };
-            ed.curseur.evenement = 0; ed.saisirChiffre(5);
-            ed.curseur.evenement = 1; ed.saisirChiffre(5);
-            ed.curseur.evenement = 0; ed.basculerLien(lien);
+            ed.saisirChiffre(5);
+            ed.saisirChiffre(5);
+            // ON REVIENT SUR LA NOTE POUR LUI POSER L'EFFET : avec l'avance automatique, le curseur a
+            // quitté la note dès qu'elle était écrite. C'est le geste réel — un « ← », ou un clic.
+            ed.placerCurseur(0, 0, 0, 0); ed.basculerLien(lien);
             return ed;
         };
 
@@ -88,9 +90,9 @@ const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
         // =====================================================================================
         const ed2 = new Editeur(); ed2.nouveau('guitare');
         ed2.dureeCourante = { valeur: 1, points: 0, nolet: null };
-        ed2.curseur.mesure = 0; ed2.curseur.evenement = 0; ed2.saisirChiffre(7);
-        ed2.curseur.mesure = 1; ed2.curseur.evenement = 0; ed2.saisirChiffre(7);
-        ed2.curseur.mesure = 0; ed2.curseur.evenement = 0;
+        ed2.placerCurseur(0, 0, 0, 0); ed2.saisirChiffre(7);
+        ed2.placerCurseur(1, 0, 0, 0); ed2.saisirChiffre(7);
+        ed2.placerCurseur(0, 0, 0, 0);
         const poseeA = ed2.basculerLien('tie');
         check(poseeA === true && liens(ed2).join(',') === 'tie',
             'une liaison de la DERNIÈRE note d\'une mesure vers la PREMIÈRE de la suivante se pose '
@@ -107,6 +109,7 @@ const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
         const ed3 = new Editeur(); ed3.nouveau('guitare');
         ed3.dureeCourante = { valeur: 4, points: 0, nolet: null };
         ed3.saisirChiffre(5);          // une seule note, rien après elle
+        ed3.placerCurseur(0, 0, 0, 0);
         const refus = ed3.basculerLien('tie');
         check(refus === false && /SUIVANTE/.test(ed3.derniereErreur || ''),
             `poser une liaison sans note d'arrivée refuse et explique (« ${ed3.derniereErreur} ») — `
@@ -150,7 +153,7 @@ const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
         // =====================================================================================
         const ed6 = new Editeur(); ed6.nouveau('guitare');
         ed6.dureeCourante = { valeur: 4, points: 0, nolet: null };
-        for (let c = 0; c < 6; c++) { ed6.curseur.evenement = 0; ed6.curseur.corde = c; ed6.saisirChiffre(3); }
+        for (let c = 0; c < 6; c++) { ed6.placerCurseur(0, 0, c, 0); ed6.saisirChiffre(3); }
         const avant6 = evts(ed6)[0].notes.length;
         exiger(avant6 === 6, `préalable : un accord de six notes, une par corde (${avant6})`);
         ed6.definirInstrument('basse4');
@@ -191,7 +194,7 @@ const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
         // =====================================================================================
         const ed10 = new Editeur(); ed10.nouveau('guitare');
         ed10.dureeCourante = { valeur: 8, points: 0, nolet: null };
-        for (let i = 0; i < 8; i++) { if (i) ed10.deplacerEvenement(1); ed10.saisirChiffre(i); }
+        for (let i = 0; i < 8; i++) ed10.saisirChiffre(i);
         check(ed10.derniersLiensRetires === 0 && ed10.dernierBilan === null && ed10.derniereErreur === null,
             'écrire huit croches d\'affilée ne déclenche aucun des trois canaux : ils ne parlent que '
             + 'quand il y a vraiment quelque chose à dire');

@@ -16,7 +16,11 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
     try {
         await page.click('[data-action="duree4"]');
         await page.evaluate(() => document.getElementById('zone-partition').focus());
-        await taper(page, ['Digit0', 'ArrowRight', 'Digit2', 'ArrowRight', 'Digit3', 'ArrowRight', 'Digit5']);
+        // Quatre noires, une frappe chacune : l'avance automatique se charge du déplacement
+        // (voir Editeur.saisirChiffre). La quatrième remplit la mesure et franchit la barre,
+        // d'où le retour explicite — la suite du banc travaille sur la première mesure.
+        await taper(page, ['Digit0', 'Digit2', 'Digit3', 'Digit5']);
+        await page.evaluate(() => window.app.editeur.placerCurseur(0, 0, 0, 0));
 
         // --- Le son : Sampler (piano échantillonné, comme HarmoHub) + doublure synthétisée -----------
         // Ce banc ne peut pas juger la qualité du SON — mais il peut vérifier que l'interface tient sa
@@ -205,7 +209,7 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
             const ed = window.app.editeur;
             ed.nouveau('guitare');
             ed.appliquerDuree(4);
-            ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(5);
+            ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(5); ed.placerCurseur(0, 0, 0, 0);
             await window.app.lecteur.jouer(ed.partition, 0);
         });
         await page.waitForTimeout(300);
@@ -215,7 +219,7 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
 
         await page.evaluate(() => {
             const ed = window.app.editeur;
-            ed.placerCurseur(0, 1, 0, 0); ed.saisirChiffre(9);
+            ed.placerCurseur(0, 1, 0, 0); ed.saisirChiffre(9); ed.placerCurseur(0, 1, 0, 0);
         });
         await page.waitForTimeout(300);
         const apresEdition = await programmes();
@@ -245,6 +249,7 @@ const { check, exiger, plan, bilan } = creerHarnais('lecture audio');
             await new Promise(r => setTimeout(r, 150));
             const apresCurseur = n;
             window.app.editeur.saisirChiffre(4);
+            window.app.editeur.deplacerEvenement(-1);
             await new Promise(r => setTimeout(r, 150));
             const apresSaisie = n;
             l.programmer = vrai;

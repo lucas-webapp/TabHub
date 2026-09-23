@@ -19,7 +19,9 @@ const hauteurs = (page) => page.evaluate(async () => {
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         await page.click('[data-action="duree8"]');
-        await taper(page, ['Digit0', 'ArrowDown', 'Digit5', 'ArrowDown', 'Digit5']);
+        // « ← » entre chaque corde : l'avance automatique a quitté la case dès qu'elle était
+        // écrite (voir Editeur.saisirChiffre). C'est la frappe que paie un accord.
+        await taper(page, ['Digit0', 'ArrowLeft', 'ArrowDown', 'Digit5', 'ArrowLeft', 'ArrowDown', 'Digit5']);
         let e = await lireEtat(page);
         exiger(e.contenu[0][0] === '0:0+1:5+2:5', 'trois cordes saisies pour servir de témoin');
         // Attention au piège classique de la guitare : les cordes sont accordées de quarte en quarte

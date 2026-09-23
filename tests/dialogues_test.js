@@ -52,7 +52,7 @@ const { check, exiger, plan, bilan } = creerHarnais('dialogues maison et garde-f
         const natifs = () => page.evaluate(() => window.__natif);
 
         // --- 1. L'ANNOTATION DE SECTION : une saisie, maison -----------------------------------------
-        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(5); });
+        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(5); ed.placerCurseur(0, 0, 0, 0); });
         await page.waitForTimeout(200);
         await page.click('[data-action="annotation"]');
         await page.waitForTimeout(300);
@@ -133,7 +133,7 @@ const { check, exiger, plan, bilan } = creerHarnais('dialogues maison et garde-f
             'juste après un export, « Nouveau » ne demande rien : il n\'y a rien à perdre');
 
         // --- 4. LE GARDE-FOU : une modification, et il apparaît -------------------------------------
-        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(9); });
+        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(9); ed.placerCurseur(0, 0, 0, 0); });
         await page.waitForTimeout(250);
         await page.click('#btn-fichiers');
         await page.click('#popover-fichiers [data-action="nouveau"]');
@@ -172,7 +172,7 @@ const { check, exiger, plan, bilan } = creerHarnais('dialogues maison et garde-f
         });
         check((await sonderFermeture()) === false,
             'sur une tablature vierge, fermer l\'onglet ne demande aucune confirmation');
-        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(4); });
+        await page.evaluate(() => { const ed = window.app.editeur; ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(4); ed.placerCurseur(0, 0, 0, 0); });
         await page.waitForTimeout(250);
         check((await sonderFermeture()) === true,
             'une modification non exportée, et la fermeture demande confirmation');
