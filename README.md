@@ -312,6 +312,34 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Recopier un passage sans le réécrire
+
+Une musique de tablature **se répète** : un riff de quatre mesures revient trois fois, un refrain
+deux. Le presse-papier n'en tenait qu'**une**. Répéter ces quatre mesures demandait donc de re-copier
+la source à chaque fois — copier la 1, coller, copier la 2, coller… — soit **seize interactions de
+menu** mesurées, sans aucun raccourci clavier : copier/coller n'existait qu'au clic droit. Et comme
+le collage *insérait*, si les mesures cibles existaient déjà (vides, en attente — le cas normal
+d'une recopie), il fallait ensuite supprimer les vides une à une.
+
+`Maj`+clic choisit une plage, `Ctrl`+`C` la copie, `Ctrl`+`V` la repose. **Deux gestes.**
+
+**Le collage remplace, et c'est le changement de fond.** « Insérer là où je le souhaite veut dire
+ajouter, pas écraser » reste vrai pour une mesure qu'on glisse quelque part, et les deux insertions
+restent au menu (`Ctrl`+`Maj`+`V` au clavier). Mais recopier, c'est poser sur des mesures qui
+attendent. Le morceau **s'allonge** de ce qu'il faut si le bloc dépasse la fin : coller quatre
+mesures sur les deux dernières ne refuse ni ne tronque, exactement comme la saisie fait grandir le
+morceau plutôt que d'avaler ce qu'on écrit.
+
+**Et ce qui est écrasé se dit.** Remplacer détruit ; la règle de la maison est qu'aucune note ne
+disparaît sans un mot. Le bilan le compte — « 2 mesures collées — 8 notes écrasées. » — et passe par
+le même message que toutes les autres conséquences. Coller sur du vide, le cas normal, ne dit rien :
+un message à chaque collage deviendrait du bruit qu'on n'écoute plus, donc un message qu'on rate le
+jour où il compte.
+
+**La signature du bloc le suit.** Seule sa première mesure la déclare, les suivantes en héritent, et
+la mesure qui suit le bloc retrouve celle qui régnait là — un 4/4 collé au milieu d'un 3/4 ne
+descend pas jusqu'à la fin du morceau.
+
 #### Une frappe par note
 
 Le curseur **avance tout seul** après chaque case tapée. Écrire huit croches demandait **seize
@@ -420,6 +448,9 @@ reprendre) et entre deux signatures différentes (le rythme n'y tomberait pas ju
 | `Alt`+`D` | Reprendre le rythme de la mesure précédente, sans toucher aux hauteurs déjà écrites |
 | `H` `P` `S` `T` | Hammer-on, pull-off, slide, liaison de prolongation |
 | `M` `B` `X` `A` | Palm mute, bend, note fantôme, accent |
+| `Maj`+clic | Choisir une PLAGE de mesures, depuis le curseur jusqu'à la mesure cliquée |
+| `Ctrl`+`C` / `Ctrl`+`V` | Copier le bloc choisi · le coller à partir du curseur, **par-dessus** |
+| `Ctrl`+`Maj`+`V` | Le coller en **insérant**, sans rien écraser |
 | `Alt`+`M` | Ajouter une mesure |
 | `Espace` | Lecture / pause, **depuis le début** (ou depuis la boucle, si une boucle est posée) |
 | `Échap` | Arrêter |

@@ -34,13 +34,32 @@ export function brancherClavier(editeur, actions = {}) {
 
         // 1. Transport et fichiers — hors de la table des actions, qui ne connaît que l'édition.
         if (sig === 'space') { e.preventDefault(); actions.lectureAlternee?.(); return; }
-        if (sig === 'escape') { e.preventDefault(); actions.arreter?.(); return; }
+        // ÉCHAP ABANDONNE D'ABORD LA PLAGE CHOISIE, et n'arrête la lecture que s'il n'y en a pas.
+        // L'ordre est celui de l'attente : quand quelque chose est sélectionné à l'écran, Échap veut
+        // dire « laisse tomber cette sélection » dans toutes les applications du monde.
+        if (sig === 'escape') {
+            e.preventDefault();
+            if (actions.abandonnerPlage?.()) return;
+            actions.arreter?.();
+            return;
+        }
         if (sig === 'ctrl+z') { e.preventDefault(); editeur.annuler(); return; }
         if (sig === 'ctrl+y' || sig === 'ctrl+shift+z') { e.preventDefault(); editeur.retablir(); return; }
         if (sig === 'ctrl+s') { e.preventDefault(); actions.enregistrer?.(); return; }
         if (sig === 'ctrl+shift+s') { e.preventDefault(); actions.exporterJson?.(); return; }
         if (sig === 'ctrl+o') { e.preventDefault(); actions.ouvrir?.(); return; }
         if (sig === 'ctrl+p') { e.preventDefault(); actions.exporterPdf?.(); return; }
+        // COPIER / COLLER UN BLOC DE MESURES — le geste central de la recopie. Ctrl+C et Ctrl+V,
+        // c'est-à-dire ce que tout le monde tape sans y penser ; le menu contextuel les propose
+        // aussi, pour qui ne cherche pas au clavier.
+        //
+        // AUCUN CONFLIT AVEC LA COPIE DU NAVIGATEUR : la zone de partition ne contient pas de texte
+        // sélectionnable (voir style.css, `user-select: none`), donc rien à copier au sens du
+        // navigateur. On préempte quand même explicitement, pour que le geste ne dépende pas de
+        // l'absence de sélection.
+        if (sig === 'ctrl+c') { e.preventDefault(); actions.copierMesures?.(); return; }
+        if (sig === 'ctrl+v') { e.preventDefault(); actions.collerMesures?.({}); return; }
+        if (sig === 'ctrl+shift+v') { e.preventDefault(); actions.collerMesures?.({ inserer: true }); return; }
         if (sig === '?' || sig === 'shift+?') { e.preventDefault(); actions.aide?.(); return; }
         // ONGLETS — Alt+chiffre va DIRECTEMENT au Nième morceau ouvert, Alt+←/→ au voisin.
         //

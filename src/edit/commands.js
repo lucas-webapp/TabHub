@@ -96,11 +96,16 @@ export class Editeur {
         // depuis les réglages ; l'éditeur en porte la valeur pour que la commande reste testable
         // sans navigateur, comme tout le reste de ce fichier.
         this.avanceAuto = true;
-        // PRESSE-PAPIER D'UNE MESURE (voir copierMesure/collerMesure). Volontairement porté par
-        // l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à un
-        // `nouveau()` comme à un changement d'instrument — copier une mesure de guitare pour la
-        // reporter dans une basse est un geste légitime, que collerMesure sait rendre sûr.
-        this.presseMesure = null;
+        // PRESSE-PAPIER D'UN BLOC DE MESURES (voir copierMesures/collerMesures). Volontairement porté
+        // par l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à
+        // un `nouveau()` comme à un changement d'instrument — copier des mesures de guitare pour les
+        // reporter dans une basse est un geste légitime, que collerMesures sait rendre sûr.
+        //
+        // UN BLOC, PAS UNE MESURE, et c'est tout l'objet de ce presse-papier. Il n'en tenait qu'une :
+        // répéter un riff de quatre mesures demandait alors de RE-COPIER la source à chaque fois —
+        // seize interactions de menu mesurées (clic droit + entrée, copier ET coller, par mesure) pour
+        // un geste qui, dans n'importe quel éditeur, en demande deux.
+        this.presseMesures = null;
     }
 
     // -- Abonnement ------------------------------------------------------------------------------
@@ -1861,78 +1866,143 @@ export class Editeur {
     }
 
     /**
-     * COPIE la mesure courante dans un presse-papier interne (retour utilisateur : « permets-moi de
-     * copier/coller une mesure complète avec clic droit, et de l'insérer là où je le souhaite »).
+     * COPIE UN BLOC DE MESURES dans un presse-papier interne (retour utilisateur : « permets-moi de
+     * copier/coller une mesure complète avec clic droit, et de l'insérer là où je le souhaite », puis
+     * « je veux pouvoir recopier une partition sans avoir besoin de recommencer des mesures
+     * entières »).
      *
      * Ne modifie RIEN — donc aucun point d'annulation : copier n'est pas une édition, et polluer
      * l'historique d'un geste qui ne change pas le document ferait qu'un Ctrl+Z après une copie
      * semblerait « ne rien faire ».
      *
-     * ON MÉMORISE AUSSI LA SIGNATURE EN VIGUEUR, pas seulement les notes : c'est elle qui donne un
-     * sens à leur somme. Coller une mesure de 4 temps dans un passage en 3/4 sans cette précaution
-     * produirait une mesure qui déborde silencieusement — voir collerMesure, qui s'en sert.
+     * ON MÉMORISE AUSSI LA SIGNATURE EN VIGUEUR au DÉBUT du bloc, pas seulement les notes : c'est
+     * elle qui donne un sens à leur somme. Coller des mesures de 4 temps dans un passage en 3/4 sans
+     * cette précaution produirait des mesures qui débordent silencieusement — voir collerMesures.
+     *
+     * @param {number} depart première mesure du bloc (curseur par défaut)
+     * @param {number} fin dernière mesure du bloc, INCLUSE (= `depart` par défaut : une seule mesure)
      */
-    copierMesure() {
-        this.presseMesure = {
-            mesure: cloner(this.mesureCourante()),
-            signature: { ...signatureEffective(this.partition, this.curseur.mesure) },
+    copierMesures(depart = this.curseur.mesure, fin = depart) {
+        const a = Math.max(0, Math.min(depart, fin));
+        const b = Math.min(this.partition.mesures.length - 1, Math.max(depart, fin));
+        if (a > b) return false;
+        this.presseMesures = {
+            mesures: this.partition.mesures.slice(a, b + 1).map(cloner),
+            signature: { ...signatureEffective(this.partition, a) },
             cordes: nbCordes(this.partition),
         };
         return true;
     }
 
     /** Y a-t-il quelque chose à coller ? Sert au menu contextuel, qui masque l'entrée si non. */
-    peutCollerMesure() { return !!this.presseMesure; }
+    peutCollerMesures() { return !!(this.presseMesures?.mesures?.length); }
+
+    /** Combien de mesures le presse-papier tient-il ? Sert aux libellés (« Coller les 4 mesures »). */
+    nbMesuresCopiees() { return this.presseMesures?.mesures?.length || 0; }
 
     /**
-     * COLLE la mesure copiée, avant ou après celle du curseur — jamais par-dessus : « insérer là où je
-     * le souhaite » veut dire ajouter, pas écraser ce qui s'y trouve.
+     * COLLE LE BLOC COPIÉ à partir de la mesure `at`.
      *
-     * DEUX PIÈGES, traités plutôt que laissés au hasard.
+     * DEUX FAÇONS, et le défaut a changé. `collerMesure` ne savait qu'INSÉRER : « insérer là où je le
+     * souhaite veut dire ajouter, pas écraser ce qui s'y trouve ». C'est juste pour une mesure qu'on
+     * glisse quelque part ; c'est faux pour le geste qui compte en recopie. On recopie un morceau
+     * dont les mesures EXISTENT DÉJÀ — vides, en attente. Y insérer un bloc de quatre mesures en
+     * laisse quatre vides derrière, qu'il faut ensuite aller supprimer une à une. Le collage
+     * REMPLACE donc par défaut, et insère à la demande (`inserer: true`).
      *
-     * 1. LES CORDES. Une mesure de guitare collée dans une basse porterait des notes sur des cordes
-     *    qui n'existent pas — invisibles à l'écran (aucune ligne pour les recevoir) mais bien dans le
-     *    document, et audibles. Elles sont donc écartées, et leur nombre remonté à l'appelant pour
-     *    qu'il le DISE, comme le fait déjà l'import MIDI de ses notes hors du manche.
+     * ET IL DIT CE QU'IL A ÉCRASÉ. Remplacer détruit ; la règle de la maison est qu'aucune note ne
+     * disparaît sans un mot (voir prevenir / dernierBilan). Le bilan compte les notes écrasées, comme
+     * il comptait déjà celles qu'aucune corde ne pouvait recevoir.
      *
-     * 2. LA SIGNATURE. Une mesure de 4 temps collée dans un passage en 3/4 doit garder SA signature,
+     * TROIS PIÈGES, traités plutôt que laissés au hasard.
+     *
+     * 1. LES CORDES. Un bloc de guitare collé dans une basse porterait des notes sur des cordes qui
+     *    n'existent pas — invisibles à l'écran (aucune ligne pour les recevoir) mais bien dans le
+     *    document, et audibles. Elles sont écartées, et leur nombre remonté pour qu'on le DISE.
+     *
+     * 2. LA SIGNATURE. Un bloc de 4 temps collé dans un passage en 3/4 doit garder SA signature,
      *    sinon sa somme ne correspond plus à sa capacité. Mais la poser telle quelle la propagerait à
      *    TOUTE LA SUITE du morceau (voir signatureEffective, qui remonte à la dernière mesure qui en
-     *    fixe une) : on rend donc explicitement à la mesure SUIVANTE la signature qui régnait là
-     *    avant le collage. Le changement reste local, exactement là où on a collé.
+     *    fixe une) : on rend donc explicitement à la mesure QUI SUIT LE BLOC la signature qui régnait
+     *    là avant le collage. Le changement reste local, exactement sur le bloc collé.
+     *
+     * 3. LE MORCEAU TROP COURT. Coller quatre mesures sur les deux dernières ne doit pas refuser ni
+     *    tronquer : le morceau s'allonge de ce qu'il faut. C'est la même règle que la saisie, qui fait
+     *    grandir le morceau plutôt que d'avaler ce qu'on écrit (voir _avancerApresSaisie).
+     *
+     * @param {number} at mesure où commence le collage (curseur par défaut)
+     * @param {{inserer?: boolean}} options `inserer: true` ajoute sans rien écraser
+     * @returns {{colees, abandonnees, ecrasees, ajoutees}|null} null si le presse-papier est vide
      */
-    collerMesure(apres = true) {
-        if (!this.presseMesure) { this.derniereErreur = 'Aucune mesure copiée.'; return null; }
+    collerMesures(at = this.curseur.mesure, { inserer = false } = {}) {
+        if (!this.peutCollerMesures()) { this.derniereErreur = 'Aucune mesure copiée.'; return null; }
         const cordesCibles = nbCordes(this.partition);
-        const copie = cloner(this.presseMesure.mesure);
+        const bloc = this.presseMesures.mesures.map(cloner);
         let abandonnees = 0;
-        for (const voix of copie.voix) {
-            for (const e of voix.evenements) {
-                const avant = e.notes.length;
-                e.notes = e.notes.filter(n => n.corde < cordesCibles);
-                abandonnees += avant - e.notes.length;
-                if (!e.notes.length) e.silence = true;
+        for (const copie of bloc) {
+            for (const voix of copie.voix) {
+                for (const e of voix.evenements) {
+                    const avant = e.notes.length;
+                    e.notes = e.notes.filter(n => n.corde < cordesCibles);
+                    abandonnees += avant - e.notes.length;
+                    if (!e.notes.length) e.silence = true;
+                }
             }
         }
 
         this.memoriser();
-        const at = apres ? this.curseur.mesure + 1 : this.curseur.mesure;
-        const signatureAvant = { ...signatureEffective(this.partition, Math.min(at, this.partition.mesures.length - 1)) };
-        const sigCopie = this.presseMesure.signature;
-        const memeSignature = sigCopie.battements === signatureAvant.battements && sigCopie.unite === signatureAvant.unite;
-        copie.signature = memeSignature ? null : { ...sigCopie };
-        this.partition.mesures.splice(at, 0, copie);
-        // Rendre à la suite la signature qu'elle avait : sans ça, le 4/4 de la mesure collée
-        // deviendrait celui de tout ce qui la suit.
+        const debut = Math.max(0, Math.min(at, this.partition.mesures.length));
+        // La signature qui RÉGNAIT à l'endroit visé, lue AVANT de toucher au tableau : c'est elle
+        // qu'il faudra rendre à la suite si le bloc en impose une autre.
+        const signatureAvant = { ...signatureEffective(this.partition, Math.min(debut, this.partition.mesures.length - 1)) };
+        const sigBloc = this.presseMesures.signature;
+        const memeSignature = sigBloc.battements === signatureAvant.battements && sigBloc.unite === signatureAvant.unite;
+        // SEULE LA PREMIÈRE mesure du bloc déclare la signature : les suivantes l'héritent d'elle,
+        // exactement comme dans le morceau d'origine. Les redéclarer toutes graverait un « 4/4 » sur
+        // chaque mesure du bloc, ce que le moteur de rendu affiche (voir score.js, `signature: null`).
+        bloc.forEach((m, i) => { m.signature = (i === 0 && !memeSignature) ? { ...sigBloc } : null; });
+
+        let ecrasees = 0;
+        let ajoutees = 0;
+        if (inserer) {
+            this.partition.mesures.splice(debut, 0, ...bloc);
+        } else {
+            // REMPLACER : on compte d'abord ce qu'on détruit, puis on allonge le morceau de ce qui
+            // manque, puis on écrase. L'ordre compte — compter après avoir allongé compterait des
+            // mesures neuves, donc vides, et le bilan dirait toujours zéro.
+            for (let k = debut; k < debut + bloc.length && k < this.partition.mesures.length; k++) {
+                for (const voix of this.partition.mesures[k].voix) {
+                    for (const e of voix.evenements) if (!e.silence) ecrasees += e.notes.length;
+                }
+            }
+            while (this.partition.mesures.length < debut + bloc.length) {
+                this.partition.mesures.push(creerMesure());
+                ajoutees++;
+            }
+            this.partition.mesures.splice(debut, bloc.length, ...bloc);
+        }
+        // Rendre à la suite la signature qu'elle avait : sans ça, le 4/4 du bloc collé deviendrait
+        // celui de tout ce qui le suit.
         if (!memeSignature) {
-            const suivante = this.partition.mesures[at + 1];
+            const suivante = this.partition.mesures[debut + bloc.length];
             if (suivante && !suivante.signature) suivante.signature = signatureAvant;
         }
-        this.curseur.mesure = at;
+        this.curseur.mesure = debut;
         this.curseur.evenement = 0;
         this.corrigerCurseur();
+        // LE BILAN EST UNE PHRASE, comme partout ailleurs (voir main.js#annoncerConsequences, qui les
+        // joint par « · »). On ne dit rien quand il n'y a rien à dire : coller sur des mesures vides
+        // est le cas NORMAL en recopie, et un message à chaque collage deviendrait du bruit qu'on
+        // n'écoute plus — donc un message qu'on rate le jour où il compte.
+        const morceaux = [];
+        if (ecrasees) morceaux.push(`${ecrasees} note${ecrasees > 1 ? 's' : ''} écrasée${ecrasees > 1 ? 's' : ''}`);
+        if (abandonnees) morceaux.push(`${abandonnees} note${abandonnees > 1 ? 's' : ''} sans corde pour `
+            + `l${abandonnees > 1 ? 'es' : 'a'} recevoir sur cet instrument`);
+        this.dernierBilan = morceaux.length
+            ? `${bloc.length} mesure${bloc.length > 1 ? 's' : ''} collée${bloc.length > 1 ? 's' : ''} — ${morceaux.join(', ')}.`
+            : null;
         this.prevenir('edition');
-        return { abandonnees };
+        return { colees: bloc.length, abandonnees, ecrasees, ajoutees };
     }
 
     supprimerMesure() {

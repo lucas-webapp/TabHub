@@ -37,7 +37,7 @@ const { check, exiger, plan, bilan } = creerHarnais('copier/coller une mesure');
         const entreesMenu = () => page.evaluate(() =>
             [...document.querySelectorAll('#menu-contextuel button')].map(b => b.textContent));
 
-        await page.evaluate(() => { window.app.editeur.presseMesure = null; });
+        await page.evaluate(() => { window.app.editeur.presseMesures = null; });
         let p = await pointMesure(0);
         await page.mouse.click(p.x, p.y, { button: 'right' });
         await page.waitForTimeout(250);
@@ -52,8 +52,14 @@ const { check, exiger, plan, bilan } = creerHarnais('copier/coller une mesure');
         await page.mouse.click(p.x, p.y, { button: 'right' });
         await page.waitForTimeout(250);
         const avecCopie = await entreesMenu();
-        check(avecCopie.includes('Coller la mesure avant') && avecCopie.includes('Coller la mesure après'),
-            'une fois une mesure copiée, les deux collages apparaissent — avant ET après');
+        // TROIS COLLAGES, et non plus deux : « ici (remplace) » a rejoint les deux insertions, et il
+        // est le DÉFAUT (Ctrl+V). On recopie sur des mesures qui existent déjà, vides et en attente ;
+        // y insérer laisse derrière autant de mesures vides qu'on en a collé, à supprimer une à une.
+        check(avecCopie.includes('Coller la mesure ici (remplace)')
+            && avecCopie.includes('Coller la mesure avant (en insérant)')
+            && avecCopie.includes('Coller la mesure après (en insérant)'),
+            `une fois une mesure copiée, les trois collages apparaissent — remplacer, avant, après `
+            + `(${avecCopie.filter(t => /Coller/.test(t)).join(' | ')})`);
         await page.keyboard.press('Escape');
         await page.waitForTimeout(150);
 
@@ -66,8 +72,8 @@ const { check, exiger, plan, bilan } = creerHarnais('copier/coller une mesure');
             ed.partition.mesures[1].voix[0].evenements = [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 12)])];
             ed.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
             const avant = ed.partition.mesures.length;
-            ed.copierMesure();
-            const bilan = ed.collerMesure(true);
+            ed.copierMesures();
+            const bilan = ed.collerMesures(ed.curseur.mesure + 1, { inserer: true });
             const lire = (i) => ed.partition.mesures[i].voix[0].evenements.map(e => e.notes[0] ? e.notes[0].frette : '_').join(',');
             return { avant, apres: ed.partition.mesures.length, bilan,
                      m0: lire(0), m1: lire(1), m2: lire(2), curseur: ed.curseur.mesure };
@@ -95,9 +101,9 @@ const { check, exiger, plan, bilan } = creerHarnais('copier/coller une mesure');
             // Un accord sur la corde 0 (existe partout) ET la corde 5 (la 6e — absente d'une basse 4).
             ed.partition.mesures[0].voix[0].evenements = [m.creerEvenement({ valeur: 1 }, [m.creerNote(0, 3), m.creerNote(5, 3)])];
             ed.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
-            ed.copierMesure();
+            ed.copierMesures();
             ed.definirInstrument('basse4');
-            const bilan = ed.collerMesure(true);
+            const bilan = ed.collerMesures(ed.curseur.mesure + 1, { inserer: true });
             const collee = ed.partition.mesures[ed.curseur.mesure].voix[0].evenements[0];
             return { abandonnees: bilan.abandonnees, cordes: collee.notes.map(n => n.corde), silence: !!collee.silence };
         });
@@ -111,7 +117,7 @@ const { check, exiger, plan, bilan } = creerHarnais('copier/coller une mesure');
             const ed = window.app.editeur;
             ed.nouveau('guitare');                     // 4 mesures en 4/4
             ed.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
-            ed.copierMesure();                         // on copie une mesure EN 4/4
+            ed.copierMesures();                         // on copie une mesure EN 4/4
             ed.curseur.mesure = 1;
             ed.definirSignature(3, 4);                 // la mesure 1 et toute la suite passent en 3/4
             // L'écart à la capacité AVANT le collage, mesure par mesure. Il n'est pas nul partout :
@@ -123,7 +129,7 @@ const { check, exiger, plan, bilan } = creerHarnais('copier/coller une mesure');
                 +(m.dureeEcrite(mes, 0) - m.capaciteMesure(ed.partition, i)).toFixed(6));
             const avant = ecarts();
             ed.curseur.mesure = 1;
-            ed.collerMesure(true);                     // le 4/4 se colle AU MILIEU du 3/4
+            ed.collerMesures(ed.curseur.mesure + 1, { inserer: true });                     // le 4/4 se colle AU MILIEU du 3/4
             const lues = ed.partition.mesures.map((_, i) => {
                 const s = m.signatureEffective(ed.partition, i);
                 return `${s.battements}/${s.unite}`;

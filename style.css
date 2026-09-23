@@ -100,6 +100,13 @@
        chercher. À 0,40 elle donne ~0,48 contre 0,14, plus de trois fois l'avertissement — on voit
        d'un coup d'œil QUELLES notes, sans confondre avec le « cette mesure est fausse » du fond. */
     --apercu-absorbe: rgba(213, 46, 46, 0.40);
+    /* PLAGE DE MESURES CHOISIE (voir main.js#marquesMesuresChoisies). Le BLEU de --selection, et
+       délibérément le même : le lasso dit « ces notes-là », celle-ci dit « ces mesures-là ». C'est
+       la même idée — « voici ce que le prochain geste va prendre » — à deux échelles, et lui donner
+       une cinquième teinte ferait croire à une cinquième nature. Plus pâle que le lasso (0,20) : une
+       plage couvre des mesures entières là où le lasso ne marque que des têtes de notes, et un aplat
+       aussi soutenu sur huit mesures rendrait la partition illisible. */
+    --mesures-choisies: rgba(74, 158, 255, 0.13);
 
     /* HAUTEUR DE BOUTON UNIQUE (retour utilisateur : « limiter le nombre de hauteurs différentes ») —
        AVANT cette variable, six valeurs coexistaient selon le composant et le pointeur (22/30/32/34/

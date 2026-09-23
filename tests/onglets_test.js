@@ -42,7 +42,7 @@ const { check, exiger, plan, bilan } = creerHarnais('onglets');
                 instrument: ed.piste ? null : ed.partition.piste.instrument,
                 boucle: window.app.lecteur.boucleLecture,
                 dureeCourante: ed.dureeCourante.valeur,
-                presse: !!ed.presseMesure,
+                presse: !!ed.presseMesures,
                 actif: window.app.ongletActif,
                 nOnglets: window.app.onglets.length,
             };
@@ -78,7 +78,7 @@ const { check, exiger, plan, bilan } = creerHarnais('onglets');
             ed.ajouterMesure(true); ed.ajouterMesure(true);       // 6 mesures
             ed.appliquerDuree(2);                                  // blanche : réglage de MAIN
             ed.placerCurseur(3, 0, 0, 0); ed.saisirChiffre(9);
-            ed.placerCurseur(1, 0, 0, 0); ed.copierMesure();       // presse-papier : COMMUN
+            ed.placerCurseur(1, 0, 0, 0); ed.copierMesures();      // presse-papier : COMMUN
             window.app.lecteur.definirBoucle(ed.partition, 1, 2);  // boucle : par onglet
         });
         await page.waitForTimeout(250);

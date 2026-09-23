@@ -358,6 +358,13 @@ class TabHubApp {
         this._connusIci = new Set();
         // Le geste dont on montre l'effet à l'avance, ou null. Voir marquesApercu.
         this._apercuAction = null;
+        // PLAGE DE MESURES SÉLECTIONNÉE — `{ ancre, fin }`, deux numéros de mesure, dans n'importe
+        // quel ordre. À PART de `selectionNotes` (le lasso), et ce n'est pas un oubli : le lasso
+        // choisit DES NOTES pour les effacer, celle-ci choisit DES MESURES pour les copier. Les
+        // fondre en une seule aurait demandé de décider, à chaque geste, laquelle des deux natures
+        // on visait — exactement le genre d'ambiguïté qui fait qu'un raccourci agit une fois sur deux
+        // comme on l'attendait.
+        this.selectionMesures = null;
 
         this.restaurerBrouillon();
         this.poserIcones();
@@ -402,6 +409,19 @@ class TabHubApp {
             exporterJson: () => this.exporterJson(),
             ouvrir: () => this.ouvrir(),
             exporterPdf: () => this.exporterPdf(),
+            // COPIER / COLLER UN BLOC DE MESURES (voir copierPlage, _collerMesures). Le clavier passe
+            // par les MÊMES relais que le menu contextuel : un seul endroit sait rendre compte de ce
+            // qu'un collage écrase, et les deux chemins ne peuvent pas diverger.
+            copierMesures: () => this.copierPlage(),
+            collerMesures: (options) => this._collerMesures(options || {})(),
+            // Rend VRAI s'il y avait une plage à abandonner : c'est ce qui permet à Échap de servir
+            // deux choses sans les confondre (voir edit/keyboard.js).
+            abandonnerPlage: () => {
+                if (!this.selectionMesures) return false;
+                this.selectionMesures = null;
+                this.dessiner();
+                return true;
+            },
             aide: () => this.ouvrirFenetre('fenetre-aide'),
             // ONGLETS AU CLAVIER (voir edit/keyboard.js). `allerOnglet` ignore un numéro qui ne
             // correspond à rien : Alt+7 sur trois onglets ne doit RIEN faire, pas sauter au dernier —
@@ -471,8 +491,9 @@ class TabHubApp {
             return;
         }
 
-        const calques = [...this.marquesLecture(), ...this.marquesARemplir(), ...this.marquesCurseur(),
-                         ...this.marquesSelection(), ...this.marquesBoucle(), ...this.marquesApercu()];
+        const calques = [...this.marquesLecture(), ...this.marquesARemplir(), ...this.marquesMesuresChoisies(),
+                         ...this.marquesCurseur(), ...this.marquesSelection(), ...this.marquesBoucle(),
+                         ...this.marquesApercu()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
         this.el.feuille.style.height = `${this.page.hauteur}px`;
         this.el.feuille.innerHTML = rendreSvg(this.page, {
@@ -557,6 +578,44 @@ class TabHubApp {
             const y = a.yTab != null ? a.yTab - 0.3 * S : a.yPortee - 0.3 * S;
             const bas = a.yBas + 0.3 * S;
             marques.push({ t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: Math.max(2, bas - y), couleur: 'var(--a-remplir)' });
+        }
+        return marques;
+    }
+
+    /** Les deux bornes de la plage choisie, remises dans l'ordre, ou `null`. */
+    plageChoisie() {
+        if (!this.selectionMesures) return null;
+        const { ancre, fin } = this.selectionMesures;
+        const n = this.editeur.partition.mesures.length;
+        const a = Math.max(0, Math.min(ancre, fin));
+        const b = Math.min(n - 1, Math.max(ancre, fin));
+        return a <= b ? { debut: a, fin: b } : null;
+    }
+
+    /**
+     * LA PLAGE DE MESURES CHOISIE, teintée sur la partition.
+     *
+     * DESSOUS LE CURSEUR dans l'ordre des calques (voir dessiner) : on choisit une plage POUR y faire
+     * quelque chose, et le curseur — qui dit où le collage tombera — doit rester lisible par-dessus.
+     *
+     * UNE MESURE = UN RECTANGLE, jamais un seul rectangle pour toute la plage : une plage franchit
+     * les fins de ligne, et une bande continue s'étalerait alors sur la marge droite puis rentrerait
+     * par la gauche en couvrant la clef. L'ancrage de mesure donne l'étendue horizontale exacte
+     * (barre à barre) ; la hauteur se lit sur un évènement de cette mesure, seul porteur d'un `yBas`
+     * générique aux deux mises en page (guitare/basse et piano).
+     */
+    marquesMesuresChoisies() {
+        const plage = this.plageChoisie();
+        if (!plage || !this.page) return [];
+        const S = this.page.geo.S;
+        const marques = [];
+        for (let m = plage.debut; m <= plage.fin; m++) {
+            const am = this.page.ancrages.mesures.find(z => z.index === m);
+            const ae = this.page.ancrages.evenements.find(z => z.mesure === m);
+            if (!am || !ae) continue;
+            const y = ae.yPortee - 1.2 * S;
+            marques.push({ t: 'rect', x: am.x, y, w: am.xFin - am.x, h: (ae.yBas + 1.2 * S) - y,
+                           couleur: 'var(--mesures-choisies)' });
         }
         return marques;
     }
@@ -3599,6 +3658,22 @@ class TabHubApp {
         const auPiano = this.editeur.partition.piste.instrument === 'piano';
         const cible = auPiano ? this.cibleDepuisClicPiano(evenement) : this.cibleDepuisClic(evenement);
         if (!cible) { this.el.zone.focus(); return; }
+        // MAJ+CLIC CHOISIT UNE PLAGE DE MESURES, depuis là où le curseur se trouve jusqu'à la mesure
+        // cliquée. C'est la convention de toutes les listes, de tous les tableurs et des deux
+        // éditeurs de référence : on n'a rien à apprendre. L'ANCRE NE BOUGE PAS d'un Maj+clic au
+        // suivant — c'est ce qui permet d'élargir puis de rétrécir sa plage sans la reprendre à zéro.
+        if (evenement.shiftKey) {
+            const ancre = this.selectionMesures ? this.selectionMesures.ancre : this.editeur.curseur.mesure;
+            this.selectionMesures = { ancre, fin: cible.mesure };
+            // Le curseur suit quand même : c'est lui qui dira où un collage tombe, et le laisser
+            // derrière ferait d'un Ctrl+V un geste dont on ne saurait plus deviner la destination.
+            this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix, cible.decalage);
+            this.dessiner();
+            this.el.zone.focus();
+            return;
+        }
+        // Un clic SIMPLE abandonne la plage, comme il abandonne le lasso, et pour la même raison.
+        if (this.selectionMesures) this.selectionMesures = null;
         // Au piano, la voix visée peut ne pas encore exister (mesure jamais jouée à cette main) —
         // on l'ajoute ICI, avant de placer le curseur dessus, plutôt que de forcer l'utilisateur à
         // un geste séparé (« + Voix », retiré de la palette guitare/basse — voir edit/raccourcis.js)
@@ -3765,16 +3840,18 @@ class TabHubApp {
                 this.ouvrirAideRythme(this.editeur.curseur.mesure);
             } },
             null,
-            { texte: 'Copier cette mesure', faire: () => {
+            // LE LIBELLÉ DIT COMBIEN, parce que la plage choisie n'est pas toujours sous les yeux du
+            // menu ouvert — « Copier les 4 mesures » se relit, « Copier » se devine.
+            { texte: this.libelleCopie(), faire: () => {
                 this.fermerMenuContextuel();
-                this.editeur.copierMesure();
-                this.message(`Mesure ${this.editeur.curseur.mesure + 1} copiée`);
+                this.copierPlage();
             } },
-            // Les deux collages n'apparaissent que s'il y a quelque chose à coller : une entrée grise
-            // en permanence apprendrait seulement qu'on ne peut pas s'en servir.
-            ...(this.editeur.peutCollerMesure() ? [
-                { texte: 'Coller la mesure avant', faire: this._collerMesure(false) },
-                { texte: 'Coller la mesure après', faire: this._collerMesure(true) },
+            // Les collages n'apparaissent que s'il y a quelque chose à coller : une entrée grise en
+            // permanence apprendrait seulement qu'on ne peut pas s'en servir.
+            ...(this.editeur.peutCollerMesures() ? [
+                { texte: this.libelleCollage('remplacer'), faire: this._collerMesures({}) },
+                { texte: this.libelleCollage('avant'), faire: this._collerMesures({ inserer: true, avant: true }) },
+                { texte: this.libelleCollage('apres'), faire: this._collerMesures({ inserer: true }) },
             ] : []),
         ];
 
@@ -4985,22 +5062,58 @@ class TabHubApp {
         window.addEventListener('pointercancel', surAnnulation);
     }
 
+    /** « Copier cette mesure » ou « Copier les 4 mesures » — le menu dit sur quoi il va agir. */
+    libelleCopie() {
+        const plage = this.plageChoisie();
+        const n = plage ? plage.fin - plage.debut + 1 : 1;
+        return n > 1 ? `Copier les ${n} mesures (${plage.debut + 1}–${plage.fin + 1})` : 'Copier cette mesure';
+    }
+
+    /** Les trois collages, nommés par ce qu'ils feront au nombre de mesures qu'on tient. */
+    libelleCollage(genre) {
+        const n = this.editeur.nbMesuresCopiees();
+        const quoi = n > 1 ? `les ${n} mesures` : 'la mesure';
+        if (genre === 'avant') return `Coller ${quoi} avant (en insérant)`;
+        if (genre === 'apres') return `Coller ${quoi} après (en insérant)`;
+        return `Coller ${quoi} ici (remplace)`;
+    }
+
     /**
-     * Relais du collage d'une mesure — il ne se contente pas de redessiner, il REND COMPTE.
+     * COPIE la plage choisie, ou à défaut la mesure du curseur.
      *
-     * Coller une mesure de guitare dans une basse écarte les notes posées sur des cordes qui
-     * n'existent pas (voir Editeur.collerMesure) : les taire laisserait croire à une copie fidèle,
-     * alors qu'il en manque. Le nombre exact est donc annoncé, comme le fait déjà l'import MIDI pour
-     * ses notes hors du manche.
+     * Copier ne modifie rien : pas d'`action()`, pas de point d'annulation. Un MESSAGE le confirme à
+     * la place — sans quoi le geste n'aurait aucun retour visible et on ne saurait pas s'il a pris.
      */
-    _collerMesure(apres) {
+    copierPlage() {
+        const plage = this.plageChoisie() || { debut: this.editeur.curseur.mesure, fin: this.editeur.curseur.mesure };
+        this.editeur.copierMesures(plage.debut, plage.fin);
+        const n = plage.fin - plage.debut + 1;
+        this.message(n > 1
+            ? `${n} mesures copiées (${plage.debut + 1} à ${plage.fin + 1}) — Ctrl+V les recopie à partir du curseur`
+            : `Mesure ${plage.debut + 1} copiée — Ctrl+V la recopie à partir du curseur`, 3600);
+    }
+
+    /**
+     * Relais du collage — il ne se contente pas de redessiner, il REND COMPTE.
+     *
+     * Ce que le collage détruit ou écarte passe par `dernierBilan` (voir Editeur.collerMesures), donc
+     * par `annoncerConsequences`, comme toutes les autres conséquences de l'application : un collage
+     * qui écrase huit notes le dit dans la même phrase, au même endroit, que tout le reste. Ce relais
+     * n'a plus qu'à confirmer ce qui s'est bien passé.
+     */
+    _collerMesures({ inserer = false, avant = false } = {}) {
         return () => {
             this.fermerMenuContextuel();
-            const bilan = this.editeur.collerMesure(apres);
+            const at = inserer && !avant ? this.editeur.curseur.mesure + 1 : this.editeur.curseur.mesure;
+            const bilan = this.editeur.collerMesures(at, { inserer });
             if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; return; }
+            // La plage choisie désignait la SOURCE ; après un collage, elle ne désigne plus rien
+            // qu'on ait encore sous les yeux. La laisser teintée ferait croire qu'elle est la cible.
+            this.selectionMesures = null;
             this.dessiner();
-            if (bilan?.abandonnees) {
-                this.message(`Mesure collée — ${bilan.abandonnees} note(s) écartée(s), hors des cordes de cet instrument.`, 6000);
+            if (bilan && !this.editeur.dernierBilan) {
+                this.message(`${bilan.colees} mesure${bilan.colees > 1 ? 's' : ''} collée${bilan.colees > 1 ? 's' : ''}`
+                    + (bilan.ajoutees ? ` — le morceau a gagné ${bilan.ajoutees} mesure${bilan.ajoutees > 1 ? 's' : ''}` : ''));
             }
         };
     }
