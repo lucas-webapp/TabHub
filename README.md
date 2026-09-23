@@ -315,6 +315,34 @@ temps.
 au bout du morceau ; une frappe de saisie non. Sans cette distinction, la dernière note d'un morceau
 laisserait derrière elle une mesure vide que personne n'a demandée.
 
+#### Écrire au milieu d'un silence
+
+Le troisième défaut signalé : *« si je supprime des notes, elles sont logiquement remplacées par des
+silences. Cependant, ensuite, je ne peux plus ressaisir une note au même endroit car le silence a
+pris sa place. »*
+
+La cause n'était pas celle qu'on croit. Les silences **se fusionnent**, et c'est voulu — c'est ce que
+font MuseScore et Guitar Pro. Mais le curseur ne pouvait se poser que sur une **frontière
+d'évènement existante**. Mesuré sur huit croches dont on efface les trois du milieu : les évènements
+démarrent à 0 — 0,5 — 1 — 2 — 2,5 — 3 — 3,5. Le temps 1,50 n'existe plus, et devenait donc
+inatteignable.
+
+Le curseur porte maintenant un **point visé** à l'intérieur d'un silence, calé sur une grille. Cliquer
+dans la seconde moitié d'un silence d'un temps vise sa seconde croche ; le bandeau du curseur se
+resserre aussitôt sur la portion qu'on s'apprête à occuper, pour qu'on voie où l'on va écrire plutôt
+que de le découvrir après.
+
+**Deux grilles, et la distinction compte.** Celle sur laquelle l'éditeur *écrit* ses silences est la
+plus grossière possible — moins de figures, gravure plus lisible ; un temps que rien ne coupe y vaut
+« une cellule ». Celle sur laquelle on *vise* suit en plus la **figure choisie dans la palette** :
+une croche sélectionnée permet de viser les croches, une double les doubles. Un temps portant un
+triolet reste visable par tiers dans les deux cas, et en 6/8 le temps vaut une noire pointée.
+
+**Le silence n'est scindé qu'à l'écriture.** Un clic est une navigation : il ne pousse aucun point
+d'annulation et ne modifie rien. On retient l'intention, on n'agit que lorsqu'elle se concrétise — et
+un `Ctrl`+`Z` ramène donc le silence entier, sans laisser derrière lui la trace d'une coupure. Les
+deux moitiés sont réécrites en figures alignées, jamais coupées en durées que rien ne sait graver.
+
 | Touche | Effet |
 |---|---|
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |

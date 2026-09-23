@@ -27,6 +27,10 @@ import { rendreOnglets, titreOnglet } from './ui/onglets.js';
 import { construirePave, construireDpadFlottant } from './ui/pave.js';
 import { demander, saisir } from './ui/dialogue.js';
 import * as Rythme from './ui/rythme.js';
+// La grille d'une mesure, déduite de ce qu'elle porte — la MÊME que celle sur laquelle l'éditeur
+// écrit ses silences (voir model/rythme.js). Un clic se cale donc exactement là où une figure
+// pourrait tomber, jamais entre deux.
+import { grilleDeMesure } from './model/rythme.js';
 import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
@@ -43,7 +47,7 @@ import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, ran
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
-import { VALEURS_FIGURES, uniteDeGroupement } from './model/duration.js';
+import { VALEURS_FIGURES, uniteDeGroupement, dureeEnNoires } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
 const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
@@ -560,8 +564,17 @@ class TabHubApp {
         const S = this.page.geo.S, ST = this.page.geo.ST;
         const y = a.yPortee - 1.2 * S;
         const bas = a.yBas + 1.2 * S;
+        // LE BANDEAU SE RESSERRE SUR LE POINT VISÉ quand on a cliqué À L'INTÉRIEUR d'un silence
+        // (voir Editeur, `curseur.decalage`). Sans cela, rien à l'écran ne distinguerait « je vise ce
+        // silence » de « je vise son deuxième temps » : on écrirait à un endroit qu'on n'a pas vu
+        // désigné, ce qui est la définition d'une surprise.
+        const d = this.editeur.curseur.decalage || 0;
+        const total = a.ref ? dureeEnNoires(a.ref.duree) : 0;
+        const xDepart = (d > 1e-9 && total > 0)
+            ? a.xDebut + (d / total) * (a.xFin - a.xDebut)
+            : a.xDebut;
         const marques = [
-            { t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: bas - y, couleur: 'var(--curseur-halo)' },
+            { t: 'rect', x: xDepart, y, w: a.xFin - xDepart, h: bas - y, couleur: 'var(--curseur-halo)' },
         ];
         // Le trait « sur quelle corde » n'a de sens que sur une TABLATURE — un piano (a.yTab absent,
         // voir engine/layout.js#poserMesurePiano) montre déjà SA note à sa hauteur réelle sur la
@@ -3380,7 +3393,73 @@ class TabHubApp {
             corde = Math.round((y - cible.yTab) / ST);
             corde = Math.max(0, Math.min(nbCordes(this.editeur.partition) - 1, corde));
         }
-        return { mesure: cible.mesure, evenement: cible.evenement, corde, voix: cible.voix };
+        return { mesure: cible.mesure, evenement: cible.evenement, corde, voix: cible.voix,
+                 decalage: this._decalageDansSilence(cible, x) };
+    }
+
+    /**
+     * OÙ, À L'INTÉRIEUR D'UN SILENCE, LE CLIC EST TOMBÉ — en noires depuis le début de l'évènement,
+     * calé sur la grille de la mesure. Zéro sur une note, ou quand le clic tombe dans la première
+     * cellule (le cas ordinaire, qui ne change rien).
+     *
+     * POURQUOI C'EST NÉCESSAIRE. Les silences se fusionnent : effacer trois croches au milieu d'une
+     * mesure laisse UN silence d'un temps et demi, et le curseur ne pouvait se poser que sur les
+     * FRONTIÈRES d'évènements. Le temps qui tombe au milieu de ce silence devenait inatteignable —
+     * retour utilisateur : « je ne peux plus ressaisir une note au même endroit car le silence a pris
+     * sa place ». Ce décalage rend la place visable ; l'éditeur scinde le silence au moment où l'on
+     * écrit (voir Editeur._scinderAuDecalage), jamais au clic.
+     *
+     * LA GRILLE EST CELLE DE LA MESURE, déduite de ce qu'elle porte déjà — la même que celle sur
+     * laquelle l'éditeur écrit ses silences. Un temps portant un triolet se vise donc par tiers, un
+     * temps portant des triples-croches par huitièmes : on ne peut désigner que des places où une
+     * figure sait tomber.
+     *
+     * L'ABSCISSE EST INTERPOLÉE dans la largeur de l'évènement. C'est une approximation — un silence
+     * long n'occupe pas une largeur proportionnelle à sa durée — mais elle est monotone et le calage
+     * sur la grille en absorbe l'essentiel : cliquer dans la moitié droite d'un silence de deux temps
+     * vise bien le second.
+     */
+    _decalageDansSilence(ancre, x) {
+        const ref = ancre.ref;
+        if (!ref || !(ref.silence || !ref.notes.length)) return 0;
+        const total = dureeEnNoires(ref.duree);
+        const largeur = ancre.xFin - ancre.xDebut;
+        if (!(total > 0) || !(largeur > 0)) return 0;
+        const brut = Math.max(0, Math.min(total, ((x - ancre.xDebut) / largeur) * total));
+        const partition = this.editeur.partition;
+        const mesure = partition.mesures[ancre.mesure];
+        const voix = mesure?.voix[ancre.voix];
+        if (!voix) return 0;
+        const debut = positionDansMesure(mesure, ancre.evenement, ancre.voix);
+        const temps = grilleDeMesure(signatureEffective(partition, ancre.mesure), voix.evenements,
+                                     [debut, debut + total]);
+        const t = temps.find(tp => debut + brut < tp.debut + tp.duree - 1e-9) || temps[temps.length - 1];
+        if (!t) return 0;
+        // LA GRILLE DE VISÉE EST PLUS FINE QUE CELLE D'ÉCRITURE, et il a fallu le mesurer pour le
+        // comprendre. `grilleDeMesure` choisit la subdivision la plus GROSSIÈRE qui honore les
+        // frontières présentes — c'est ce qu'il faut pour écrire un silence en aussi peu de figures
+        // que possible. Mais un temps que rien ne coupe y vaut « sub 1 » : ses seules positions sont
+        // ses deux bords, et l'on ne pouvait plus rien viser à l'intérieur. Mesuré : un clic aux
+        // trois quarts d'un silence d'un temps rendait un décalage de zéro.
+        //
+        // LA DURÉE DE LA PALETTE TRANCHE : on s'apprête à écrire cette figure-là, donc on peut viser
+        // partout où elle tombe. Une croche choisie permet de viser les croches, une double les
+        // doubles. Le temps garde sa subdivision déduite si elle est PLUS fine (un temps en triolet
+        // reste visable par tiers même si la palette est sur la croche), et la figure de la palette
+        // n'est retenue que si elle divise le temps exactement — une croche pointée ne quadrille pas
+        // une noire.
+        const dureePalette = dureeEnNoires(this.editeur.dureeCourante);
+        let sub = t.sub;
+        if (dureePalette > 1e-9) {
+            const k = Math.round(t.duree / dureePalette);
+            if (k >= 1 && Math.abs(t.duree / k - dureePalette) < 1e-6) sub = Math.max(sub, k);
+        }
+        const cellule = t.duree / sub;
+        const cale = t.debut + Math.round((debut + brut - t.debut) / cellule) * cellule;
+        const decalage = cale - debut;
+        // Le tout premier et le tout dernier bord ne sont pas des décalages : l'un est l'évènement
+        // lui-même, l'autre appartient à celui qui suit.
+        return (decalage > 1e-9 && decalage < total - 1e-9) ? decalage : 0;
     }
 
     /**
@@ -3447,7 +3526,7 @@ class TabHubApp {
             this.editeur.placerCurseur(cible.mesure, 0, 0, 0);
             this.editeur.ajouterVoix();
         }
-        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix, cible.decalage);
         if (auPiano) {
             this.editeur.saisirHauteur(cible.pitch);
             if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; }
@@ -3525,7 +3604,7 @@ class TabHubApp {
         const cible = auPiano ? this.cibleDepuisClicPiano(evenement) : this.cibleDepuisClic(evenement);
         this.fermerMenuContextuel();
         if (!cible) return;
-        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix, cible.decalage);
         this.el.zone.focus();
 
         // Chaque action ferme le menu, exécute la commande, puis se comporte comme un raccourci
@@ -3836,7 +3915,7 @@ class TabHubApp {
      * on ne touche au document qu'une fois, à la fin — un seul Ctrl+Z pour tout défaire.
      */
     demarrerEtirement(cible) {
-        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix);
+        this.editeur.placerCurseur(cible.mesure, cible.evenement, cible.corde, cible.voix, cible.decalage);
         const valeur = this.editeur.evenementCourant().duree.valeur;
         this._etirement = { indexDepart: VALEURS_FIGURES.indexOf(valeur), valeurVisee: valeur };
     }

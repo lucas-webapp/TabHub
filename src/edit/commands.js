@@ -43,7 +43,20 @@ export const DELAI_DEUXIEME_CHIFFRE = 950;
 export class Editeur {
     constructor(partition = null) {
         this.partition = partition || creerPartition('guitare');
-        this.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
+        // `decalage` — UN POINT VISÉ À L'INTÉRIEUR D'UN SILENCE, en noires depuis le début de
+        // l'évènement courant. Zéro partout ailleurs, et remis à zéro par tout déplacement.
+        //
+        // POURQUOI IL EXISTE. Le curseur ne pouvait se poser que sur une FRONTIÈRE d'évènement
+        // existante. Or les silences se fusionnent (voir _fusionnerSilences) : effacer trois croches
+        // au milieu d'une mesure laisse UN silence d'un temps et demi, et il devenait impossible de
+        // viser le temps qui tombe en son milieu — il n'y a plus de frontière là. Retour utilisateur
+        // mot pour mot : « si je supprime des notes, je ne peux plus ressaisir une note au même
+        // endroit car le silence a pris sa place ».
+        //
+        // LE SILENCE N'EST PAS SCINDÉ AU CLIC, mais à l'écriture (voir _scinderAuDecalage) : un
+        // simple clic est une NAVIGATION, il n'a pas à pousser un point d'annulation ni à modifier
+        // le document. On retient l'intention, on n'agit que lorsqu'elle se concrétise.
+        this.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0, decalage: 0 };
         this.passe = [];
         this.futur = [];
         this.auditeurs = new Set();
@@ -376,6 +389,7 @@ export class Editeur {
         this.curseur.mesure = mesure;
         this.curseur.voix = Math.min(iVoixPreferee, this.partition.mesures[mesure].voix.length - 1);
         this.curseur.evenement = evenement;
+        this.curseur.decalage = 0;
         // ON NE CASSE PLUS LA CHAÎNE ICI, et c'est ce qui rend la case à deux chiffres utilisable
         // avec l'avance automatique : « 1 », « ← », « 2 » doit donner 12. C'est la POSITION du
         // curseur qui décide désormais (voir saisirChiffre), et revenir dessus est justement le
@@ -397,8 +411,9 @@ export class Editeur {
         this.prevenir('curseur');
     }
 
-    placerCurseur(mesure, evenement, corde, voix) {
-        this.curseur = { mesure, voix: voix ?? this.curseur.voix, evenement, corde: corde ?? this.curseur.corde };
+    placerCurseur(mesure, evenement, corde, voix, decalage = 0) {
+        this.curseur = { mesure, voix: voix ?? this.curseur.voix, evenement,
+                         corde: corde ?? this.curseur.corde, decalage: decalage || 0 };
         this.corrigerCurseur();
         this._dernierChiffre = null;
         this.prevenir('curseur');
@@ -591,20 +606,26 @@ export class Editeur {
         // deux notes, et l'on revient d'un « ← » quand on veut vraiment une case à deux chiffres —
         // une frappe de plus pour les cases 10 à 24, qui sont rares, contre une frappe de moins pour
         // toutes les autres.
-        const memeCase = !!precedent
+        // UN POINT VISÉ DANS UN SILENCE n'est jamais un enchaînement : il vient d'un clic, donc d'un
+        // déplacement, donc d'une autre intention que « je complète la case précédente ».
+        const scinde = (c.decalage || 0) > 1e-9;
+        const memeCase = !scinde && !!precedent
             && precedent.cible.mesure === c.mesure && precedent.cible.voix === c.voix
             && precedent.cible.evenement === c.evenement && precedent.cible.corde === c.corde;
         const enchaine = memeCase && maintenant - precedent.temps < DELAI_DEUXIEME_CHIFFRE;
-        const cible = { mesure: c.mesure, voix: c.voix, evenement: c.evenement, corde: c.corde };
 
         let frette = chiffre;
         if (enchaine) {
             const combine = precedent.valeur * 10 + chiffre;
             if (combine <= casesMax) frette = combine;
         }
-        const fusion = 'saisie-' + cible.mesure + '-' + cible.evenement + '-' + cible.corde;
+        const fusion = 'saisie-' + c.mesure + '-' + c.evenement + '-' + c.corde + (scinde ? '-s' : '');
 
+        // L'ORDRE COMPTE : on mémorise l'état AVANT la scission, sinon un Ctrl+Z laisserait le
+        // silence coupé en deux derrière lui — la trace d'un geste qu'on vient d'annuler.
         this.memoriser(fusion);
+        if (scinde) this._scinderAuDecalage();
+        const cible = { mesure: c.mesure, voix: c.voix, evenement: c.evenement, corde: c.corde };
         const evenement = this.partition.mesures[cible.mesure]?.voix[cible.voix]?.evenements[cible.evenement];
         if (!evenement) return null;
         evenement.silence = false;
@@ -703,6 +724,7 @@ export class Editeur {
      */
     _avancerSansCreer() {
         const c = this.curseur;
+        c.decalage = 0;
         const voix = this.voixCourante();
         if (c.evenement + 1 < voix.evenements.length) { c.evenement += 1; return true; }
         if (c.mesure + 1 < this.partition.mesures.length) {
@@ -728,7 +750,11 @@ export class Editeur {
         // cliquées coup sur coup pousse trois points d'annulation distincts, un par hauteur — Ctrl+Z
         // retire alors la DERNIÈRE note posée, pas l'accord entier d'un coup.
         this.memoriser('saisieHauteur-' + this.curseur.mesure + '-' + this.curseur.evenement + '-' + midi);
+        // Même point visé, même scission que pour une case (voir _scinderAuDecalage) : au piano, on
+        // clique tout autant au milieu d'un silence.
+        this._scinderAuDecalage();
         const evenement = this.evenementCourant();
+        if (!evenement) return false;
         const existante = evenement.notes.find(n => n.frette === midi);
         if (existante) {
             evenement.notes = evenement.notes.filter(n => n !== existante);
@@ -851,6 +877,42 @@ export class Editeur {
         if (!(duree > 1e-9)) return [];
         const sig = signatureEffective(this.partition, iMesure);
         return silencesAlignes(sig, voix?.evenements || [], debut, duree) || decouperEnEvenements(duree);
+    }
+
+    /**
+     * SCINDE LE SILENCE SOUS LE CURSEUR au point visé, et place le curseur sur la seconde moitié.
+     *
+     * C'EST ICI QUE L'INTENTION DEVIENT UN FAIT. `curseur.decalage` dit « je vise ce temps-là, à
+     * l'intérieur de ce silence » (voir le constructeur) ; un clic le pose sans rien modifier. Cette
+     * méthode n'est appelée qu'au moment où l'on écrit vraiment — poser une case, poser une hauteur —
+     * et c'est ce qui permet de se promener dans la partition sans semer des points d'annulation.
+     *
+     * LES DEUX MOITIÉS SONT RÉÉCRITES SUR LA GRILLE (voir `_silences`), pas coupées à la hache : un
+     * silence d'un temps et demi visé en son milieu ne donne pas « 0,75 + 0,75 », deux durées que
+     * rien ne sait graver, mais les figures alignées qu'écrirait un copiste.
+     *
+     * NE FAIT RIEN sur une note — on ne coupe pas ce qui sonne — ni quand le point visé tombe sur une
+     * frontière qui existe déjà, le cas le plus fréquent de tous.
+     *
+     * @returns {boolean} vrai si le silence a été scindé.
+     */
+    _scinderAuDecalage() {
+        const c = this.curseur;
+        const d = c.decalage || 0;
+        c.decalage = 0;
+        if (d <= 1e-9) return false;
+        const voix = this.voixCourante();
+        const e = voix?.evenements[c.evenement];
+        if (!e || !(e.silence || !e.notes.length)) return false;
+        const total = dureeEnNoires(e.duree);
+        if (d >= total - 1e-9) return false;
+        const pos = positionDe(voix, c.evenement);
+        const tete = this._silences(voix, pos, d);
+        const queue = this._silences(voix, pos + d, total - d);
+        if (!tete.length || !queue.length) return false;
+        voix.evenements.splice(c.evenement, 1, ...tete, ...queue);
+        c.evenement += tete.length;
+        return true;
     }
 
     // -- Rythme -----------------------------------------------------------------------------------
@@ -2291,7 +2353,7 @@ export class Editeur {
     /** Remplace tout le document. L'historique est vidé : annuler une OUVERTURE n'a pas de sens. */
     remplacer(partition) {
         this.partition = normaliser(partition);
-        this.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
+        this.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0, decalage: 0 };
         this.passe.length = 0;
         this.futur.length = 0;
         this._dernierChiffre = null;
