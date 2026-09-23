@@ -2043,41 +2043,56 @@ class TabHubApp {
     }
 
     /**
-     * Insère le rythme dessiné dans la partition, en cases à remplir.
+     * Insère le rythme dessiné dans la partition.
      *
-     * ON DEMANDE AVANT D'ÉCRASER DES NOTES. L'insertion REMPLACE les mesures visées : c'est ce
-     * qu'on veut quand on prépare un passage vierge, et une perte sèche quand on visait la mauvaise
-     * mesure (mesuré : une mesure portant la case 8 ressortait sans aucune frette). Ctrl+Z la
-     * rattrape, encore faut-il s'en apercevoir. La question n'est posée que s'il y a VRAIMENT
-     * quelque chose à perdre — sur des mesures vides, elle ne serait qu'un clic de plus.
+     * LES HAUTEURS DÉJÀ ÉCRITES SURVIVENT, et c'est ce qui rend enfin l'aide utilisable pour ce à
+     * quoi elle sert le plus : CORRIGER le rythme d'un passage déjà écrit. Elle détruisait toutes
+     * les hauteurs des mesures visées — elle le disait honnêtement, mais on refaisait la mesure
+     * entière pour avoir déplacé une croche. Elles se replacent maintenant dans l'ordre sur le
+     * rythme neuf (voir Editeur.remplacerMesuresPar), et la seconde voix n'est plus touchée du tout.
+     *
+     * IL RESTE UNE QUESTION À POSER, mais une seule : celle des notes qui n'auraient PLUS DE CASE où
+     * aller, quand le rythme posé compte moins de figures que la mesure ne portait de notes. Sur un
+     * passage vierge, ou sur un rythme au moins aussi fourni, elle ne serait qu'un clic de plus.
      */
     async insererRythme() {
         if (!this._rythme || Rythme.estVide(this._rythme.etat)) return;
-        const notesEnJeu = this.editeur.partition.mesures
-            .slice(this._rythme.depart, this._rythme.depart + this._rythme.nMesures)
-            .reduce((t, m) => t + m.voix.reduce((u, v) =>
-                u + v.evenements.reduce((w, e) => w + e.notes.length, 0), 0), 0);
-        if (notesEnJeu > 0) {
+        const parMesure = Rythme.evenementsParMesure(this._rythme.etat, { aRemplir: true, avecNotes: false });
+        // LES HAUTEURS SE REPLACENT SUR LE RYTHME NEUF (voir Editeur.remplacerMesuresPar), donc la
+        // question n'a plus à porter sur elles. Elle ne se pose QUE pour ce qui n'aurait plus de case
+        // où aller : un rythme de trois figures posé sur une mesure qui en portait cinq laisse deux
+        // notes sans place.
+        //
+        // C'EST LE MÊME CALCUL QUE LA COMMANDE, MESURE PAR MESURE : compter les notes et les cases
+        // sur l'ensemble du passage dirait « il y a la place » là où la deuxième mesure déborde et la
+        // première a du mou. Une question juste en moyenne est une question fausse.
+        const mesures = this.editeur.partition.mesures;
+        let sansPlace = 0;
+        parMesure.forEach((evenements, k) => {
+            const m = mesures[this._rythme.depart + k];
+            if (!m) return;
+            const notes = m.voix[0].evenements.filter(e => !e.silence && e.notes.length).length;
+            sansPlace += Math.max(0, notes - evenements.length);
+        });
+        if (sansPlace > 0) {
             const d = this._rythme.depart + 1;
             const f = this._rythme.depart + this._rythme.nMesures;
             const ou = d === f ? `la mesure ${d}` : `les mesures ${d} à ${f}`;
             const choix = await demander({
-                titre: 'Remplacer ce qui est déjà écrit ?',
-                texte: `${ou} ${d === f ? 'contient' : 'contiennent'} ${notesEnJeu} note`
-                     + `${notesEnJeu > 1 ? 's' : ''}. Le rythme ${notesEnJeu > 1 ? 'les' : 'la'} `
-                     + `remplacera par des cases à remplir, et ${notesEnJeu > 1 ? 'les hauteurs '
-                        + 'seront perdues' : 'la hauteur sera perdue'}. Annuler (Ctrl+Z) `
-                     + `${notesEnJeu > 1 ? 'les' : 'la'} ramènera.`,
+                titre: 'Ce rythme a moins de cases que de notes',
+                texte: `Les hauteurs déjà écrites dans ${ou} se replaceront dans l'ordre sur le `
+                     + `nouveau rythme, mais ${sansPlace} note${sansPlace > 1 ? 's n\'auront' : ' n\'aura'} `
+                     + `plus de case où aller. Annuler (Ctrl+Z) ${sansPlace > 1 ? 'les' : 'la'} ramènera.`,
                 boutons: [
                     { cle: 'annuler', libelle: 'Annuler' },
-                    { cle: 'remplacer', libelle: 'Remplacer', style: 'danger' },
+                    { cle: 'remplacer', libelle: 'Poser quand même', style: 'danger' },
                 ],
             });
             if (choix !== 'remplacer') return;
             if (!this._rythme) return;   // la fenêtre a pu se fermer pendant la question
         }
-        const parMesure = Rythme.evenementsParMesure(this._rythme.etat, { aRemplir: true, avecNotes: false });
-        const ok = this.editeur.remplacerMesuresPar(this._rythme.depart, parMesure, this._rythme.signature);
+        const ok = this.editeur.remplacerMesuresPar(this._rythme.depart, parMesure,
+                                                    this._rythme.signature, { garderHauteurs: true });
         if (!ok) {
             this.message(this.editeur.derniereErreur || 'Insertion impossible');
             this.editeur.derniereErreur = null;

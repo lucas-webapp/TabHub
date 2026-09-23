@@ -778,8 +778,10 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         check(!(await page.evaluate(() => document.getElementById('btn-rythme-boucle').disabled)),
             'et il se rallume dès qu\'il y a quelque chose à jouer');
 
-        // L'insertion sur des mesures qui portent des notes DEMANDE avant d'écraser. Ctrl+Z les
-        // ramène, encore faut-il s'apercevoir qu'on les a perdues.
+        // L'INSERTION NE DÉTRUIT PLUS LES HAUTEURS, et c'est ce qui rend enfin l'aide utilisable pour
+        // ce à quoi elle sert le plus : CORRIGER le rythme d'un passage déjà écrit. Elle effaçait
+        // toutes les notes des mesures visées — elle le disait, mais on refaisait la mesure entière
+        // pour avoir déplacé une croche. Elles se replacent désormais dans l'ordre sur le rythme neuf.
         //
         // LA NOTE VA DANS LA MESURE VISÉE, lue sur l'état de la fenêtre et non supposée : l'aide
         // s'ouvre sur la mesure du CURSEUR, qui a bougé avec l'insertion précédente — une première
@@ -795,23 +797,48 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         await page.waitForTimeout(250);
         exiger((await page.evaluate((m) => window.app.editeur.partition.mesures[m].voix[0]
             .evenements.some(e => e.notes.some(n => n.frette === 7)), mesureVisee)) === true,
-            `préalable : la mesure visée (${mesureVisee + 1}) porte bien une note à écraser`);
+            `préalable : la mesure visée (${mesureVisee + 1}) porte bien une note`);
+        await page.evaluate(() => { window.app.insererRythme(); });
+        await page.waitForTimeout(500);
+        const sansQuestion = await page.evaluate(() => [...document.querySelectorAll('.voile')]
+            .filter(x => !x.hidden && /rythme a moins de cases|Remplacer/.test(x.querySelector('h2')?.textContent || '')).length);
+        check(sansQuestion === 0,
+            `poser un rythme AU MOINS aussi fourni ne pose AUCUNE question (${sansQuestion} boîte) : `
+            + 'il n\'y a rien à perdre, et une question qui se déclenche pour rien apprend à ignorer les questions');
+        check((await page.evaluate((m) => window.app.editeur.partition.mesures[m].voix[0].evenements
+            .some(e => e.notes.some(n => n.frette === 7)), mesureVisee)) === true,
+            'et la note est TOUJOURS LÀ, replacée sur le rythme neuf — c\'est tout le correctif');
+
+        // LA QUESTION SUBSISTE POUR CE QUI N'AURA PLUS DE CASE. On remplit la mesure visée de plus de
+        // notes que le rythme ne compte de figures : celles-là n'ont nulle part où aller, et c'est le
+        // seul cas où l'aide doit encore demander.
+        const trop = await page.evaluate(async (m) => {
+            const R = window.__rythme, ed = window.app.editeur;
+            const cases = R.evenementsParMesure(window.app._rythme.etat, { aRemplir: true, avecNotes: false })[0].length;
+            ed.placerCurseur(m, 0, 0, 0);
+            ed.dureeCourante = { valeur: 16, points: 0, nolet: null };
+            for (let i = 0; i < cases + 4; i++) ed.saisirChiffre(i % 10);
+            ed.placerCurseur(m, 0, 0, 0);
+            return { cases, notes: ed.partition.mesures[m].voix[0].evenements.filter(e => e.notes.length).length };
+        }, mesureVisee);
+        exiger(trop.notes > trop.cases,
+            `préalable : la mesure porte ${trop.notes} notes pour ${trop.cases} cases dans le rythme`);
         await page.evaluate(() => { window.app.insererRythme(); });
         await page.waitForTimeout(500);
         const question = await page.evaluate(() => {
             const v = [...document.querySelectorAll('.voile')]
-                .find(x => !x.hidden && /Remplacer/.test(x.querySelector('h2')?.textContent || ''));
+                .find(x => !x.hidden && /moins de cases/.test(x.querySelector('h2')?.textContent || ''));
             return v ? { texte: v.querySelector('p')?.textContent || '',
                          boutons: [...v.querySelectorAll('button')].map(b => b.textContent.trim()) } : null;
         });
-        check(!!question && /note/.test(question.texte) && question.boutons.includes('Remplacer'),
-            `elle DEMANDE avant d'écraser des notes (« ${question?.texte || 'aucune question'} »)`);
+        check(!!question && /case où aller/.test(question.texte),
+            `elle demande alors, et SEULEMENT sur ce qui serait perdu (« ${question?.texte || 'aucune question'} »)`);
         await page.evaluate(() => [...document.querySelectorAll('.voile:not([hidden]) button')]
             .find(b => b.textContent.trim() === 'Annuler')?.click());
         await page.waitForTimeout(350);
         check((await page.evaluate((m) => window.app.editeur.partition.mesures[m].voix[0].evenements
-            .some(e => e.notes.some(n => n.frette === 7)), mesureVisee)) === true,
-            'et « Annuler » laisse la note en place — la question n\'est pas décorative');
+            .filter(e => e.notes.length).length, mesureVisee)) === trop.notes,
+            'et « Annuler » laisse toutes les notes en place — la question n\'est pas décorative');
 
         // =====================================================================================
         // 19. UNE NOTE LIÉE SE REMPLIT D'UN SEUL CHIFFRE

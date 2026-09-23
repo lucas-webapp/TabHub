@@ -343,6 +343,32 @@ d'annulation et ne modifie rien. On retient l'intention, on n'agit que lorsqu'el
 un `Ctrl`+`Z` ramène donc le silence entier, sans laisser derrière lui la trace d'une coupure. Les
 deux moitiés sont réécrites en figures alignées, jamais coupées en durées que rien ne sait graver.
 
+#### Poser un rythme sans perdre la musique
+
+Deux gestes, un seul cœur : **l'aide rythmique** et **`Alt`+`D` — « reprendre le rythme de la mesure
+précédente »**. Tous deux posent un rythme sur une mesure qui porte peut-être déjà des notes, et tous
+deux suivent la même règle : **les hauteurs se replacent dans l'ordre** sur le rythme neuf. La note
+qui sonnait en premier sonne toujours en premier, la deuxième en deuxième. Chercher « la même
+position dans le temps » n'aurait aucun sens — c'est précisément ce qu'on est en train de changer.
+
+L'aide rythmique **détruisait** jusqu'ici toutes les hauteurs des mesures visées. Elle le disait
+honnêtement, une boîte prévenait — mais cela la rendait inutilisable pour ce à quoi elle sert le
+plus : *corriger* le rythme d'un passage déjà écrit. On refaisait la mesure entière pour avoir
+déplacé une croche. Elle emportait aussi la **seconde voix**, qui n'a pourtant rien à voir avec le
+rythme de la mélodie ; elle ne la touche plus du tout.
+
+Il reste une question à poser, mais une seule : celle des notes qui n'auraient **plus de case où
+aller**, quand le rythme posé compte moins de figures que la mesure ne portait de notes. Sur un
+passage vierge, ou sur un rythme au moins aussi fourni, elle ne serait qu'un clic de plus.
+
+**Pourquoi `Alt`+`D` vaut une touche à soi seule.** La musique de tablature *répète* son rythme : un
+accompagnement, un riff, une basse en croches gardent la même figure sur des dizaines de mesures et
+ne changent que les notes. Redire ce rythme à chaque mesure — choisir la figure, la reposer, la
+repointer — est le travail le plus répété d'une recopie de partition. Sur une mesure vide, la touche
+pose le rythme en **cases à remplir** que `Tab` parcourt une à une ; sur une mesure écrite, elle garde
+la musique et ne change que les durées. Elle refuse, en l'expliquant, sur la première mesure (rien à
+reprendre) et entre deux signatures différentes (le rythme n'y tomberait pas juste).
+
 | Touche | Effet |
 |---|---|
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |
@@ -356,6 +382,7 @@ deux moitiés sont réécrites en figures alignées, jamais coupées en durées 
 | `+` / `-` | Durée plus longue / plus courte |
 | `.` | Note pointée · `Alt`+`3` triolet · `R` silence |
 | `Alt`+`A` / `Alt`+`R` | Absorber / déverser le débordement d'une mesure (n'apparaissent que sur une mesure qui déborde) |
+| `Alt`+`D` | Reprendre le rythme de la mesure précédente, sans toucher aux hauteurs déjà écrites |
 | `H` `P` `S` `T` | Hammer-on, pull-off, slide, liaison de prolongation |
 | `M` `B` `X` `A` | Palm mute, bend, note fantôme, accent |
 | `Alt`+`M` | Ajouter une mesure |

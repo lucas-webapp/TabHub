@@ -1666,18 +1666,51 @@ export class Editeur {
      * @param {{battements:number, unite:number}} signature celle du morceau à cet endroit.
      * @returns {boolean} faux et `derniereErreur` renseignée si rien n'a pu être fait.
      */
-    remplacerMesuresPar(depart, evenementsParMesure, signature) {
+    remplacerMesuresPar(depart, evenementsParMesure, signature, { garderHauteurs = false } = {}) {
         this.derniereErreur = null;
+        this.dernierBilan = null;
         if (!Array.isArray(evenementsParMesure) || !evenementsParMesure.length) {
             this.derniereErreur = 'Aucun rythme à insérer.';
             return false;
         }
         const at = Math.max(0, Math.min(this.partition.mesures.length, depart));
         this.memoriser();
+        let reposees = 0;
+        let perdues = 0;
         evenementsParMesure.forEach((evenements, k) => {
             const index = at + k;
             const ancienne = this.partition.mesures[index];
-            const neuve = creerMesure({ voix: [{ evenements }] });
+            // LES HAUTEURS SE REPOSENT SUR LE RYTHME NEUF, dans l'ordre — la note qui sonnait en
+            // premier sonne toujours en premier, la deuxième en deuxième. C'est la seule
+            // correspondance qui ait un sens quand le rythme change : chercher « la même position
+            // dans le temps » n'en aurait aucun, puisque c'est précisément ce qu'on est en train de
+            // modifier.
+            //
+            // POURQUOI C'EST LÀ. L'aide rythmique détruisait toutes les hauteurs des mesures qu'elle
+            // visait. Elle le DISAIT, honnêtement, mais cela la rendait inutilisable pour ce à quoi
+            // elle sert le plus : corriger le rythme d'un passage déjà écrit. On refaisait la mesure
+            // entière pour avoir déplacé une croche.
+            //
+            // CE QUI DÉBORDE EST COMPTÉ, JAMAIS AVALÉ : un rythme plus court que ce que la mesure
+            // portait laisse des notes sans case où aller, et le bilan le dit (voir dernierBilan).
+            const aReposer = garderHauteurs && ancienne
+                ? ancienne.voix[0].evenements.filter(e => !e.silence && e.notes.length)
+                : [];
+            if (garderHauteurs) {
+                const places = Math.min(aReposer.length, evenements.length);
+                for (let i = 0; i < places; i++) {
+                    evenements[i].notes = aReposer[i].notes.map(nn => ({ ...nn, id: undefined }));
+                    evenements[i].silence = false;
+                    evenements[i].aRemplir = false;
+                }
+                reposees += places;
+                perdues += aReposer.length - places;
+            }
+            // LES AUTRES VOIX NE SONT PAS TOUCHÉES. Le rythme qu'on pose est celui de la voix 0 — la
+            // mélodie —, et une basse tenue écrite en voix 1 n'a aucune raison de disparaître avec
+            // lui. Elle disparaissait pourtant : la mesure neuve ne recevait qu'UNE voix.
+            const autresVoix = (garderHauteurs && ancienne) ? ancienne.voix.slice(1) : [];
+            const neuve = creerMesure({ voix: [{ evenements }, ...autresVoix] });
             // CE QUI APPARTIENT À LA MESURE, PAS AU RYTHME, est conservé : annotation de section,
             // saut de ligne, barres de reprise, repère. L'aide rythmique ne parle que de durées ;
             // écraser une annotation « Refrain » au passage serait une perte silencieuse.
@@ -1702,9 +1735,54 @@ export class Editeur {
         this.curseur.mesure = at;
         this.curseur.voix = 0;
         this.curseur.evenement = 0;
+        this.curseur.decalage = 0;
+        if (perdues) {
+            this.dernierBilan = `Rythme posé : ${reposees} hauteur${reposees > 1 ? 's' : ''} replacée`
+                + `${reposees > 1 ? 's' : ''}, ${perdues} note${perdues > 1 ? 's' : ''} sans case où `
+                + `aller. Ctrl+Z ${perdues > 1 ? 'les' : 'la'} ramène.`;
+        }
         this.corrigerCurseur();
         this.prevenir('edition');
         return true;
+    }
+
+    /**
+     * REPREND LE RYTHME DE LA MESURE PRÉCÉDENTE — en une touche, sans toucher aux hauteurs.
+     *
+     * POURQUOI ÇA VAUT UNE COMMANDE À SOI SEULE. La musique de tablature RÉPÈTE son rythme, mesure
+     * après mesure : un accompagnement, un riff, une basse en croches gardent la même figure sur des
+     * dizaines de mesures et ne changent que les notes. Redire ce rythme à chaque mesure — choisir la
+     * figure, la reposer, la repointer — est du travail pur, et c'est celui qu'on fait le plus souvent
+     * en recopiant une partition existante.
+     *
+     * LES HAUTEURS DÉJÀ ÉCRITES SE REPLACENT DANS L'ORDRE (voir remplacerMesuresPar) : la mesure
+     * courante garde sa musique et change de rythme. Une mesure vide, elle, reçoit le rythme en cases
+     * à remplir, prêtes à recevoir les chiffres (voir `Évènement#aRemplir`, et la touche Tab qui
+     * saute de l'une à l'autre).
+     *
+     * LA SIGNATURE DOIT ÊTRE LA MÊME, sans quoi le rythme copié ne tomberait pas juste : un rythme de
+     * 4/4 posé dans du 3/4 ferait déborder la mesure dès son arrivée. On refuse en le disant, plutôt
+     * que de produire une mesure fausse d'un geste censé faire gagner du temps.
+     */
+    reprendreRythmePrecedent() {
+        this.derniereErreur = null;
+        const i = this.curseur.mesure;
+        if (i <= 0) {
+            this.derniereErreur = 'Aucune mesure avant celle-ci : il n\'y a pas de rythme à reprendre.';
+            return false;
+        }
+        const sigIci = signatureEffective(this.partition, i);
+        const sigAvant = signatureEffective(this.partition, i - 1);
+        if (sigIci.battements !== sigAvant.battements || sigIci.unite !== sigAvant.unite) {
+            this.derniereErreur = `La mesure précédente est en ${sigAvant.battements}/${sigAvant.unite}, `
+                + `celle-ci en ${sigIci.battements}/${sigIci.unite} : son rythme n'y tomberait pas juste.`;
+            return false;
+        }
+        const modele = this.partition.mesures[i - 1].voix[0].evenements;
+        const rythme = modele.map(e => creerEvenement(
+            { valeur: e.duree.valeur, points: e.duree.points, nolet: e.duree.nolet ? { ...e.duree.nolet } : null },
+            [], { silence: true, aRemplir: true }));
+        return this.remplacerMesuresPar(i, [rythme], sigIci, { garderHauteurs: true });
     }
 
     /**

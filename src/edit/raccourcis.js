@@ -143,6 +143,15 @@ export const ACTIONS = [
     // taille de cible tactile égale, exactement ce qui empêchait la barre d'outils de tenir sur
     // téléphone. `plus`/`moins` : deux icônes déjà dessinées, jamais encore utilisées avant ce
     // correctif (voir ui/icons.js). `corriger` : nouvelle icône, voir ui/icons.js pour le dessin.
+    // LE RYTHME SE RÉPÈTE, EN TABLATURE PLUS QU'AILLEURS : un accompagnement, un riff, une basse en
+    // croches gardent la même figure sur des dizaines de mesures et ne changent que les notes. Le
+    // redire mesure après mesure — choisir la figure, la reposer, la repointer — est du travail pur,
+    // et c'est celui qu'on fait le plus souvent en recopiant une partition. Alt+D le reprend d'un
+    // coup, sans toucher aux hauteurs déjà écrites.
+    { id: 'memeRythme', touches: ['alt+d'],
+      libelle: 'Reprendre le rythme de la mesure précédente (les hauteurs déjà écrites restent)',
+      groupe: 'mesure', apercu: { type: 'icone', nom: 'memeRythme' },
+      palette: ed => ed.curseur.mesure > 0, faire: ed => ed.reprendreRythmePrecedent() },
     { id: 'ajouterMesure', touches: ['alt+m'], libelle: 'Ajouter une mesure', groupe: 'mesure', apercu: { type: 'icone', nom: 'plus' }, faire: ed => ed.ajouterMesure() },
     { id: 'supprimerMesure', touches: ['alt+backspace'], libelle: 'Supprimer la mesure', groupe: 'mesure', apercu: { type: 'icone', nom: 'moins' }, faire: ed => ed.supprimerMesure() },
     // N'apparaît que si la mesure courante est réellement invalide (voir Editeur.ecartMesure) — un

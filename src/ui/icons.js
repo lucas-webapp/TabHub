@@ -35,6 +35,11 @@ const D = {
     // ailleurs), « Absorber » ramène : les deux icônes se lisent l'une contre l'autre, ce qui est
     // exactement leur rapport.
     absorber: '<path d="M5 4v16"/><path d="M19 4v16"/><path d="M8 12h8"/><path d="m11 9-3 3 3 3"/><path d="m13 9 3 3-3 3"/>',
+    // « Même rythme que la mesure d'avant » (voir edit/commands.js#reprendreRythmePrecedent) : DEUX
+    // mesures côte à côte — les mêmes bords verticaux que « Corriger » et « Absorber », la famille
+    // des gestes qui parlent de mesures — et une flèche qui va de la première vers la seconde. Ce
+    // qu'on copie, et dans quel sens.
+    memeRythme: '<path d="M3 4v16"/><path d="M12 4v16"/><path d="M21 4v16"/><path d="M6 12h11"/><path d="m14 9 3 3-3 3"/>',
     poubelle: '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
     metronome: '<path d="M12 3 8 21h8L12 3Z"/><path d="m7 15 10-6"/>',
     guitare: '<path d="M11.5 3.5 15 7"/><path d="M8.5 10.5a4.5 4.5 0 1 0 5 5c.5-2 3-2.5 3-5.5s-3-3-4-3-4 1.5-4 3.5Z"/><circle cx="10.5" cy="13.5" r="1.6"/>',
