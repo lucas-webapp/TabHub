@@ -92,6 +92,10 @@ export class Editeur {
         // emporte ce qu'elle portait. Un geste explicitement destructeur (« supprimer la mesure »,
         // « effacer la note ») n'a rien à déclarer : son nom l'a déjà fait.
         this.dernierBilan = null;
+        // LA NOTE QU'ON VIENT D'ÉCRIRE — quatrième canal d'annonce, à côté de derniereDette,
+        // dernierBilan et derniersLiensRetires. Voir saisirChiffre : l'éditeur dit ce qu'il a fait,
+        // l'interface décide quoi en faire (ici : la faire sonner).
+        this.derniereNoteSaisie = null;
         // L'AVANCE AUTOMATIQUE après une case tapée (voir saisirChiffre). Posé par l'interface
         // depuis les réglages ; l'éditeur en porte la valeur pour que la commande reste testable
         // sans navigateur, comme tout le reste de ce fichier.
@@ -645,6 +649,17 @@ export class Editeur {
         // fantôme (voir model/score.js, EFFETS.ghost, « hauteur indéterminée »).
         if (existante) { existante.frette = frette; delete existante.horsManche; delete existante.hauteurVoulue; delete existante.ghost; }
         else evenement.notes.push(creerNote(cible.corde, frette));
+        // LA NOTE QU'ON VIENT D'ÉCRIRE, nommée ici — l'interface la fait sonner (voir
+        // main.js#surChangementEditeur, retour sonore à la saisie).
+        //
+        // POURQUOI LA NOMMER PLUTÔT QUE LA RELIRE. L'interface relisait `noteCourante()` au moment de
+        // l'annonce. Cela marchait tant que le curseur restait sur la case écrite — mais depuis
+        // l'avance automatique il a déjà bougé, et `noteCourante()` rend la case SUIVANTE, vide, donc
+        // `null` : plus aucune note ne sonnait à la saisie. Mesuré, avance éteinte contre avance
+        // allumée : un aperçu contre ZÉRO. Le même piège avait déjà frappé le bouton « ✕ » (voir
+        // poserGhost) ; on ne le répare pas une troisième fois en relisant ailleurs, on le supprime
+        // en faisant dire à la commande CE QU'ELLE A FAIT — comme elle dit déjà sa dette et son bilan.
+        this.derniereNoteSaisie = existante || evenement.notes[evenement.notes.length - 1];
         // RYTHME IMPOSÉ : LA DURÉE COLLANTE NE S'APPLIQUE PAS (voir model/score.js,
         // `Évènement#aRemplir`, et ui/rythme.js). L'aide rythmique a posé ce rythme exprès ; le
         // remplir doit lui donner des hauteurs, pas le réécrire.

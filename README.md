@@ -323,6 +323,25 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Entendre ce qu'on écrit
+
+Écrire une mélodie qu'on a **dans la tête** n'est pas recopier : l'oreille est le seul juge, et elle
+l'est à chaque note. La note qu'on pose sonne donc au moment où on la pose — c'est ce qui attrape
+l'essentiel des erreurs de corde, invisibles à l'œil sur une tablature.
+
+**Ce mécanisme existait et ne servait plus.** L'interface relisait la note « sous le curseur » au
+moment de l'annoncer. Puis l'avance automatique est arrivée : le curseur quitte la case écrite avant
+l'annonce, la relecture tombait sur la case suivante — vide — et rendait `null`. Mesuré : avance
+éteinte, la note sonne ; avance allumée (le défaut), **zéro note**. La commande dit maintenant ce
+qu'elle a écrit, comme elle dit déjà sa dette et son bilan, et l'interface n'a plus rien à deviner.
+
+**Et la mesure se réentend d'une touche.** `Espace` repart toujours du début, ce qui est juste pour
+écouter — mais quand on retouche la mesure 17, on veut réentendre *elle*, vingt fois de suite. Le
+seul moyen était de poser une boucle à la souris sur une bande étroite, donc de quitter le clavier à
+chaque essai. **`Alt`+`Espace`** boucle la mesure du curseur et la joue ; un second appui la retire.
+Elle **boucle** plutôt que de jouer une fois parce que la lecture suit les modifications en direct :
+on laisse tourner la mesure et on corrige dedans, en entendant chaque correction au tour suivant.
+
 #### Recopier un passage sans le réécrire
 
 Une musique de tablature **se répète** : un riff de quatre mesures revient trois fois, un refrain
@@ -464,6 +483,7 @@ reprendre) et entre deux signatures différentes (le rythme n'y tomberait pas ju
 | `Ctrl`+`Maj`+`V` | Le coller en **insérant**, sans rien écraser |
 | `Alt`+`M` | Ajouter une mesure |
 | `Espace` | Lecture / pause, **depuis le début** (ou depuis la boucle, si une boucle est posée) |
+| `Alt`+`Espace` | **Boucler la mesure du curseur** et la jouer · un second appui la retire |
 | `Échap` | Arrêter |
 | `Ctrl`+`Z` / `Ctrl`+`Y` | Annuler / rétablir |
 | `Ctrl`+`S` `O` `P` | Enregistrer `.json`, ouvrir, exporter PDF |

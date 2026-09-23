@@ -413,6 +413,7 @@ class TabHubApp {
             // par les MÊMES relais que le menu contextuel : un seul endroit sait rendre compte de ce
             // qu'un collage écrase, et les deux chemins ne peuvent pas diverger.
             copierMesures: () => this.copierPlage(),
+            boucleMesure: () => this.boucleSurMesureCourante(),
             collerMesures: (options) => this._collerMesures(options || {})(),
             // Rend VRAI s'il y avait une plage à abandonner : c'est ce qui permet à Échap de servir
             // deux choses sans les confondre (voir edit/keyboard.js).
@@ -944,14 +945,24 @@ class TabHubApp {
             this.lecteur.reprogrammerSiEnCours(this.editeur.partition);
         }
         // Retour sonore à la saisie : entendre la note qu'on vient de poser évite l'essentiel des
-        // erreurs de corde, invisibles à l'œil sur une tablature. Jamais pendant la lecture, où il
-        // doublerait ce qu'on entend déjà.
-        if (raison === 'saisie' && this.lecteur.etat !== 'lecture') {
-            const note = this.editeur.noteCourante();
-            if (note) {
-                const midi = hauteurDeNote(this.editeur.partition, note);
-                if (midi != null) this.lecteur.apercu(midi);
-            }
+        // erreurs de corde, invisibles à l'œil sur une tablature — et c'est indispensable quand on
+        // écrit une mélodie qu'on a dans la tête, où l'oreille est le seul juge. Jamais pendant la
+        // lecture, où il doublerait ce qu'on entend déjà.
+        //
+        // ON LIT CE QUE LA COMMANDE A DIT AVOIR ÉCRIT (`derniereNoteSaisie`), au lieu de relire
+        // `noteCourante()` : depuis l'avance automatique, le curseur a déjà quitté la case au moment
+        // de l'annonce, et cette relecture rendait `null` — plus rien ne sonnait à la saisie (mesuré :
+        // un aperçu avance éteinte, zéro avance allumée).
+        // ON NE LE CONSOMME QUE SUR 'saisie', et pas une ligne plus haut : `saisirChiffre` émet un
+        // `prevenir('edition')` INTERMÉDIAIRE (le redimensionnement à la durée courante, voir
+        // _essaierNouvelleDuree) AVANT son `prevenir('saisie')` final. Vider le canal à chaque raison
+        // le vidait donc sur ce passage-là, et la note n'était plus là quand venait le tour de la
+        // faire sonner — mesuré : zéro aperçu, avance automatique allumée OU éteinte.
+        const ecrite = raison === 'saisie' ? this.editeur.derniereNoteSaisie : null;
+        if (ecrite) this.editeur.derniereNoteSaisie = null;
+        if (ecrite && this.lecteur.etat !== 'lecture') {
+            const midi = hauteurDeNote(this.editeur.partition, ecrite);
+            if (midi != null) this.lecteur.apercu(midi);
         }
         this.planifierBrouillon();
         // TOUTE MODIFICATION DU DOCUMENT REND L'EXPORT PÉRIMÉ (voir travailExporte et
@@ -4468,6 +4479,49 @@ class TabHubApp {
         const a = this.callerAuTemps(positionA);
         const b = this.callerAuTemps(positionB);
         this.poserBoucleEntre(Math.min(a, b), Math.max(a, b), options);
+    }
+
+    /**
+     * RÉENTENDRE LA MESURE QU'ON RETOUCHE, d'une seule touche (Alt+Espace).
+     *
+     * LE DÉFAUT QU'ELLE COMBLE. `Espace` repart TOUJOURS du début du morceau (ou de la boucle, voir
+     * positionDeDepartLecture) — c'est ce qu'on avait demandé, et c'est juste pour écouter. Mais
+     * quand on écrit une mélodie qu'on a dans la tête, on retouche la mesure 17 et on veut la
+     * réentendre elle, vingt fois de suite. Le seul moyen était de poser une boucle à la SOURIS, sur
+     * une bande étroite sous la portée : on quitte le clavier à chaque essai.
+     *
+     * ET ELLE BOUCLE PLUTÔT QUE DE JOUER UNE FOIS, parce que la boucle suit les modifications en
+     * direct (voir Lecteur.reprogrammerSiEnCours) : on laisse tourner la mesure et on corrige
+     * dedans, en entendant chaque correction au tour suivant. C'est le geste de travail lui-même,
+     * pas un bouton « écouter ».
+     *
+     * UN SECOND APPUI ARRÊTE ET RETIRE LA BOUCLE : la même touche fait et défait, sans quoi il
+     * faudrait en apprendre une deuxième pour revenir à la lecture normale.
+     */
+    async boucleSurMesureCourante() {
+        const iMesure = this.editeur.curseur.mesure;
+        const bornes = this.lecteur.boucleLecture;
+        const dejaDessus = bornes && bornes.debut === iMesure && bornes.fin === iMesure;
+        if (dejaDessus && this.lecteur.etat === 'lecture') {
+            this.arreter();
+            const finEtape = this.etapeBoucle();
+            this.lecteur.retirerBoucle();
+            finEtape();
+            this.dessiner();
+            this.message(`Boucle retirée`);
+            return;
+        }
+        const finEtape = this.etapeBoucle();
+        this.poserBoucleSurMesure(iMesure);
+        finEtape();
+        try {
+            await this.lecteur.jouer(this.editeur.partition, this.positionDeDepartLecture());
+        } catch (err) {
+            this.message(err.message || 'Impossible de démarrer l\'audio');
+        }
+        this.rafraichirTransport();
+        this.dessiner();
+        this.message(`Mesure ${iMesure + 1} en boucle — Alt+Espace pour arrêter`, 3200);
     }
 
     /** Pose la boucle sur UNE mesure entière — le clic simple, et le repli de poserBoucleEntre. */

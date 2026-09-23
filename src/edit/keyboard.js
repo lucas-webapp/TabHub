@@ -57,6 +57,9 @@ export function brancherClavier(editeur, actions = {}) {
         // sélectionnable (voir style.css, `user-select: none`), donc rien à copier au sens du
         // navigateur. On préempte quand même explicitement, pour que le geste ne dépende pas de
         // l'absence de sélection.
+        // RÉENTENDRE LA MESURE QU'ON RETOUCHE (voir main.js#boucleSurMesureCourante). Alt+Espace
+        // parce qu'Espace joue déjà, depuis le début : la même famille de geste, un cran plus près.
+        if (sig === 'alt+space') { e.preventDefault(); actions.boucleMesure?.(); return; }
         if (sig === 'ctrl+c') { e.preventDefault(); actions.copierMesures?.(); return; }
         if (sig === 'ctrl+v') { e.preventDefault(); actions.collerMesures?.({}); return; }
         if (sig === 'ctrl+shift+v') { e.preventDefault(); actions.collerMesures?.({ inserer: true }); return; }
