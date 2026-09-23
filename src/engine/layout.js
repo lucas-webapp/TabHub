@@ -90,6 +90,44 @@ function positionsArmure(armure, clef) {
 
 const ligne = (x1, y1, x2, y2, ep, couleur = 'encre') => ({ t: 'ligne', x1, y1, x2, y2, ep, couleur });
 const rect = (x, y, w, h, couleur = 'encre') => ({ t: 'rect', x, y, w, h, couleur });
+
+/**
+ * L'écart le plus GRAND EN VALEUR ABSOLUE entre ce qu'une voix de la mesure écrit et la capacité —
+ * positif si la mesure déborde, négatif s'il lui manque du temps, 0 si tout tombe juste.
+ */
+function ecartLePlusGrand(mesure, capacite) {
+    let pire = 0;
+    for (const v of mesure.voix) {
+        const e = v.evenements.reduce((t, ev) => t + dureeEnNoires(ev.duree), 0) - capacite;
+        if (Math.abs(e) > Math.abs(pire)) pire = e;
+    }
+    return Math.abs(pire) > 1e-6 ? pire : 0;
+}
+
+/**
+ * L'ÉTIQUETTE D'UNE MESURE ENDETTÉE — « +½ ♩ », « −1 ♩ », « +⅔ ♩ ».
+ *
+ * EN FRACTIONS PLUTÔT QU'EN DÉCIMALES, parce qu'un musicien compte en fractions de temps et jamais
+ * en 0,666. Les huit fractions couvertes sont exactement celles que les figures de TabHub savent
+ * produire (moitiés, quarts, huitièmes, tiers) ; au-delà, deux décimales valent mieux qu'une
+ * fraction inventée.
+ *
+ * LE SIGNE EST LE VRAI MESSAGE : « + » dit qu'il y a trop, donc qu'Absorber (Alt+A) et Déverser
+ * (Alt+R) s'appliquent tous deux ; « − » dit qu'il manque, et seul Déverser sait combler. Le symbole
+ * ♩ rappelle l'unité — des NOIRES, pas des temps, qui n'est pas la même chose en 6/8.
+ */
+function libelleEcart(ecart) {
+    const signe = ecart > 0 ? '+' : '−';
+    const a = Math.abs(ecart);
+    const entier = Math.floor(a + 1e-9);
+    const reste = a - entier;
+    const FRACTIONS = [[0.5, '½'], [0.25, '¼'], [0.75, '¾'], [1 / 3, '⅓'], [2 / 3, '⅔'],
+                       [0.125, '⅛'], [0.375, '⅜'], [0.625, '⅝'], [0.875, '⅞']];
+    const frac = reste > 1e-9 ? FRACTIONS.find(([v]) => Math.abs(v - reste) < 1e-6)?.[1] : '';
+    if (reste > 1e-9 && !frac) return `${signe}${a.toFixed(2)} ♩`;
+    const corps = `${entier || (frac ? '' : '0')}${frac}`;
+    return `${signe}${corps} ♩`;
+}
 const poly = (pts, couleur = 'encre') => ({ t: 'poly', pts, couleur });
 const texte = (x, y, s, o = {}) => ({
     t: 'texte', x, y, s,
@@ -600,6 +638,12 @@ export function mettreEnPage(partition, options = {}) {
             // changement de durée qui déborde sur ce qui suit (voir Editeur.appliquerDuree).
             invalide: mesure.voix.some(v => Math.abs(
                 v.evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0) - capacite) > 1e-6),
+            // DE COMBIEN, et dans quel sens — le fond teinté dit qu'il y a un problème, ce chiffre
+            // dit lequel. On garde l'écart le plus GRAND EN VALEUR ABSOLUE parmi les voix : c'est
+            // celui qui décide de la longueur réelle de la mesure (voir score.js#longueurMesure), et
+            // afficher deux chiffres pour deux voix demanderait de dire laquelle est laquelle, ce
+            // qu'une seule étiquette ne peut pas faire sans devenir illisible.
+            ecart: ecartLePlusGrand(mesure, capacite),
         };
     });
 
@@ -790,6 +834,7 @@ function mettreEnPagePiano(partition, geo) {
             // n'affiche silencieusement un rythme qui ne correspond plus à ce qui est réellement écrit.
             invalide: mesure.voix.some(v => Math.abs(
                 v.evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0) - capacite) > 1e-6),
+            ecart: ecartLePlusGrand(mesure, capacite),
         };
     });
 
@@ -951,6 +996,14 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
     out.push(texte(xDebutMesure + m.enTete + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {
         taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
     }));
+
+    // Et de combien elle déborde, à l'autre bout — voir poserMesure, qui raconte pourquoi le chiffre
+    // vaut mieux qu'un simple signe et pourquoi il est ancré à droite.
+    if (m.ecart && geo?.avertirErreurs !== false) {
+        out.push(texte(ctx.finMesure - 0.3 * S, yPortee - 1.6 * S, libelleEcart(m.ecart), {
+            taille: S * 1.05, police: 'sans-serif', poids: '700', ancre: 'fin', couleur: 'dette',
+        }));
+    }
 
     // --- Les notes : VOIX 0 sur la portée de sol (main droite), VOIX 1 sur celle de fa (main
     // gauche) — deux voix déjà du modèle (voir edit/commands.js#ajouterVoix, jusqu'ici mélodie +
@@ -1492,6 +1545,27 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     out.push(texte(x + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {
         taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
     }));
+
+    // DE COMBIEN LA MESURE DÉBORDE (ou de combien il lui manque), à l'autre bout de la même ligne.
+    //
+    // Le fond teinté dit qu'il y a un problème ; ce chiffre dit LEQUEL, et c'est ce qui manquait.
+    // Sans lui, une mesure signalée n'apprend rien d'autre que « quelque chose ne va pas », et il
+    // faut aller poser le curseur dedans pour lire l'écart dans la barre de sélection. MuseScore
+    // grave un « + » ou un « − » au même endroit, sans le chiffre ; on donne le chiffre, parce que
+    // c'est lui qui dit s'il faut absorber une croche ou trois temps.
+    //
+    // À DROITE, ancré sur la fin de la mesure : le numéro de mesure et l'annotation de section sont
+    // tous deux ancrés à GAUCHE, et rien ne garantit leur largeur. Deux étiquettes qui se
+    // rapprochent l'une de l'autre depuis des bords opposés ne se chevauchent que dans une mesure
+    // assez étroite pour être déjà illisible.
+    //
+    // ABSENT DU PDF, comme le fond teinté (voir GEO_DEFAUT.avertirErreurs) : une partition imprimée
+    // ne porte pas les avertissements de son éditeur.
+    if (m.ecart && geo.avertirErreurs !== false) {
+        out.push(texte(ctx.finMesure - 0.3 * S, yPortee - 1.6 * S, libelleEcart(m.ecart), {
+            taille: S * 1.05, police: 'sans-serif', poids: '700', ancre: 'fin', couleur: 'dette',
+        }));
+    }
 
     // Annotation de section (« Couplet 1 », « Refrain »…) — encre pleine et nettement plus grande
     // que le numéro de mesure juste en dessous : c'est elle qu'on doit repérer d'un coup d'œil en

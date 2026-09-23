@@ -149,8 +149,15 @@ export const ACTIONS = [
     // bouton toujours visible, sur une mesure déjà juste, n'aurait rien à faire et ne ferait
     // qu'ajouter du bruit à la palette. `Math.abs` : ecartMesure peut aussi bien dire un EXCÉDENT
     // (positif) qu'un MANQUE (négatif, voir corrigerDebordement) — les deux sens comptent.
-    { id: 'corrigerDebordement', touches: ['alt+r'], libelle: 'Corriger cette mesure (excédent réparti en mesure neuve, manque comblé par un silence)', groupe: 'mesure', apercu: { type: 'icone', nom: 'corriger' },
+    { id: 'corrigerDebordement', touches: ['alt+r'], libelle: 'Déverser : l\'excédent part dans une mesure neuve, le manque est comblé par un silence', groupe: 'mesure', apercu: { type: 'icone', nom: 'corriger' },
       palette: ed => Math.abs(ed.ecartMesure()) > 1e-9, faire: ed => ed.corrigerDebordement() },
+    // LES DEUX FAÇONS DE PAYER UNE DETTE, côte à côte et visibles EXACTEMENT quand elles servent.
+    // « Absorber » ne s'offre que sur un DÉBORDEMENT (écart positif) : sur une mesure incomplète il
+    // n'y a rien à reprendre, et un bouton qui ne peut qu'échouer n'a pas à être là. C'est aussi ce
+    // qui rend le message d'allongement honnête — il ne nomme plus un remède dont le bouton serait
+    // absent de l'écran au moment où on le lit.
+    { id: 'absorberDette', touches: ['alt+a'], libelle: 'Absorber : ce qui suit le curseur cède la place, jusqu\'à ce que la mesure retombe juste', groupe: 'mesure', apercu: { type: 'icone', nom: 'absorber' },
+      palette: ed => ed.ecartMesure() > 1e-9, faire: ed => ed.absorberDette() },
     // --- REPÈRES : un groupe à part, replié derrière UN bouton (voir style.css, data-groupe="repere")
     // Retour utilisateur : « il faudrait ajouter la possibilité de noter des Coda, Da Capo, etc…
     // comme pour les vraies portées, qui me permettent d'écrire un morceau entier. Ces notations

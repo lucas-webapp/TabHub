@@ -54,6 +54,19 @@ const { check, exiger, plan, bilan } = creerHarnais('étirement de durée');
             ed.placerCurseur(0, 0, 0);
             ed.prevenir('document');
         });
+        // HUIT CROCHES, PAS UN SEUL SILENCE — la seule mesure où un allongement crée encore une dette.
+        // `preparerPleine` ci-dessus n'en crée plus : son silence de fin de mesure est désormais pris
+        // par l'allongement même s'il n'est pas contigu (voir Editeur._essaierNouvelleDuree), ce qui
+        // est précisément le correctif. Il faut donc une mesure où il n'y a VRAIMENT rien à prendre.
+        const preparerSansSilence = () => page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements =
+                [5, 7, 5, 3, 5, 7, 5, 3].map(f => m.creerEvenement({ valeur: 8 }, [m.creerNote(0, f)]));
+            ed.placerCurseur(0, 0, 0);
+            ed.prevenir('document');
+        });
         const pointDeLaCase = (i) => page.evaluate((i) => {
             const svg = document.querySelector('#feuille svg');
             const b = svg.getBoundingClientRect();
@@ -130,23 +143,64 @@ const { check, exiger, plan, bilan } = creerHarnais('étirement de durée');
         check((await durees())[1] === 8, '7. un clic simple ne modifie aucune durée');
         check((await page.evaluate(() => window.app.editeur.curseur.evenement)) === 1, 'et place le curseur sur la case cliquée, comme avant ce geste');
 
-        // --- 8. DÉBORDEMENT via le geste réel : REFUSE, ne mute rien, prévient l'utilisateur -------
-        // Même scénario que le cas A de rythme_strict_test.js (croche -> noire, +0,5, rien de contigu
-        // à absorber) mais posé ici par un VRAI glisser souris, de bout en bout — et par un message
-        // visible, pas seulement Editeur.derniereErreur en coulisse.
-        await preparerPleine();
+        // --- 8. DÉBORDEMENT via le geste réel : PASSE, décale, et le dit -------------------------
+        // Le même scénario que le cas A de rythme_strict_test.js (croche -> noire, +0,5, plus un seul
+        // silence à prendre dans toute la mesure) mais posé ici par un VRAI glisser souris, de bout
+        // en bout — et vérifié jusqu'au message visible, pas seulement sur l'état du modèle.
+        //
+        // CE BLOC VÉRIFIAIT LE REFUS, il vérifie maintenant son contraire. Ce qu'il protège n'a pas
+        // changé pour autant, et c'est le point : que le geste ne restructure JAMAIS le morceau tout
+        // seul. Avant, la garantie tenait parce que rien ne se passait ; elle tient maintenant parce
+        // que le décalage reste enfermé dans la mesure. La seconde est plus forte que la première.
+        await preparerSansSilence();
         const mesuresAvant8 = await page.evaluate(() => window.app.editeur.partition.mesures.length);
         await page.evaluate(() => { document.getElementById('message').textContent = ''; document.getElementById('message').classList.remove('visible'); });
         await glisser(await pointDeLaCase(0), 40);
-        const etat8 = await page.evaluate(() => ({
-            mesures: window.app.editeur.partition.mesures.length,
-            durees: window.app.editeur.partition.mesures[0].voix[0].evenements.map(e => e.duree.valeur),
-            messageVisible: document.getElementById('message').classList.contains('visible'),
-            messageTexte: document.getElementById('message').textContent,
-        }));
-        check(etat8.mesures === mesuresAvant8, '8. l\'étirement qui déborderait NE CRÉE AUCUNE mesure neuve — refusé, pas réparti');
-        check(etat8.durees.join(',') === '8,8,8,8,2', 'et AUCUNE durée ne change (refus complet, pas une mutation partielle)');
-        check(etat8.messageVisible && etat8.messageTexte.length > 0, 'un message visible explique le refus (pas seulement une erreur muette en coulisse)');
+        const etat8 = await page.evaluate(async () => {
+            const S = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            return {
+                mesures: ed.partition.mesures.length,
+                durees: ed.partition.mesures[0].voix[0].evenements.map(e => e.duree.valeur),
+                notes: ed.partition.mesures[0].voix[0].evenements.filter(e => !e.silence && e.notes.length).length,
+                ecart: ed.ecartMesure(0, 0),
+                etat: S.etatMesure(ed.partition, 0),
+                messageVisible: document.getElementById('message').classList.contains('visible'),
+                messageTexte: document.getElementById('message').textContent,
+                etiquette: (window.app.page.primitives.find(p => p.t === 'texte' && /♩/.test(p.s)) || {}).s,
+            };
+        });
+        check(etat8.mesures === mesuresAvant8,
+            `8. l'étirement qui déborde NE CRÉE AUCUNE mesure neuve (${etat8.mesures}) — le décalage `
+            + 'reste dans la mesure, rien ne restructure le morceau sans qu\'on le demande');
+        check(etat8.durees[0] === 4 && etat8.notes === 8,
+            `la croche est bien devenue une noire (${etat8.durees.join(',')}) et les huit notes sont `
+            + 'intactes : le geste réussit, et il ne détruit rien');
+        check(Math.abs(etat8.ecart - 0.5) < 1e-6 && etat8.etat === 'debordante',
+            `la mesure porte une dette d'un demi-temps (${etat8.ecart}) et se déclare débordante`);
+        check(etat8.etiquette === '+½ ♩',
+            `elle le GRAVE sur elle-même (« ${etat8.etiquette} ») : on n'a pas à poser le curseur `
+            + 'dedans pour savoir de combien elle déborde');
+        check(etat8.messageVisible && /Alt\+A/.test(etat8.messageTexte) && /Alt\+R/.test(etat8.messageTexte),
+            `un message visible nomme les DEUX règlements (« ${etat8.messageTexte} ») — et cette fois `
+            + 'leurs deux boutons sont vraiment à l\'écran, puisqu\'ils n\'apparaissent que sur une '
+            + 'mesure qui déborde');
+
+        // --- 8b. LE SILENCE NON CONTIGU EST PRIS : plus de dette du tout --------------------------
+        // La même fixture qu'au cas 5 — quatre croches puis une blanche de SILENCE — et le même
+        // geste qu'au cas 8. Trois notes séparent la case étirée du silence ; elles glissent, le
+        // silence rétrécit, et la mesure reste juste. C'est le cas qui était refusé le plus souvent.
+        await preparerPleine();
+        await glisser(await pointDeLaCase(0), 40);
+        const etat8b = await page.evaluate(async () => {
+            const S = await import('/src/model/score.js');
+            const ed = window.app.editeur;
+            return { durees: ed.partition.mesures[0].voix[0].evenements.map(e => e.duree.valeur),
+                     ecart: ed.ecartMesure(0, 0), etat: S.etatMesure(ed.partition, 0) };
+        });
+        check(Math.abs(etat8b.ecart) < 1e-6 && etat8b.etat === 'complete',
+            `8b. avec un silence QUELQUE PART dans la mesure, le même étirement ne crée aucune dette `
+            + `(${etat8b.durees.join(',')}) : le silence de fin est pris bien que trois notes l'en séparent`);
 
         // --- 9. UN SEUL Ctrl+Z défait tout un étirement RÉUSSI -------------------------------------
         await preparer();

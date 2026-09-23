@@ -193,6 +193,64 @@ porte que du silence n'a rien à protéger, et c'est le cas de qui règle sa mé
 Une voix qui porte des notes n'est jamais touchée — la mesure devient trop pleine, le rectangle
 d'avertissement le dit, et `Alt`+`R` (« ⇥ Corriger ») répartit à la demande.
 
+#### Aucun changement de durée n'est refusé : la mesure s'endette
+
+Le défaut, dans les mots de l'utilisateur : *« si j'ai écrit toutes mes notes mais que l'une d'entre
+elles est trop courte, je ne peux plus modifier le rythme : l'application m'indique qu'il n'y a plus
+de place. Dès que je fais une erreur de saisie, je ne peux plus revenir en arrière et l'application
+m'oblige à supprimer la mesure entière et à recommencer. »*
+
+**Mesuré** sur une mesure de 4/4 portant huit croches — la chose la plus banale qu'on puisse écrire :
+**32 changements de durée sur 40 étaient refusés, soit 80 %**. Seuls les raccourcissements passaient.
+Sur une mesure *à moitié vide* (quatre croches puis deux noires de silence), encore **65 %** : le
+silence était là, mais pas contigu, et le balayage s'arrêtait à la première note rencontrée. Effacer
+d'abord la note fautive ne débloquait rien non plus. Sur une mesure ne portant qu'**une seule** note,
+0 % de refus — c'est le diagnostic en un chiffre : TabHub n'était pas un éditeur, c'était un
+enregistreur. Il marchait tant qu'on écrivait vers l'avant, et se fermait dès qu'on revenait dessus.
+
+**Un allongement prend désormais deux sources de place, dans cet ordre.**
+
+1. **Tout le silence qui suit, où qu'il soit dans la mesure.** Traverser une note pour atteindre un
+   silence ne coûte rien — un silence n'est pas de la musique, c'est du temps vide. Les notes
+   traversées ne sont ni mangées ni réordonnées : elles glissent vers la droite de ce que la note
+   agrandie leur prend. C'est ce qui fait qu'une mesure à moitié vide ne s'endette plus jamais.
+2. **Le reste décale**, et la mesure devient plus longue que sa capacité. Elle porte alors une
+   **dette**, gravée sur elle — « +½ ♩ » à droite, au-dessus de la portée — et payable de deux façons.
+
+| Règlement | Touche | Ce qu'il fait | Ce qu'il coûte |
+|---|---|---|---|
+| **Absorber** | `Alt`+`A` | Ce qui suit le curseur cède la place. La note agrandie garde sa durée, ce qui suit la zone reprise retrouve sa position d'origine | Une note disparaît |
+| **Déverser** | `Alt`+`R` | L'excédent part dans une mesure neuve | Rien, mais le morceau gagne une mesure |
+
+Les deux boutons n'apparaissent **que** sur une mesure qui déborde — et c'est ce qui rend le message
+honnête. L'ancien renvoyait vers un « Alt+R » que le refus lui-même rendait inapplicable : le refus
+garantissait que la mesure restait valide, donc que le bouton restait caché. On désignait un remède
+absent de l'écran.
+
+**Pourquoi décaler plutôt qu'absorber par défaut.** Les deux modèles existent chez les logiciels
+établis. [MuseScore absorbe](https://musescore.org/en/node/6477) — la note qui s'allonge mange celles
+qui suivent — et c'est la plainte qui revient le plus sur ses forums : on y perd du travail sans
+l'avoir demandé, au point que le projet a ouvert une
+[page dédiée à la refonte de sa saisie](https://musescore.org/en/noteinput_redesign).
+[Guitar Pro décale](https://www.guitar-pro.com/docs/gp8/score/bars) et laisse la mesure devenir
+fausse en la signalant en rouge, ce que sa documentation présente comme un avantage. Entre les deux,
+le choix se tranche seul : **décaler ne perd rien, absorber détruit**. Le geste par défaut est celui
+qui se rattrape ; l'autre reste offert, explicitement, à qui le veut.
+
+Là où TabHub va plus loin que les deux : Guitar Pro rougit la mesure sans rien dire de plus,
+MuseScore mange sans rien dire du tout. Ici la mesure **dit de combien** elle déborde et **propose
+les deux issues**, dont les boutons sont à l'écran au moment où on lit le message.
+
+**Ce n'est pas la cascade qui avait été annulée** (*« repasse au modèle plus simple, colle à ce qui
+est réalisé sur les logiciels pros »*). Celle-là **créait une mesure toute seule** et restructurait
+le morceau. Ici rien ne sort de la mesure sans qu'on le demande : la dette y reste, visible, jusqu'à
+ce qu'on choisisse. Les bancs vérifient explicitement qu'aucune mesure n'apparaît d'elle-même.
+
+**Effet de bord, et ce n'était pas le moindre : la palette ne ment plus.** Palette sur « blanche »,
+une case tapée sur un silence de croche dans une mesure pleine : l'agrandissement échouait, l'échec
+était avalé, et il s'écrivait une **croche**. Mesuré : 1,5 temps d'écart entre le bouton actif et ce
+qui apparaissait sur la partition, sans le moindre message. On croyait avoir écrit une blanche.
+
 | Touche | Effet |
 |---|---|
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |

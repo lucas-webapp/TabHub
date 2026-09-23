@@ -740,6 +740,34 @@ class TabHubApp {
         //     (mesuré : la bande ne revenait pas avec son onglet), alors que les ancres suffisaient
         //     à décider. Une condition de moins, et la bonne réponse dans les deux cas.
         if (raison !== 'curseur' && raison !== 'lecture') this.lecteur.reancrerBoucle(this.editeur.partition);
+        // LA DETTE S'ANNONCE ICI, ET NULLE PART AILLEURS.
+        //
+        // Un allongement ne se refuse plus : il décale, et la mesure devient trop longue (voir
+        // Editeur._essaierNouvelleDuree). Ce n'est pas un échec — il n'y a rien à corriger de force —
+        // mais ça ne doit pas passer inaperçu pour autant : une mesure qui déborde sans qu'on le
+        // sache est exactement ce qui rendait l'ancienne version déroutante.
+        //
+        // UN SEUL POINT D'ANNONCE, parce que la commande peut venir de six chemins différents (le
+        // clavier, la palette, le menu contextuel, l'étirement à la souris, le pavé tactile, un
+        // bouton de la barre) et que chacun relaie déjà `derniereErreur` de son côté. `prevenir()`,
+        // lui, passe par ici quoi qu'il arrive : un seul endroit à tenir juste plutôt que six.
+        //
+        // LE MESSAGE NOMME LES DEUX RÈGLEMENTS, et cette fois les deux boutons sont VRAIMENT à
+        // l'écran au moment où on le lit — ils n'apparaissent QUE sur une mesure qui déborde (voir
+        // edit/raccourcis.js). L'ancien message renvoyait vers un « Alt+R » que le refus lui-même
+        // rendait inapplicable : la mesure restait valide, donc le bouton restait caché.
+        const dette = this.editeur.derniereDette;
+        if (dette) {
+            this.editeur.derniereDette = null;
+            // L'ÉLISION EST FAITE ICI : « déborde de une noire » se lit mal, et un message qu'on
+            // relit deux fois pour le comprendre a déjà raté son but. Toutes les durées nommées
+            // commencent par « une », « un » ou « deux » (voir texteDeDuree), donc une seule règle —
+            // voyelle en tête — suffit et le restera.
+            const combien = texteDeDuree(dette.dette);
+            const de = /^[aeiouéè]/i.test(combien) ? `d'${combien}` : `de ${combien}`;
+            this.message(`La mesure ${dette.mesure + 1} déborde ${de}. `
+                + 'Alt+A absorbe ce qui suit, Alt+R le déverse dans une mesure neuve.', 4200);
+        }
         // L'INTITULÉ D'UN ONGLET EST LE TITRE DU MORCEAU : il change donc quand le document change
         // (ouverture, nouvel onglet) et quand on retitre (raison 'meta'). Redessiner la barre est
         // une poignée de boutons — moins cher qu'un mécanisme de mise à jour fine, et sans la classe
@@ -5087,6 +5115,24 @@ class TabHubApp {
         clearTimeout(this._minuterieMessage);
         this._minuterieMessage = setTimeout(() => el.classList.remove('visible'), duree);
     }
+}
+
+/**
+ * Une durée en noires, dite comme un musicien la dit — « une croche », « un temps et demi ».
+ *
+ * Le message d'une dette doit se lire sans traduction mentale : « déborde de 0,5 » oblige à convertir,
+ * « déborde d'une croche » nomme la figure qu'on vient de poser. Au-delà des quelques valeurs
+ * usuelles, on retombe sur les noires, qui restent justes faute d'être élégantes.
+ */
+function texteDeDuree(noires) {
+    const NOMS = [[0.125, 'une triple-croche'], [0.25, 'une double-croche'], [1 / 3, 'un tiers de temps'],
+                  [0.375, 'une double-croche pointée'], [0.5, 'une croche'], [2 / 3, 'deux tiers de temps'],
+                  [0.75, 'une croche pointée'], [1, 'une noire'], [1.5, 'une noire pointée'],
+                  [2, 'une blanche'], [3, 'une blanche pointée'], [4, 'une ronde']];
+    const trouve = NOMS.find(([v]) => Math.abs(v - noires) < 1e-6);
+    if (trouve) return trouve[1];
+    const arrondi = Math.round(noires * 100) / 100;
+    return `${arrondi} ♩`;
 }
 
 function toucheDeSig(sig) {

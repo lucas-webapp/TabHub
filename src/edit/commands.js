@@ -56,6 +56,12 @@ export class Editeur {
         // touche jamais au DOM, donc jamais de toast d'ici ; l'appelant (main.js) lit ce champ juste
         // après avoir invoqué une commande et l'affiche si besoin.
         this.derniereErreur = null;
+        // LA DETTE LAISSÉE PAR LE DERNIER ALLONGEMENT — { mesure, voix, evenement, dette } ou `null`.
+        // Même mécanique que `derniereErreur`, et pour la même raison : l'éditeur ne touche pas au
+        // DOM. La différence est de nature — ce n'est pas un échec, c'est un état du document que
+        // l'interface doit ANNONCER, avec les deux façons de le régler (voir absorberDette et
+        // corrigerDebordement). Il tombe au geste suivant : il décrit le dernier geste, pas la mesure.
+        this.derniereDette = null;
         // PRESSE-PAPIER D'UNE MESURE (voir copierMesure/collerMesure). Volontairement porté par
         // l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à un
         // `nouveau()` comme à un changement d'instrument — copier une mesure de guitare pour la
@@ -513,11 +519,16 @@ export class Editeur {
             // capacité sans que rien ne le signale, jusqu'à ce qu'un ALLONGEMENT plus tard tombe sur
             // un silence de fin trop court pour absorber quoi que ce soit — exactement le symptôme du
             // retour utilisateur (« l'application m'empêche de modifier la durée d'un silence »).
-            // `_essaierNouvelleDuree` sait déjà rendre ce redimensionnement sûr (rétrécir rend
-            // toujours le surplus en silence juste après, ce qui est le cas le plus fréquent ici) ; un
-            // agrandissement qui échoue faute de place ne doit en revanche jamais refuser la case
-            // elle-même — la note se pose alors avec la durée déjà en place, jamais bloquée par une
-            // erreur qui n'a rien à voir avec le chiffre qu'on vient de taper.
+            // `_essaierNouvelleDuree` sait rendre ce redimensionnement sûr dans les deux sens, et il
+            // ne peut plus échouer (voir son docblock : il décale plutôt que de refuser).
+            //
+            // C'EST CE QUI A RENDU LA PALETTE HONNÊTE, et le défaut qu'elle avait était le pire de
+            // tous parce qu'il ne disait rien. Palette sur « blanche », une case tapée sur un silence
+            // de croche dans une mesure pleine : l'agrandissement échouait, l'échec était avalé par
+            // la ligne suivante, et il s'écrivait une CROCHE. Mesuré : 1,5 temps d'écart entre ce que
+            // montrait le bouton actif et ce qui apparaissait sur la partition, sans le moindre
+            // message. On croyait avoir écrit une blanche. Désormais la blanche s'écrit vraiment, et
+            // si la mesure n'avait pas la place, elle le DIT (voir main.js#surChangementEditeur).
             this._essaierNouvelleDuree({ ...this.dureeCourante }, { dejaMemorise: true });
             this.derniereErreur = null;
         }
@@ -668,28 +679,51 @@ export class Editeur {
     // -- Rythme -----------------------------------------------------------------------------------
 
     /**
-     * Essaie de donner une NOUVELLE description de durée à l'évènement courant — le geste commun à
+     * Donne une NOUVELLE description de durée à l'évènement courant — le geste commun à
      * appliquerDuree, basculerPoint et basculerTriolet, les trois façons de changer combien de temps
      * un évènement occupe.
      *
-     * LE RYTHME DE LA MESURE RESTE STRICT — JAMAIS DE DÉPASSEMENT, MÊME TEMPORAIRE. Si l'évènement
-     * s'allonge, le temps gagné DOIT venir des silences qui suivent immédiatement dans la même voix ;
-     * s'il n'y en a pas assez avant la fin de la voix ou avant la prochaine note, le changement est
-     * REFUSÉ TOUT ENTIER — aucune mutation, aucun memoriser() — plutôt qu'appliqué à moitié : une
-     * mesure à 4/4 ne doit jamais pouvoir en porter 5, ne serait-ce qu'un instant. `derniereErreur`
-     * porte alors le pourquoi (voir main.js, qui l'affiche).
+     * CE GESTE NE SE REFUSE PLUS JAMAIS, et c'est le changement de fond de cette version.
      *
-     * REVENU À CE REFUS après un détour par la répartition automatique en cascade (qui insérait une
-     * mesure neuve toute seule dès qu'un allongement débordait) : le résultat déroutait plus qu'il
-     * n'aidait (retour direct : « repasse au modèle plus simple, colle à ce qui est réalisé sur les
-     * logiciels pros ») — un logiciel de gravure établi ne restructure jamais le morceau tout seul,
-     * il refuse ou signale, et laisse la main à qui écrit. Une mesure déjà invalide par un AUTRE
-     * chemin (fichier importé, par exemple) reste réparable à la demande via `corrigerDebordement`
-     * (Alt+R / bouton « ⇥ Corriger »), qui n'a pas changé.
+     * CE QU'IL FAISAIT AVANT, et ce que ça coûtait. Un allongement devait trouver sa place dans les
+     * silences suivant IMMÉDIATEMENT l'évènement ; faute de quoi tout le changement était refusé.
+     * Mesuré sur une mesure de 4/4 portant huit croches — la chose la plus banale qu'on puisse
+     * écrire — 32 changements de durée sur 40 étaient refusés, soit 80 %. Sur une mesure À MOITIÉ
+     * VIDE (quatre croches puis deux noires de silence), encore 65 % : le silence était là, mais pas
+     * CONTIGU, et le balayage s'arrêtait à la première note rencontrée. Effacer d'abord la note
+     * fautive ne débloquait rien non plus. La seule issue restait de supprimer la mesure entière et
+     * de la refaire — retour utilisateur mot pour mot.
      *
-     * Si l'évènement raccourcit, le temps libéré redevient un silence juste après (fusionné à celui
-     * qui s'y trouve déjà) : dans ce sens-là, il n'y a jamais de risque de déborder, donc jamais lieu
-     * de refuser.
+     * Et le refus ne protégeait même pas ce qu'il prétendait protéger : écrire un simple triolet
+     * laissait la mesure fausse sans qu'aucun refus ne se déclenche (voir `_silences`).
+     *
+     * CE QU'IL FAIT MAINTENANT — DEUX SOURCES DE PLACE, DANS CET ORDRE.
+     *   1. LES SILENCES QUI SUIVENT sont mangés. C'est gratuit : un silence n'est pas de la musique,
+     *      c'est du temps vide, et personne ne le pleure.
+     *   2. LE RESTE DÉCALE. Ce qui suit garde son contenu et glisse vers la droite ; la mesure
+     *      devient plus longue que sa capacité et porte une DETTE, visible (voir engine/layout.js,
+     *      qui grave « +½ ♩ » sur la mesure) et payable en un geste.
+     *
+     * POURQUOI DÉCALER PLUTÔT QU'ABSORBER. Les deux modèles existent chez les logiciels établis, et
+     * ils répondent à deux intentions différentes. MuseScore ABSORBE par défaut — la note qui
+     * s'allonge mange celles qui suivent — et c'est la plainte qui revient le plus sur ses forums,
+     * parce qu'on perd du travail sans l'avoir demandé. Guitar Pro DÉCALE et laisse la mesure
+     * devenir fausse, en la signalant ; c'est justement ce que sa documentation présente comme un
+     * avantage. Entre les deux, le choix est simple : DÉCALER NE PERD RIEN, absorber détruit. Le
+     * geste par défaut est donc celui qui se rattrape, et l'absorption reste offerte — explicitement,
+     * à qui la veut (voir `absorberDette`, Alt+A).
+     *
+     * CE N'EST PAS LA CASCADE QUI AVAIT ÉTÉ ANNULÉE (retour direct : « repasse au modèle plus simple,
+     * colle à ce qui est réalisé sur les logiciels pros »). Cette cascade CRÉAIT une mesure toute
+     * seule et restructurait le morceau. Ici, rien ne bouge hors de la mesure : la dette y reste,
+     * visible, jusqu'à ce qu'on choisisse de l'absorber (Alt+A) ou de la déverser (Alt+R). Aucun
+     * logiciel de gravure ne restructure le morceau sans qu'on le lui demande, et celui-ci non plus.
+     *
+     * `derniereDette` porte de quoi proposer le règlement au bon endroit (voir main.js) : la mesure,
+     * la voix, l'évènement qui a grandi, et de combien la mesure déborde.
+     *
+     * Si l'évènement RACCOURCIT, le temps libéré redevient un silence juste après : dans ce sens-là
+     * il n'y a jamais de dette, donc rien à signaler.
      *
      * N'appelle PAS prevenir() : à l'appelant de le faire, une fois qu'il a fini de poser ses propres
      * champs (dureeCourante, par exemple), pour ne prévenir qu'une seule fois par geste.
@@ -697,6 +731,9 @@ export class Editeur {
      * `dejaMemorise` : sert à saisirChiffre/saisirHauteur, qui ont déjà ouvert leur propre point
      * d'annulation avant d'appeler ceci — sans ce drapeau, l'appel imbriqué en ouvrirait un SECOND,
      * et défaire « une case tapée » aurait demandé deux Ctrl+Z au lieu d'un.
+     *
+     * @returns {boolean} toujours vrai — conservé parce que trois appelants le lisent, et qu'une
+     *   signature qui ne peut plus échouer se remarque mieux ainsi qu'en la changeant partout.
      */
     /**
      * FUSIONNE LES SUITES DE SILENCES DE LA VOIX COURANTE — et c'est ce qui manquait.
@@ -814,6 +851,7 @@ export class Editeur {
 
     _essaierNouvelleDuree(nouvelleDuree, { dejaMemorise = false } = {}) {
         this.derniereErreur = null;
+        this.derniereDette = null;
         const voix = this.voixCourante();
         const iEvt = this.curseur.evenement;
         const evenement = voix.evenements[iEvt];
@@ -822,37 +860,41 @@ export class Editeur {
         const delta = nouvelle - ancienne;
         const estSilence = (e) => e.silence || !e.notes.length;
 
-        // On calcule D'ABORD, SANS RIEN MODIFIER, si un allongement peut être entièrement absorbé —
-        // c'est ce qui permet de REFUSER proprement plutôt que de devoir défaire un changement à
-        // moitié fait.
-        let j = iEvt + 1;
-        if (delta > 1e-9) {
-            let reste = delta;
-            while (reste > 1e-9 && j < voix.evenements.length && estSilence(voix.evenements[j])) {
-                reste -= dureeEnNoires(voix.evenements[j].duree);
-                j++;
-            }
-            if (reste > 1e-9) {
-                // Le rappel d'Alt+R répond à une attente récurrente (retour utilisateur : « je me
-                // disais que le reste allait se décaler sur la droite ») — le refus reste volontaire
-                // (voir le docblock de la méthode), mais le message doit dire OÙ trouver le décalage
-                // quand il est vraiment voulu, plutôt que de laisser deviner.
-                this.derniereErreur = 'Pas assez de place dans la mesure pour cette durée. '
-                    + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
-                return false;
-            }
-        }
-
         if (!dejaMemorise) this.memoriser();
         evenement.duree = nouvelleDuree;
 
         if (delta > 1e-9) {
-            // `j` s'est déjà arrêté ci-dessus au bon endroit (la vérification l'a calculé) : ce que
-            // les silences de iEvt+1 à j totalisent, moins ce qu'il fallait, est à rendre.
-            const consomme = voix.evenements.slice(iEvt + 1, j).reduce((t, e) => t + dureeEnNoires(e.duree), 0);
-            const aRendre = consomme - delta;
-            voix.evenements.splice(iEvt + 1, j - (iEvt + 1),
-                ...this._silences(voix, positionDe(voix, iEvt + 1), aRendre));
+            // TOUT LE SILENCE QUI SUIT EST PRIS, OÙ QU'IL SOIT DANS LA MESURE — le plus proche
+            // d'abord, en traversant les notes sans y toucher.
+            //
+            // TRAVERSER LES NOTES EST LE POINT, et c'est ce qui a manqué le plus longtemps. Une
+            // version antérieure s'arrêtait au premier évènement non silencieux : sur une mesure à
+            // MOITIÉ VIDE — quatre croches puis deux noires de silence —, allonger la première note
+            // était refusé, alors que la mesure avait deux temps de libre. Ils étaient simplement
+            // hors de portée du balayage. Mesuré : 6 refus sur 20 dans ce seul cas de figure.
+            //
+            // Les prendre ne coûte RIEN : un silence est du temps vide, pas de la musique. Les notes
+            // traversées ne sont ni mangées ni réordonnées, elles glissent simplement vers la droite
+            // de ce que la note agrandie leur prend — et la mesure retombe pile sur sa capacité, sans
+            // dette du tout, dès qu'il y avait assez de vide quelque part.
+            let besoin = delta;
+            const evts = voix.evenements;
+            let i = iEvt + 1;
+            while (besoin > 1e-9 && i < evts.length) {
+                if (!estSilence(evts[i])) { i++; continue; }
+                const d = dureeEnNoires(evts[i].duree);
+                if (d <= besoin + 1e-9) { evts.splice(i, 1); besoin -= d; continue; }
+                // Silence entamé à moitié : le reliquat garde sa place et se réécrit sur la grille.
+                const pos = positionDe(voix, i);
+                evts.splice(i, 1, ...this._silences(voix, pos, d - besoin));
+                besoin = 0;
+            }
+            // Ce qui n'a pas pu être payé en silence est la DETTE : la mesure est plus longue que sa
+            // capacité, elle le dit (voir engine/layout.js), et deux gestes la règlent.
+            const dette = this.ecartMesure(this.curseur.mesure, this.curseur.voix);
+            this.derniereDette = dette > 1e-9
+                ? { mesure: this.curseur.mesure, voix: this.curseur.voix, evenement: iEvt, dette }
+                : null;
         } else if (delta < -1e-9) {
             let libere = -delta, k = iEvt + 1;
             while (k < voix.evenements.length && estSilence(voix.evenements[k])) {
@@ -1242,6 +1284,69 @@ export class Editeur {
      * `_diagnostiquerDebordement`/`_appliquerRepartition` pour le mécanisme, partagé avec l'édition
      * en direct.
      */
+    /**
+     * ABSORBE LE DÉBORDEMENT D'UNE VOIX : ce qui suit l'évènement `depuis` cède la place, jusqu'à ce
+     * que la voix retombe exactement sur la capacité de sa mesure.
+     *
+     * C'EST L'UNE DES DEUX FAÇONS DE PAYER UNE DETTE, et la destructrice des deux — d'où le fait
+     * qu'elle ne se déclenche JAMAIS toute seule. L'allongement d'une note décale par défaut, sans
+     * rien perdre (voir `_essaierNouvelleDuree`) ; cette commande-ci est le geste de qui dit « non,
+     * cette note prend la place de la suivante ». C'est le comportement PAR DÉFAUT de MuseScore, et
+     * la plainte la plus constante de ses utilisateurs : on y perd du travail sans l'avoir demandé.
+     * Ici on le demande — Alt+A, ou le bouton qui n'apparaît QUE sur une mesure qui déborde.
+     *
+     * DEPUIS LE CURSEUR, PAS DEPUIS LE DÉBUT. La dette vient presque toujours d'un allongement qu'on
+     * vient de faire, et le curseur est resté dessus : reprendre la place juste après lui, c'est
+     * reprendre exactement celle que la note agrandie occupe désormais. Tout ce qui précède ne bouge
+     * pas d'un pouce, et tout ce qui suit la zone reprise retrouve sa position d'origine — c'est
+     * précisément ce qui distingue l'absorption du décalage.
+     *
+     * DES ÉVÈNEMENTS ENTIERS, ET LE SURPLUS REDEVIENT DU SILENCE. On ne raccourcit jamais une note à
+     * moitié : une durée « bâtarde » ne s'écrit avec aucune figure, et l'éditeur se retrouverait à
+     * graver ce qu'il ne sait pas nommer. On retire donc des évènements COMPLETS jusqu'à couvrir la
+     * dette, et ce qu'on a repris EN TROP est rendu sous forme de silence, à sa place et sur la
+     * grille de la mesure (voir `_silences`). Une note disparaît ou reste : jamais un entre-deux.
+     *
+     * REFUSE — et c'est le seul refus qui reste sur ce chemin — quand il n'y a pas assez de matière
+     * après le curseur. Le message renvoie alors vers l'autre règlement, qui lui fonctionne toujours.
+     */
+    absorberDette(iMesure = this.curseur.mesure, iVoix = this.curseur.voix, depuis = this.curseur.evenement) {
+        this.derniereErreur = null;
+        const mesure = this.partition.mesures[iMesure];
+        const voix = mesure?.voix[iVoix];
+        if (!voix) return false;
+        const dette = dureeEcrite(mesure, iVoix) - capaciteMesure(this.partition, iMesure);
+        if (dette <= 1e-9) {
+            this.derniereErreur = 'Cette mesure ne déborde pas : il n\'y a rien à absorber.';
+            return false;
+        }
+        const debut = Math.min(Math.max(0, depuis + 1), voix.evenements.length);
+        let pris = 0;
+        let k = debut;
+        while (pris < dette - 1e-9 && k < voix.evenements.length) {
+            pris += dureeEnNoires(voix.evenements[k].duree);
+            k++;
+        }
+        if (pris < dette - 1e-9) {
+            this.derniereErreur = 'Pas assez de matière après le curseur pour absorber ce débordement. '
+                + 'Alt+R (⇥ Corriger) le déverse dans une mesure neuve.';
+            return false;
+        }
+        this.memoriser();
+        const position = positionDe(voix, debut);
+        // La grille se déduit de ce qui RESTERA, pas de ce qu'on retire : les frontières des
+        // évènements supprimés n'ont plus à être honorées, et les compter donnerait une grille plus
+        // fine que nécessaire, donc plus de figures de silence qu'il n'en faut.
+        const restants = [...voix.evenements.slice(0, debut), ...voix.evenements.slice(k)];
+        const rendu = this._silences({ evenements: restants }, position, pris - dette, iMesure);
+        voix.evenements.splice(debut, k - debut, ...rendu);
+        this.derniereDette = null;
+        this._dernierChiffre = null;
+        this.corrigerCurseur();
+        this.prevenir('edition');
+        return true;
+    }
+
     corrigerDebordement(index = this.curseur.mesure) {
         this.derniereErreur = null;
         const diag = this._diagnostiquerDebordement(index);

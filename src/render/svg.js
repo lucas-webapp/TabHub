@@ -22,6 +22,12 @@ export const PALETTE = {
     // un rouge FRANC, sur le chiffre lui-même — assez visible pour qu'on aille la redéfinir, sans
     // ressembler pour autant au fond teinté d'une mesure invalide, qui dit autre chose.
     horsManche: '#D52E2E',
+    // Le chiffre d'une mesure endettée (« +½ ♩ », voir engine/layout.js) : le MÊME rouge franc que
+    // `horsManche`, et c'est volontaire — les deux disent « regarde ici, il y a quelque chose à
+    // régler », par opposition au fond teinté qui, lui, ne fait que délimiter la zone. Deux entrées
+    // plutôt qu'une seule partagée : elles nomment deux intentions distinctes, et rien ne garantit
+    // qu'elles resteront du même rouge.
+    dette: '#D52E2E',
 };
 
 const ech = (v) => (Math.round(v * 100) / 100);

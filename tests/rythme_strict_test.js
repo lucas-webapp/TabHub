@@ -42,19 +42,49 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
     try {
         const r = await page.evaluate(async () => {
             const m = await import('/src/model/score.js');
+            const { Editeur } = await import('/src/edit/commands.js');
             const ed = window.app.editeur;
             const dureeEn = (mesure, iVoix = 0) => mesure.voix[iVoix].evenements.reduce(
                 (t, e) => t + (4 / e.duree.valeur) * (e.duree.points ? 1.5 : 1), 0);
 
-            // --- A. appliquerDuree refuse tout ce qui déborderait -------------------------------------
+            // --- A. appliquerDuree DÉCALE au lieu de refuser -----------------------------------------
+            // CE BLOC VÉRIFIAIT LE REFUS. Il vérifie maintenant son contraire, et ce qu'il protège
+            // n'a pas changé : que le geste ne restructure JAMAIS le morceau tout seul. Avant, la
+            // garantie tenait parce que rien ne se passait ; elle tient maintenant parce que le
+            // décalage reste enfermé dans la mesure, qui porte sa dette et propose de la régler.
             ed.nouveau('guitare');
-            // Remplit la première mesure exactement à 4/4 : 4 noires.
+            // Remplit la première mesure exactement à 4/4 : 4 noires, aucun silence à prendre.
             ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
             ed.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
-            const avantA = JSON.stringify(ed.partition);
-            const refusA = ed.appliquerDuree(2);   // blanche : 2 noires, ne rentre pas derrière trois autres noires
-            const inchangeA = JSON.stringify(ed.partition) === avantA;
-            const erreurA = ed.derniereErreur;   // lu ICI — un cas suivant l'écrase (voir la note sur B)
+            const mesuresAvantA = ed.partition.mesures.length;
+            const okA = ed.appliquerDuree(2);   // blanche : 2 noires derrière trois autres noires
+            const dureesA = ed.partition.mesures[0].voix[0].evenements.map(e => 4 / e.duree.valeur);
+            const notesA = ed.partition.mesures[0].voix[0].evenements.filter(e => !e.silence && e.notes.length).length;
+            const ecartA = ed.ecartMesure(0, 0);
+            const mesuresApresA = ed.partition.mesures.length;
+            // LE MESSAGE, PAS LE CHAMP. `derniereDette` est CONSOMMÉ par l'interface au moment même
+            // où la commande prévient (voir main.js#surChangementEditeur, point d'annonce unique) :
+            // le lire après coup sur l'éditeur de l'application rendrait toujours `null`. Ce qu'on
+            // veut vérifier de toute façon, c'est ce que l'utilisateur LIT.
+            const messageA = document.getElementById('message').textContent;
+            const messageVisibleA = document.getElementById('message').classList.contains('visible');
+            // Et les deux règlements, sur deux copies du même état.
+            // Deux éditeurs NEUFS sur une copie du même état : les deux règlements s'excluent, il
+            // faut donc les essayer chacun depuis la même situation de départ.
+            const clone = () => {
+                const e2 = new Editeur(m.normaliser(JSON.parse(JSON.stringify(ed.partition))));
+                e2.curseur = { mesure: 0, voix: 0, evenement: 0, corde: 0 };
+                return e2;
+            };
+            const eAbs = clone();
+            const okAbsorbeA = eAbs.absorberDette();
+            const apresAbsorbeA = { ecart: eAbs.ecartMesure(0, 0),
+                notes: eAbs.partition.mesures[0].voix[0].evenements.filter(e => !e.silence && e.notes.length).length,
+                mesures: eAbs.partition.mesures.length };
+            const eDev = clone();
+            const okDeverseA = eDev.corrigerDebordement(0);
+            const apresDeverseA = { ecart: eDev.ecartMesure(0, 0), mesures: eDev.partition.mesures.length,
+                notes: eDev.partition.mesures.reduce((t, mm) => t + mm.voix[0].evenements.filter(e => !e.silence && e.notes.length).length, 0) };
 
             // --- B. insererEvenement en bout de voix, mesure pleine : avance en mesure NEUVE ---------
             ed.nouveau('guitare');
@@ -269,7 +299,8 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const ecartApresHauteurM = ed.ecartMesure();
 
             return {
-                refusA, inchangeA, erreurA,
+                okA, dureesA, notesA, ecartA, mesuresAvantA, mesuresApresA, messageA, messageVisibleA,
+                okAbsorbeA, apresAbsorbeA, okDeverseA, apresDeverseA,
                 mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
                 refusC, inchangeC,
                 okC2, contenuC2, totalC2, mesuresAvantC2, mesuresApresC2, curseurC2,
@@ -289,8 +320,27 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             };
         });
 
-        exiger(r.refusA === false && r.inchangeA, 'A. appliquerDuree refuse tout changement qui ferait déborder — aucune mutation');
-        check(!!r.erreurA, 'et signale une erreur exploitable (Editeur.derniereErreur)');
+        exiger(r.okA === true && r.dureesA[0] === 2,
+            `A. appliquerDuree ne refuse plus : la première noire devient une blanche (${r.dureesA.join(',')})`);
+        check(r.notesA === 4 && Math.abs(r.ecartA - 1) < 1e-6,
+            `les quatre notes sont intactes (${r.notesA}) et la mesure porte une dette d'un temps `
+            + `(${r.ecartA}) — décaler ne détruit rien, c'est ce qui le distingue d'absorber`);
+        check(r.mesuresApresA === r.mesuresAvantA,
+            `et AUCUNE mesure n'a été créée (${r.mesuresAvantA} → ${r.mesuresApresA}) : la garantie que `
+            + 'ce banc protège depuis toujours — le geste ne restructure pas le morceau tout seul');
+        check(r.messageVisibleA && /Alt\+A/.test(r.messageA) && /Alt\+R/.test(r.messageA)
+              && /noire/.test(r.messageA),
+            `et l'utilisateur LE LIT, avec les deux règlements et la figure en toutes lettres `
+            + `(« ${r.messageA} ») — la dette est annoncée depuis un point unique, quel que soit le `
+            + 'chemin par lequel la commande est arrivée');
+        check(r.okAbsorbeA === true && Math.abs(r.apresAbsorbeA.ecart) < 1e-6
+              && r.apresAbsorbeA.notes === 3 && r.apresAbsorbeA.mesures === r.mesuresAvantA,
+            `« Absorber » (Alt+A) la règle en reprenant UNE note à ce qui suit (4 → ${r.apresAbsorbeA.notes}), `
+            + 'sans créer de mesure');
+        check(r.okDeverseA === true && Math.abs(r.apresDeverseA.ecart) < 1e-6
+              && r.apresDeverseA.mesures === r.mesuresAvantA + 1 && r.apresDeverseA.notes === 4,
+            `« Déverser » (Alt+R) la règle autrement : une mesure neuve (${r.apresDeverseA.mesures}) et `
+            + `les quatre notes toujours là (${r.apresDeverseA.notes}). Deux issues, aucune imposée`);
 
         exiger(r.okB === true, 'B. insererEvenement, mesure pleine, bout de voix : réussit (avance dans une mesure neuve)');
         check(r.mesuresApresB === r.mesuresAvantB + 1, 'en créant UNE SEULE mesure neuve');

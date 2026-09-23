@@ -28,6 +28,13 @@ const D = {
     // la mesure elle-même comme motif plutôt qu'un symbole abstrait — et une coche, la mesure remise
     // juste.
     corriger: '<path d="M5 4v16"/><path d="M19 4v16"/><path d="m9 12 2.5 2.5L16 9"/>',
+    // « Absorber » (la note qui déborde prend la place de la suivante, voir
+    // edit/commands.js#absorberDette) : les mêmes deux bords de mesure que « Corriger » — c'est bien
+    // de la même mesure qu'on parle — et DEUX FLÈCHES QUI SE FONT FACE, l'excédent ramené à
+    // l'intérieur. « Corriger » déverse (une coche, la mesure remise juste, l'excédent parti
+    // ailleurs), « Absorber » ramène : les deux icônes se lisent l'une contre l'autre, ce qui est
+    // exactement leur rapport.
+    absorber: '<path d="M5 4v16"/><path d="M19 4v16"/><path d="M8 12h8"/><path d="m11 9-3 3 3 3"/><path d="m13 9 3 3-3 3"/>',
     poubelle: '<path d="M3 6h18"/><path d="M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/>',
     metronome: '<path d="M12 3 8 21h8L12 3Z"/><path d="m7 15 10-6"/>',
     guitare: '<path d="M11.5 3.5 15 7"/><path d="M8.5 10.5a4.5 4.5 0 1 0 5 5c.5-2 3-2.5 3-5.5s-3-3-4-3-4 1.5-4 3.5Z"/><circle cx="10.5" cy="13.5" r="1.6"/>',
