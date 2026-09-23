@@ -88,6 +88,18 @@
        choisie, et un aplat soutenu sur quatre mesures rendrait la partition illisible. */
     --a-remplir: rgba(150, 120, 255, 0.17);
     --selection-halo: rgba(74, 158, 255, 0.2);
+    /* CE QU'« ABSORBER » VA REPRENDRE, montré au survol du bouton (voir main.js#marquesApercu). Le
+       ROUGE de --dette, et volontairement celui-là : le chiffre de dette en fin de mesure est déjà
+       rouge, et l'aperçu répond exactement à la question que ce chiffre pose (« +½ ♩ de trop » →
+       « voici ce que je prendrais pour les rendre »). Deux teintes différentes pour les deux
+       moitiés d'une même conversation les feraient passer pour deux sujets.
+
+       L'OPACITÉ, elle, est MESURÉE et non choisie. L'aperçu se pose forcément sur une mesure qui
+       déborde — donc déjà lavée du même rouge (`avertissement`, rgba(213,46,46,0.14), voir
+       render/svg.js). À 0,22 la superposition donnait 0,33 contre 0,14 : visible, mais il fallait
+       chercher. À 0,40 elle donne ~0,48 contre 0,14, plus de trois fois l'avertissement — on voit
+       d'un coup d'œil QUELLES notes, sans confondre avec le « cette mesure est fausse » du fond. */
+    --apercu-absorbe: rgba(213, 46, 46, 0.40);
 
     /* HAUTEUR DE BOUTON UNIQUE (retour utilisateur : « limiter le nombre de hauteurs différentes ») —
        AVANT cette variable, six valeurs coexistaient selon le composant et le pointeur (22/30/32/34/

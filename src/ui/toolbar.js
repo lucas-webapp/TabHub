@@ -319,6 +319,15 @@ export function construireBarreOutils(hote, editeur, actionsFichier = {}) {
         b.title = action.libelle + (touche ? ` (${touche})` : '');
         b.setAttribute('aria-label', b.title);
         b.innerHTML = rendreApercu(action);
+        // APERÇU AU SURVOL — pour l'instant un seul geste en a un, et c'est le seul qui détruise
+        // quelque chose (voir main.js#marquesApercu). Le bouton ne sait pas ce qu'il montre : il dit
+        // « on me survole » et « on me quitte », l'interface décide. C'est le même partage que pour
+        // le clic juste en dessous, et il évite que la barre d'outils se mette à connaître la
+        // géométrie de la partition.
+        b.addEventListener('pointerenter', () => actionsFichier.apercuAction?.(action.id));
+        b.addEventListener('pointerleave', () => actionsFichier.apercuAction?.(null));
+        b.addEventListener('blur', () => actionsFichier.apercuAction?.(null));
+        b.addEventListener('focus', () => actionsFichier.apercuAction?.(action.id));
         b.addEventListener('click', () => {
             // Une commande refusée (ex. « pas assez de place dans la mesure ») laisse un message
             // dans l'éditeur plutôt que d'agir sur le DOM elle-même — voir Editeur.derniereErreur.

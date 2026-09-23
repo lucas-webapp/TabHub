@@ -219,7 +219,7 @@ enregistreur. Il marchait tant qu'on écrivait vers l'avant, et se fermait dès 
 
 | Règlement | Touche | Ce qu'il fait | Ce qu'il coûte |
 |---|---|---|---|
-| **Absorber** | `Alt`+`A` | Ce qui suit le curseur cède la place. La note agrandie garde sa durée, ce qui suit la zone reprise retrouve sa position d'origine | Une note disparaît |
+| **Absorber** | `Alt`+`A` | Ce qui suit le curseur cède la place. La note agrandie garde sa durée, ce qui suit la zone reprise retrouve sa position d'origine | Une note disparaît — **montrée avant** (voir ci-dessous) |
 | **Déverser** | `Alt`+`R` | L'excédent part dans une mesure neuve | Rien, mais le morceau gagne une mesure |
 
 Les deux boutons n'apparaissent **que** sur une mesure qui déborde — et c'est ce qui rend le message
@@ -240,6 +240,33 @@ qui se rattrape ; l'autre reste offert, explicitement, à qui le veut.
 Là où TabHub va plus loin que les deux : Guitar Pro rougit la mesure sans rien dire de plus,
 MuseScore mange sans rien dire du tout. Ici la mesure **dit de combien** elle déborde et **propose
 les deux issues**, dont les boutons sont à l'écran au moment où on lit le message.
+
+**Et l'absorption montre ce qu'elle va prendre, avant de le prendre.** Survoler le bouton
+« Absorber » — ou simplement l'atteindre au clavier, puisque `Alt`+`A` se presse sans avoir la main
+dessus — colore en rouge, sur la partition, les notes exactes que le geste emportera. Elles
+disparaissent au moment où l'on quitte le bouton. C'est la réponse directe à la plainte MuseScore :
+ce n'est pas l'absorption qui fait perdre du travail, c'est de ne pas savoir ce qu'elle va prendre.
+
+Deux choix méritent d'être dits, parce que ce sont eux qui empêchent l'aperçu de mentir :
+
+- **Le parcours est celui de la commande, pas une copie.** `Editeur#matiereAbsorbee` désigne les
+  évènements ; `absorberDette` les supprime, l'aperçu les colore. Deux parcours écrits séparément
+  finiraient par désigner des notes légèrement différentes, et un aperçu qui ment sur un geste
+  destructeur est pire que pas d'aperçu du tout.
+- **Rien n'est coloré quand le geste va refuser.** Absorber demande assez de matière après le
+  curseur ; quand il n'y en a pas, la commande renvoie vers `Alt`+`R` — et l'aperçu ne désigne
+  aucune note, plutôt que d'en rougir deux ou trois qui resteront en place.
+
+**Le seul geste qui en ait un**, et c'est volontaire. Un allongement, lui, ne détruit rien : il
+décale, la mesure s'endette, le chiffre le dit et un `Ctrl`+`Z` le défait. Il n'y a là aucune
+surprise à prévenir — seulement du mouvement à regarder. Un aperçu sur chaque bouton de durée ferait
+clignoter la partition à chaque passage de souris sans rien apprendre.
+
+**Au doigt, l'aperçu ne sert à rien**, et autant le dire : sur un écran tactile il n'y a pas de
+survol, seulement un appui qui déclenche déjà le geste. L'aperçu s'allume bien une fraction de
+seconde avant l'absorption, mais on ne peut pas le consulter puis renoncer. C'est une limite
+reconnue, pas un oubli : elle appellerait un appui long, et le filet qui reste à portée partout est
+le même qu'ailleurs — `Ctrl`+`Z`, qui défait une absorption entière.
 
 **Ce n'est pas la cascade qui avait été annulée** (*« repasse au modèle plus simple, colle à ce qui
 est réalisé sur les logiciels pros »*). Celle-là **créait une mesure toute seule** et restructurait

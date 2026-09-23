@@ -1554,28 +1554,48 @@ export class Editeur {
      * REFUSE — et c'est le seul refus qui reste sur ce chemin — quand il n'y a pas assez de matière
      * après le curseur. Le message renvoie alors vers l'autre règlement, qui lui fonctionne toujours.
      */
-    absorberDette(iMesure = this.curseur.mesure, iVoix = this.curseur.voix, depuis = this.curseur.evenement) {
-        this.derniereErreur = null;
+    /**
+     * CE QU'« ABSORBER » PRENDRAIT : `{ debut, fin, dette, pris }`, ou `null` si le geste ne peut pas
+     * aboutir (rien à absorber, ou pas assez de matière après le curseur).
+     *
+     * SÉPARÉ DE LA COMMANDE, et lu par elle, parce qu'un DEUXIÈME lecteur en a besoin : l'aperçu au
+     * survol du bouton (main.js#marquesApercu) colore à l'avance ce que ce geste va emporter. Deux
+     * parcours écrits séparément finiraient par ne plus désigner tout à fait les mêmes évènements, et
+     * un aperçu qui ment sur un geste destructeur est pire que pas d'aperçu du tout.
+     *
+     * Les évènements `[debut, fin)` disparaissent ENTIERS — leurs notes avec. Le surplus (`pris -
+     * dette`) revient en silences : c'est la durée qui est rendue, jamais la musique.
+     */
+    matiereAbsorbee(iMesure = this.curseur.mesure, iVoix = this.curseur.voix, depuis = this.curseur.evenement) {
         const mesure = this.partition.mesures[iMesure];
         const voix = mesure?.voix[iVoix];
-        if (!voix) return false;
+        if (!voix) return null;
         const dette = dureeEcrite(mesure, iVoix) - capaciteMesure(this.partition, iMesure);
-        if (dette <= 1e-9) {
-            this.derniereErreur = 'Cette mesure ne déborde pas : il n\'y a rien à absorber.';
-            return false;
-        }
+        if (dette <= 1e-9) return null;
         const debut = Math.min(Math.max(0, depuis + 1), voix.evenements.length);
         let pris = 0;
-        let k = debut;
-        while (pris < dette - 1e-9 && k < voix.evenements.length) {
-            pris += dureeEnNoires(voix.evenements[k].duree);
-            k++;
+        let fin = debut;
+        while (pris < dette - 1e-9 && fin < voix.evenements.length) {
+            pris += dureeEnNoires(voix.evenements[fin].duree);
+            fin++;
         }
-        if (pris < dette - 1e-9) {
-            this.derniereErreur = 'Pas assez de matière après le curseur pour absorber ce débordement. '
-                + 'Alt+R (⇥ Corriger) le déverse dans une mesure neuve.';
+        if (pris < dette - 1e-9) return null;
+        return { debut, fin, dette, pris };
+    }
+
+    absorberDette(iMesure = this.curseur.mesure, iVoix = this.curseur.voix, depuis = this.curseur.evenement) {
+        this.derniereErreur = null;
+        const voix = this.partition.mesures[iMesure]?.voix[iVoix];
+        if (!voix) return false;
+        const prise = this.matiereAbsorbee(iMesure, iVoix, depuis);
+        if (!prise) {
+            this.derniereErreur = this.ecartMesure(iMesure, iVoix) <= 1e-9
+                ? 'Cette mesure ne déborde pas : il n\'y a rien à absorber.'
+                : 'Pas assez de matière après le curseur pour absorber ce débordement. '
+                  + 'Alt+R (⇥ Corriger) le déverse dans une mesure neuve.';
             return false;
         }
+        const { debut, fin: k, dette, pris } = prise;
         this.memoriser();
         const position = positionDe(voix, debut);
         // La grille se déduit de ce qui RESTERA, pas de ce qu'on retire : les frontières des

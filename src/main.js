@@ -356,6 +356,8 @@ class TabHubApp {
         // _fusionnerBrouillon) : c'est ce qui distingue « je ne l'ai pas » de « je l'ai fermé », et
         // donc ce qui empêche un onglet fermé de revenir à la première écriture suivante.
         this._connusIci = new Set();
+        // Le geste dont on montre l'effet à l'avance, ou null. Voir marquesApercu.
+        this._apercuAction = null;
 
         this.restaurerBrouillon();
         this.poserIcones();
@@ -373,6 +375,11 @@ class TabHubApp {
             // des actions dit ce qu'elle veut (« ouvre l'aide, à partir de cette mesure »),
             // l'interface décide comment. Voir edit/raccourcis.js, action `aideRythme`.
             ouvrirAideRythme: (mesure) => this.ouvrirAideRythme(mesure),
+            // « CE BOUTON EST SOUS LA SOURIS » / « il ne l'est plus » — rien de plus. C'est
+            // l'interface qui sait si ce geste-là mérite un aperçu sur la partition, et lequel : voir
+            // marquesApercu. Un bouton qui devrait savoir dessiner des rectangles sur la portée
+            // n'aurait plus rien d'un bouton.
+            apercuAction: (id) => this.montrerApercu(id),
         };
         this.rafraichirOutils = construireBarreOutils(this.el.barreOutils, this.editeur, crochetsUi);
         // Le pavé tactile partage EXACTEMENT les mêmes crochets que la barre d'outils : les deux
@@ -464,7 +471,8 @@ class TabHubApp {
             return;
         }
 
-        const calques = [...this.marquesLecture(), ...this.marquesARemplir(), ...this.marquesCurseur(), ...this.marquesSelection(), ...this.marquesBoucle()];
+        const calques = [...this.marquesLecture(), ...this.marquesARemplir(), ...this.marquesCurseur(),
+                         ...this.marquesSelection(), ...this.marquesBoucle(), ...this.marquesApercu()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
         this.el.feuille.style.height = `${this.page.hauteur}px`;
         this.el.feuille.innerHTML = rendreSvg(this.page, {
@@ -549,6 +557,57 @@ class TabHubApp {
             const y = a.yTab != null ? a.yTab - 0.3 * S : a.yPortee - 0.3 * S;
             const bas = a.yBas + 0.3 * S;
             marques.push({ t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: Math.max(2, bas - y), couleur: 'var(--a-remplir)' });
+        }
+        return marques;
+    }
+
+    /**
+     * Le survol (ou le focus) d'un bouton d'action entre et sort par ici. On ne redessine QUE si
+     * l'aperçu change vraiment : la souris traverse une barre d'outils entière pour aller ailleurs,
+     * et chaque bouton frôlé au passage enverrait sinon son redessin de partition.
+     */
+    montrerApercu(id) {
+        const voulu = id === 'absorberDette' ? id : null;
+        if (voulu === this._apercuAction) return;
+        this._apercuAction = voulu;
+        this.dessiner();
+    }
+
+    /**
+     * CE QU'UN GESTE VA EMPORTER, montré AVANT qu'on le déclenche — survol ou focus clavier du bouton.
+     *
+     * UN SEUL GESTE EN A BESOIN, et c'est le seul de toute l'application qui détruise quelque chose
+     * sans qu'on l'ait nommé note par note : « Absorber » (Alt+A), qui reprend aux notes suivantes la
+     * place que la note agrandie occupe désormais. Tous les autres gestes destructeurs disent déjà ce
+     * qu'ils font par leur nom — « effacer la note », « supprimer la mesure ».
+     *
+     * POURQUOI PAS SUR TOUS LES BOUTONS DE DURÉE. On y a pensé : montrer en fantôme ce qu'un
+     * allongement va décaler. Mais le décalage NE PERD RIEN (voir Editeur._essaierNouvelleDuree) — la
+     * mesure s'endette, le chiffre le dit, un Ctrl+Z le défait. Il n'y a pas de surprise à prévenir,
+     * seulement du mouvement à regarder. Un aperçu sur chaque bouton ferait clignoter la partition à
+     * chaque passage de souris pour ne rien apprendre.
+     *
+     * LE SURVOL ET LE FOCUS, tous deux : au clavier on n'a pas de souris, et c'est précisément là que
+     * l'aperçu compte — on presse Alt+A sans avoir la main sur le bouton.
+     */
+    marquesApercu() {
+        if (this._apercuAction !== 'absorberDette' || !this.page) return [];
+        const c = this.editeur.curseur;
+        // LE PARCOURS EST CELUI DE LA COMMANDE, pas une copie : voir Editeur#matiereAbsorbee, que
+        // `absorberDette` lit aussi. Et `null` veut dire « ce geste n'aboutirait pas » (rien à
+        // absorber, ou pas assez de matière après le curseur) — dans ce cas on ne colore RIEN, plutôt
+        // que de désigner des notes qu'un refus laisserait finalement en place.
+        const prise = this.editeur.matiereAbsorbee(c.mesure, c.voix, c.evenement);
+        if (!prise) return [];
+        const S = this.page.geo.S;
+        const marques = [];
+        for (let k = prise.debut; k < prise.fin; k++) {
+            const a = this.page.ancrages.evenements
+                .find(z => z.mesure === c.mesure && z.voix === c.voix && z.evenement === k);
+            if (!a) continue;   // hors de la bande dessinée (voir systemesVisibles) : rien à colorer
+            const y = a.yPortee - 1.2 * S;
+            marques.push({ t: 'rect', x: a.xDebut, y, w: a.xFin - a.xDebut, h: (a.yBas + 1.2 * S) - y,
+                           couleur: 'var(--apercu-absorbe)' });
         }
         return marques;
     }
@@ -783,6 +842,13 @@ class TabHubApp {
         // une poignée de boutons — moins cher qu'un mécanisme de mise à jour fine, et sans la classe
         // de bogues où l'affichage et l'état cessent de dire la même chose.
         if (raison === 'document' || raison === 'meta') this.rafraichirOnglets();
+        // UN APERÇU NE SURVIT PAS À UNE MODIFICATION : il décrit ce qu'un geste ferait à l'état qu'on
+        // a sous les yeux, et cet état vient de changer. Sans quoi : le bouton « Absorber » ne
+        // s'affiche que sur une mesure qui déborde (voir edit/raccourcis.js) ; l'absorption le fait
+        // donc DISPARAÎTRE sous le pointeur, et un bouton qu'on masque ne promet pas de `pointerleave`.
+        // L'aperçu resterait armé, invisible faute de dette — puis se rallumerait tout seul, sans
+        // survol, à la première mesure qui déborde ensuite.
+        this._apercuAction = null;
         this.dessiner();
         // Le curseur reste à l'écran. Nécessaire depuis que seuls les systèmes visibles sont
         // dessinés : un curseur poussé hors de la bande dessinée s'afficherait sur du vide, sans
