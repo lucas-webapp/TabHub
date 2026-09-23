@@ -20,7 +20,7 @@
 import {
     creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
     signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, REPERES,
-    decouperEnEvenements, figuresSilencePour, MAX_VOIX,
+    decouperEnEvenements, figuresSilencePour, MAX_VOIX, aplatir,
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
 import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage, hauteurDeCase } from '../model/instruments.js';
@@ -62,6 +62,20 @@ export class Editeur {
         // l'interface doit ANNONCER, avec les deux façons de le régler (voir absorberDette et
         // corrigerDebordement). Il tombe au geste suivant : il décrit le dernier geste, pas la mesure.
         this.derniereDette = null;
+        // COMBIEN DE LIAISONS LE DERNIER GESTE A RENDUES ORPHELINES, et donc retirées (voir
+        // _nettoyerLiens). Même mécanique et même raison que les deux champs ci-dessus : ce n'est ni
+        // un échec ni une décision, c'est une CONSÉQUENCE du geste, et elle doit se dire.
+        this.derniersLiensRetires = 0;
+        // CE QUE LE DERNIER GESTE A COÛTÉ, en une phrase — ou `null`.
+        //
+        // Le troisième et dernier des canaux « l'éditeur ne touche pas au DOM », et le plus large :
+        // `derniereErreur` dit qu'un geste a été refusé, `derniereDette` qu'un état attend une
+        // décision, celui-ci qu'un geste a RÉUSSI mais qu'il a emporté quelque chose au passage.
+        // Il sert aux commandes dont le NOM ne dit pas tout ce qu'elles font — passer de la guitare
+        // à la basse efface les notes des deux cordes qui disparaissent, retirer la seconde voix
+        // emporte ce qu'elle portait. Un geste explicitement destructeur (« supprimer la mesure »,
+        // « effacer la note ») n'a rien à déclarer : son nom l'a déjà fait.
+        this.dernierBilan = null;
         // PRESSE-PAPIER D'UNE MESURE (voir copierMesure/collerMesure). Volontairement porté par
         // l'éditeur et non par l'interface : c'est un fragment de DOCUMENT, et il doit survivre à un
         // `nouveau()` comme à un changement d'instrument — copier une mesure de guitare pour la
@@ -71,7 +85,86 @@ export class Editeur {
 
     // -- Abonnement ------------------------------------------------------------------------------
     surChangement(fn) { this.auditeurs.add(fn); return () => this.auditeurs.delete(fn); }
-    prevenir(raison = 'edition') { for (const fn of this.auditeurs) fn(raison); }
+    /**
+     * Prévient les abonnés — ET TIENT L'INVARIANT DES LIAISONS au passage.
+     *
+     * POURQUOI ICI PLUTÔT QUE DANS CHAQUE COMMANDE. « Aucune liaison ne pointe vers le vide » est un
+     * invariant du DOCUMENT, pas une étape d'un geste particulier. Une douzaine de commandes peuvent
+     * le rompre — raccourcir, effacer, supprimer, absorber, déverser, insérer, coller, remplacer une
+     * mesure — et il suffit d'en oublier une, aujourd'hui ou dans six mois, pour que le défaut revienne
+     * par cette porte-là. `prevenir` est l'entonnoir par lequel TOUTE mutation s'annonce : un seul
+     * endroit à tenir juste plutôt que douze.
+     *
+     * APRÈS `memoriser`, TOUJOURS. Chaque commande mémorise avant de modifier et n'appelle ceci
+     * qu'une fois finie : le nettoyage tombe donc à l'intérieur du même point d'annulation que le
+     * geste qui l'a rendu nécessaire — un seul Ctrl+Z ramène la note ET sa liaison.
+     *
+     * PAS SUR 'annulation' NI 'retablissement' : restaurer un instantané doit le rendre TEL QUEL. Le
+     * nettoyer à la volée ferait diverger l'état restauré de l'instantané empilé, et un aller-retour
+     * annuler/rétablir cesserait de retomber sur ses pieds. Pas sur 'curseur' ni 'lecture' non plus :
+     * rien n'y change, et un balayage complet à chaque déplacement de curseur se paierait pour rien.
+     */
+    prevenir(raison = 'edition') {
+        if (raison === 'edition' || raison === 'saisie' || raison === 'document') {
+            const n = this._nettoyerLiens();
+            if (n) this.derniersLiensRetires = n;
+        }
+        for (const fn of this.auditeurs) fn(raison);
+    }
+
+    /**
+     * RETIRE LES LIAISONS DEVENUES ORPHELINES — celles dont la note d'arrivée n'existe plus.
+     *
+     * UNE LIAISON RELIE DEUX NOTES VOISINES SUR LA MÊME CORDE, et n'a aucun sens autrement : une
+     * prolongation qui ne prolonge rien, un hammer-on qui ne mène nulle part. Le modèle la décrit par
+     * un champ sur la note de DÉPART (`note.lien`, voir model/score.js) — une forme compacte, qui a
+     * le défaut de survivre à la disparition de l'arrivée.
+     *
+     * LE VRAI DANGER N'EST PAS LA LIAISON ORPHELINE, C'EST SA RÉSURRECTION. Tant qu'elle pointe vers
+     * un silence, ni le son ni la gravure n'en font rien : le lecteur s'arrête faute de note à
+     * prolonger (voir audio/player.js), le traceur ne trouve pas de seconde note à relier (voir
+     * engine/layout.js#poserLiaisons). Elle dort. Mais le jour où l'on écrit une case dans ce silence
+     * — le geste le plus naturel du monde —, elle se réveille et relie deux notes qui n'ont jamais eu
+     * à l'être. Mesuré : raccourcir la première de deux noires liées, puis remplir le silence apparu,
+     * donnait une case 5 LIÉE à une case 9 — deux hauteurs différentes réunies par une liaison de
+     * PROLONGATION, sans que personne l'ait demandé ni que rien ne le dise.
+     *
+     * LA CHAÎNE TRAVERSE LES BARRES DE MESURE, comme chez le lecteur audio (voir
+     * audio/player.js#suivantMemeVoix) : une liaison posée sur la dernière note d'une mesure vers la
+     * première de la suivante est parfaitement légitime, c'est même ainsi qu'on écrit une note tenue
+     * par-dessus la barre. On passe donc par `aplatir`, la même vue à plat que le lecteur — une
+     * seconde façon de chaîner les évènements finirait par ne plus dire la même chose que la première.
+     *
+     * CE QU'IL NE FAIT PAS, et c'est délibéré : il ne vérifie pas que la note d'arrivée est LA MÊME
+     * qu'au moment où la liaison a été posée. Effacer une note entre deux autres fait glisser la
+     * cible d'un cran, et la liaison suit — comme chez MuseScore et Guitar Pro, où une liaison est un
+     * rapport entre une note et sa voisine, pas un lien vers un objet nommé. Le retenir demanderait
+     * de stocker l'identité de la cible ; le bénéfice ne paie pas le modèle.
+     *
+     * @returns {number} combien de liaisons ont été retirées.
+     */
+    _nettoyerLiens() {
+        const parVoix = new Map();
+        for (const e of aplatir(this.partition)) {
+            if (!parVoix.has(e.voix)) parVoix.set(e.voix, []);
+            parVoix.get(e.voix).push(e);
+        }
+        let retires = 0;
+        for (const liste of parVoix.values()) {
+            for (let k = 0; k < liste.length; k++) {
+                const ev = liste[k].ref;
+                if (ev.silence || !ev.notes.length) continue;
+                const suivant = liste[k + 1]?.ref;
+                for (const note of ev.notes) {
+                    if (!note.lien) continue;
+                    const cible = suivant && !suivant.silence
+                        && suivant.notes.some(nn => nn.corde === note.corde);
+                    if (!cible) { note.lien = null; retires++; }
+                }
+            }
+        }
+        return retires;
+    }
 
     // -- Historique ------------------------------------------------------------------------------
     /**
@@ -326,7 +419,14 @@ export class Editeur {
         const m = this.mesureCourante();
         if (m.voix.length <= 1) return false;
         this.memoriser();
-        m.voix.pop();
+        const [partie] = m.voix.splice(m.voix.length - 1, 1);
+        // CE QU'ELLE EMPORTAIT SE DIT. « Retirer la seconde voix » ne prévient pas, par son seul
+        // nom, qu'il y avait peut-être une basse tenue écrite dedans — et une fois la palette
+        // redessinée, plus rien à l'écran ne rappelle qu'elle a existé.
+        const perdues = partie.evenements.reduce((t, e) => t + e.notes.length, 0);
+        this.dernierBilan = perdues
+            ? `Seconde voix retirée — ${perdues} note${perdues > 1 ? 's' : ''} avec elle. Ctrl+Z les ramène.`
+            : null;
         this.corrigerCurseur();
         this._dernierChiffre = null;
         this.prevenir('edition');
@@ -1866,13 +1966,38 @@ export class Editeur {
      * Liaison vers la note SUIVANTE de la même corde. Un seul champ pour les cinq états : rejouer le
      * même effet l'enlève, en choisir un autre remplace — jamais de combinaison impossible.
      */
+    /**
+     * Pose ou retire une liaison sur la note courante — vers la note SUIVANTE de la même corde.
+     *
+     * REFUSE QUAND IL N'Y A PAS DE NOTE D'ARRIVÉE, et le dit. Sans ce garde-fou, l'invariant tenu par
+     * `_nettoyerLiens` retirerait la liaison dans la foulée du `prevenir` ci-dessous : le bouton
+     * semblerait ne rien faire du tout, ce qui est la pire des réponses — on le presse trois fois en
+     * cherchant ce qui cloche. Mieux vaut dire pourquoi.
+     */
     basculerLien(lien) {
+        this.derniereErreur = null;
         const note = this.noteCourante();
         if (!note) return false;
+        if (note.lien !== lien && !this._cibleDeLiaison(note)) {
+            this.derniereErreur = 'Une liaison relie cette note à la SUIVANTE sur la même corde — '
+                + 'il n\'y en a pas encore. Écris-la d\'abord.';
+            return false;
+        }
         this.memoriser();
         note.lien = note.lien === lien ? null : lien;
         this.prevenir('edition');
         return true;
+    }
+
+    /** La note vers laquelle une liaison partant de `note` irait — `null` s'il n'y en a aucune.
+     *  Même chaînage que `_nettoyerLiens`, dont c'est la question posée à l'endroit. */
+    _cibleDeLiaison(note) {
+        const c = this.curseur;
+        const liste = aplatir(this.partition).filter(e => e.voix === c.voix);
+        const k = liste.findIndex(e => e.mesure === c.mesure && e.evenement === c.evenement);
+        const suivant = k >= 0 ? liste[k + 1]?.ref : null;
+        if (!suivant || suivant.silence) return null;
+        return suivant.notes.find(nn => nn.corde === note.corde) || null;
     }
 
     basculerGhost() {
@@ -1972,20 +2097,38 @@ export class Editeur {
      * perd de la musique, mais c'est explicite et annulable — l'alternative (garder des notes sur des
      * cordes absentes) donnerait un fichier que plus rien ne saurait afficher.
      */
+    /**
+     * Change d'instrument — et retire les notes posées sur des cordes que le nouvel instrument n'a
+     * pas, en DISANT combien.
+     *
+     * Passer d'une guitare à une basse à quatre cordes fait disparaître tout ce qui était écrit sur
+     * les cordes 5 et 6 : c'est inévitable, elles n'existent plus. Ce qui ne l'est pas, c'est de le
+     * faire sans un mot depuis une liste déroulante de réglages, où l'on ne s'attend pas à perdre de
+     * la musique. Mesuré sur un accord de six notes : quatre survivaient, deux disparaissaient, et
+     * rien nulle part ne le signalait. `collerMesure` compte déjà ses notes abandonnées pour la même
+     * raison (voir son `abandonnees`) — c'est la règle de la maison, appliquée ici aussi.
+     */
     definirInstrument(instrumentId) {
         if (!INSTRUMENTS[instrumentId]) return false;
         this.memoriser();
         this.partition.piste.instrument = instrumentId;
         this.partition.piste.accordage = accordageParDefaut(instrumentId);
         const max = this.partition.piste.accordage.cordes.length - 1;
+        let perdues = 0;
         for (const m of this.partition.mesures) {
             for (const voix of m.voix) {
                 for (const e of voix.evenements) {
+                    const avant = e.notes.length;
                     e.notes = e.notes.filter(n => n.corde <= max);
+                    perdues += avant - e.notes.length;
                     if (!e.notes.length) e.silence = true;
                 }
             }
         }
+        this.dernierBilan = perdues
+            ? `${perdues} note${perdues > 1 ? 's' : ''} retirée${perdues > 1 ? 's' : ''} : `
+              + `${INSTRUMENTS[instrumentId].nom} n'a pas ces cordes. Ctrl+Z les ramène.`
+            : null;
         this.corrigerCurseur();
         this.prevenir('instrument');
         return true;

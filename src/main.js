@@ -756,18 +756,7 @@ class TabHubApp {
         // l'écran au moment où on le lit — ils n'apparaissent QUE sur une mesure qui déborde (voir
         // edit/raccourcis.js). L'ancien message renvoyait vers un « Alt+R » que le refus lui-même
         // rendait inapplicable : la mesure restait valide, donc le bouton restait caché.
-        const dette = this.editeur.derniereDette;
-        if (dette) {
-            this.editeur.derniereDette = null;
-            // L'ÉLISION EST FAITE ICI : « déborde de une noire » se lit mal, et un message qu'on
-            // relit deux fois pour le comprendre a déjà raté son but. Toutes les durées nommées
-            // commencent par « une », « un » ou « deux » (voir texteDeDuree), donc une seule règle —
-            // voyelle en tête — suffit et le restera.
-            const combien = texteDeDuree(dette.dette);
-            const de = /^[aeiouéè]/i.test(combien) ? `d'${combien}` : `de ${combien}`;
-            this.message(`La mesure ${dette.mesure + 1} déborde ${de}. `
-                + 'Alt+A absorbe ce qui suit, Alt+R le déverse dans une mesure neuve.', 4200);
-        }
+        this.annoncerConsequences();
         // L'INTITULÉ D'UN ONGLET EST LE TITRE DU MORCEAU : il change donc quand le document change
         // (ouverture, nouvel onglet) et quand on retitre (raison 'meta'). Redessiner la barre est
         // une poignée de boutons — moins cher qu'un mécanisme de mise à jour fine, et sans la classe
@@ -5108,6 +5097,59 @@ class TabHubApp {
     }
 
     /** Message éphémère en bas de l'écran — même mécanique que le « toast » de HarmoHub. */
+    /**
+     * DIT CE QUE LE DERNIER GESTE A PRODUIT — en un seul endroit, pour tous les chemins.
+     *
+     * TROIS CANAUX, TROIS NATURES, et c'est pour ça qu'ils sont trois plutôt qu'un.
+     *   • `derniereDette` — un ÉTAT qui attend une décision : la mesure déborde, et deux gestes la
+     *     règlent. C'est le plus important des trois, donc le premier annoncé.
+     *   • `dernierBilan` — ce qu'un geste a COÛTÉ alors que son nom ne le disait pas : changer
+     *     d'instrument efface les notes des cordes qui disparaissent, retirer la seconde voix
+     *     emporte ce qu'elle portait.
+     *   • `derniersLiensRetires` — une CONSÉQUENCE mécanique : une liaison dont la note d'arrivée
+     *     n'existe plus est retirée (voir Editeur._nettoyerLiens). La plus discrète des trois, et la
+     *     plus sournoise : ni le son ni la gravure ne montraient déjà cette liaison-là, donc rien à
+     *     l'écran n'aurait signalé sa disparition.
+     *
+     * UN SEUL POINT D'ANNONCE, parce qu'une commande peut arriver par six chemins différents (le
+     * clavier, la palette, le menu contextuel, l'étirement à la souris, le pavé tactile, un bouton
+     * de la barre). `prevenir()` passe par ici quoi qu'il arrive : un endroit à tenir juste plutôt
+     * que six, et aucune chance qu'un septième chemin ajouté demain oublie de le faire.
+     *
+     * TOUT DANS LE MÊME MESSAGE quand plusieurs s'appliquent, séparés par un point médian. Les
+     * afficher l'un après l'autre ferait disparaître le premier avant qu'on ait fini de le lire —
+     * `message` remplace ce qu'il trouve, le dernier appelé gagnerait.
+     */
+    annoncerConsequences() {
+        const ed = this.editeur;
+        const dits = [];
+
+        if (ed.derniereDette) {
+            const d = ed.derniereDette;
+            ed.derniereDette = null;
+            // L'ÉLISION EST FAITE ICI : « déborde de une noire » se lit mal, et un message qu'on
+            // relit deux fois pour le comprendre a déjà raté son but. Toutes les durées nommées
+            // commencent par « une », « un » ou « deux » (voir texteDeDuree), donc une seule règle —
+            // voyelle en tête — suffit et le restera.
+            const combien = texteDeDuree(d.dette);
+            const de = /^[aeiouéè]/i.test(combien) ? `d'${combien}` : `de ${combien}`;
+            dits.push(`La mesure ${d.mesure + 1} déborde ${de}. `
+                + 'Alt+A absorbe ce qui suit, Alt+R le déverse dans une mesure neuve.');
+        }
+
+        if (ed.dernierBilan) { dits.push(ed.dernierBilan); ed.dernierBilan = null; }
+
+        if (ed.derniersLiensRetires) {
+            const n = ed.derniersLiensRetires;
+            ed.derniersLiensRetires = 0;
+            dits.push(n === 1
+                ? 'Une liaison a été retirée : sa note d\'arrivée n\'existe plus.'
+                : `${n} liaisons ont été retirées : leur note d'arrivée n'existe plus.`);
+        }
+
+        if (dits.length) this.message(dits.join(' · '), 4200);
+    }
+
     message(texte, duree = 2600) {
         const el = this.el.message;
         el.textContent = texte;

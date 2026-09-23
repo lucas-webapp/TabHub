@@ -251,6 +251,40 @@ une case tapée sur un silence de croche dans une mesure pleine : l'agrandisseme
 était avalé, et il s'écrivait une **croche**. Mesuré : 1,5 temps d'écart entre le bouton actif et ce
 qui apparaissait sur la partition, sans le moindre message. On croyait avoir écrit une blanche.
 
+#### Rien ne disparaît sans un mot
+
+Une règle, trois familles de conséquences, **un seul point d'annonce**. Une commande peut arriver par
+six chemins (clavier, palette, menu contextuel, étirement à la souris, pavé tactile, bouton de la
+barre) ; `prevenir()` passe par un seul endroit quoi qu'il arrive, et c'est là que tout se dit — un
+endroit à tenir juste plutôt que six, et aucune chance qu'un septième chemin ajouté demain l'oublie.
+
+**La liaison orpheline, et son vrai danger.** Une liaison relie une note à la *suivante* sur la même
+corde. Raccourcir la première de deux noires liées glissait un silence entre les deux, et la liaison
+pointait vers ce silence. Tant qu'elle y pointe, elle dort : le lecteur s'arrête faute de note à
+prolonger, le traceur ne trouve pas de seconde note à relier. **Mais le jour où l'on écrit une case
+dans ce silence** — le geste le plus naturel du monde — elle se réveille. Mesuré : une case 5 se
+retrouvait **liée** à une case 9, deux hauteurs différentes réunies par une liaison de *prolongation*,
+sans que personne l'ait demandé ni que rien ne le dise. Une corruption du document, silencieuse et
+différée.
+
+L'invariant « aucune liaison ne pointe vers le vide » est donc tenu à chaque mutation, et la liaison
+retirée est **annoncée**. Elle ne s'applique ni à l'annulation ni au rétablissement : restaurer un
+instantané doit le rendre *tel quel*, sinon un aller-retour cesserait de retomber sur ses pieds. Et
+poser une liaison sur une note sans suivante **refuse en l'expliquant**, plutôt que de laisser
+l'invariant la retirer dans la foulée — un bouton qui semble mort, on le presse trois fois en
+cherchant ce qui cloche.
+
+**Ce qu'un geste coûte quand son nom ne le dit pas.** Passer d'une guitare à une basse à quatre
+cordes efface tout ce qui était écrit sur les cordes 5 et 6 : inévitable, elles n'existent plus — mais
+fait depuis une liste déroulante de réglages, où l'on ne s'attend pas à perdre de la musique. Mesuré
+sur un accord de six notes : quatre survivaient, deux disparaissaient, rien nulle part ne le
+signalait. Même chose pour « retirer la seconde voix », qui emporte ce qu'elle portait. Les deux
+disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. Un geste dont le nom
+*est* la destruction — « supprimer la mesure », « effacer la note » — n'a rien à déclarer.
+
+**Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
+Un message qui se déclenche sans motif apprend à ignorer les messages.
+
 | Touche | Effet |
 |---|---|
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |
