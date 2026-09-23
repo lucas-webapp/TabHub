@@ -217,6 +217,17 @@ enregistreur. Il marchait tant qu'on écrivait vers l'avant, et se fermait dès 
 2. **Le reste décale**, et la mesure devient plus longue que sa capacité. Elle porte alors une
    **dette**, gravée sur elle — « +½ ♩ » à droite, au-dessus de la portée — et payable de deux façons.
 
+**Aucun geste d'écriture ne refuse plus.** L'allongement d'une note, le point, le triolet — et
+désormais l'**insertion** (`Entrée`, « insérer une note à gauche »), qui était le dernier à refuser.
+Elle le faisait sur toute mesure pleine, en renvoyant vers `Alt`+`R`… qui ne pouvait rien faire,
+puisque le geste refusé laissait la mesure *juste*, donc sans excédent à déverser. Mesuré : le remède
+nommé rendait « rien à corriger ». On désignait un remède inapplicable — et « j'ai oublié une note »
+est le geste le plus fréquent de qui écrit une mélodie qu'il a en tête. Le contournement coûtait
+trois gestes et donnait une figure deux fois trop courte.
+
+Il n'en reste **qu'un**, et il ne propose pas de remède parce qu'il n'y en a pas : une figure plus
+longue qu'une mesure entière ne tient dans aucune mesure, quelle que soit la place qu'on lui ferait.
+
 | Règlement | Touche | Ce qu'il fait | Ce qu'il coûte |
 |---|---|---|---|
 | **Absorber** | `Alt`+`A` | Ce qui suit le curseur cède la place. La note agrandie garde sa durée, ce qui suit la zone reprise retrouve sa position d'origine | Une note disparaît — **montrée avant** (voir ci-dessous) |

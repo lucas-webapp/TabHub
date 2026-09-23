@@ -1,6 +1,6 @@
 # Bancs d'essai TabHub
 
-**65 bancs, 1880 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
+**65 bancs, 1889 vérifications**, dans l'esprit de ceux de HarmoHub : chacun documente en tête CE
 QU'IL PROTÈGE et pourquoi. Ils valent autant comme mémoire des décisions que comme filet de sécurité
 — plusieurs d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentaire le
 raconte.

@@ -4,8 +4,17 @@
 //
 // CE QU'IL PROTÈGE, EN PLUSIEURS TEMPS — dont un aller-retour assumé :
 //   1. D'abord, le refus pur et simple : `appliquerDuree`/`basculerPoint`/`basculerTriolet` et
-//      `insererEvenement`/`insererAvant` REFUSENT tout changement qui ferait déborder la mesure
+//      `insererEvenement`/`insererAvant` REFUSAIENT tout changement qui ferait déborder la mesure
 //      courante — aucune mutation, un message d'erreur exploitable (Editeur.derniereErreur).
+//      CE N'EST PLUS VRAI D'AUCUN DE CES GESTES, et le banc éprouve maintenant le contraire (voir
+//      les cas A, B, C, J). Le refus s'est révélé être un CUL-DE-SAC mesuré : son message renvoyait
+//      vers « Alt+R décale l'excédent dans une nouvelle mesure », mais le geste refusé laissait la
+//      mesure JUSTE, donc sans excédent, donc Alt+R ne pouvait rien faire. On désignait un remède
+//      inapplicable. Tous ces gestes prennent désormais la place disponible et DÉCALENT le reste :
+//      la mesure porte une dette gravée, et les deux règlements (Alt+A absorber, Alt+R déverser)
+//      s'appliquent alors pour de bon. Ce que le refus protégeait — qu'aucun geste ne restructure le
+//      morceau tout seul — reste vérifié ici, cas par cas : le décalage ne sort jamais de la mesure
+//      qu'on édite.
 //   2. `corrigerDebordement` (Alt+R / bouton « ⇥ Corriger ») répare une mesure DÉJÀ invalide (donnée
 //      existante, antérieure à ce garde-fou, ou fichier importé) en déplaçant l'excédent, tel quel,
 //      dans une ou plusieurs mesures neuves juste après — ou en comblant un MANQUE sur place par un
@@ -17,7 +26,9 @@
 //      mesure neuve apparaissait toute seule, sans qu'on l'ait demandé — et un second retour direct
 //      a demandé d'y renoncer : « repasse au modèle plus simple, colle à ce qui est réalisé sur les
 //      logiciels pros », qui refusent ou signalent, mais ne restructurent jamais le morceau tout
-//      seuls. Ce banc éprouve donc à nouveau le REFUS (point 1), pas la cascade.
+//      seuls. La dette est la SYNTHÈSE des deux : elle ne refuse rien (premier retour) et ne
+//      restructure rien toute seule (second retour) — la mesure déborde, le dit, et attend qu'on
+//      choisisse. Ce banc éprouve donc la dette, jamais la cascade.
 //   • `supprimerEvenement` (Ctrl+Suppr — supprimer et DÉCALER, par opposition à Suppr/effacerNote qui
 //     vide en place) complète la fin de la mesure par un silence : décaler à gauche ne doit jamais
 //     laisser la mesure sous sa capacité (l'autre sens du même principe — jamais au-dessus, jamais
@@ -37,7 +48,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
 
 (async () => {
-    plan(59);
+    plan(68);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         const r = await page.evaluate(async () => {
@@ -86,13 +97,27 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const apresDeverseA = { ecart: eDev.ecartMesure(0, 0), mesures: eDev.partition.mesures.length,
                 notes: eDev.partition.mesures.reduce((t, mm) => t + mm.voix[0].evenements.filter(e => !e.silence && e.notes.length).length, 0) };
 
-            // --- B. insererEvenement en bout de voix, mesure pleine : avance en mesure NEUVE ---------
+            // --- B. insererEvenement en bout de voix, mesure pleine : LA MESURE S'ENDETTE ------------
+            //
+            // CE BLOC DISAIT LE CONTRAIRE : « avance en mesure NEUVE ». C'était le cas particulier
+            // qui faisait qu'un même geste avait DEUX issues selon une position qu'on ne regarde pas
+            // en tapant — une mesure surgie de nulle part sur la dernière case, un refus sec partout
+            // ailleurs. Une seule règle maintenant : on prend la place disponible, le reste décale,
+            // la mesure porte sa dette. Faire naître une mesure reste un geste à soi (Alt+M).
+            //
+            // CE QU'IL PROTÉGEAIT RESTE PROTÉGÉ, et c'est ce qu'on vérifie ici : la mesure suivante,
+            // déjà écrite, n'est PAS touchée. Avant, parce qu'on en glissait une neuve devant elle ;
+            // maintenant, parce que le décalage reste enfermé dans la mesure qu'on édite.
             ed.nouveau('guitare');
             ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
             // Une SECONDE mesure, déjà écrite, existe après — elle ne doit PAS être touchée : la
             // preuve que « insérer » crée une mesure neuve plutôt que d'utiliser celle qui suit déjà.
             ed.partition.mesures[1].voix[0].evenements = [m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 9)]), ...m.creerVoix(3).evenements];
             const mesuresAvantB = ed.partition.mesures.length;
+            // POSÉE EXPLICITEMENT : elle traînait du cas A (devenue une blanche), et la dette mesurée
+            // ici en dépendait sans que rien ne le dise. Un banc dont le résultat dépend de ce qu'un
+            // cas précédent a laissé derrière lui n'éprouve pas ce qu'il prétend éprouver.
+            ed.dureeCourante = { valeur: 4, points: 0, nolet: null };
             ed.curseur = { mesure: 0, voix: 0, evenement: 3, corde: 0 };   // sur la 4e (dernière) noire
             const okB = ed.insererEvenement();
             // Tout se lit ICI, immédiatement — `ed.partition` est réutilisée par les cas suivants
@@ -101,18 +126,32 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const mesuresApresB = ed.partition.mesures.length;
             const mesure0ApresB = ed.partition.mesures[0].voix[0].evenements.length;
             const curseurApresB = { ...ed.curseur };
-            // La mesure déjà écrite (fret 9) a été DÉCALÉE d'un cran par la nouvelle mesure insérée
-            // avant elle (voir Editeur.insererEvenement : splice à curseur.mesure + 1) — elle se
-            // retrouve donc à l'index 2, pas 1.
-            const notesMesure2ApresB = ed.partition.mesures[2].voix[0].evenements[0].notes[0].frette;
+            const detteB = ed.ecartMesure(0, 0);
+            // La mesure déjà écrite (fret 9) est TOUJOURS à l'index 1 : rien ne s'est glissé devant
+            // elle, et son contenu n'a pas bougé.
+            const notesMesure1ApresB = ed.partition.mesures[1].voix[0].evenements[0].notes[0].frette;
 
-            // --- C. insererEvenement AU MILIEU d'une voix pleine : refuse proprement ------------------
+            // --- C. insererEvenement AU MILIEU d'une voix pleine : LA MESURE S'ENDETTE ----------------
+            //
+            // CE BLOC VÉRIFIAIT LE REFUS — et le refus était un CUL-DE-SAC mesuré : le message
+            // renvoyait vers « Alt+R décale l'excédent dans une nouvelle mesure », mais Alt+R ne
+            // pouvait rien faire puisque la mesure, refusée, restait JUSTE et n'avait pas d'excédent.
+            // On désignait un remède inapplicable, exactement comme le refus des changements de durée
+            // avant le lot de la dette, et pour la même raison : le geste était refusé AVANT d'avoir
+            // créé la situation que le remède sait traiter. Or « j'ai oublié une note » est le geste
+            // le plus fréquent de qui écrit une mélodie qu'il a en tête.
             ed.nouveau('guitare');
             ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
             ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0 };   // pas le dernier évènement
-            const avantC = JSON.stringify(ed.partition);
-            const refusC = ed.insererEvenement();
-            const inchangeC = JSON.stringify(ed.partition) === avantC;
+            ed.dureeCourante = { valeur: 4, points: 0, nolet: null };
+            const mesuresAvantC = ed.partition.mesures.length;
+            const okC = ed.insererEvenement();
+            const detteC = ed.ecartMesure(0, 0);
+            const notesC = ed.partition.mesures[0].voix[0].evenements.filter(e => !e.silence && e.notes.length).length;
+            const mesuresApresC = ed.partition.mesures.length;
+            // ET LE REMÈDE NOMMÉ S'APPLIQUE VRAIMENT, cette fois : la mesure déborde pour de bon.
+            const okAltRC = ed.corrigerDebordement(0);
+            const detteApresAltRC = ed.ecartMesure(0, 0);
 
             // --- C2. insererEvenement AU MILIEU, mais du SILENCE suit : réussit SUR PLACE -------------
             // Le pendant exact du cas C — même geste, même endroit, une seule différence : ici la
@@ -192,13 +231,17 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             const contenuApresI = ed.partition.mesures[0].voix[0].evenements.map(e => (e.silence || !e.notes.length) ? '_' : e.notes[0].frette);
             const curseurApresI = { ...ed.curseur };
 
-            // Même geste, mais la mesure est déjà pleine : refuse, aucune mutation.
+            // Même geste, mesure déjà pleine : elle S'ENDETTE, comme son miroir (voir C). Ce bloc
+            // vérifiait le refus ; les deux insertions partagent désormais le même cœur (_inserer),
+            // et ne peuvent donc plus diverger sur ce point.
             ed.nouveau('guitare');
             ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
             ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0 };
-            const avantJ = JSON.stringify(ed.partition);
-            const refusJ = ed.insererAvant();
-            const inchangeJ = JSON.stringify(ed.partition) === avantJ;
+            ed.dureeCourante = { valeur: 4, points: 0, nolet: null };
+            const okJ = ed.insererAvant();
+            const detteJ = ed.ecartMesure(0, 0);
+            const notesJ = ed.partition.mesures[0].voix[0].evenements.filter(e => !e.silence && e.notes.length).length;
+            const curseurJ = ed.curseur.evenement;
 
             // --- J2. insererAvant VISE un silence, et la reprise le consomme EN ENTIER ---------------
             // Cas limite ouvert par la reprise de silence (voir C2) : la case visée disparaît pour
@@ -302,8 +345,8 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             return {
                 okA, dureesA, notesA, ecartA, mesuresAvantA, mesuresApresA, messageA, messageVisibleA,
                 okAbsorbeA, apresAbsorbeA, okDeverseA, apresDeverseA,
-                mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure2ApresB,
-                refusC, inchangeC,
+                mesuresAvantB, mesuresApresB, okB, mesure0ApresB, curseurApresB, notesMesure1ApresB, detteB,
+                okC, detteC, notesC, mesuresAvantC, mesuresApresC, okAltRC, detteApresAltRC,
                 okC2, contenuC2, totalC2, mesuresAvantC2, mesuresApresC2, curseurC2,
                 refusD,
                 mesuresAvantE, okE, contenuApresE, dureesApresE,
@@ -311,7 +354,7 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
                 okG, inchangeG,
                 contenuApresH, dureeApresH,
                 okI, contenuApresI, curseurApresI,
-                refusJ, inchangeJ,
+                okJ, detteJ, notesJ, curseurJ,
                 okJ2, curseurDansJ2, planteJ2, contenuJ2, totalJ2,
                 mesuresAvantK, okK, contenuMesure0ApresK, dureeMesure0ApresK, dureeDernierSilenceApresK,
                 mesuresApresK, dureeMesure1ApresK, contenuMesure1ApresK,
@@ -343,13 +386,24 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
             `« Déverser » (Alt+R) la règle autrement : une mesure neuve (${r.apresDeverseA.mesures}) et `
             + `les quatre notes toujours là (${r.apresDeverseA.notes}). Deux issues, aucune imposée`);
 
-        exiger(r.okB === true, 'B. insererEvenement, mesure pleine, bout de voix : réussit (avance dans une mesure neuve)');
-        check(r.mesuresApresB === r.mesuresAvantB + 1, 'en créant UNE SEULE mesure neuve');
-        check(r.mesure0ApresB === 4, 'la mesure d\'origine garde EXACTEMENT ses 4 notes, jamais une 5e en trop');
-        check(r.curseurApresB.mesure === 1, 'le curseur suit dans la mesure neuve');
-        check(r.notesMesure2ApresB === 9, 'et la mesure déjà écrite, décalée d\'un cran par la neuve, n\'a PAS été touchée (toujours sa propre note)');
+        exiger(r.okB === true, 'B. insererEvenement, mesure pleine, bout de voix : réussit — plus aucun refus');
+        check(r.mesuresApresB === r.mesuresAvantB,
+            `et AUCUNE mesure ne surgit (${r.mesuresAvantB} → ${r.mesuresApresB}) : un même geste ne peut pas avoir deux issues `
+            + 'selon une position qu\'on ne regarde pas en tapant');
+        check(Math.abs(r.detteB - 1) < 1e-9, `la mesure porte sa dette d'une noire (${r.detteB})`);
+        check(r.mesure0ApresB === 5, `la case neuve est bien dans la mesure d'origine (${r.mesure0ApresB} évènements)`);
+        check(r.curseurApresB.mesure === 0 && r.curseurApresB.evenement === 4,
+            `le curseur se pose dessus, sans quitter la mesure (m${r.curseurApresB.mesure}/e${r.curseurApresB.evenement})`);
+        check(r.notesMesure1ApresB === 9,
+            'et la mesure déjà écrite qui suit n\'a PAS été touchée — le décalage reste enfermé dans la mesure qu\'on édite');
 
-        exiger(r.refusC === false && r.inchangeC, 'C. insererEvenement au milieu d\'une voix pleine : refuse, aucune mutation');
+        exiger(r.okC === true, 'C. insererEvenement AU MILIEU d\'une voix pleine : réussit — le cul-de-sac est levé');
+        check(Math.abs(r.detteC - 1) < 1e-9, `la mesure s'endette d'une noire (${r.detteC}) au lieu de refuser`);
+        check(r.notesC === 4, `aucune note n'est perdue (${r.notesC} notes, plus la case neuve vide)`);
+        check(r.mesuresApresC === r.mesuresAvantC, 'et le geste ne restructure pas le morceau tout seul');
+        check(r.okAltRC === true && Math.abs(r.detteApresAltRC) < 1e-9,
+            `et le remède que le message nomme s'applique VRAIMENT cette fois : Alt+R déverse, la dette retombe à ${r.detteApresAltRC} `
+            + '(avant, il rendait « rien à corriger » sur une mesure que le refus avait laissée juste)');
 
         exiger(r.okC2 === true, 'C2. insererEvenement au milieu, quand du SILENCE suit : réussit SUR PLACE (le refus systématique du bouton « Insérer » est corrigé)');
         check(r.contenuC2 === '5:1 _:1 7:1 _:1', 'la case neuve prend sa place dans le silence qui suit, en repoussant la note intermédiaire — comme dans les logiciels pros');
@@ -376,7 +430,10 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         exiger(r.okI === true, 'I. insererAvant réussit quand il y a de la place');
         check(r.contenuApresI.join(',') === '10,_,11,12', 'et insère bien AVANT la case visée (celle-ci glisse d\'un cran vers la droite)');
         check(r.curseurApresI.evenement === 2, 'le curseur suit la case visée au départ (fret 11), pas la case neuve');
-        check(r.refusJ === false && r.inchangeJ, 'et refuse proprement (aucune mutation) quand la mesure est déjà pleine');
+        check(r.okJ === true && Math.abs(r.detteJ - 1) < 1e-9,
+            `et sur une mesure déjà pleine, il l'endette (${r.detteJ}) au lieu de refuser — même cœur que son miroir`);
+        check(r.notesJ === 4, `aucune note perdue au passage (${r.notesJ})`);
+        check(r.curseurJ === 2, `et le curseur suit toujours la case VISÉE, qui a glissé d'un cran (e${r.curseurJ})`);
 
         exiger(r.okJ2 === true, 'J2. insererAvant sur un silence que la reprise consomme en entier : réussit');
         check(r.curseurDansJ2, 'et laisse le curseur DANS la voix, jamais après le dernier évènement');
@@ -541,6 +598,38 @@ const { check, exiger, plan, bilan } = creerHarnais('rythme strict');
         });
         check(dimensionne.ok && dimensionne.avant === '2,2' && dimensionne.apres === 'n2 s2',
             `choisir une durée sur un silence le redimensionne bel et bien, et la case tapée ensuite s'y écrit (${dimensionne.apres})`);
+
+        // ── NEUTRALISATION : on réarme le refus, et le cul-de-sac revient ──────────────────────
+        const culDeSac = await page.evaluate(async () => {
+            const m = await import('/src/model/score.js');
+            const { Editeur } = await import('/src/edit/commands.js');
+            const ed = new Editeur(); ed.nouveau('guitare');
+            ed.partition.mesures[0].voix[0].evenements = [1, 2, 3, 4].map(f => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, f)]));
+            ed.curseur = { mesure: 0, voix: 0, evenement: 1, corde: 0, decalage: 0 };
+            ed.dureeCourante = { valeur: 4, points: 0, nolet: null };
+            // Le refus d'avant, remis en place tel quel : la place manque, on n'écrit rien.
+            ed.insererEvenement = function () {
+                const capacite = m.capaciteMesure(this.partition, this.curseur.mesure);
+                const libre = Math.max(0, capacite - m.dureeEcrite(this.mesureCourante(), this.curseur.voix));
+                if (1 - libre > 1e-9) {
+                    this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
+                        + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
+                    return false;
+                }
+                return true;
+            };
+            const refus = ed.insererEvenement();
+            const message = ed.derniereErreur;
+            // LE REMÈDE QUE CE MESSAGE NOMME, essayé pour de vrai.
+            ed.derniereErreur = null;
+            const altR = ed.corrigerDebordement(0);
+            return { refus, message, altR, messageAltR: ed.derniereErreur, dette: ed.ecartMesure(0, 0) };
+        });
+        check(culDeSac.refus === false && /Alt\+R/.test(culDeSac.message || ''),
+            `NEUTRALISÉ (refus réarmé) : le geste est refusé et renvoie vers Alt+R — « ${culDeSac.message} »`);
+        check(culDeSac.altR === false && Math.abs(culDeSac.dette) < 1e-9,
+            `et Alt+R ne fait RIEN (${culDeSac.altR}, dette ${culDeSac.dette}) : le refus a laissé la mesure juste, `
+            + 'donc sans excédent à déverser. C\'est le cul-de-sac exact que la dette supprime');
 
         check(erreurs.length === 0, 'aucune erreur JavaScript' + (erreurs.length ? ' — ' + erreurs.join(' | ') : ''));
     } finally { await fermer(); }

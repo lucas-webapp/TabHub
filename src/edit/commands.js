@@ -1250,17 +1250,34 @@ export class Editeur {
      * sur la mesure voisine : le décalage s'arrête à la barre de mesure, la capacité étant préservée
      * exactement (on rend ce qu'on a pris en trop, découpé en figures propres).
      */
+    /**
+     * COMBIEN DE SILENCE il y a après l'évènement `depuis`, au plus `plafond`.
+     *
+     * SÉPARÉ, et lu par DEUX mécanismes : `_reprendreSilenceApres` s'en sert pour vérifier qu'il peut
+     * tout reprendre, et l'insertion (voir insererEvenement) pour savoir jusqu'où reprendre AVANT de
+     * s'endetter du reste. Deux comptages écrits séparément finiraient par ne pas compter les mêmes
+     * silences, et l'insertion s'endetterait alors d'un montant que la reprise dément.
+     *
+     * On s'arrête dès qu'on atteint le plafond : inutile de parcourir la mesure entière pour
+     * répondre « il y en a au moins autant qu'il en faut ».
+     */
+    silenceDisponibleApres(voix, depuis, plafond = Infinity) {
+        const EPS = 1e-9;
+        let dispo = 0;
+        for (let i = depuis; i < voix.evenements.length && dispo < plafond - EPS; i++) {
+            const e = voix.evenements[i];
+            if (e.silence || !e.notes.length) dispo += dureeEnNoires(e.duree);
+        }
+        return dispo;
+    }
+
     _reprendreSilenceApres(voix, depuis, montant) {
         const EPS = 1e-9;
         const estSilence = (e) => e.silence || !e.notes.length;
         if (montant <= EPS) return true;
 
         // 1. Vérifier SANS RIEN MODIFIER que le compte y est.
-        let dispo = 0;
-        for (let i = depuis; i < voix.evenements.length && dispo < montant - EPS; i++) {
-            if (estSilence(voix.evenements[i])) dispo += dureeEnNoires(voix.evenements[i].duree);
-        }
-        if (dispo < montant - EPS) return false;
+        if (this.silenceDisponibleApres(voix, depuis, montant) < montant - EPS) return false;
 
         // 2. Reprendre, du plus proche au plus lointain. Un silence entamé à moitié est remplacé par
         //    le reliquat, redécoupé en figures standard (jamais une durée « bâtarde » impossible à
@@ -1322,60 +1339,72 @@ export class Editeur {
      * l'excédent quand ce décalage est VRAIMENT voulu.
      */
     insererEvenement() {
+        return this._inserer(this.curseur.evenement + 1);
+    }
+
+    /**
+     * LE CŒUR DES DEUX INSERTIONS — `Entrée` (après le curseur) et « insérer à gauche » (avant).
+     *
+     * CE QU'IL CORRIGE, et c'était le dernier cul-de-sac de l'application. L'insertion REFUSAIT sur
+     * une mesure pleine : « Pas assez de place dans la mesure pour insérer cette figure ici. Alt+R
+     * décale l'excédent dans une nouvelle mesure. » Or Alt+R ne pouvait RIEN faire — il déverse un
+     * excédent, et une mesure pleine n'en a pas. Mesuré : le remède nommé rendait `false` et
+     * « rien à corriger ». On désignait un remède inapplicable, exactement ce que le refus des
+     * changements de durée faisait avant le lot de la dette, et pour la même raison : le geste
+     * était refusé AVANT d'avoir créé la situation que le remède sait traiter.
+     *
+     * C'est pourtant LE geste de celui qui écrit une mélodie qu'il a en tête : « j'ai oublié une
+     * note ». Le contournement mesuré coûtait trois gestes (raccourcir la voisine, viser le trou,
+     * écrire) et donnait une figure deux fois trop courte.
+     *
+     * LA RÈGLE, la même que partout ailleurs depuis le lot de la dette : on prend d'abord toute la
+     * place disponible (le vide déjà là, puis le silence qui suit), et CE QUI RESTE À PAYER DÉCALE.
+     * La mesure devient plus longue que sa capacité, porte sa dette gravée, et les deux règlements
+     * (Alt+A absorber, Alt+R déverser) s'appliquent alors VRAIMENT. C'est aussi ce que font les deux
+     * éditeurs de référence : insérer pousse, et la mesure passe en rouge.
+     *
+     * PLUS DE CAS PARTICULIER EN BOUT DE VOIX. La version d'avant créait une mesure neuve quand on
+     * insérait sur la DERNIÈRE case d'une mesure pleine, et refusait partout ailleurs : un même
+     * geste, deux issues, selon une position qu'on ne regarde pas en tapant. Une seule règle
+     * maintenant. Faire naître une mesure reste un geste à soi (Alt+M), et « → » continue de
+     * prolonger le morceau quand on navigue.
+     *
+     * @param {number} at index où glisser la case neuve
+     * @returns {boolean} faux seulement si la figure dépasse à elle seule une mesure entière
+     */
+    _inserer(at) {
         this.derniereErreur = null;
         const voix = this.voixCourante();
         const capacite = capaciteMesure(this.partition, this.curseur.mesure);
         const dureeNouvel = dureeEnNoires(this.dureeCourante);
+        // LE SEUL REFUS QUI RESTE, et il ne désigne pas de remède parce qu'il n'en a pas besoin :
+        // une figure plus longue qu'une mesure entière ne peut tenir dans AUCUNE mesure, quelle que
+        // soit la place qu'on lui ferait. Ce n'est pas un manque de place, c'est une impossibilité.
         if (dureeNouvel > capacite + 1e-9) {
             this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
             return false;
         }
         // DEUX SOURCES DE PLACE, dans cet ordre. (1) Le vide DÉJÀ disponible : une voix SOUS-remplie
-        // (elle ne somme pas encore sa mesure — un état transitoire que corrigerDebordement répare,
-        // voir _diagnostiquerDebordement) a du temps libre qui n'est matérialisé par aucun silence ;
-        // il ne coûte rien de s'en servir. (2) Le silence qui SUIT, repris seulement pour ce qui
-        // manque encore au-delà de ce vide.
+        // a du temps libre qui n'est matérialisé par aucun silence ; il ne coûte rien de s'en servir.
+        // (2) Le silence qui SUIT, repris seulement pour ce qui manque encore au-delà de ce vide —
+        // et seulement À HAUTEUR DE CE QU'IL Y A. Le reste décale.
         const libre = Math.max(0, capacite - dureeEcrite(this.mesureCourante(), this.curseur.voix));
-        const aReprendre = dureeNouvel - libre;
-        // Essai À BLANC sur une copie : `_reprendreSilenceApres` ne modifie rien quand il échoue,
-        // mais il modifie bien la voix quand il réussit — or il faut avoir ouvert le point
-        // d'annulation (memoriser) AVANT toute écriture. On mesure donc d'abord sur une copie, puis
-        // on refait le vrai geste une fois memoriser() appelé.
-        const copie = { evenements: voix.evenements.map(e => e) };
-        const placeTrouvee = aReprendre <= 1e-9
-            || this._reprendreSilenceApres(copie, this.curseur.evenement + 1, aReprendre);
-        let mesureFraiche = false;
-        if (placeTrouvee) {
-            this.memoriser();
-            if (aReprendre > 1e-9) this._reprendreSilenceApres(voix, this.curseur.evenement + 1, aReprendre);
-        } else {
-            const enBoutDeVoix = this.curseur.evenement === voix.evenements.length - 1;
-            if (!enBoutDeVoix) {
-                this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
-                    + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
-                return false;
-            }
-            this.memoriser();
-            const nVoix = this.mesureCourante().voix.length;
-            const iVoix = this.curseur.voix;
-            const nouvelle = creerMesure({ voix: Array.from({ length: nVoix }, (_, i) =>
-                ({ evenements: i === iVoix ? [] : decouperEnEvenements(capacite) })) });
-            this.partition.mesures.splice(this.curseur.mesure + 1, 0, nouvelle);
-            this.curseur.mesure += 1;
-            this.curseur.evenement = -1;   // la nouvelle case s'insère juste APRÈS — voir plus bas
-            mesureFraiche = true;
-        }
-        const voixCible = this.voixCourante();
-        voixCible.evenements.splice(this.curseur.evenement + 1, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
-        this.curseur.evenement += 1;
-        // Une voix fraîchement créée est vide avant cette ligne (voir plus haut) : compléter par un
-        // silence jusqu'à la capacité, pour que l'invariant (une voix somme toujours EXACTEMENT sa
-        // mesure) tienne dès la création plutôt que de dépendre d'une prochaine édition pour se vérifier.
-        if (mesureFraiche) {
-            const manque = capacite - dureeNouvel;
-            if (manque > 1e-9) voixCible.evenements.push(
-                ...this._silences(voixCible, dureeNouvel, manque, this.curseur.mesure));
-        }
+        const aReprendre = Math.max(0, dureeNouvel - libre);
+        // Le MÊME comptage que celui de la reprise (voir silenceDisponibleApres, que
+        // `_reprendreSilenceApres` lit aussi) : on ne demande jamais plus qu'il n'y a, donc la
+        // reprise ne peut plus échouer, donc il n'y a plus rien à essayer à blanc.
+        const repris = Math.min(aReprendre, this.silenceDisponibleApres(voix, at, aReprendre));
+        this.memoriser();
+        if (repris > 1e-9) this._reprendreSilenceApres(voix, at, repris);
+        voix.evenements.splice(at, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
+        // Le curseur se pose sur la case NEUVE — c'est elle qu'on vient de faire naître pour y
+        // écrire. (L'insertion « à gauche » le corrige après coup, voir insererAvant.)
+        this.curseur.evenement = Math.min(at, voix.evenements.length - 1);
+        this.curseur.decalage = 0;
+        const dette = this.ecartMesure(this.curseur.mesure, this.curseur.voix);
+        this.derniereDette = dette > 1e-9
+            ? { mesure: this.curseur.mesure, voix: this.curseur.voix, evenement: this.curseur.evenement, dette }
+            : null;
         this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
@@ -1383,50 +1412,25 @@ export class Editeur {
 
     /**
      * Insère un évènement JUSTE AVANT le courant — le miroir d'`insererEvenement`, pour le clic droit
-     * « insérer une note à gauche ». Le curseur reste sur l'évènement VISÉ au départ (celui qui glisse
-     * d'un cran vers la droite pour laisser la place), pas sur la case neuve : contrairement à Entrée,
-     * ce geste n'est pas fait pour continuer à écrire à la suite.
+     * « insérer une note à gauche ».
      *
-     * Mêmes garanties de capacité qu'`insererEvenement`, et MÊME reprise du silence qui suit (voir
-     * _reprendreSilenceApres et la docblock du miroir : le test d'avant, hérité du même calcul, ne
-     * pouvait jamais être faux non plus). La place se cherche à partir de l'évènement COURANT inclus
-     * — celui devant lequel on insère : c'est lui, et tout ce qui le suit, qui glisse vers la droite.
-     * Sans le repli « avancer d'une mesure » de son miroir — insérer AVANT la première case d'une
-     * mesure déjà pleine demanderait de reculer d'une mesure entière, un geste bien plus surprenant
-     * qu'un simple refus.
+     * MÊME CŒUR (voir _inserer) : mêmes deux sources de place, même dette quand elles ne suffisent
+     * pas, même absence de refus. Seuls l'index d'insertion et la position finale du curseur
+     * diffèrent.
+     *
+     * LE CURSEUR RESTE SUR L'ÉVÈNEMENT VISÉ AU DÉPART, celui qui glisse d'un cran vers la droite pour
+     * laisser la place — pas sur la case neuve. Contrairement à Entrée, ce geste n'est pas fait pour
+     * continuer à écrire à la suite : on a désigné une note et demandé de la place AVANT elle.
      */
     insererAvant() {
-        this.derniereErreur = null;
-        const capacite = capaciteMesure(this.partition, this.curseur.mesure);
-        const dureeNouvel = dureeEnNoires(this.dureeCourante);
-        if (dureeNouvel > capacite + 1e-9) {
-            this.derniereErreur = 'Cette durée dépasse à elle seule la capacité d\'une mesure entière.';
-            return false;
-        }
+        const vise = this.curseur.evenement;
+        if (!this._inserer(vise)) return false;
         const voix = this.voixCourante();
-        // Mêmes deux sources de place qu'au miroir (vide déjà disponible, puis silence qui suit).
-        const libre = Math.max(0, capacite - dureeEcrite(this.mesureCourante(), this.curseur.voix));
-        const aReprendre = dureeNouvel - libre;
-        // Essai à blanc d'abord, pour la même raison qu'au miroir : memoriser() doit précéder toute
-        // écriture, et on ne sait qu'après coup si la place existe.
-        const copie = { evenements: voix.evenements.map(e => e) };
-        if (aReprendre > 1e-9 && !this._reprendreSilenceApres(copie, this.curseur.evenement, aReprendre)) {
-            this.derniereErreur = 'Pas assez de place dans la mesure pour insérer cette figure ici. '
-                + 'Alt+R (⇥ Corriger) décale l\'excédent dans une nouvelle mesure.';
-            return false;
-        }
-        this.memoriser();
-        if (aReprendre > 1e-9) this._reprendreSilenceApres(voix, this.curseur.evenement, aReprendre);
-        voix.evenements.splice(this.curseur.evenement, 0, creerEvenement({ ...this.dureeCourante }, [], { silence: true }));
-        // Le curseur suit l'évènement VISÉ, qui vient de glisser d'un cran — SAUF quand cet évènement
-        // était lui-même le silence que la reprise a consommé EN ENTIER, et que rien ne le suivait :
-        // avancer laisserait alors le curseur APRÈS le dernier évènement de la voix, et la frappe
-        // suivante planterait sèchement (saisirChiffre écrit dans `evenements[curseur.evenement]`,
-        // donc dans `undefined`). On se borne au dernier index existant, qui est précisément la case
-        // neuve — celle qui occupe très exactement la place du silence visé.
-        this.curseur.evenement = Math.min(this.curseur.evenement + 1, voix.evenements.length - 1);
-        this._dernierChiffre = null;
-        this.prevenir('edition');
+        // On se borne au dernier index existant : quand la reprise a consommé EN ENTIER le silence
+        // visé et que rien ne le suivait, avancer laisserait le curseur APRÈS le dernier évènement
+        // de la voix — et la frappe suivante écrirait dans `undefined`.
+        this.curseur.evenement = Math.min(vise + 1, voix.evenements.length - 1);
+        this.prevenir('curseur');
         return true;
     }
 
