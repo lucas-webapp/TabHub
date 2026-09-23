@@ -16,7 +16,7 @@
 
 import { creerPartition, creerMesure, creerEvenement, creerNote, figuresPour,
          figuresSilencePour, armureEffective, modeEffectif } from './score.js';
-import { uniteDeGroupement, dureeEnNoires } from './duration.js';
+import { uniteDeGroupement, dureeEnNoires, noiresParMesure } from './duration.js';
 import { tonaliteDe, LETTRE_VERS_PC } from './theory.js';
 import { hauteurDeCase } from './instruments.js';
 
@@ -29,12 +29,18 @@ import { hauteurDeCase } from './instruments.js';
  *
  *   • EN 6/8 (et 9/8, 12/8), le temps est une noire POINTÉE, déjà ternaire par nature. Le diviser
  *     en quatre donne des cellules de 0,375 noire, et la conversion écrivait alors
- *     « double pointée + TRIPLE-croche + croche » — des triples-croches, que cette application
- *     n'écrit nulle part ailleurs. Le diviser en trois donne la bonne cellule (une croche), mais
+ *     « double pointée + TRIPLE-croche + croche » — des triples-croches, là où la grille n'en
+ *     promettait pas. Le diviser en trois donne la bonne cellule (une croche), mais
  *     l'ancienne conversion la marquait d'un chiffre de TRIOLET, alors que trois croches dans un
  *     temps de 6/8 est justement sa division ordinaire. Les deux choix étaient donc mauvais.
  *   • EN 5/8 ET 7/8 (x/8 non composé), le temps est une CROCHE. Le diviser en quatre donne des
- *     cellules de 0,125 noire : rien que des triples-croches, sur toute la mesure.
+ *     cellules de 0,125 noire : rien que des triples-croches, sur toute la mesure — ce qui est
+ *     désormais un choix OFFERT plutôt qu'un accident, mais jamais celui par défaut.
+ *
+ * LA TRIPLE-CROCHE EST LA TROISIÈME DIVISION DE CHAQUE FAMILLE, jamais la première : elle sert les
+ * traits rapides (gammes, trilles écrits, gimmicks de shred) et n'a rien à faire dans le rythme
+ * courant. L'ordre de chaque liste va donc du plus employé au plus rare, et c'est le premier élément
+ * que prend une grille neuve.
  *
  * D'où un choix qui suit la signature. Le libellé des boutons suit avec (voir `libelleDivision`) :
  * « binaire / ternaire » n'a de sens que là où le temps est simple.
@@ -52,11 +58,11 @@ import { hauteurDeCase } from './instruments.js';
 export function subdivisionsPour(signature) {
     const { battements = 4, unite = 4 } = signature || {};
     // Mesure composée : le temps est pointé, sa division naturelle est en trois.
-    if (unite >= 8 && battements % 3 === 0) return [3, 6];
+    if (unite >= 8 && battements % 3 === 0) return [3, 6, 12];
     // Mesure simple à la noire (4/4, 3/4, 2/4, 2/2…).
-    if (unite <= 4) return [4, 3];
-    // x/8 non composé : le temps est une croche, on ne descend pas sous la double.
-    return [2, 3];
+    if (unite <= 4) return [4, 3, 8];
+    // x/8 non composé : le temps est une croche.
+    return [2, 3, 4];
 }
 
 /**
@@ -73,14 +79,15 @@ export function libelleDivision(signature, sub) {
                   [0.25, 'double-croche'], [0.125, 'triple-croche']];
     const nom = NOMS.find(([d]) => Math.abs(d - cellule) < 1e-6)?.[1];
     const figure = nom ? `une ${nom}` : 'un tiers de temps (n-olet)';
-    const offertes = subdivisionsPour(signature);
-    // En mesure composée les deux divisions sont deux FIGURES, pas deux caractères de mesure.
-    // Le caractère se lit sur la division elle-même, pas sur son rang dans la liste : en 5/8 et 7/8
-    // les deux choix sont 2 et 3, donc le PLUS GRAND est le ternaire — l'inverse de 4/4, où c'est le
-    // plus petit. Un multiple de trois divise en tiers, point.
-    const texte = offertes[0] === 3 && offertes[1] === 6
-        ? (sub === 3 ? 'Croches' : 'Doubles')
-        : (sub % 3 === 0 ? 'Ternaire' : 'Binaire');
+    // LE BOUTON PORTE LE NOM DE LA FIGURE, pas un caractère de mesure — et c'est ce qui remplace un
+    // ancien « Binaire / Ternaire » qui ne tenait qu'à deux boutons. Depuis que la TRIPLE-CROCHE est
+    // offerte, chaque famille de mesure en propose trois : nommer la cellule est la seule règle qui
+    // reste vraie quel que soit leur nombre, et elle dit en outre quelque chose d'utile — « Doubles »
+    // apprend ce qu'on va poser, « Binaire » ne l'apprenait pas. « Ternaire » ne subsiste que pour la
+    // cellule qui n'EST pas une figure : le tiers de temps, qui s'écrit en n-olet.
+    const COURTS = [[1, 'Noires'], [0.75, 'Croches p.'], [0.5, 'Croches'],
+                    [0.375, 'Doubles p.'], [0.25, 'Doubles'], [0.125, 'Triples']];
+    const texte = COURTS.find(([d]) => Math.abs(d - cellule) < 1e-6)?.[1] ?? 'Ternaire';
     return { texte, titre: `Chaque temps en ${sub} — une cellule vaut ${figure}` };
 }
 
@@ -873,7 +880,7 @@ export function mesuresJustes(etat) {
 // ---------------------------------------------------------------------------------------------
 
 /**
- * L'ORDRE DE PRÉFÉRENCE quand deux subdivisions expliquent le temps aussi bien : 2, puis 4, puis 3.
+ * L'ORDRE DE PRÉFÉRENCE quand deux subdivisions expliquent le temps aussi bien : 2, 4, 8, puis 3.
  *
  * Ce n'est PAS la liste de `subdivisionsPour` (les choix OFFERTS), et la différence compte.
  * Deux croches se lisent aussi bien sur une grille en deux que sur une grille en quatre : autant
@@ -881,7 +888,7 @@ export function mesuresJustes(etat) {
  * un triolet inventé là où le musicien a joué deux doubles un peu tard défigure la partition, alors
  * qu'une double inventée à la place d'un triolet reste une approximation lisible.
  */
-const PREFERENCE_SUB = [2, 4, 3];
+const PREFERENCE_SUB = [2, 4, 8, 3];
 
 /**
  * Le triolet doit expliquer le temps DEUX FOIS MIEUX que la meilleure lecture binaire pour être
@@ -889,6 +896,19 @@ const PREFERENCE_SUB = [2, 4, 3];
  * triolet — et un morceau entier se retrouverait constellé de « 3 » qui n'y sont pas.
  */
 const MARGE_TRIOLET = 0.5;
+
+/**
+ * La TRIPLE-CROCHE (grille en huit) doit, elle aussi, expliquer le temps DEUX FOIS mieux que la
+ * meilleure grille plus grossière.
+ *
+ * LA RAISON EST ARITHMÉTIQUE, pas musicale : une grille plus fine explique TOUJOURS au moins aussi
+ * bien, par construction — ses cellules contiennent celles de la grille plus grossière. Retenir la
+ * grille en huit dès qu'elle fait « un peu mieux » reviendrait donc à la retenir presque toujours,
+ * et un morceau joué à la main ressortirait constellé de triples-croches. La marge fait la
+ * différence entre « ce musicien a joué des triples-croches » et « ce musicien a joué des doubles
+ * un peu inégalement ».
+ */
+const MARGE_FINESSE = 0.5;
 
 /**
  * La subdivision (2, 3 ou 4) qui explique le mieux ces attaques dans un temps de `duree` noires
@@ -900,7 +920,7 @@ const MARGE_TRIOLET = 0.5;
  * séquenceur — la question ne devient intéressante que sur du jeu réel.
  *
  * @param {number[]} attaques positions absolues, en noires, des attaques tombant dans ce temps.
- * @returns {number} 2, 3 ou 4.
+ * @returns {number} 2, 3, 4 ou 8.
  */
 export function subdivisionPour(attaques, debut, duree) {
     if (!(duree > 0) || !attaques.length) return 2;
@@ -912,11 +932,176 @@ export function subdivisionPour(attaques, debut, duree) {
         }, 0) / attaques.length;
     };
     const erreurs = new Map(PREFERENCE_SUB.map(sub => [sub, erreurDe(sub)]));
-    const meilleureBinaire = Math.min(erreurs.get(2), erreurs.get(4));
-    // Le triolet, seulement s'il explique VRAIMENT mieux (voir MARGE_TRIOLET).
-    if (erreurs.get(3) < meilleureBinaire * MARGE_TRIOLET - 1e-12) return 3;
-    // Sinon la plus simple des deux binaires qui tombe aussi juste que l'autre.
-    return erreurs.get(2) <= erreurs.get(4) + 1e-9 ? 2 : 4;
+    // La plus simple des deux grilles binaires ordinaires qui tombe aussi juste que l'autre.
+    let binaire = erreurs.get(2) <= erreurs.get(4) + 1e-9 ? 2 : 4;
+    // La grille en HUIT ne se retient que si elle explique deux fois mieux (voir MARGE_FINESSE) —
+    // sans cette marge, elle gagnerait presque toujours, par simple arithmétique.
+    if (erreurs.get(8) < erreurs.get(binaire) * MARGE_FINESSE - 1e-12) binaire = 8;
+    // Le triolet, seulement s'il explique VRAIMENT mieux que la meilleure binaire retenue.
+    if (erreurs.get(3) < erreurs.get(binaire) * MARGE_TRIOLET - 1e-12) return 3;
+    return binaire;
+}
+
+/**
+ * LES SUBDIVISIONS QU'UNE GRILLE PEUT PRENDRE, de la plus grossière à la plus fine.
+ *
+ * Elles couvrent les trois familles qu'une tablature écrit vraiment : les puissances de deux (2, 4,
+ * 8, 16 — jusqu'à la TRIPLE-CROCHE, qui vaut le huitième d'une noire), les tiers (3, 6, 12 — le
+ * triolet de croches, de doubles, de triples), et le 1 pour un temps qu'aucune frontière ne coupe.
+ * L'ordre compte : `grilleDeMesure` prend la PREMIÈRE qui convient, donc toujours la plus grossière,
+ * celle qui laisse à la conversion le plus de liberté pour écrire une figure longue.
+ */
+const SUBS_GRILLE = [1, 2, 3, 4, 6, 8, 12, 16];
+
+/**
+ * LA GRILLE D'UNE MESURE, DÉDUITE DE CE QU'ELLE PORTE DÉJÀ — et c'est tout le principe.
+ *
+ * LE PROBLÈME QU'ELLE RÉSOUT, et il était mesurable. Écrire trois croches en triolet dans un 4/4
+ * laissait la mesure à 3,875 noires au lieu de 4 : le temps restant était rendu par
+ * `score.js#figuresPour`, qui ne cherche que des figures BINAIRES, et il n'en existe aucune suite
+ * qui somme un tiers de temps (mesuré : `figuresPour(2/3)` ne rend que 0,625). La boucle abandonnait
+ * le reliquat en silence, un vingt-quatrième de temps à chaque fois. Douze croches en triolet — un
+ * temps de swing ordinaire — faisaient déborder la mesure de presque un temps entier.
+ *
+ * LA CAUSE N'EST PAS LE DÉCOUPEUR, C'EST SON AVEUGLEMENT. Une durée ne se laisse écrire qu'en
+ * fonction de la grille sur laquelle elle tombe : un tiers de temps est une croche de TRIOLET, pas
+ * une approximation de croche. Il faut donc DONNER la grille à la conversion, et cette grille ne
+ * peut pas être décrétée d'avance — elle dépend de ce que la mesure contient déjà.
+ *
+ * LA RÈGLE, temps par temps : la plus GROSSIÈRE subdivision sur laquelle tombent toutes les
+ * frontières présentes dans ce temps. Un temps qui ne porte que des doubles-croches est en 4 ; un
+ * temps qui porte un triolet est en 3 ; un temps qui porte une triple-croche est en 8 ; un temps
+ * vide est en 1. Chaque temps a la sienne — un 4/4 peut parfaitement porter un triolet sur le temps
+ * 2 et des triples-croches sur le temps 4, et c'est exactement ce que fait une tablature de blues.
+ *
+ * `positionsEnPlus` : les frontières qui n'existent pas encore mais qu'on s'apprête à créer (le
+ * début et la fin du silence qu'on va écrire). Sans elles, la grille ignorerait précisément la
+ * position qui motive l'appel.
+ *
+ * LA MESURE PEUT ÊTRE PLUS LONGUE QUE SA CAPACITÉ, et la grille la couvre quand même : une mesure
+ * momentanément fausse (signature changée après coup, fichier importé) doit pouvoir rendre ses
+ * silences comme les autres, plutôt que de voir sa fin tomber hors grille.
+ *
+ * @param {{battements:number, unite:number}} signature
+ * @param {Array<{duree:object}>} evenements ce que la voix porte déjà
+ * @param {number[]} positionsEnPlus frontières à honorer en plus, en noires depuis la barre
+ * @returns {Array<{debut:number, debutDansMesure:number, duree:number, mesure:number, sub:number}>}
+ */
+export function grilleDeMesure(signature, evenements = [], positionsEnPlus = []) {
+    const unite = uniteDeGroupement(signature) || 1;
+    const bornes = [];
+    let t = 0;
+    for (const e of evenements) { bornes.push(t); t += dureeEnNoires(e.duree); }
+    bornes.push(t);
+    for (const p of positionsEnPlus) if (Number.isFinite(p)) bornes.push(p);
+
+    const longueur = Math.max(noiresParMesure(signature), ...bornes);
+    const nTemps = Math.max(1, Math.ceil(longueur / unite - 1e-9));
+
+    const temps = [];
+    for (let i = 0; i < nTemps; i++) {
+        const debut = i * unite;
+        // Les frontières STRICTEMENT à l'intérieur du temps : ses deux bords tombent sur n'importe
+        // quelle subdivision, ils ne contraignent donc rien.
+        const dedans = bornes.filter(p => p > debut + 1e-9 && p < debut + unite - 1e-9);
+        const sub = SUBS_GRILLE.find(s => dedans.every(p => {
+            const k = (p - debut) / (unite / s);
+            return Math.abs(k - Math.round(k)) < 1e-6;
+        })) ?? SUBS_GRILLE[SUBS_GRILLE.length - 1];
+        temps.push({ debut, debutDansMesure: debut, duree: unite, mesure: 0, sub });
+    }
+    return temps;
+}
+
+/**
+ * LES ÉVÈNEMENTS DE SILENCE pour `duree` noires à partir de `debut` dans une mesure — écrits sur la
+ * grille que cette mesure impose réellement (voir grilleDeMesure), donc justes en triolet comme en
+ * triple-croche, et alignés sur les temps comme le ferait un copiste.
+ *
+ * C'est le remplaçant de `score.js#decouperEnEvenements` PARTOUT OÙ LA POSITION EST CONNUE — et
+ * elle l'est presque toujours dans l'éditeur, qui sait exactement où il rend du temps.
+ *
+ * REND `null` PLUTÔT QU'UN À-PEU-PRÈS quand la conversion ne tombe pas juste au millionième. Un
+ * silence qui ne somme pas ce qu'on lui a demandé est précisément le défaut que cette fonction
+ * existe pour supprimer : mieux vaut que l'appelant retombe sur l'ancien découpage, dont on connaît
+ * les limites, que d'introduire une erreur silencieuse d'un genre nouveau. Le banc `rythme_juste`
+ * vérifie que ce repli ne sert jamais dans les cas qui motivent cette fonction.
+ */
+export function silencesAlignes(signature, evenements, debut, duree) {
+    if (!(duree > EPS)) return [];
+    const temps = grilleDeMesure(signature, evenements, [debut, debut + duree]);
+    const juste = (figs) => figs && figs.length
+        && Math.abs(figs.reduce((s, f) => s + dureeEnNoires(f), 0) - duree) < 1e-6;
+
+    // D'ABORD la conversion de l'aide rythmique, qui sait regrouper des temps ENTIERS en une seule
+    // figure longue (trois temps rendus donnent « noire + blanche », pas trois soupirs).
+    let figs = figuresSurGrille(temps, debut, debut + duree, true);
+    // SINON, cellule par cellule sur la grille déduite. Ce repli existe pour les cas que la
+    // conversion ne sait pas nommer d'une seule figure — mesuré sur les 5/6 de temps qui suivent un
+    // triolet de DOUBLES, qu'elle rendait vides. Il écrit toujours quelque chose de juste, parfois
+    // avec une figure de plus que le strict nécessaire ; une figure de trop se lit, un temps
+    // manquant s'entend.
+    if (!juste(figs)) figs = _silencesParCellules(temps, debut, debut + duree);
+    if (!juste(figs)) return null;
+    return figs.map(f => creerEvenement(
+        { valeur: f.valeur, points: f.points || 0, nolet: f.nolet ? { ...f.nolet } : null },
+        [], { silence: true }));
+}
+
+/**
+ * LA FIGURE UNIQUE qui vaut exactement `total` noires, ou `null` — ordinaire d'abord, en n-olet
+ * ensuite.
+ *
+ * JAMAIS DE POINT, dans les deux cas : un silence pointé n'a sa place qu'à l'intérieur d'un temps
+ * composé, où il complète le temps ; ailleurs il enjambe et brouille la métrique (c'est la règle que
+ * `score.js#figuresSilencePour` applique déjà, et qui vaut ici pour la même raison). Le refuser
+ * n'empêche rien : l'appelant essaie simplement une course plus courte, et écrit deux figures
+ * alignées là où une pointée aurait été à cheval.
+ */
+function _figureSilenceDe(total) {
+    const figs = figuresPour(total);
+    if (figs.length === 1 && !figs[0].points && Math.abs(dureeEnNoires(figs[0]) - total) < 1e-9) {
+        return { valeur: figs[0].valeur, points: 0, nolet: null };
+    }
+    const n = figureDeNolet(total, T3);
+    return n && !n.points ? n : null;
+}
+
+/**
+ * LES SILENCES D'UNE COURSE, CELLULE PAR CELLULE sur la grille déduite — le repli de
+ * `silencesAlignes`.
+ *
+ * LA RÈGLE, à chaque pas : la plus LONGUE course de cellules entières qui (1) ne sorte pas du temps
+ * courant, (2) s'écrive d'une seule figure sans point, et (3) commence sur une position multiple de
+ * sa propre durée DEPUIS LE DÉBUT DU TEMPS. Les trois conditions ensemble sont la règle de gravure
+ * ordinaire, simplement appliquée à une grille qui peut être en trois ou en huit plutôt qu'en deux.
+ *
+ * On ne franchit jamais une frontière de temps : c'est ce qui garantit qu'un silence ne masque pas
+ * la pulsation, et ça évite d'avoir à raisonner sur deux subdivisions différentes dans la même
+ * figure — deux temps voisins peuvent parfaitement être l'un en trois et l'autre en huit.
+ */
+function _silencesParCellules(temps, debut, fin) {
+    if (!temps.length) return null;
+    const sortie = [];
+    let x = debut;
+    let garde = 0;
+    while (x < fin - EPS && garde++ < 4096) {
+        const t = temps[tempsA(temps, x)];
+        const cellule = t.duree / t.sub;
+        const finTemps = Math.min(fin, t.debut + t.duree);
+        const maxCell = Math.round((finTemps - x) / cellule);
+        let posee = null;
+        for (let n = maxCell; n >= 1; n--) {
+            const total = n * cellule;
+            const k = (x - t.debut) / total;
+            if (Math.abs(k - Math.round(k)) > 1e-6) continue;   // départ non aligné sur cette durée
+            const f = _figureSilenceDe(total);
+            if (f) { posee = f; x += total; break; }
+        }
+        if (!posee) return null;
+        sortie.push(posee);
+    }
+    return sortie;
 }
 
 /**

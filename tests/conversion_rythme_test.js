@@ -379,22 +379,42 @@ const EPS = 1e-9;
             return { etat, lignes: ecriture(etat) };
         };
 
-        check(JSON.stringify(R.subdivisionsPour({ battements: 4, unite: 4 })) === '[4,3]'
-              && JSON.stringify(R.subdivisionsPour({ battements: 6, unite: 8 })) === '[3,6]'
-              && JSON.stringify(R.subdivisionsPour({ battements: 7, unite: 8 })) === '[2,3]',
-            'chaque famille de mesure a SES divisions : 4/3 à la noire, 3/6 en composée, 2/3 en x/8 '
-            + `irrégulier — mesuré ${JSON.stringify(R.subdivisionsPour({ battements: 6, unite: 8 }))} en 6/8`);
+        check(JSON.stringify(R.subdivisionsPour({ battements: 4, unite: 4 })) === '[4,3,8]'
+              && JSON.stringify(R.subdivisionsPour({ battements: 6, unite: 8 })) === '[3,6,12]'
+              && JSON.stringify(R.subdivisionsPour({ battements: 7, unite: 8 })) === '[2,3,4]',
+            'chaque famille de mesure a SES divisions : 4/3/8 à la noire, 3/6/12 en composée, 2/3/4 en '
+            + `x/8 irrégulier — mesuré ${JSON.stringify(R.subdivisionsPour({ battements: 6, unite: 8 }))} en 6/8`);
+        const finesse = [{ battements: 4, unite: 4 }, { battements: 6, unite: 8 }, { battements: 7, unite: 8 }]
+            .every(sig => {
+                const offertes = R.subdivisionsPour(sig);
+                const cellule = (sub) => R.libelleDivision(sig, sub).texte;
+                // La TRIPLE-croche est toujours la DERNIÈRE, jamais celle qu'une grille neuve prend.
+                return cellule(offertes[offertes.length - 1]) === 'Triples'
+                    && offertes.slice(0, -1).every(s => cellule(s) !== 'Triples');
+            });
+        check(finesse,
+            'et la TRIPLE-croche est offerte en DERNIER dans chaque famille — jamais la division par '
+            + 'défaut d\'une grille neuve, qui prendrait alors trente-deux cases pour une mesure de 4/4');
 
         const triples = [];
         const nolets = [];
+        let triplesVus = 0;
         for (const signature of [{ battements: 4, unite: 4 }, { battements: 3, unite: 4 },
                                  { battements: 6, unite: 8 }, { battements: 9, unite: 8 },
                                  { battements: 12, unite: 8 }, { battements: 5, unite: 8 },
                                  { battements: 7, unite: 8 }]) {
-            for (const sub of R.subdivisionsPour(signature)) {
+            const offertes = R.subdivisionsPour(signature);
+            for (const sub of offertes) {
                 const { etat, lignes } = ecrireGrille(signature, sub);
                 const etiquette = `${signature.battements}/${signature.unite} sub${sub}`;
-                if (lignes.some(l => l.nom.startsWith('triple'))) triples.push(etiquette);
+                // LA TRIPLE-CROCHE N'EST PLUS UN DÉFAUT, ELLE EST UN CHOIX — mais seulement sur la
+                // division la PLUS FINE de chaque famille. En trouver une sur la division courante
+                // voudrait dire qu'un rythme ordinaire s'écrit en trente-deuxièmes, ce qui était
+                // exactement le défaut que ce banc surveillait avant qu'elle soit offerte.
+                const laPlusFine = sub === offertes[offertes.length - 1];
+                const enPorte = lignes.some(l => l.nom.startsWith('triple'));
+                if (enPorte && !laPlusFine) triples.push('triple-croche hors division fine : ' + etiquette);
+                if (enPorte) triplesVus++;
                 if (!R.mesuresJustes(etat)[0]) triples.push('somme fausse : ' + etiquette);
                 // En mesure COMPOSÉE, aucune figure ne doit porter de nolet : le temps y est pointé,
                 // donc déjà ternaire — une croche de 6/8 n'est pas un triolet.
@@ -403,9 +423,12 @@ const EPS = 1e-9;
             }
         }
         check(triples.length === 0,
-            'aucune division offerte, dans aucune des sept signatures essayées, ne produit de '
-            + 'TRIPLE-croche ni de mesure fausse'
+            'dans les sept signatures essayées, aucune mesure fausse, et aucune TRIPLE-croche en '
+            + 'dehors de la division la plus fine'
             + (triples.length ? ` — fautif(s) : ${triples.join(', ')}` : ''));
+        check(triplesVus === 7,
+            'et la division la plus fine en produit bien une dans CHACUNE des sept — sans quoi le '
+            + `contrôle ci-dessus passerait pour une raison sans rapport (${triplesVus}/7)`);
         check(nolets.length === 0,
             'et en mesure COMPOSÉE (6/8, 9/8, 12/8) aucune figure ne porte de chiffre de n-olet — '
             + 'trois croches y sont la division ordinaire du temps, pas un triolet'

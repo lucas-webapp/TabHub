@@ -395,8 +395,39 @@ export function capaciteMesure(partition, index) {
 }
 
 /**
- * Position en noires du DÉBUT de la mesure `index` — la somme des capacités de toutes celles qui la
- * précèdent. Un repère de temps partagé par tout ce qui doit situer une mesure entière sur l'axe
+ * LA PLACE QUE LA MESURE PREND SUR L'AXE DU TEMPS, en noires — sa capacité, ou ce qu'elle porte
+ * vraiment quand c'est davantage.
+ *
+ * POURQUOI ELLE N'EST PAS TOUJOURS LA CAPACITÉ, et c'était un bogue audible. Une mesure peut se
+ * retrouver plus longue que sa signature sans qu'aucune édition ne l'ait voulu : il suffit de
+ * changer la signature d'un 4/4 déjà écrit pour du 3/4, et les quatre noires restent en place.
+ * `aplatir` posait alors les évènements à leur durée ÉCRITE tout en avançant de mesure en mesure
+ * d'une CAPACITÉ — deux comptes différents pour le même axe. Mesuré : la dernière note de la mesure
+ * courait de 3,00 à 4,00 pendant que la première de la suivante démarrait à 3,00. Un temps entier
+ * où deux notes sonnaient ensemble, sans que rien ne l'explique.
+ *
+ * LA RÈGLE EST DONC : CE QUI EST ÉCRIT EST CE QUI SONNE. Une mesure trop pleine dure plus longtemps,
+ * une mesure incomplète garde sa capacité — le silence manquant se fait entendre comme un silence,
+ * jamais comme un empiètement sur la mesure suivante. C'est le comportement de Guitar Pro, qui
+ * signale la mesure fausse en rouge mais la joue telle qu'elle est écrite.
+ *
+ * LE MAXIMUM ENTRE LES VOIX, parce que deux voix d'une même mesure peuvent ne pas totaliser pareil
+ * en cours d'écriture : c'est la plus longue qui décide où tombe la barre, sans quoi elle
+ * déborderait sur la mesure d'après.
+ */
+export function longueurMesure(partition, index) {
+    const capacite = capaciteMesure(partition, index);
+    const mesure = partition.mesures[index];
+    if (!mesure) return capacite;
+    let plusLongue = 0;
+    for (let v = 0; v < mesure.voix.length; v++) plusLongue = Math.max(plusLongue, dureeEcrite(mesure, v));
+    return Math.max(capacite, plusLongue);
+}
+
+/**
+ * Position en noires du DÉBUT de la mesure `index` — la somme des LONGUEURS de toutes celles qui la
+ * précèdent (voir longueurMesure : la capacité, sauf pour une mesure trop pleine, qui prend la place
+ * qu'elle occupe vraiment). Un repère de temps partagé par tout ce qui doit situer une mesure entière sur l'axe
  * global : lancer la lecture depuis le curseur (main.js#positionDuCurseurEnNoires), borner une boucle
  * de lecture (audio/player.js#Lecteur.definirBoucle). `index === partition.mesures.length` est un
  * appel volontairement valide : il donne la FIN du morceau (le début de la mesure « après la
@@ -404,7 +435,7 @@ export function capaciteMesure(partition, index) {
  */
 export function positionDebutMesure(partition, index) {
     let t = 0;
-    for (let m = 0; m < index; m++) t += capaciteMesure(partition, m);
+    for (let m = 0; m < index; m++) t += longueurMesure(partition, m);
     return t;
 }
 
@@ -501,14 +532,16 @@ export function aplatir(partition) {
                 t += duree;
             });
         });
-        tMesure += capaciteMesure(partition, iMesure);
+        tMesure += longueurMesure(partition, iMesure);
     });
     return sortie;
 }
 
-/** Durée totale du morceau, en noires — la somme des CAPACITÉS déclarées, pas d'une voix en particulier. */
+/** Durée totale du morceau, en noires — la somme des LONGUEURS des mesures (voir longueurMesure),
+ *  pas d'une voix en particulier : une mesure trop pleine allonge le morceau d'autant, faute de quoi
+ *  la lecture s'arrêterait avant sa dernière note. */
 export function dureeTotale(partition) {
-    return partition.mesures.reduce((total, _m, i) => total + capaciteMesure(partition, i), 0);
+    return partition.mesures.reduce((total, _m, i) => total + longueurMesure(partition, i), 0);
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -714,10 +747,10 @@ export function grilleTernaire(partition) {
     const grille = [];
     let debut = 0;
     for (let i = 0; i < partition.mesures.length; i++) {
-        const capacite = capaciteMesure(partition, i);
+        const longueur = longueurMesure(partition, i);
         const unite = uniteDeGroupement(signatureEffective(partition, i));
-        grille.push({ debut, fin: debut + capacite, unite: unite === 1 ? unite : 0 });
-        debut += capacite;
+        grille.push({ debut, fin: debut + longueur, unite: unite === 1 ? unite : 0 });
+        debut += longueur;
     }
     return grille;
 }

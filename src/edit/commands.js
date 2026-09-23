@@ -24,6 +24,17 @@ import {
 } from '../model/score.js';
 import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
 import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage, hauteurDeCase } from '../model/instruments.js';
+import { silencesAlignes } from '../model/rythme.js';
+
+/** Position d'un évènement DANS SA VOIX, en noires depuis la barre de mesure. Le pendant de
+ *  score.js#positionDansMesure pour les endroits qui n'ont sous la main qu'une VOIX — parfois
+ *  une copie de travail (voir insererEvenement), jamais la mesure entière. */
+function positionDe(voix, index) {
+    let t = 0;
+    const evts = voix?.evenements || [];
+    for (let i = 0; i < index && i < evts.length; i++) t += dureeEnNoires(evts[i].duree);
+    return t;
+}
 
 const MAX_HISTORIQUE = 150;
 /** Fenêtre pendant laquelle un second chiffre complète le premier (« 1 » puis « 2 » → case 12). */
@@ -230,7 +241,8 @@ export class Editeur {
                     // silence ») — et qui, accumulée mesure après mesure, ne laissait plus d'autre
                     // recours que supprimer et tout refaire.
                     const restant = reste - dureeNouvel;
-                    if (restant > 1e-9) voix.evenements.push(...decouperEnEvenements(restant));
+                    if (restant > 1e-9) voix.evenements.push(
+                        ...this._silences(voix, positionDe(voix, voix.evenements.length), restant));
                     this.curseur.evenement += 1;
                     this._dernierChiffre = null;
                     this.prevenir('curseur');
@@ -628,6 +640,31 @@ export class Editeur {
         return true;
     }
 
+    /**
+     * LES SILENCES POUR `duree` NOIRES À PARTIR DE `debut` dans une voix de cette mesure — écrits sur
+     * la grille que la mesure impose RÉELLEMENT (voir model/rythme.js#silencesAlignes).
+     *
+     * REMPLACE `decouperEnEvenements` PARTOUT OÙ LA POSITION EST CONNUE, c'est-à-dire partout ici :
+     * l'éditeur sait toujours où il rend du temps, et c'est justement ce qu'il ne disait pas.
+     *
+     * CE QUE ÇA CORRIGE, et c'était mesurable sur le geste le plus banal du répertoire. Trois croches
+     * en triolet dans un 4/4 laissaient la mesure à 3,875 noires : le temps restant passait par
+     * `figuresPour`, qui ne cherche que des figures binaires, et aucune suite d'entre elles ne somme
+     * un tiers de temps. Le reliquat — un vingt-quatrième de temps — était abandonné EN SILENCE à
+     * chaque fois. Douze croches en triolet, un temps de swing ordinaire, faisaient déborder la mesure
+     * de presque un temps entier, avec au passage une note sur douze qui perdait son triolet.
+     *
+     * LE REPLI sur l'ancien découpage ne sert que si la conversion ne tombe pas juste au millionième
+     * (`silencesAlignes` rend alors `null` plutôt qu'un à-peu-près). On ne remplace donc jamais un
+     * défaut connu par un défaut neuf : au pire on garde l'ancien, et le banc `rythme_juste` vérifie
+     * que ce repli ne sert dans AUCUN des cas qui motivent cette méthode.
+     */
+    _silences(voix, debut, duree, iMesure = this.curseur.mesure) {
+        if (!(duree > 1e-9)) return [];
+        const sig = signatureEffective(this.partition, iMesure);
+        return silencesAlignes(sig, voix?.evenements || [], debut, duree) || decouperEnEvenements(duree);
+    }
+
     // -- Rythme -----------------------------------------------------------------------------------
 
     /**
@@ -815,14 +852,15 @@ export class Editeur {
             const consomme = voix.evenements.slice(iEvt + 1, j).reduce((t, e) => t + dureeEnNoires(e.duree), 0);
             const aRendre = consomme - delta;
             voix.evenements.splice(iEvt + 1, j - (iEvt + 1),
-                ...(aRendre > 1e-9 ? decouperEnEvenements(aRendre) : []));
+                ...this._silences(voix, positionDe(voix, iEvt + 1), aRendre));
         } else if (delta < -1e-9) {
             let libere = -delta, k = iEvt + 1;
             while (k < voix.evenements.length && estSilence(voix.evenements[k])) {
                 libere += dureeEnNoires(voix.evenements[k].duree);
                 k++;
             }
-            voix.evenements.splice(iEvt + 1, k - (iEvt + 1), ...decouperEnEvenements(libere));
+            voix.evenements.splice(iEvt + 1, k - (iEvt + 1),
+                ...this._silences(voix, positionDe(voix, iEvt + 1), libere));
         }
         // PAS DE FUSION DES SILENCES ICI, et c'est un choix que j'ai dû corriger.
         //
@@ -934,7 +972,8 @@ export class Editeur {
                 reste -= d;
                 i--;
             } else {
-                voix.evenements.splice(i, 1, ...decouperEnEvenements(d - reste));
+                voix.evenements.splice(i, 1,
+                    ...this._silences(voix, positionDe(voix, i) + reste, d - reste));
                 reste = 0;
             }
         }
@@ -1031,7 +1070,8 @@ export class Editeur {
         // mesure) tienne dès la création plutôt que de dépendre d'une prochaine édition pour se vérifier.
         if (mesureFraiche) {
             const manque = capacite - dureeNouvel;
-            if (manque > 1e-9) voixCible.evenements.push(...decouperEnEvenements(manque));
+            if (manque > 1e-9) voixCible.evenements.push(
+                ...this._silences(voixCible, dureeNouvel, manque, this.curseur.mesure));
         }
         this._dernierChiffre = null;
         this.prevenir('edition');
@@ -1120,8 +1160,9 @@ export class Editeur {
                 const disponible = capacite - total;
                 const estSilence = e.silence || !e.notes.length;
                 if (estSilence && disponible > 1e-9) {
-                    gardes.push(...decouperEnEvenements(disponible));
-                    enTrop.push(...decouperEnEvenements(d - disponible));
+                    gardes.push(...this._silences({ evenements: gardes }, total, disponible, index));
+                    // Le surplus ouvrira une mesure NEUVE : il y commencera à la position 0.
+                    enTrop.push(...this._silences({ evenements: [] }, 0, d - disponible, index));
                 } else {
                     enTrop.push(e);
                 }
@@ -1159,7 +1200,10 @@ export class Editeur {
         // jamais son silence manquant : le diagnostic le voyait, mais rien ne l'appliquait.
         m.voix.forEach((voix, i) => {
             const gardes = parVoix[i].gardes.slice();
-            if (parVoix[i].manque > 1e-9) gardes.push(...decouperEnEvenements(parVoix[i].manque));
+            if (parVoix[i].manque > 1e-9) {
+                gardes.push(...this._silences({ evenements: gardes }, capacite - parVoix[i].manque,
+                                              parVoix[i].manque, index));
+            }
             voix.evenements = gardes;
         });
 
@@ -1183,7 +1227,7 @@ export class Editeur {
                     total += dureeEnNoires(e.duree);
                 }
                 const manque = capacite - total;
-                if (manque > 1e-9) evs.push(...decouperEnEvenements(manque));
+                if (manque > 1e-9) evs.push(...this._silences({ evenements: evs }, total, manque, index));
             });
         });
         this.partition.mesures.splice(index + 1, 0, ...nouvelles);
@@ -1228,7 +1272,8 @@ export class Editeur {
         if (voix.evenements.length <= 1) return this.basculerSilence();
         this.memoriser();
         const [enleve] = voix.evenements.splice(this.curseur.evenement, 1);
-        voix.evenements.push(...decouperEnEvenements(dureeEnNoires(enleve.duree)));
+        voix.evenements.push(...this._silences(
+            voix, positionDe(voix, voix.evenements.length), dureeEnNoires(enleve.duree)));
         this.curseur.evenement = Math.min(this.curseur.evenement, voix.evenements.length - 1);
         this._dernierChiffre = null;
         this.prevenir('edition');
@@ -1500,9 +1545,33 @@ export class Editeur {
         return true;
     }
 
+    /**
+     * Fixe la SIGNATURE de la mesure courante — et redimensionne ses voix VIDES à la nouvelle
+     * capacité.
+     *
+     * POURQUOI LES VOIX VIDES, ET ELLES SEULES. Une voix qui ne porte que du silence n'a rien à
+     * protéger : son contenu n'est pas de la musique, c'est la mesure de son propre vide. La laisser
+     * garder les quatre noires d'un 4/4 dans une mesure passée en 2/4 en ferait une mesure fausse —
+     * signalée en rouge, plus longue à la lecture que ce que sa signature annonce (voir
+     * score.js#longueurMesure) — pour rien du tout. C'est aussi ce qu'attend qui pose sa métrique
+     * AVANT d'écrire, le cas le plus courant de tous.
+     *
+     * UNE VOIX QUI PORTE DES NOTES N'EST PAS TOUCHÉE, et c'est le pendant exact du même raisonnement :
+     * là, il y a quelque chose à perdre. La mesure devient alors trop pleine (ou incomplète), le
+     * rectangle d'avertissement le dit, « ⇥ Corriger » (Alt+R) répartit à la demande — et, depuis que
+     * la lecture suit la durée écrite, ce qui est écrit continue de sonner en entier plutôt que
+     * d'empiéter d'un temps sur la mesure suivante.
+     */
     definirSignature(battements, unite) {
         this.memoriser();
-        this.mesureCourante().signature = { battements, unite };
+        const m = this.mesureCourante();
+        m.signature = { battements, unite };
+        const capacite = capaciteMesure(this.partition, this.curseur.mesure);
+        for (const voix of m.voix) {
+            if (!voix.evenements.every(e => e.silence || !e.notes.length)) continue;
+            voix.evenements = creerVoix(capacite).evenements;
+        }
+        this.corrigerCurseur();
         this.prevenir('edition');
     }
 

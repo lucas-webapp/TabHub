@@ -134,9 +134,11 @@ const { check, exiger, plan, bilan } = creerHarnais('aide rythmique');
         check(ouverture.enteteDeTemps === 0 && ouverture.boitesDeTemps === 0,
             `plus de « 4 » au-dessus des barres, ni de boîte par temps (${ouverture.enteteDeTemps} en-têtes, `
             + `${ouverture.boitesDeTemps} boîtes) : la grille est CONTINUE`);
-        check(ouverture.subdivision.join(' ') === 'Binaire* Ternaire',
-            `la subdivision est un réglage GLOBAL à DEUX états (${ouverture.subdivision.join(' ')}) — `
-            + 'le « 2 » a disparu parce qu\'il produisait une écriture identique au « 4 »');
+        check(ouverture.subdivision.join(' ') === 'Doubles* Ternaire Triples',
+            `la subdivision est un réglage GLOBAL à TROIS états, nommés par la FIGURE qu'une cellule `
+            + `vaut (${ouverture.subdivision.join(' ')}) — « Binaire » n'apprenait rien, « Doubles » dit `
+            + 'ce qu\'on va poser, et la TRIPLE-croche est offerte en dernier parce qu\'elle sert les '
+            + 'traits rapides, pas le rythme courant');
         check(ouverture.depart === '2' && /mesure 2/.test(ouverture.cible),
             `le départ est pré-rempli par le geste qui a ouvert la fenêtre (mesure ${ouverture.depart}) `
             + `et la cible le rappelle (« ${ouverture.cible} »)`);

@@ -10,7 +10,7 @@
 // minuterie parallèle, il lit la position réelle du transport audio. Les deux ne peuvent pas diverger.
 
 import { midiVersNomTone } from '../model/theory.js';
-import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, positionDebutMesure,
+import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, longueurMesure, positionDebutMesure,
          grilleTernaire, sonneDepuisEcrit, ecritDepuisSonne } from '../model/score.js';
 import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
 
@@ -637,7 +637,7 @@ export class Lecteur {
         if (!b) return null;
         const debut = positionDebutMesure(partition, b.debut) + (b.debutDansMesure || 0);
         const fin = positionDebutMesure(partition, b.fin)
-            + (b.finDansMesure ?? capaciteMesure(partition, b.fin));
+            + (b.finDansMesure ?? longueurMesure(partition, b.fin));
         return { debut, fin: Math.max(fin, debut) };
     }
 
@@ -863,7 +863,11 @@ export class Lecteur {
                     }, `${ticks}i`);
                 }
             }
-            debutMesure += capacite;
+            // LES CLICS VIENNENT DE LA SIGNATURE, L'AVANCE DE CE QUI EST ÉCRIT. Une mesure trop
+            // pleine garde ses quatre clics de 4/4 — c'est sa métrique, elle n'a pas changé — mais
+            // la mesure SUIVANTE commence plus tard, là où la musique commence vraiment. Compter
+            // l'avance en capacité ferait dériver le métronome de tout le débordement.
+            debutMesure += longueurMesure(partition, i);
         });
     }
 
@@ -871,9 +875,9 @@ export class Lecteur {
     _mesureALaPosition(partition, position) {
         let debut = 0;
         for (let i = 0; i < partition.mesures.length; i++) {
-            const capacite = capaciteMesure(partition, i);
-            if (position < debut + capacite - 1e-6) return i;
-            debut += capacite;
+            const longueur = longueurMesure(partition, i);
+            if (position < debut + longueur - 1e-6) return i;
+            debut += longueur;
         }
         return Math.max(0, partition.mesures.length - 1);
     }

@@ -41,7 +41,7 @@ import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, ran
          lireMorceauSurDisque, listerVersions, demanderStockageDurable, morceauxSurDisque,
          fichiersDuMorceau, supprimerFichiers } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
 import { VALEURS_FIGURES, uniteDeGroupement } from './model/duration.js';
 
@@ -668,7 +668,7 @@ class TabHubApp {
     positionDeLAbscisse(iMesure, x) {
         const partition = this.editeur.partition;
         const debutMesure = positionDebutMesure(partition, iMesure);
-        const capacite = capaciteMesure(partition, iMesure);
+        const capacite = longueurMesure(partition, iMesure);
         if (!this.page) return debutMesure;
         // VOIX 0 SEULE, comme la tête de lecture : à plusieurs voix, les colonnes se superposent et
         // « l'instant sous ce pixel » n'aurait pas de réponse unique. La mélodie tranche.
@@ -4089,7 +4089,7 @@ class TabHubApp {
         const partition = this.editeur.partition;
         const i = this.mesureDeLaPosition(position);
         const debut = positionDebutMesure(partition, i);
-        const capacite = capaciteMesure(partition, i);
+        const capacite = longueurMesure(partition, i);
         const temps = uniteDeGroupement(signatureEffective(partition, i)) || 1;
         const cale = debut + Math.round((position - debut) / temps) * temps;
         // BORNÉ À LA MESURE : arrondir le dernier temps vers le haut donnerait une position au-delà
@@ -4236,7 +4236,7 @@ class TabHubApp {
     mesureDeLaPosition(position) {
         const partition = this.editeur.partition;
         for (let k = 0; k < partition.mesures.length; k++) {
-            if (position < positionDebutMesure(partition, k) + capaciteMesure(partition, k) - 1e-9) return k;
+            if (position < positionDebutMesure(partition, k) + longueurMesure(partition, k) - 1e-9) return k;
         }
         return Math.max(0, partition.mesures.length - 1);
     }

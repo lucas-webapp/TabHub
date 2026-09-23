@@ -145,6 +145,54 @@ panses du B.
 La saisie se fait **exclusivement sur la tablature** ; la portée solfège s'en déduit — hauteurs,
 orthographe des altérations selon l'armure, hampes, ligatures, lignes supplémentaires.
 
+#### Le temps rendu s'écrit sur la grille que la mesure impose
+
+Chaque fois qu'un geste libère du temps — raccourcir une note, en effacer une, en supprimer une avec
+`Ctrl`+`Suppr` —, ce temps doit être réécrit en figures de silence. La règle n'est pas *« la plus
+longue suite de figures qui somme juste »* : c'est *« les figures qui tombent sur la grille de CE
+temps-là »*, et cette grille se déduit de ce que la mesure porte déjà, temps par temps. Un temps qui
+porte un triolet est en trois, un temps qui porte une triple-croche est en huit, un temps vide n'est
+coupé nulle part — et les trois cohabitent dans la même mesure, ce que fait n'importe quelle
+tablature de blues.
+
+**Ce que ça corrige, et c'était mesuré sur le geste le plus banal du répertoire.** Écrire trois
+croches en triolet dans un 4/4 laissait la mesure à **3,875 noires au lieu de 4**. Aucune suite de
+figures binaires ne somme un tiers de temps — `figuresPour(2/3)` ne rend que 0,625 — et le reliquat,
+un vingt-quatrième de temps, était abandonné **en silence** à chaque triolet écrit. Douze croches en
+triolet, un temps de swing ordinaire, faisaient pire : la mesure ressortait à **4,916667 noires**,
+débordante de presque un temps, avec une note sur douze qui perdait son triolet en route et sortait
+en double-croche.
+
+La conversion elle-même n'était pas fautive : elle était **aveugle**. Une durée ne se laisse écrire
+qu'en fonction de la grille sur laquelle elle tombe — un tiers de temps est une croche de *triolet*,
+pas une approximation de croche. Le correctif donne la grille à la conversion
+(`model/rythme.js#grilleDeMesure`, `#silencesAlignes`), et réutilise le convertisseur qui existait
+déjà pour l'aide rythmique et l'import MIDI plutôt que d'en écrire un second.
+
+Effet de bord bienvenu : les silences sont désormais **alignés sur les temps** partout. Deux temps et
+demi rendus depuis le milieu du temps 2 donnent « croche + blanche », jamais « blanche + croche » —
+une blanche à cheval sur la moitié de la mesure, que n'écrit aucune édition.
+
+#### Ce qui est écrit est ce qui sonne
+
+Une mesure peut se retrouver plus longue que sa signature sans qu'aucune édition ne l'ait voulu : il
+suffit de poser du 3/4 sur un 4/4 déjà écrit, et les quatre noires restent en place. La lecture
+comptait alors de deux façons à la fois — les évènements à leur durée **écrite**, l'avance d'une
+mesure à l'autre à la **capacité** déclarée. Mesuré : la dernière note de la mesure courait de 3,00 à
+4,00 pendant que la première de la suivante démarrait à 3,00. **Un temps entier où deux notes
+sonnaient ensemble**, sans que rien ne l'explique.
+
+`score.js#longueurMesure` donne désormais une seule réponse aux deux : une mesure prend sur l'axe du
+temps la place qu'elle occupe **vraiment**. Une mesure trop pleine dure plus longtemps ; une mesure
+incomplète garde sa capacité, pour que le silence manquant s'entende comme un silence plutôt que
+comme un empiètement. C'est le comportement de Guitar Pro, qui signale la mesure fausse mais la joue
+telle qu'elle est écrite.
+
+Dans la foulée, **poser une signature redimensionne les voix VIDES** de la mesure : une voix qui ne
+porte que du silence n'a rien à protéger, et c'est le cas de qui règle sa métrique *avant* d'écrire.
+Une voix qui porte des notes n'est jamais touchée — la mesure devient trop pleine, le rectangle
+d'avertissement le dit, et `Alt`+`R` (« ⇥ Corriger ») répartit à la demande.
+
 | Touche | Effet |
 |---|---|
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |
@@ -258,9 +306,16 @@ dès que la grille était en trois : en 6/8, où le temps est une noire pointée
 temps — leur division *ordinaire* — se retrouvaient donc marquées d'un « 3 » qu'aucune édition
 n'écrit. La règle est maintenant qu'une durée exprimable par une figure simple s'écrit sans n-olet,
 et qu'un n-olet n'apparaît que là où aucune figure ne tombe juste. Du même coup, les divisions
-offertes suivent la signature : quatre ou trois à la noire, trois ou six en mesure composée, deux ou
-trois en 5/8 et 7/8 — diviser un temps de 6/8 en quatre produisait des **triples-croches**, que
-TabHub n'écrit nulle part ailleurs.
+offertes suivent la signature : **quatre, trois ou huit** à la noire ; **trois, six ou douze** en
+mesure composée ; **deux, trois ou quatre** en 5/8 et 7/8 — diviser un temps de 6/8 en *quatre*
+produisait des triples-croches là où la grille n'en promettait pas.
+
+Les boutons portent désormais le nom de la **figure** qu'une cellule vaut — « Doubles », « Ternaire »,
+« Triples » — et non plus « Binaire / Ternaire ». Deux raisons : le mot dit quelque chose d'utile
+(« Doubles » apprend ce qu'on va poser, « Binaire » ne l'apprenait pas), et c'est la seule règle qui
+reste vraie maintenant que chaque famille offre **trois** divisions au lieu de deux. La
+**triple-croche est toujours la dernière** : elle sert les traits rapides, pas le rythme courant, et
+une grille neuve ne la prend jamais — trente-deux cases pour une mesure de 4/4 seraient illisibles.
 
 Deux mesures se suivent **horizontalement** ; au-delà, elles passent à la ligne. Sur un téléphone
 elles s'**empilent** — deux fois seize cases dans 390px ramèneraient chaque colonne sous dix pixels.
@@ -1085,9 +1140,12 @@ Dit franchement, pour que la suite se décide sur des faits :
   plus dur, et l'import ne pose jamais la seconde voix que TabHub sait pourtant graver. Le rythme, lui,
   n'est plus aplati : triolets et swing sont désormais lus correctement (voir *Le rythme d'un fichier
   importé*).
-- **Les triples-croches ne sont pas écrites**, ni à l'aide rythmique ni à l'import : la subdivision
-  la plus fine d'un temps est la double-croche (décidé avec l'utilisateur). Un passage plus rapide
-  s'approche à la double la plus proche.
+- **Aucune division plus fine que la triple-croche.** Elle s'écrit partout depuis la palette, s'offre
+  comme troisième division de l'aide rythmique et se reconnaît à l'import MIDI — mais une quadruple
+  s'approche à la triple la plus proche. À l'import, une grille en huit ne se retient que si elle
+  explique le temps **deux fois mieux** que la meilleure grille plus grossière : une grille plus fine
+  explique toujours un peu mieux, par simple arithmétique, et sans cette marge un morceau joué à la
+  main ressortirait constellé de triples-croches.
 - **Un glissando déplace légèrement le tempo de l'échantillon.** Bends et slides ont bien le timbre
   du piano (voir *Le son*), obtenu en faisant glisser la vitesse de lecture de l'échantillon : sur
   les intervalles concernés l'écart de vitesse va de 6 % à 19 %, inaudible comme accélération, mais
