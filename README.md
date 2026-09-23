@@ -319,6 +319,14 @@ frappes** — un chiffre, une flèche, un chiffre, une flèche — et c'est le g
 toute l'application. Il en demande huit. MuseScore et Dorico avancent de la même façon, et c'est ce
 qui fait qu'on y écrit au fil de la pensée plutôt qu'en remplissant un formulaire.
 
+**Et la partition grandit sous la frappe.** On recopie un morceau **sans savoir combien de mesures il
+fait** : on tape, simplement. L'avance refusait jusqu'ici de créer quoi que ce soit — arrivée à la
+dernière case de la dernière mesure, elle s'arrêtait là, et les frappes suivantes **réécrivaient
+cette même case en silence**. Mesuré sur un morceau neuf de 4 mesures : *24 frappes donnaient
+16 notes*, la seizième case réécrite huit fois, sans un mot. Elle ajoute désormais la mesure, comme
+`→` l'a toujours fait. Le prix, assumé : une mesure vide reste au bout. Une mesure vide de trop se
+voit et s'efface en un geste ; huit notes avalées ne se voient pas du tout.
+
 **Ce que ça coûte, honnêtement.** Un accord et une case à deux chiffres paient une frappe de retour
 (`←`), là où chaque note isolée en gagne une. À la guitare les notes isolées dominent largement, et
 l'avance s'éteint dans *Réglages → Affichage → Avancer après chaque case* pour qui écrit surtout des

@@ -28,7 +28,7 @@ const creerHarnais = require('./_harness.js');
 const { check, exiger, plan, bilan } = creerHarnais('avance automatique');
 
 (async () => {
-    plan(16);
+    plan(21);
     try {
         const { Editeur } = await import('../src/edit/commands.js');
         const { dureeEnNoires } = await import('../src/model/duration.js');
@@ -93,24 +93,63 @@ const { check, exiger, plan, bilan } = creerHarnais('avance automatique');
             + 'que l\'accord paie');
 
         // =====================================================================================
-        // D. L'AVANCE NE CRÉE JAMAIS RIEN
+        // D. LE MORCEAU GRANDIT SOUS LA FRAPPE — ET AUCUNE NOTE N'EST AVALÉE
+        //
+        // CETTE SECTION DISAIT LE CONTRAIRE, et c'est elle qui avait tort. Elle figeait la règle
+        // « une frappe de saisie ne crée jamais de mesure », au motif qu'une dernière note ne devait
+        // pas laisser derrière elle une mesure vide que personne n'a demandée. Le motif est réel ; ce
+        // qu'il coûtait ne l'était pas moins : on RECOPIE une partition sans savoir combien de
+        // mesures elle fait, on tape simplement — et arrivées au bout, les frappes se mettaient à
+        // réécrire la même case en silence. Mesuré avant correctif sur un morceau neuf de 4 mesures :
+        // 24 frappes donnaient 16 notes, la seizième case réécrite HUIT FOIS, sans un mot.
+        //
+        // Le nouveau compte : une mesure vide de trop se voit et s'efface en un geste ; huit notes
+        // avalées ne se voient pas du tout. Et « → » créait déjà cette mesure depuis toujours — la
+        // saisie ne fait que rejoindre la navigation.
         // =====================================================================================
         const ed6 = neuf();
         ed6.dureeCourante = { valeur: 1, points: 0, nolet: null };   // une ronde par mesure
         const avant6 = ed6.partition.mesures.length;
-        for (let i = 0; i < avant6 + 3; i++) ed6.saisirChiffre(3);
-        check(ed6.partition.mesures.length === avant6,
-            `écrire au-delà de la dernière mesure n'en crée AUCUNE (${avant6} → ${ed6.partition.mesures.length}) : `
-            + 'un geste de navigation explicite peut faire grandir le morceau, une frappe de saisie non — '
-            + 'sinon la dernière note d\'un morceau laisserait derrière elle une mesure vide');
-        check(ed6.curseur.mesure === avant6 - 1,
-            `le curseur s'arrête alors sur la dernière case (${pos(ed6)}) plutôt que de sortir du morceau`);
+        const frappes6 = avant6 + 3;
+        for (let i = 0; i < frappes6; i++) ed6.saisirChiffre(3);
+        const ecrites6 = ed6.partition.mesures
+            .flatMap(m => m.voix[0].evenements).filter(e => !e.silence && e.notes.length).length;
+        check(ecrites6 === frappes6,
+            `${frappes6} frappes d'affilée écrivent ${ecrites6} note(s) — aucune n'est avalée `
+            + `(avant correctif : ${avant6}, les suivantes réécrivaient la dernière case)`);
+        check(ed6.partition.mesures.length === frappes6 + 1,
+            `le morceau a grandi de ${avant6} à ${ed6.partition.mesures.length} mesures, sans qu'on l'ait demandé `
+            + 'ni interrompu la frappe');
+        check(ed6.curseur.mesure === frappes6,
+            `le curseur est sorti dans la mesure neuve (${pos(ed6)}), prêt pour la note suivante`);
+        // LE PRIX, assumé et vérifié : la dernière mesure est vide. On le fige pour qu'il reste
+        // DÉLIBÉRÉ — une seule, jamais deux, et rien d'autre derrière.
+        const derniere6 = ed6.partition.mesures[ed6.partition.mesures.length - 1];
+        check(derniere6.voix[0].evenements.every(e => e.silence || !e.notes.length),
+            'le prix assumé : une mesure vide au bout, et une seule');
         const ed7 = neuf();
         ed7.allerAMesure(ed7.partition.mesures.length - 1, -1);
         const avant7 = ed7.partition.mesures.length;
         ed7.deplacerEvenement(1);
         check(ed7.partition.mesures.length === avant7 + 1,
-            '« → » explicite, lui, garde le droit d\'ajouter une mesure au bout du morceau');
+            '« → » explicite garde le même droit — les deux gestes suivent désormais la même règle');
+        // ET UN SEUL Ctrl+Z défait la note ET la mesure qu'elle a fait naître : `memoriser` court
+        // AVANT l'écriture, donc avant l'avance. Sans cela, la correction aurait échangé une perte
+        // silencieuse contre deux annulations pour un seul geste.
+        const edUndo = neuf();
+        edUndo.dureeCourante = { valeur: 1, points: 0, nolet: null };
+        // La BORNE EST PRISE D'ABORD : depuis que la saisie fait grandir le morceau, relire
+        // `mesures.length` à chaque tour donnerait une boucle sans fin. (Écrit tel quel une
+        // première fois — le banc a tourné jusqu'à ce qu'on le tue.)
+        const nMesures = edUndo.partition.mesures.length;
+        for (let i = 0; i < nMesures; i++) edUndo.saisirChiffre(3);
+        const avantUndo = edUndo.partition.mesures.length;
+        edUndo.saisirChiffre(5);                                        // la note qui ouvre une mesure
+        check(edUndo.partition.mesures.length === avantUndo + 1,
+            `préalable : la note a bien ouvert une mesure (${avantUndo} → ${edUndo.partition.mesures.length})`);
+        edUndo.annuler();
+        check(edUndo.partition.mesures.length === avantUndo,
+            `un seul Ctrl+Z défait la note ET sa mesure (${edUndo.partition.mesures.length} mesures)`);
 
         // =====================================================================================
         // E. UN SEUL POINT D'ANNULATION PAR CASE

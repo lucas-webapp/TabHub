@@ -702,38 +702,50 @@ export class Editeur {
         // JAMAIS SUR UN ENCHAÎNEMENT : le second chiffre d'une case à deux chiffres complète la
         // précédente, le curseur a déjà avancé pour elle.
         //
-        // ET ELLE NE CRÉE RIEN (voir _avancerSansCreer) : « → » a le droit de prolonger la mesure ou
-        // d'ajouter une mesure au bout du morceau, une frappe de saisie non. Sans quoi la dernière
-        // note d'un morceau laisserait derrière elle une mesure vide que personne n'a demandée.
-        if (!enchaine && this.avanceAuto) this._avancerSansCreer();
+        // ET ELLE FAIT GRANDIR LE MORCEAU quand elle arrive au bout (voir _avancerApresSaisie).
+        if (!enchaine && this.avanceAuto) this._avancerApresSaisie();
         this._dernierChiffre = { temps: maintenant, cible, valeur: frette };
         this.prevenir('saisie');
         return frette;
     }
 
     /**
-     * Avance d'un évènement SANS JAMAIS MODIFIER LE DOCUMENT — l'avance qui suit une case tapée.
+     * Avance d'un évènement après une case tapée — ET FAIT GRANDIR LE MORCEAU quand il n'y a plus
+     * rien devant.
      *
-     * Le pendant restreint de `deplacerEvenement`, qui lui a le droit de prolonger la mesure courante
-     * et d'ajouter une mesure au bout du morceau. La distinction est volontaire : un geste de
-     * NAVIGATION explicite peut faire grandir le morceau, une frappe de SAISIE non. Elle évite aussi
-     * un second point d'annulation — `deplacerEvenement` mémorise quand il crée, et défaire « une
-     * case tapée » aurait alors demandé deux Ctrl+Z.
+     * CE QU'ELLE CORRIGE, et c'était une perte silencieuse. Cette avance refusait auparavant de rien
+     * créer : arrivée au dernier évènement de la dernière mesure, elle s'arrêtait là. Or on recopie
+     * une partition SANS SAVOIR COMBIEN DE MESURES elle fait — on tape, simplement. Mesuré sur un
+     * morceau neuf (4 mesures, soit 16 noires) : 24 frappes d'affilée écrivaient 16 notes et
+     * RÉÉCRIVAIENT HUIT FOIS la seizième case, sans un mot. On voyait « 4 5 6 6 » et huit notes
+     * avaient disparu. C'est exactement ce que le lot 3 avait banni partout ailleurs (« rien ne
+     * disparaît sans un mot ») — mais la règle avait été écrite pour les gestes d'édition, et
+     * celui-ci est un geste de saisie.
      *
-     * @returns {boolean} faux si l'on était déjà au tout dernier évènement du morceau.
+     * CE QUE LA VERSION PRÉCÉDENTE PROTÉGEAIT, et le compte est fait honnêtement : « la dernière note
+     * d'un morceau laisserait derrière elle une mesure vide que personne n'a demandée ». C'est vrai,
+     * et c'est le prix payé ici. Mais une mesure vide de trop se voit et s'efface en un geste
+     * (Alt+Retour arrière), là où huit notes avalées ne se voient pas du tout. Et « → » crée déjà
+     * cette même mesure depuis toujours : la saisie ne fait que rejoindre la navigation, au lieu de
+     * suivre une règle qu'elle était seule à suivre.
+     *
+     * PAS DE SECOND POINT D'ANNULATION : `saisirChiffre` a déjà appelé `memoriser` AVANT d'écrire,
+     * donc avant cette avance. L'instantané précède la note ET la mesure neuve — un seul Ctrl+Z
+     * défait les deux. (C'est pour cela qu'on ne mémorise pas ici, contrairement à
+     * `deplacerEvenement`, qui est appelé seul.)
+     *
+     * @returns {boolean} toujours vrai — il y a désormais toujours une case devant.
      */
-    _avancerSansCreer() {
+    _avancerApresSaisie() {
         const c = this.curseur;
         c.decalage = 0;
         const voix = this.voixCourante();
         if (c.evenement + 1 < voix.evenements.length) { c.evenement += 1; return true; }
-        if (c.mesure + 1 < this.partition.mesures.length) {
-            c.mesure += 1;
-            c.voix = Math.min(c.voix, this.partition.mesures[c.mesure].voix.length - 1);
-            c.evenement = 0;
-            return true;
-        }
-        return false;
+        if (c.mesure + 1 >= this.partition.mesures.length) this.partition.mesures.push(creerMesure());
+        c.mesure += 1;
+        c.voix = Math.min(c.voix, this.partition.mesures[c.mesure].voix.length - 1);
+        c.evenement = 0;
+        return true;
     }
 
     /**
