@@ -414,6 +414,7 @@ class TabHubApp {
             // qu'un collage écrase, et les deux chemins ne peuvent pas diverger.
             copierMesures: () => this.copierPlage(),
             boucleMesure: () => this.boucleSurMesureCourante(),
+            allerAMesure: () => this.allerAUneMesure(),
             collerMesures: (options) => this._collerMesures(options || {})(),
             // Rend VRAI s'il y avait une plage à abandonner : c'est ce qui permet à Échap de servir
             // deux choses sans les confondre (voir edit/keyboard.js).
@@ -1408,6 +1409,61 @@ class TabHubApp {
         this.el.btnVitesse?.setAttribute('aria-expanded', 'false');
         this._detacherGroupeVitesse?.();
         this._detacherGroupeVitesse = null;
+    }
+
+    /**
+     * ALLER À UNE MESURE — clic sur le repère de position, ou Ctrl+G.
+     *
+     * LE DÉFAUT QU'IL COMBLE. `allerAMesure` existait dans le modèle depuis toujours, mais n'était
+     * joignable par AUCUN geste : le clavier a « mesure précédente / suivante » et « début / fin du
+     * morceau », rien entre les deux. Sur un morceau de cent mesures, atteindre la 47e se faisait en
+     * faisant défiler à la souris — ou en pressant Ctrl+→ quarante-six fois.
+     *
+     * LE NUMÉRO DE PAGE EST LA PORTE. On clique sur « Mesure 12 / 64 » : c'est le seul endroit qui
+     * dit toujours où l'on est, donc le premier où l'on cherche à aller ailleurs. Ctrl+G fait la
+     * même chose au clavier — le « go to » de toutes les applications qui en ont un.
+     *
+     * HORS BORNES, ON NE REFUSE PAS : `allerAMesure` borne déjà (voir Editeur), et taper 200 sur un
+     * morceau de 64 mesures veut dire « la fin ». Un refus n'apprendrait rien qu'on ne voie déjà.
+     */
+    async allerAUneMesure() {
+        const total = this.editeur.partition.mesures.length;
+        const reponse = await saisir({
+            titre: 'Aller à une mesure',
+            texte: `Le morceau en compte ${total}.`,
+            etiquette: 'Numéro de mesure',
+            valeur: String(this.editeur.curseur.mesure + 1),
+            libelleOk: 'Y aller',
+        });
+        if (reponse === null) { this.el.zone.focus(); return; }
+        const n = parseInt(String(reponse).trim(), 10);
+        if (!Number.isFinite(n)) { this.message('Il faut un numéro de mesure.'); this.el.zone.focus(); return; }
+        this.editeur.allerAMesure(n - 1);
+        this.el.zone.focus();
+    }
+
+    /**
+     * AJOUTER PLUSIEURS MESURES D'UN COUP, après celle du curseur.
+     *
+     * Alt+M en ajoute UNE : préparer un morceau de soixante-quatre mesures demandait soixante appuis.
+     * La saisie fait désormais grandir le morceau toute seule (voir Editeur._avancerApresSaisie), ce
+     * qui couvre l'écriture au fil de la pensée — mais pas le geste de celui qui SAIT que son morceau
+     * fait 64 mesures et veut les voir tout de suite, pour s'y repérer et y sauter.
+     */
+    async ajouterDesMesures() {
+        const reponse = await saisir({
+            titre: 'Ajouter des mesures',
+            texte: `Elles seront ajoutées après la mesure ${this.editeur.curseur.mesure + 1}.`,
+            etiquette: 'Combien',
+            valeur: '4',
+            libelleOk: 'Ajouter',
+        });
+        if (reponse === null) { this.el.zone.focus(); return; }
+        const n = parseInt(String(reponse).trim(), 10);
+        if (!Number.isFinite(n) || n < 1) { this.message('Il faut un nombre de mesures.'); this.el.zone.focus(); return; }
+        const posees = this.editeur.ajouterMesure(true, n);
+        this.message(`${posees} mesure${posees > 1 ? 's' : ''} ajoutée${posees > 1 ? 's' : ''}`);
+        this.el.zone.focus();
     }
 
     /**
@@ -3339,6 +3395,9 @@ class TabHubApp {
 
     brancherInterface() {
         const surClic = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+        // LE REPÈRE DE POSITION EST UNE PORTE (voir index.html, #info-position, et allerAUneMesure) :
+        // cliquer sur « Mesure 12 / 64 » demande où aller.
+        surClic('info-position', () => this.allerAUneMesure());
         surClic('btn-annuler', () => this.editeur.annuler());
         surClic('btn-retablir', () => this.editeur.retablir());
         surClic('btn-enregistrer', () => this.enregistrer());
@@ -3837,6 +3896,7 @@ class TabHubApp {
             // note qu'on regarde, pas dans une barre d'outils à part.
             { texte: 'Ajouter une mesure avant', faire: action(() => this.editeur.ajouterMesure(false)) },
             { texte: 'Ajouter une mesure après', faire: action(() => this.editeur.ajouterMesure(true)) },
+            { texte: 'Ajouter des mesures…', faire: () => { this.fermerMenuContextuel(); this.ajouterDesMesures(); } },
             { texte: 'Supprimer cette mesure', faire: action(() => this.editeur.supprimerMesure()) },
             null,
             // RETOUR À LA LIGNE (retour utilisateur : « permets-moi de faire un retour à la ligne

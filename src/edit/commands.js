@@ -1730,13 +1730,28 @@ export class Editeur {
         this.prevenir('edition');
     }
 
-    ajouterMesure(apres = true) {
+    /**
+     * Ajoute `combien` mesures vides avant ou après la mesure courante, et s'y place.
+     *
+     * LE COMPTE, et non pas seulement « une ». Alt+M en ajoutait une : préparer un morceau de
+     * soixante-quatre mesures demandait soixante appuis. La saisie fait désormais grandir le morceau
+     * toute seule (voir _avancerApresSaisie), ce qui couvre l'écriture au fil de la pensée — mais pas
+     * le geste de celui qui SAIT que son morceau fait 64 mesures et veut les voir tout de suite, pour
+     * s'y repérer et y sauter.
+     *
+     * UN SEUL POINT D'ANNULATION pour les soixante : `memoriser` court une fois, avant la boucle.
+     * Soixante Ctrl+Z pour défaire un geste qu'on a fait en une fois serait absurde.
+     */
+    ajouterMesure(apres = true, combien = 1) {
+        const n = Math.max(1, Math.min(Math.round(combien) || 1, 512));
         this.memoriser();
         const at = apres ? this.curseur.mesure + 1 : this.curseur.mesure;
-        this.partition.mesures.splice(at, 0, creerMesure());
+        const neuves = Array.from({ length: n }, () => creerMesure());
+        this.partition.mesures.splice(at, 0, ...neuves);
         this.curseur.mesure = at;
         this.curseur.evenement = 0;
         this.prevenir('edition');
+        return n;
     }
 
     /**

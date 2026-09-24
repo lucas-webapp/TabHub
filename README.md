@@ -323,6 +323,24 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Atteindre la mesure 47
+
+`allerAMesure` existait dans le modèle depuis toujours et **n'était joignable par aucun geste**. Le
+clavier a « mesure précédente / suivante » et « début / fin du morceau », rien entre les deux : sur
+un morceau de cent mesures, atteindre la 47e se faisait en faisant défiler à la souris, ou en
+pressant `Ctrl`+`→` quarante-six fois.
+
+**Le numéro de page est la porte.** On clique sur « Mesure 12 / 64 » — le seul endroit qui dise
+toujours où l'on est, donc le premier où l'on cherche à aller ailleurs. `Ctrl`+`G` fait la même chose
+au clavier. Un numéro hors bornes n'est pas refusé : 200 sur un morceau de 64 veut dire « la fin ».
+
+**Et les mesures s'ajoutent par paquets.** `Alt`+`M` en pose une ; préparer un morceau de
+soixante-quatre en demandait soixante appuis. *Ajouter des mesures…* (clic droit) en pose autant
+qu'on veut, en **un seul point d'annulation** — soixante `Ctrl`+`Z` pour défaire un geste fait en une
+fois seraient absurdes. La saisie fait déjà grandir le morceau toute seule quand on écrit au-delà de
+la dernière mesure : ce geste-ci sert à celui qui *sait* que son morceau fait 64 mesures et veut les
+voir tout de suite, pour s'y repérer et y sauter.
+
 #### Déclarer la mesure ne casse rien
 
 Poser 3/4 ou 6/8 est le **tout premier geste** qu'on fait pour écrire une valse ou une gigue — avant
@@ -523,6 +541,7 @@ reprendre) et entre deux signatures différentes (le rythme n'y tomberait pas ju
 | `Maj`+`↑` `↓` | **Accord** — la même case, une corde plus haut / plus bas |
 | `Ctrl`+`←` `→` | Mesure précédente / suivante |
 | `Origine` / `Fin` | Début / fin de mesure (avec `Ctrl` : du morceau) |
+| `Ctrl`+`G` | **Aller à une mesure** (ou clic sur « Mesure 12 / 64 » en bas de l'écran) |
 | `⌫` / `Suppr` | Effacer la note |
 | `Entrée` | Insérer un évènement |
 | `Ctrl`+`↑` `↓` | Monter / descendre la note d'une case |

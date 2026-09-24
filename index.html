@@ -186,7 +186,12 @@
 -->
 <div class="transport">
     <div class="transport-cote transport-gauche">
-        <span class="info-transport" id="info-position">Mesure <strong>1</strong> / <strong>4</strong></span>
+        <!-- CLIQUABLE : c'est le seul endroit qui dit toujours où l'on est, donc le premier où l'on
+             cherche à aller ailleurs — le réflexe du numéro de page. Ctrl+G fait la même chose au
+             clavier (voir edit/keyboard.js). Un <button> et non un <span> : il se tabule, s'annonce
+             comme une commande, et répond à Entrée sans qu'on ait rien à écrire pour ça. -->
+        <button type="button" class="info-transport info-cliquable" id="info-position"
+                title="Aller à une mesure (Ctrl+G)">Mesure <strong>1</strong> / <strong>4</strong></button>
         <span class="info-transport" id="info-selection"></span>
     </div>
 

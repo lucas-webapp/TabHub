@@ -867,6 +867,20 @@ input.champ[type="number"] { width: 54px; text-align: center; }
 .btn-transport-texte:active { background: var(--btn-green-1); border-color: var(--btn-green-border); color: var(--btn-text); }
 
 .info-transport { font-size: var(--fs-xs); color: var(--text-muted); font-variant-numeric: tabular-nums; }
+/* LE REPÈRE DE POSITION EST UNE COMMANDE (voir index.html, #info-position) : il faut que ça se voie
+   sans que ça crie. Pas de cadre au repos — la barre du bas est une bande d'information, un bouton
+   dessiné y aurait l'air d'un intrus — mais un soulignement pointillé qui dit « on peut agir ici »,
+   et un vrai fond au survol. Les réglages de base d'un <button> (fond, bordure, police) sont remis à
+   ceux du texte voisin : c'est un mot de la phrase, pas un bouton de barre d'outils. */
+.info-cliquable {
+    background: none; border: 0; padding: 2px 6px; margin: -2px 0; font: inherit;
+    color: inherit; cursor: pointer; border-radius: var(--radius);
+    text-decoration: underline dotted; text-underline-offset: 3px;
+    text-decoration-color: var(--text-muted);
+}
+.info-cliquable:hover, .info-cliquable:focus-visible {
+    background: var(--fond-bouton-sombre-survol); color: var(--text-main);
+}
 /* VALEUR D'ÉTAT dans les Réglages (« Enregistrement automatique — 14:32 ») : ce n'est ni un champ ni
    un libellé, mais une valeur en lecture seule. Alignée à droite comme les valeurs des curseurs de
    volume, dont elle reprend la graisse — pour qu'une ligne d'INFORMATION et une ligne de RÉGLAGE se

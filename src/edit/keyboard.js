@@ -60,6 +60,9 @@ export function brancherClavier(editeur, actions = {}) {
         // RÉENTENDRE LA MESURE QU'ON RETOUCHE (voir main.js#boucleSurMesureCourante). Alt+Espace
         // parce qu'Espace joue déjà, depuis le début : la même famille de geste, un cran plus près.
         if (sig === 'alt+space') { e.preventDefault(); actions.boucleMesure?.(); return; }
+        // ALLER À UNE MESURE — le « go to » de toutes les applications qui en ont un. Ctrl+G est libre
+        // ici, et le navigateur ne le réclame pas (à la différence de Ctrl+F, sa recherche de page).
+        if (sig === 'ctrl+g') { e.preventDefault(); actions.allerAMesure?.(); return; }
         if (sig === 'ctrl+c') { e.preventDefault(); actions.copierMesures?.(); return; }
         if (sig === 'ctrl+v') { e.preventDefault(); actions.collerMesures?.({}); return; }
         if (sig === 'ctrl+shift+v') { e.preventDefault(); actions.collerMesures?.({ inserer: true }); return; }

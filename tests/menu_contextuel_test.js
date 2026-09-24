@@ -72,11 +72,14 @@ const { check, exiger, plan, bilan } = creerHarnais('menu contextuel');
         // 469px de contenu pour 360 de place). Le menu est donc le seul chemin au doigt, et un
         // second chemin à la souris. Les libellés disent l'ÉTAT COURANT, comme celui du saut de
         // ligne juste au-dessus : on lit ce que le clic va faire, sans avoir à le deviner.
+        // « AJOUTER DES MESURES… » s'est ajoutée depuis, juste après les deux « ajouter une mesure »,
+        // là où on la cherche : Alt+M en posait UNE, et préparer un morceau de soixante-quatre en
+        // demandait soixante appuis (voir naviguer_test.js).
         check(textes.join('|') === 'Supprimer|Supprimer et décaler la suite|Insérer une note à gauche|Insérer une note à droite'
-            + '|Ajouter une mesure avant|Ajouter une mesure après|Supprimer cette mesure'
+            + '|Ajouter une mesure avant|Ajouter une mesure après|Ajouter des mesures…|Supprimer cette mesure'
             + '|Commencer une nouvelle ligne ici|Deux voix sur cette mesure|Deux voix sur tout le morceau'
             + '|Aide rythmique à partir d\'ici…|Copier cette mesure',
-            `les douze actions attendues, dans cet ordre, et aucun « Coller » tant que rien n'est copié `
+            `les treize actions attendues, dans cet ordre, et aucun « Coller » tant que rien n'est copié `
             + `— reçu : ${textes.join(' | ')}`);
         const boiteMenu = await menu.boundingBox();
         check(Math.abs(boiteMenu.x - p.x) < 20 && Math.abs(boiteMenu.y - p.y) < 20, 'le menu s\'ouvre AU POINT du clic, pas ailleurs');
