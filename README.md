@@ -448,6 +448,56 @@ planterait au milieu du morceau une mesure raccourcie que le geste aurait refus�
 *sur* une levée, une mesure ordinaire ne la détruit pas non plus : la dette s'affiche (`+3 ♩`) et se
 solde comme partout ailleurs.
 
+#### Ce que la comparaison a changé
+
+On a écrit un vrai morceau de dix mesures — croches pointées, triolets, syncopes, doubles, accords,
+silences, note tenue par-dessus la barre — en comptant chaque frappe, puis on l'a corrigé de
+dix-neuf façons différentes. **200 frappes pour 74 notes** (2,70 par note) à l'écriture, **32 frappes
+pour les dix-neuf corrections**. Sur ce terrain-là TabHub tient la comparaison avec MuseScore et
+Guitar Pro sans rien leur devoir, et son modèle de dette le met devant pour la *modification* : « cette
+croche est une noire » coûte une touche, les huit notes de la mesure sont toujours là, et la mesure
+porte `+½ ♩` qu'on solde quand on veut. Ailleurs, la même touche mange la note suivante.
+
+Trois écarts restaient, et ils étaient réels.
+
+**Le lasso ne savait qu'effacer.** Mesuré : « ces huit doubles sont en fait des croches » coûtait
+**quinze frappes** — huit touches de durée et sept flèches pour aller de l'une à l'autre. Il en coûte
+**une**. Durée, point, triolet, silence, transposition et effets s'appliquent désormais à toute une
+sélection, en **un seul point d'annulation**, et la sélection se recale sur ses notes au lieu de
+rester sur leurs anciens rangs. Un accord ne reçoit le geste qu'une fois : trois cases choisies sont
+trois notes, mais une seule durée.
+
+Rien n'a été réécrit pour cela. Le lot **pose le curseur sur chaque note choisie et rappelle la
+commande telle quelle** — la même que celle qu'on déclenche à la main. C'est la seule façon de
+garantir qu'une sélection fait exactement ce que fait le curseur ; deux chemins écrits séparément
+finiraient par diverger. L'enveloppe est posée sur la *déclaration* de l'action, pas dans les trois
+endroits qui les déclenchent (clavier, barre d'outils, pavé tactile) : un geste se comporte pareil à
+la touche, au bouton et au doigt.
+
+**Le triolet ne remodelait pas le temps.** `Alt`+`3` sur une noire écrite posait simplement le
+drapeau : la noire devenait une noire *de triolet* (⅔ de temps) et le tiers restant tombait en
+silence. Ce n'est jamais ce qu'on demande. Le temps devient maintenant **trois croches de triolet**,
+la première gardant la note qui était là ; le curseur se pose sur la première case vide (rester sur
+la première écraserait à la frappe suivante la note qu'on voulait garder) et la palette reste armée,
+si bien que **trois frappes suffisent** pour écrire le temps entier. Rappuyer défait le groupe et
+rend le temps à une figure, en disant les notes que ça détruit. Une triple-croche refuse, et
+explique : il n'y a rien de plus bref pour en faire trois.
+
+**La prolongation ne pouvait pas créer sa note d'arrivée.** Tenir une note par-dessus la barre est
+*le* geste qu'on fait avec une liaison, et il était refusé tant que la suite n'existait pas : il
+fallait écrire la mesure d'après, revenir en arrière, puis lier. Elle l'écrit maintenant — même
+corde, même case, tout se déduit de ce qu'on tient déjà — et un seul `Ctrl`+`Z` défait les deux. Un
+hammer-on, un pull-off ou un slide continuent d'exiger leur arrivée : ils vont vers une *autre*
+hauteur, et l'inventer choisirait de la musique à la place de l'utilisateur. Au passage, un lien que
+personne ne sait dessiner est désormais refusé net — rien ne validait cet argument, et une faute de
+frappe s'écrivait jusque dans le fichier sans qu'un pixel le signale.
+
+**Deux idées ont été écartées par la mesure**, et c'est autant à retenir que les trois autres. Des
+touches « aller directement à la corde N », pour tuer les 40 % de frappes passées en flèches : trois
+frappes gagnées sur deux cents, parce que 32 notes sur 74 restent sur la même corde et que presque
+tous les sauts font un cran. Et « insérer devrait écrire une note plutôt qu'un silence » : insérer
+puis taper la case coûte déjà deux frappes et tombe au bon endroit — c'est le plancher.
+
 #### Ce qu'une marche aléatoire a trouvé
 
 Les bancs vérifient des gestes qu'on a pensés. Restent ceux qu'on n'a pas pensés — et surtout les

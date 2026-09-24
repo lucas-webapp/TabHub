@@ -99,6 +99,9 @@ const { check, exiger, plan, bilan } = creerHarnais('repère de temps');
             ed.placerCurseur(0, 0, 0, 0); ed.saisirChiffre(3);
             ed.placerCurseur(0, 0, 0, 0); out.croche = lire();
             ed.basculerPoint(); out.pointee = lire();
+            // ALT+3 REMODÈLE LE TEMPS : la croche devient TROIS doubles de triolet, et le curseur
+            // se pose sur la première case vide (la note d'origine occupe la première). C'est donc
+            // le nom de CETTE figure-là que la barre doit dire.
             ed.basculerPoint(); ed.basculerTriolet(); out.triolet = lire();
             // La PALETTE dit autre chose : c'est justement la distinction qu'on veut.
             ed.dureeCourante = { valeur: 1, points: 0, nolet: null };
@@ -107,8 +110,8 @@ const { check, exiger, plan, bilan } = creerHarnais('repère de temps');
         });
         check(figures.croche === 'croche', `la figure écrite est nommée (« ${figures.croche} »)`);
         check(figures.pointee === 'croche pointée', `le point est dit (« ${figures.pointee} »)`);
-        check(figures.triolet === 'croche de triolet', `le triolet aussi (« ${figures.triolet} »)`);
-        check(figures.paletteSurRonde.barre === 'croche de triolet',
+        check(figures.triolet === 'double-croche de triolet', `le triolet aussi (« ${figures.triolet} »)`);
+        check(figures.paletteSurRonde.barre === 'double-croche de triolet',
             `et la barre dit ce qu'il Y A, pas ce que la palette propose d'écrire (palette sur la ronde, `
             + `barre : « ${figures.paletteSurRonde.barre} »)`);
 

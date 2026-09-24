@@ -20,9 +20,9 @@
 import {
     creerPartition, creerMesure, creerEvenement, creerNote, creerVoix, cloner, normaliser,
     signatureEffective, armureEffective, nbCordes, dureeEcrite, capaciteMesure, REPERES,
-    decouperEnEvenements, figuresSilencePour, MAX_VOIX, aplatir,
+    decouperEnEvenements, figuresSilencePour, MAX_VOIX, aplatir, LIENS,
 } from '../model/score.js';
-import { dureeEnNoires, noiresParMesure, VALEURS_FIGURES } from '../model/duration.js';
+import { dureeEnNoires, noiresParMesure, uniteDeGroupement, VALEURS_FIGURES } from '../model/duration.js';
 import { INSTRUMENTS, accordageParDefaut, accordagePredefini, identifierAccordage, hauteurDeCase } from '../model/instruments.js';
 import { silencesAlignes } from '../model/rythme.js';
 
@@ -96,6 +96,13 @@ export class Editeur {
         // dernierBilan et derniersLiensRetires. Voir saisirChiffre : l'éditeur dit ce qu'il a fait,
         // l'interface décide quoi en faire (ici : la faire sonner).
         this.derniereNoteSaisie = null;
+        // LES REPÈRES DE LA SÉLECTION APRÈS UN LOT — cinquième canal d'annonce. Un geste appliqué à
+        // toute une sélection déplace les rangs des évènements ; l'interface s'y réaccroche par là
+        // (voir repeterSurSelection et main.js).
+        this.derniereSelection = null;
+        // UN LOT EST EN COURS : `memoriser` se tait, pour que huit notes modifiées d'une touche ne
+        // fassent qu'UN point d'annulation (voir repeterSurSelection).
+        this._enLot = false;
         // L'AVANCE AUTOMATIQUE après une case tapée (voir saisirChiffre). Posé par l'interface
         // depuis les réglages ; l'éditeur en porte la valeur pour que la commande reste testable
         // sans navigateur, comme tout le reste de ce fichier.
@@ -218,6 +225,12 @@ export class Editeur {
      * sans ça, défaire « case 12 » demanderait deux Ctrl+Z, dont le premier laisserait « case 1 ».
      */
     memoriser(fusion = null) {
+        // PENDANT UN LOT, ON N'EMPILE QU'UNE FOIS. `repeterSurSelection` rejoue une commande
+        // ordinaire sur chaque note choisie ; chacune appelle `memoriser` comme elle le fait
+        // toujours, et huit notes donneraient huit points d'annulation pour UN seul geste — il
+        // faudrait presser Ctrl+Z huit fois pour défaire une touche. Le lot mémorise pour tout le
+        // monde avant de commencer, puis fait taire ce compteur-là le temps du passage.
+        if (this._enLot) return;
         const dernier = this.passe[this.passe.length - 1];
         if (fusion && dernier && dernier.fusion === fusion && Date.now() - dernier.temps < 1200) {
             dernier.temps = Date.now();
@@ -903,6 +916,81 @@ export class Editeur {
      * entièrement vide — la reconsolider note par note, comme le ferait un appel répété à
      * `effacerNote()`, écraserait le travail du passage précédent à chaque itération.
      */
+    /**
+     * REJOUE UNE COMMANDE ORDINAIRE SUR TOUTE LA SÉLECTION, en UN seul point d'annulation.
+     *
+     * CE QUI MANQUAIT : le lasso ne savait qu'EFFACER. Mesuré sur un vrai passage — « ces huit
+     * doubles sont en fait des croches » coûtait 15 frappes (huit touches de durée et sept flèches
+     * pour aller de l'une à l'autre), là où MuseScore et Guitar Pro demandent une sélection et une
+     * touche depuis toujours. C'était le seul écart de vitesse réel qui restait.
+     *
+     * ON NE RÉÉCRIT AUCUNE COMMANDE. Le lot POSE LE CURSEUR sur chaque note choisie et rappelle la
+     * commande telle quelle — la même que celle qu'on déclenche à la main. C'est la seule façon de
+     * garantir qu'une sélection fait exactement ce que fait le curseur, note après note : deux
+     * chemins écrits séparément finiraient par diverger, et l'utilisateur découvrirait un jour que
+     * « point » sur une sélection ne fait pas tout à fait ce que « point » fait sur une note.
+     *
+     * LES ÉVÈNEMENTS SONT RETENUS PAR RÉFÉRENCE, jamais par leur rang. Allonger une note peut
+     * avaler le silence qui la suit, raccourcir en insérer un : tous les rangs d'après bougeraient
+     * sous nos pieds, et le lot irait modifier des notes qu'on n'avait pas choisies. On relit donc
+     * le rang de chaque évènement juste avant d'agir, et un évènement qu'un geste précédent a fait
+     * disparaître est simplement sauté.
+     *
+     * @param {function} faire la commande, telle que la déclare edit/raccourcis.js.
+     * @param {object} actions le pont vers l'interface, qui seul sait ce qui est sélectionné.
+     */
+    repeterSurSelection(faire, actions) {
+        const refs = actions?.notesSelectionnees?.() || [];
+        // AUCUNE SÉLECTION : le chemin ordinaire, rigoureusement inchangé. C'est le cas de loin le
+        // plus fréquent, et il ne doit rien payer pour cette mécanique.
+        if (!refs.length) return faire(this, actions);
+
+        const cibles = [];
+        const vus = new Set();
+        for (const r of refs) {
+            const voix = this.partition.mesures[r.mesure]?.voix[r.voix];
+            const evt = voix?.evenements[r.evenement];
+            // UN SEUL PASSAGE PAR ÉVÈNEMENT : trois cases d'un même accord sont trois notes
+            // sélectionnées, mais une seule durée. Sans ce filtre, un accord de trois notes
+            // recevrait trois fois « allonger » et durerait trois fois trop longtemps.
+            if (!evt || vus.has(evt)) continue;
+            vus.add(evt);
+            cibles.push({ evt, voix, mesure: r.mesure, iVoix: r.voix, corde: r.corde });
+        }
+        if (!cibles.length) return false;
+
+        const curseurAvant = { ...this.curseur };
+        this.memoriser();
+        this._enLot = true;
+        let faits = 0;
+        try {
+            for (const c of cibles) {
+                const i = c.voix.evenements.indexOf(c.evt);
+                if (i < 0) continue;
+                this.curseur = { mesure: c.mesure, voix: c.iVoix, evenement: i, corde: c.corde, decalage: 0 };
+                this._dernierChiffre = null;
+                if (faire(this, actions) !== false) faits++;
+            }
+        } finally { this._enLot = false; }
+
+        // LA SÉLECTION SUIT SES NOTES. Les rangs ont bougé ; les rendre tels quels laisserait la
+        // surbrillance sur des notes voisines, et le geste suivant frapperait à côté. On rend donc
+        // les repères RECALCULÉS, et l'interface s'y réaccroche (voir main.js).
+        this.derniereSelection = [];
+        for (const c of cibles) {
+            const i = c.voix.evenements.indexOf(c.evt);
+            if (i < 0) continue;
+            for (const note of c.evt.notes) {
+                this.derniereSelection.push({ mesure: c.mesure, voix: c.iVoix, evenement: i, corde: note.corde });
+            }
+        }
+        this.curseur = curseurAvant;
+        this.corrigerCurseur();
+        this.dernierBilan = faits > 1 ? `${faits} temps modifiés d'un seul geste — Ctrl+Z les rend tous.` : null;
+        this.prevenir('edition');
+        return faits > 0;
+    }
+
     effacerNotes(refs) {
         if (!refs || !refs.length) return false;
         this.memoriser();
@@ -1259,11 +1347,118 @@ export class Editeur {
     }
 
     /** Triolet : trois notes dans le temps de deux. Rebasculer revient à la division binaire. */
+    /**
+     * « CE TEMPS EST UN TRIOLET » — et le temps devient TROIS FIGURES, pas une figure amputée.
+     *
+     * CE QUE ÇA FAISAIT AVANT, et pourquoi c'était faux. Le geste posait simplement le drapeau
+     * `nolet` sur la figure sous le curseur : une noire devenait une noire DE TRIOLET, qui dure les
+     * deux tiers d'un temps, et le tiers restant tombait en silence. Mesuré sur une mesure de deux
+     * noires : « 1 1 » devenait « 0,6667 · 0,3333 silence · 1 ». Ce n'est pas faux musicalement —
+     * une noire de triolet existe — mais ce n'est jamais ce qu'on demande en pressant « triolet »
+     * sur un temps. On veut trois notes dans le temps d'une ; on obtenait une note bancale et un
+     * reste bâtard qu'il fallait ensuite nettoyer à la main.
+     *
+     * CE QUE ÇA FAIT MAINTENANT : la figure est remplacée par TROIS figures de la valeur
+     * immédiatement plus courte, marquées du triolet — une noire donne trois croches de triolet,
+     * une croche donne trois doubles de triolet. La première garde les notes et tout ce que
+     * l'évènement portait (effets, accord, liaison) ; les deux autres arrivent en silence, prêtes à
+     * recevoir leur case. Le temps total ne bouge pas d'un iota, et c'est le point : poser un
+     * triolet ne doit jamais décaler la mesure.
+     *
+     * ET LA PALETTE RESTE SUR LE TRIOLET, pour que les deux cases suivantes se tapent sans rien
+     * redemander : trois frappes après celle-ci, le temps est écrit.
+     */
     basculerTriolet() {
-        const nolet = this.evenementCourant().duree.nolet ? null : { dans: 3, valent: 2 };
-        const nouvelleDuree = { ...this.evenementCourant().duree, nolet };
-        if (!this._essaierNouvelleDuree(nouvelleDuree)) return false;
-        this.dureeCourante.nolet = nolet ? { ...nolet } : null;
+        this.derniereErreur = null;
+        const voix = this.voixCourante();
+        const i = this.curseur.evenement;
+        const e = voix?.evenements[i];
+        if (!e) return false;
+        if (e.duree.nolet) return this._defaireNolet(voix, i);
+
+        // LA FIGURE IMMÉDIATEMENT PLUS COURTE : une valeur double (noire 4 → croche 8). Une
+        // triple-croche n'en a pas, et on le DIT plutôt que d'écrire une durée qui n'existe pas.
+        const plusCourte = e.duree.valeur * 2;
+        if (!VALEURS_FIGURES.includes(plusCourte)) {
+            this.derniereErreur = 'Cette figure est déjà la plus courte : il n\'y a rien de plus bref '
+                + 'pour en faire trois. Allongez-la d\'abord.';
+            return false;
+        }
+        this.memoriser();
+        const nolet = { dans: 3, valent: 2 };
+        // ON GARDE L'ÉVÈNEMENT, on ne le remplace pas : il porte peut-être un accent, un palm mute,
+        // un nom d'accord, une liaison. Seule sa durée change.
+        e.duree = { valeur: plusCourte, points: e.duree.points, nolet: { ...nolet } };
+        const compagnons = [
+            creerEvenement({ valeur: plusCourte, points: e.duree.points, nolet: { ...nolet } }, [], { silence: true }),
+            creerEvenement({ valeur: plusCourte, points: e.duree.points, nolet: { ...nolet } }, [], { silence: true }),
+        ];
+        voix.evenements.splice(i + 1, 0, ...compagnons);
+        this.dureeCourante = { valeur: plusCourte, points: e.duree.points, nolet: { ...nolet } };
+        // LE CURSEUR VA SUR LA PREMIÈRE CASE VIDE, pas sur celle qu'on vient de garder. La note qui
+        // était là est la première du triolet — la frappe suivante doit écrire la DEUXIÈME, sinon
+        // elle écraserait celle qu'on voulait justement conserver. Sur un silence, en revanche, il
+        // n'y a rien à garder : on reste au début et les trois cases se tapent d'affilée.
+        if (!e.silence && e.notes.length) this.curseur.evenement = i + 1;
+        this._dernierChiffre = null;
+        this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * L'INVERSE : le triolet se défait, et le temps redevient UNE figure.
+     *
+     * LE GROUPE EST CELUI QUE LE MOTEUR DESSINE — des évènements consécutifs qui portent le même
+     * n-olet, sans franchir un début de temps. C'est la règle du crochet « 3 » gravé au-dessus
+     * (voir engine/layout.js), et les deux doivent la partager : défaire un groupe que l'œil voyait
+     * autrement serait incompréhensible.
+     *
+     * CE QUE ÇA DÉTRUIT SE DIT. Trois croches de triolet qui portent trois notes redeviennent UNE
+     * noire : deux notes disparaissent. C'est la règle de la maison (voir dernierBilan) — un geste
+     * qui détruit l'annonce, et Ctrl+Z le défait d'un coup.
+     *
+     * SI LE TOTAL NE TOMBE PAS SUR UNE FIGURE unique — un groupe entamé, deux croches de triolet
+     * sur trois —, on ne force rien : on retire le drapeau de la seule figure visée, exactement
+     * comme avant, et la dette qui en résulte s'affiche comme n'importe quelle autre.
+     */
+    _defaireNolet(voix, i) {
+        const nolet = voix.evenements[i].duree.nolet;
+        const unite = uniteDeGroupement(signatureEffective(this.partition, this.curseur.mesure)) || 1;
+        const surUnTemps = (k) => {
+            const x = positionDe(voix, k) / unite;
+            return Math.abs(x - Math.round(x)) < 1e-6;
+        };
+        const meme = (k) => {
+            const d = voix.evenements[k]?.duree?.nolet;
+            return d && d.dans === nolet.dans && d.valent === nolet.valent;
+        };
+        let debut = i;
+        while (debut > 0 && meme(debut - 1) && !surUnTemps(debut)) debut--;
+        let fin = i;
+        while (fin + 1 < voix.evenements.length && meme(fin + 1) && !surUnTemps(fin + 1)) fin++;
+
+        const groupe = voix.evenements.slice(debut, fin + 1);
+        const total = groupe.reduce((t, e) => t + dureeEnNoires(e.duree), 0);
+        const figures = decouperEnEvenements(total);
+        if (figures.length !== 1) {
+            // Groupe entamé : on s'en tient au geste minimal, celui d'avant.
+            const nouvelleDuree = { ...voix.evenements[i].duree, nolet: null };
+            if (!this._essaierNouvelleDuree(nouvelleDuree)) return false;
+            this.dureeCourante = { ...this.dureeCourante, nolet: null };
+            this.prevenir('edition');
+            return true;
+        }
+        this.memoriser();
+        const perdues = groupe.slice(1).reduce((t, e) => t + (e.silence ? 0 : e.notes.length), 0);
+        const garde = groupe[0];
+        garde.duree = { ...figures[0].duree };
+        voix.evenements.splice(debut + 1, groupe.length - 1);
+        this.curseur.evenement = debut;
+        this.dureeCourante = { ...figures[0].duree };
+        this.dernierBilan = perdues
+            ? `Triolet défait — ${perdues} note${perdues > 1 ? 's' : ''} avec lui. Ctrl+Z les ramène.`
+            : null;
+        this._dernierChiffre = null;
         this.prevenir('edition');
         return true;
     }
@@ -2555,16 +2750,68 @@ export class Editeur {
      */
     basculerLien(lien) {
         this.derniereErreur = null;
+        // UN LIEN QUE PERSONNE NE SAIT DESSINER N'EST PAS UN LIEN. Rien ne validait cet argument :
+        // une faute de frappe posait sur la note un lien que ni le moteur ni le lecteur ne
+        // reconnaissent, et il s'écrivait jusque dans le fichier sans qu'un seul pixel le signale.
+        if (!LIENS[lien]) return false;
         const note = this.noteCourante();
         if (!note) return false;
         if (note.lien !== lien && !this._cibleDeLiaison(note)) {
-            this.derniereErreur = 'Une liaison relie cette note à la SUIVANTE sur la même corde — '
-                + 'il n\'y en a pas encore. Écris-la d\'abord.';
-            return false;
+            // LA PROLONGATION ÉCRIT SA NOTE D'ARRIVÉE. C'est le geste le plus courant qu'on fasse
+            // avec une liaison — tenir une note par-dessus la barre de mesure —, et il était refusé
+            // tant que la suite n'existait pas. Il fallait donc écrire la mesure suivante, revenir en
+            // arrière, puis lier : trois déplacements pour un geste qui en demande zéro. Le « + » de
+            // MuseScore écrit la note liée depuis toujours ; ici, elle se déduit entièrement de ce
+            // qu'on tient déjà (même corde, même case), il n'y a rien à demander.
+            //
+            // SEULEMENT POUR LA PROLONGATION. Un hammer-on, un pull-off ou un slide vont vers une
+            // AUTRE hauteur, que nous ne connaissons pas : les inventer choisirait de la musique à
+            // la place de l'utilisateur. Ceux-là continuent d'exiger que l'arrivée soit écrite.
+            const cree = lien === 'tie' ? this._ecrireArriveeDeProlongation(note) : null;
+            if (!cree) {
+                this.derniereErreur = lien === 'tie'
+                    ? 'Une prolongation tient cette note jusqu\'à la suivante — il n\'y a rien après elle '
+                      + 'dans le morceau. Ajoute une mesure d\'abord.'
+                    : 'Ce lien relie cette note à la SUIVANTE sur la même corde — il n\'y en a pas encore. '
+                      + 'Écris-la d\'abord.';
+                return false;
+            }
+            note.lien = lien;
+            this.prevenir('edition');
+            return true;
         }
         this.memoriser();
         note.lien = note.lien === lien ? null : lien;
         this.prevenir('edition');
+        return true;
+    }
+
+    /**
+     * ÉCRIT LA NOTE SUR LAQUELLE LA PROLONGATION VA TOMBER, et rend `true` si elle l'a pu.
+     *
+     * Deux cas, et un seul refus :
+     *   · l'évènement suivant est un SILENCE — il devient la note tenue, même corde, même case, en
+     *     gardant sa durée : c'est exactement ce que veut dire « cette note se prolonge ici » ;
+     *   · il porte déjà des notes mais RIEN sur notre corde — la note tenue s'y ajoute, et sonne
+     *     pendant ce temps-là avec les autres. Une prolongation qui traverse un accord est courante.
+     * Le refus : il n'y a pas d'évènement suivant du tout, c'est-à-dire qu'on est à la toute fin du
+     * morceau. Faire grandir la partition pour poser une liaison déciderait à la place de
+     * l'utilisateur qu'il veut une mesure de plus ; on le lui dit plutôt.
+     *
+     * `memoriser` est appelé ICI, avant de toucher à quoi que ce soit : la note créée et le drapeau
+     * posé par l'appelant sont UN seul geste, et un seul Ctrl+Z doit défaire les deux.
+     */
+    _ecrireArriveeDeProlongation(note) {
+        const c = this.curseur;
+        const liste = aplatir(this.partition).filter(e => e.voix === c.voix);
+        const k = liste.findIndex(e => e.mesure === c.mesure && e.evenement === c.evenement);
+        const suivant = k >= 0 ? liste[k + 1] : null;
+        if (!suivant) return false;
+        this.memoriser();
+        const e = suivant.ref;
+        e.silence = false;
+        e.notes.push(creerNote(note.corde, note.frette));
+        this._dernierChiffre = null;
         return true;
     }
 

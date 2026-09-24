@@ -436,6 +436,12 @@ class TabHubApp {
             focusPartition: () => this.el.zone.focus(),
             signalerErreur: (texte) => this.message(texte),
             aUneSelection: () => this.selectionNotes.size > 0,
+            // CE QUE LE LASSO A ATTRAPÉ, en repères que l'éditeur sait lire (voir
+            // Editeur.repeterSurSelection). L'éditeur ne connaît ni le DOM ni le lasso : il demande.
+            notesSelectionnees: () => [...this.selectionNotes].map(cle => {
+                const [mesure, voix, evenement, corde] = cle.split(':').map(Number);
+                return { mesure, voix, evenement, corde };
+            }),
             effacerSelection: () => this.effacerSelection(),
         });
 
@@ -882,6 +888,20 @@ class TabHubApp {
         //     (mesuré : la bande ne revenait pas avec son onglet), alors que les ancres suffisaient
         //     à décider. Une condition de moins, et la bonne réponse dans les deux cas.
         if (raison !== 'curseur' && raison !== 'lecture') this.lecteur.reancrerBoucle(this.editeur.partition);
+        // LA SÉLECTION SUIT SES NOTES APRÈS UN LOT, pour la même raison que la bande de boucle suit
+        // ses mesures : elle est repérée par des RANGS, et un geste appliqué à toute la sélection
+        // vient peut-être de les décaler (voir Editeur.repeterSurSelection). Sans ce recollage, la
+        // surbrillance restait sur les notes voisines et le geste suivant frappait à côté — l'erreur
+        // la plus déroutante qui soit, puisqu'on a sous les yeux ce qu'on croit avoir choisi.
+        //
+        // ON LA GARDE PLUTÔT QUE DE L'EFFACER : on enchaîne les gestes sur un même passage (les
+        // mettre en croches, PUIS les pointer), et redessiner le lasso entre chaque annulerait tout
+        // ce que ce lot fait gagner.
+        if (this.editeur.derniereSelection) {
+            this.selectionNotes = new Set(this.editeur.derniereSelection
+                .map(r => `${r.mesure}:${r.voix}:${r.evenement}:${r.corde}`));
+            this.editeur.derniereSelection = null;
+        }
         // LA DETTE S'ANNONCE ICI, ET NULLE PART AILLEURS.
         //
         // Un allongement ne se refuse plus : il décale, et la mesure devient trop longue (voir

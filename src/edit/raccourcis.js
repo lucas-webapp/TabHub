@@ -41,6 +41,25 @@ export function libelleTouche(sig) {
 const D = (valeur) => ({ valeur, points: 0, nolet: null });
 
 /**
+ * « CE GESTE S'APPLIQUE AUSSI À UNE SÉLECTION ENTIÈRE. »
+ *
+ * L'enveloppe est posée ICI, sur la DÉCLARATION de l'action, et non dans les trois endroits qui
+ * déclenchent les actions (le clavier, la barre d'outils, le pavé tactile). Ces trois-là appellent
+ * tous `action.faire(editeur, actions)` sans rien savoir du reste, et c'est très bien ainsi : leur
+ * apprendre ce qu'est une sélection reviendrait à écrire trois fois la même règle, donc à s'exposer
+ * à ce qu'elles divergent. Un geste marqué ici se comporte pareil qu'on le déclenche à la touche,
+ * au bouton ou au doigt.
+ *
+ * SANS SÉLECTION, `repeterSurSelection` rend la main immédiatement au geste d'origine : le chemin
+ * ordinaire — de très loin le plus fréquent — ne paie rien pour cette mécanique.
+ *
+ * NE SONT PAS ENVELOPPÉS les gestes qui n'ont de sens que sur UNE place : insérer, supprimer et
+ * décaler, poser une liaison (elle relie deux notes précises), écrire une case. Les répéter sur
+ * vingt notes ne voudrait rien dire, ou détruirait ce qu'on vient de choisir.
+ */
+const parLot = (faire) => (ed, actions) => ed.repeterSurSelection(faire, actions);
+
+/**
  * Les actions. `groupe` sert à la palette (un cadre par groupe), `palette: false` réserve l'action au
  * clavier — la navigation n'a pas besoin de boutons, elle en aurait vingt.
  */
@@ -72,8 +91,8 @@ export const ACTIONS = [
     { id: 'caseARemplir', touches: ['tab'], libelle: 'Aller à la prochaine case à remplir', palette: false,
       faire: ed => ed.allerCaseSuivanteARemplir() },
     { id: 'supprEvenement', touches: ['ctrl+delete'], libelle: 'Supprimer et décaler ce qui suit (garde la mesure à sa capacité)', palette: false, faire: ed => ed.supprimerEvenement() },
-    { id: 'transposeHaut', touches: ['ctrl+arrowup'], libelle: 'Case +1', palette: false, faire: ed => ed.transposerNote(1) },
-    { id: 'transposeBas', touches: ['ctrl+arrowdown'], libelle: 'Case −1', palette: false, faire: ed => ed.transposerNote(-1) },
+    { id: 'transposeHaut', touches: ['ctrl+arrowup'], libelle: 'Case +1', palette: false, faire: parLot(ed => ed.transposerNote(1)) },
+    { id: 'transposeBas', touches: ['ctrl+arrowdown'], libelle: 'Case −1', palette: false, faire: parLot(ed => ed.transposerNote(-1)) },
 
     // --- Durées (palette : groupe « Durée ») -----------------------------------------------------
     ...VALEURS_FIGURES.map((valeur, i) => ({
@@ -82,10 +101,10 @@ export const ACTIONS = [
         libelle: FIGURES[i].nom,
         groupe: 'duree', figure: valeur,
         actif: ed => ed.dureeCourante.valeur === valeur,
-        faire: ed => ed.appliquerDuree(valeur),
+        faire: parLot(ed => ed.appliquerDuree(valeur)),
     })),
-    { id: 'plusLong', touches: ['+', '='], libelle: 'Durée plus longue', palette: false, faire: ed => changerFigure(ed, -1) },
-    { id: 'plusCourt', touches: ['-'], libelle: 'Durée plus courte', palette: false, faire: ed => changerFigure(ed, 1) },
+    { id: 'plusLong', touches: ['+', '='], libelle: 'Durée plus longue', palette: false, faire: parLot(ed => changerFigure(ed, -1)) },
+    { id: 'plusCourt', touches: ['-'], libelle: 'Durée plus courte', palette: false, faire: parLot(ed => changerFigure(ed, 1)) },
     // `apercu` décrit comment la PALETTE représente l'action — jamais une lettre en gras, toujours
     // soit le glyphe RÉEL de Bravura qui apparaîtra sur la partition (point, silence, accent, note
     // fantôme, chiffre de triolet — voir ui/toolbar.js), soit une petite icône de geste dessinée pour
@@ -93,11 +112,11 @@ export const ACTIONS = [
     // ne connaît lui-même ni glyphs.js ni icons.js : il ne fait que NOMMER la présentation, le rendu
     // reste entièrement du ressort de la couche ui/.
     { id: 'point', touches: ['.'], libelle: 'Note pointée', groupe: 'duree', apercu: { type: 'glyphe', nom: 'POINT' },
-      actif: ed => !!ed.evenementCourant().duree.points, faire: ed => ed.basculerPoint() },
+      actif: ed => !!ed.evenementCourant().duree.points, faire: parLot(ed => ed.basculerPoint()) },
     { id: 'triolet', touches: ['alt+3'], libelle: 'Triolet', groupe: 'duree', apercu: { type: 'glypheNolet', chiffre: 3 },
-      actif: ed => !!ed.evenementCourant().duree.nolet, faire: ed => ed.basculerTriolet() },
+      actif: ed => !!ed.evenementCourant().duree.nolet, faire: parLot(ed => ed.basculerTriolet()) },
     { id: 'silence', touches: ['r'], libelle: 'Silence', groupe: 'duree', apercu: { type: 'silence', valeur: 4 },
-      actif: ed => ed.evenementCourant().silence, faire: ed => ed.basculerSilence() },
+      actif: ed => ed.evenementCourant().silence, faire: parLot(ed => ed.basculerSilence()) },
     // L'AIDE RYTHMIQUE, DANS LE CADRE « DURÉE » et pas ailleurs (retour utilisateur : « je ne vois pas
     // le bouton de séquenceur pour indiquer le rythme, peux-tu me dire où il est ? » — il n'existait
     // QUE dans le menu contextuel du clic droit, donc nulle part sur téléphone, et introuvable
@@ -133,13 +152,13 @@ export const ACTIONS = [
     { id: 'bend', touches: ['b'], libelle: 'Bend (½ → full → 1½ → aucun)', groupe: 'effet', apercu: { type: 'icone', nom: 'bend' },
       actif: ed => !!ed.noteCourante()?.bend, faire: ed => ed.bendSuivant() },
     { id: 'palmMute', touches: ['m'], libelle: 'Palm mute', groupe: 'effet', apercu: { type: 'texteLeger', texte: 'P.M.' },
-      actif: ed => ed.evenementCourant().palmMute, faire: ed => ed.basculerEffetEvenement('palmMute') },
+      actif: ed => ed.evenementCourant().palmMute, faire: parLot(ed => ed.basculerEffetEvenement('palmMute')) },
     { id: 'ghost', touches: ['x'], libelle: 'Note fantôme', groupe: 'effet', apercu: { type: 'glyphe', nom: 'TETE_CROIX' },
       actif: ed => !!ed.noteCourante()?.ghost, faire: ed => ed.poserGhost() },
     { id: 'accent', touches: ['a'], libelle: 'Accent', groupe: 'effet', apercu: { type: 'glyphe', nom: 'ACCENT_DESSUS' },
-      actif: ed => ed.evenementCourant().accent, faire: ed => ed.basculerEffetEvenement('accent') },
+      actif: ed => ed.evenementCourant().accent, faire: parLot(ed => ed.basculerEffetEvenement('accent')) },
     { id: 'staccato', touches: ['alt+s'], libelle: 'Staccato', groupe: 'effet', apercu: { type: 'glyphe', nom: 'STACCATO' },
-      actif: ed => ed.evenementCourant().staccato, faire: ed => ed.basculerEffetEvenement('staccato') },
+      actif: ed => ed.evenementCourant().staccato, faire: parLot(ed => ed.basculerEffetEvenement('staccato')) },
 
     // --- Mesure (palette : groupe « Mesure ») ----------------------------------------------------
     // Icônes plutôt que du texte (« + Mesure », « − Mesure », « ⇥ Corriger » à l'origine) — retour

@@ -32,7 +32,7 @@ const creerHarnais = require('./_harness.js');
 const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
 
 (async () => {
-    plan(20);
+    plan(24);
     try {
         const { Editeur } = await import('../src/edit/commands.js');
         const { dureeEnNoires } = await import('../src/model/duration.js');
@@ -104,18 +104,55 @@ const { check, exiger, plan, bilan } = creerHarnais('pertes silencieuses');
             + 'confondre « mesure suivante » avec « rien »)');
 
         // =====================================================================================
-        // C. POSER UNE LIAISON SANS ARRIVÉE : refus explicite, pas un bouton mort
+        // C. POSER UNE LIAISON SANS ARRIVÉE : elle l'ÉCRIT
+        //
+        // Ce bloc épinglait l'inverse — un refus explicite, pour que le bouton ne semble pas mort.
+        // Le refus a disparu parce qu'il n'avait plus lieu d'être : tenir une note par-dessus la
+        // barre est LE geste qu'on fait avec une prolongation, et l'exiger écrite d'abord obligeait
+        // à écrire la mesure suivante, revenir en arrière, puis lier. Ce que le bloc protégeait
+        // vraiment — « jamais un bouton qui ne fait rien sans le dire » — tient toujours, et c'est
+        // ce qu'on vérifie maintenant des deux côtés : la prolongation agit, les autres liens
+        // refusent EN L'EXPLIQUANT.
         // =====================================================================================
         const ed3 = new Editeur(); ed3.nouveau('guitare');
-        ed3.dureeCourante = { valeur: 4, points: 0, nolet: null };
-        ed3.saisirChiffre(5);          // une seule note, rien après elle
+        ed3.dureeCourante = { valeur: 1, points: 0, nolet: null };
+        ed3.saisirChiffre(5);          // une ronde : elle remplit sa mesure, rien n'est écrit après
         ed3.placerCurseur(0, 0, 0, 0);
-        const refus = ed3.basculerLien('tie');
-        check(refus === false && /SUIVANTE/.test(ed3.derniereErreur || ''),
-            `poser une liaison sans note d'arrivée refuse et explique (« ${ed3.derniereErreur} ») — `
-            + 'sans ce garde-fou l\'invariant la retirerait dans la foulée, et le bouton semblerait '
+        const pose = ed3.basculerLien('tie');
+        const arrivee = ed3.partition.mesures[1].voix[0].evenements[0];
+        check(pose === true && liens(ed3).join(',') === 'tie',
+            'une prolongation posée sur une note que rien ne suit ÉCRIT sa note d\'arrivée au lieu '
+            + 'de refuser : c\'est le geste courant — tenir une note par-dessus la barre — et tout '
+            + 'ce qu\'il faut pour la déduire est déjà sous la main (même corde, même case)');
+        check(!arrivee.silence && arrivee.notes.length === 1 && arrivee.notes[0].corde === 0
+              && arrivee.notes[0].frette === 5,
+            `et l'arrivée est la MÊME note, sur la même corde (case ${arrivee.notes[0]?.frette}, corde `
+            + `${arrivee.notes[0]?.corde}) : une prolongation qui changerait de hauteur n'en serait pas une`);
+        const pileAvant = ed3.passe.length;
+        ed3.annuler();
+        check(ed3.partition.mesures[1].voix[0].evenements[0].silence && liens(ed3).length === 0,
+            `un SEUL Ctrl+Z défait la liaison ET la note qu'elle a écrite (${pileAvant} point(s) `
+            + 'd\'annulation) : c\'était un geste, ça doit se défaire en un');
+
+        // UN HAMMER-ON, LUI, N'INVENTE RIEN. Il va vers une AUTRE hauteur, que nous ne connaissons
+        // pas : l'inventer choisirait de la musique à la place de l'utilisateur.
+        const ed3h = new Editeur(); ed3h.nouveau('guitare');
+        ed3h.dureeCourante = { valeur: 1, points: 0, nolet: null };
+        ed3h.saisirChiffre(5);
+        ed3h.placerCurseur(0, 0, 0, 0);
+        const refus = ed3h.basculerLien('hammer');
+        check(refus === false && /SUIVANTE/.test(ed3h.derniereErreur || ''),
+            `un hammer-on sans note d'arrivée refuse et explique (« ${ed3h.derniereErreur} ») — `
+            + 'sans ce garde-fou l\'invariant le retirerait dans la foulée, et le bouton semblerait '
             + 'mort : on le presse trois fois en cherchant ce qui cloche');
-        check(liens(ed3).length === 0, 'et rien n\'est posé au passage');
+        check(liens(ed3h).length === 0 && ed3h.partition.mesures[1].voix[0].evenements[0].silence,
+            'et rien n\'est posé au passage, pas même une note d\'arrivée');
+
+        // UN LIEN QUE PERSONNE NE SAIT DESSINER est refusé net. Rien ne validait cet argument : une
+        // faute de frappe posait sur la note un lien que ni le moteur ni le lecteur ne
+        // reconnaissent, et il s'écrivait jusque dans le fichier sans qu'un pixel le signale.
+        check(ed3h.basculerLien('liaison') === false && liens(ed3h).length === 0,
+            'et un lien qui n\'existe pas (« liaison » au lieu de « tie ») est refusé net');
 
         const ed3b = deuxLiees();
         ed3b.curseur.evenement = 0;
