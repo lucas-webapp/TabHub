@@ -43,7 +43,7 @@ import { exporterMusicXML } from './io/musicxml.js';
 import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, rangementDisponible,
          messageEnregistrement, cheminDossier, DOSSIERS, ecrireMorceau, etatFichierSurDisque,
          lireMorceauSurDisque, listerVersions, demanderStockageDurable, morceauxSurDisque,
-         fichiersDuMorceau, supprimerFichiers } from './io/fichiers.js';
+         fichiersDuMorceau, supprimerFichiers, etatRangement } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition,
          numeroDeMesure, indexDeNumero, nbMesuresNumerotees } from './model/score.js';
@@ -1740,8 +1740,27 @@ class TabHubApp {
         // disque » divergent en silence, et l'on croit avoir sauvegardé ce qui n'est que dans le
         // navigateur.
         const resultat = await this.ecrireMorceauSurDisque({ silencieuxSiPasDeDossier: true });
-        if (resultat && resultat.range) this.marquerFichierEcrit();
-        this.message(resultat && resultat.range ? messageEnregistrement(resultat, 'Enregistré') : 'Enregistré');
+        if (resultat && resultat.range) { this.marquerFichierEcrit(); this.message(messageEnregistrement(resultat, 'Enregistré')); return; }
+        // « ENREGISTRÉ » NE SE DIT QUE QUAND C'EST VRAI, et cette ligne disait le contraire : elle
+        // annonçait « Enregistré » sur TOUS les chemins où rien n'avait pu s'écrire dans le dossier
+        // (retour utilisateur : « rien ne s'exporte dans le dossier alors que j'ai le message
+        // enregistré. Je trouve cela très bancal »). Il avait raison, et c'est le pire défaut
+        // possible : un message rassurant fait fermer l'onglet en confiance.
+        //
+        // LE BROUILLON, LUI, A BIEN ÉTÉ ÉCRIT — on vient de le faire, et c'est la vraie sauvegarde.
+        // Le message doit donc dire les deux choses à la fois : ce qui est sauvé, et ce qui ne l'est
+        // pas. Chaque raison a sa phrase, parce que chacune appelle un geste différent.
+        const raison = resultat?.raison;
+        if (raison === 'permission') {
+            this.message('Enregistré dans le navigateur — mais PAS dans votre dossier : le navigateur a '
+                + 'retiré l\'autorisation d\'y écrire. Réglages > Fichiers pour la rendre.', 7000);
+        } else if (raison === 'annule') {
+            this.message('Enregistré dans le navigateur — le fichier du dossier n\'a pas été touché.', 5000);
+        } else if (raison === 'aucunDossier' || raison === 'indisponible') {
+            this.message('Enregistré dans le navigateur (aucun dossier de rangement configuré).', 4500);
+        } else {
+            this.message('Enregistré');
+        }
     }
 
     /**
@@ -1756,10 +1775,24 @@ class TabHubApp {
      * cherche à faire gagner.
      */
     async ecrireMorceauSurDisque({ silencieuxSiPasDeDossier = false, forcer = false } = {}) {
-        const racine = await preparerRangement({ demander: !silencieuxSiPasDeDossier });
+        // ON REDEMANDE TOUJOURS L'AUTORISATION, `demander: true` quoi qu'il arrive.
+        //
+        // C'ÉTAIT LA CAUSE du fichier qui cessait de s'écrire. Cette méthode n'est appelée que depuis
+        // « Enregistrer », donc depuis un CLIC — le seul moment où un navigateur accepte de reposer
+        // la question. L'ancien `demander: !silencieuxSiPasDeDossier` la lui interdisait justement là,
+        // en confondant deux choses que le nom du drapeau confondait déjà : « ne réclame pas de
+        // dossier s'il n'y en a pas » (une question d'AFFICHAGE, qui reste) et « n'ose pas redemander
+        // l'autorisation d'écrire dans celui qui est configuré » (une question d'ACCÈS, qui n'a
+        // jamais eu de raison d'être). Chrome ne garde cette autorisation qu'un temps : le premier
+        // enregistrement passait, les suivants tombaient dans le silence.
+        const { racine, raison } = await etatRangement({ demander: true });
         if (!racine) {
-            if (!silencieuxSiPasDeDossier) this.message('Aucun dossier de rangement : voir Réglages > Fichiers');
-            return null;
+            if (!silencieuxSiPasDeDossier) {
+                this.message(raison === 'permission'
+                    ? 'Le navigateur a retiré l\'autorisation d\'écrire dans votre dossier : voir Réglages > Fichiers'
+                    : 'Aucun dossier de rangement : voir Réglages > Fichiers');
+            }
+            return { range: false, raison };
         }
         const resultat = await ecrireMorceau(this.editeur.partition, { racine, forcer });
         if (!resultat.conflit) return resultat;
@@ -1772,7 +1805,7 @@ class TabHubApp {
             this.editeur.remplacer(brut);
             this.dessiner();
             this.message('Rechargé depuis le disque');
-            return null;
+            return { range: false, raison: 'recharge' };
         }
         if (choix === 'deuxCopies') {
             // GARDER LES DEUX : le nôtre part sous son nom HORODATÉ, à côté du fichier canonique, qui
@@ -1781,7 +1814,10 @@ class TabHubApp {
             this.message(messageEnregistrement(r, 'Gardé à part'));
             return r;
         }
-        return null;   // annulé : rien n'a été écrit, et c'est le but
+        // ANNULÉ : rien n'a été écrit, et c'est le but — mais l'appelant doit pouvoir le DIRE.
+        // Rendre `null` le laissait annoncer « Enregistré » sur un fichier qu'on venait justement de
+        // décider de ne pas toucher.
+        return { range: false, raison: 'annule' };
     }
 
     /**

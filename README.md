@@ -448,6 +448,40 @@ planterait au milieu du morceau une mesure raccourcie que le geste aurait refus�
 *sur* une levée, une mesure ordinaire ne la détruit pas non plus : la dette s'affiche (`+3 ♩`) et se
 solde comme partout ailleurs.
 
+#### « Enregistré » ne se dit que quand c'est vrai
+
+Retour utilisateur, et il était sévère à juste titre : *« J'ai défini mon dossier. La première fois,
+ok, bien transféré. J'ai continué à modifier, mais maintenant rien ne s'exporte alors que j'ai le
+message "enregistré". Je trouve cela très bancal. »*
+
+C'est le pire défaut possible, parce qu'un message rassurant fait fermer l'onglet en confiance. Deux
+causes, qui se renforçaient.
+
+**L'autorisation n'était jamais redemandée.** Chrome ne garde l'autorisation d'écrire dans un dossier
+qu'un temps. Le premier enregistrement, juste après le choix du dossier, passe ; un enregistrement
+plus tard tombe sur une autorisation redevenue « à demander » — et le code lui interdisait justement
+de la reposer. Le drapeau s'appelait `silencieuxSiPasDeDossier` et confondait deux choses : ne pas
+*réclamer un dossier* quand il n'y en a pas, une question d'affichage, et ne pas *oser redemander
+l'accès* à celui qui est configuré, une question d'accès qui n'avait aucune raison d'être — on est
+dans un clic, le seul moment où un navigateur accepte la question. Elle est désormais toujours
+reposée.
+
+**Et le message mentait.** Une seule ligne annonçait le résultat :
+
+```js
+this.message(resultat && resultat.range ? messageEnregistrement(resultat, 'Enregistré') : 'Enregistré');
+```
+
+La branche « rien n'a été écrit » disait **le même mot** que celle qui avait réussi, et pour tous les
+motifs : pas de dossier, autorisation retirée, conflit annulé. Le brouillon local, lui, était bien
+écrit — le message avait donc une part de vérité, et c'est ce qui le rendait si trompeur. Chaque issue
+a maintenant sa phrase, parce que chacune appelle un geste différent :
+
+- écrit → « Enregistré → Musique/morceaux »
+- autorisation retirée → « Enregistré dans le navigateur — mais **PAS dans votre dossier** […] Réglages > Fichiers »
+- conflit annulé → « Enregistré dans le navigateur — le fichier du dossier n'a pas été touché »
+- aucun dossier → « Enregistré dans le navigateur (aucun dossier de rangement configuré) »
+
 #### Deux défauts remontés sur capture
 
 **La mesure endettée était tassée.** Le modèle de dette laisse écrire six temps dans une mesure qui en

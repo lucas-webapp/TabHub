@@ -20,7 +20,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('note étouffée, mesure endettée');
 
 (async () => {
-    plan(15);
+    plan(20);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // ── 1. LA NOTE ÉTOUFFÉE A SA PROPRE VOIX ────────────────────────────────────────────────
@@ -40,7 +40,9 @@ const { check, exiger, plan, bilan } = creerHarnais('note étouffée, mesure end
             return { evts, aUneVoix: !!window.app.lecteur.voixEtouffee,
                      aUnFiltre: !!window.app.lecteur._filtreEtouffee,
                      bruit: window.app.lecteur.voixEtouffee?.noise?.type,
-                     typeFiltre: window.app.lecteur._filtreEtouffee?.type };
+                     typeFiltre: window.app.lecteur._filtreEtouffee?.type,
+                     aUnCorps: !!window.app.lecteur._corpsEtouffee,
+                     oscCorps: window.app.lecteur._corpsEtouffee?.oscillator?.type };
         });
 
         exiger(son.evts.length === 2, `préalable : deux notes programmées (${son.evts.length})`);
@@ -58,8 +60,15 @@ const { check, exiger, plan, bilan } = creerHarnais('note étouffée, mesure end
             `la voix étouffée est un BRUIT rose (${son.bruit}), pas une onde : un bruit filtré n'a aucune `
             + 'fondamentale à entendre, et le rose décroît avec la fréquence comme le corps de '
             + 'l\'instrument (un bruit blanc sifflerait, il sonnerait comme un charleston)');
-        check(son.aUnFiltre && son.typeFiltre === 'bandpass',
-            `à travers un passe-bande (${son.typeFiltre}) centré sur le registre de la corde`);
+        check(son.aUnFiltre && son.typeFiltre === 'lowpass',
+            `à travers un PASSE-BAS large (${son.typeFiltre}) dont la coupure suit la corde — et surtout `
+            + 'pas un passe-bande étroit : un percussif est large bande par nature, et un Q serré en jette '
+            + 'presque toute l\'énergie (c\'est ce qui rendait la première version inaudible)');
+        check(son.aUnCorps && son.oscCorps === 'sine',
+            `sous le bruit, le CORPS de l'instrument (${son.oscCorps}) : une sinusoïde brève et grave, `
+            + 'bornée à 55–110 Hz. C\'est elle qui fait la différence entre un « chick » d\'instrument et '
+            + 'un souffle — et la borner l\'empêche de ramener sur les aiguës la hauteur qu\'on vient de '
+            + 'faire taire');
 
         // UN ACCORD D'ÉTOUFFÉES NE FAIT QU'UN SEUL COUP.
         const accord = await page.evaluate(async () => {
@@ -95,6 +104,52 @@ const { check, exiger, plan, bilan } = creerHarnais('note étouffée, mesure end
             'taper une note fantôme rend le bruit sec qu\'elle fera à la lecture, et non la note qu\'elle '
             + `n'est pas (${apercu.leve || 'aucune exception'}) — un aperçu n'a pas d'instant programmé, `
             + 'et le filtre doit s\'accommoder de « maintenant »');
+
+        // ── 1bis. ET ON L'ENTEND — mesuré sur la sortie VIVANTE ─────────────────────────────────
+        //
+        // LA VÉRIFICATION QUI MANQUAIT, et c'est toute la leçon de ce banc. La première version de
+        // cette voix était juste sur le papier — bruit rose, filtre qui suit la corde, tout ce que
+        // décrit un dead note — et INAUDIBLE en pratique (retour utilisateur : « on n'entend plus du
+        // tout les ghostnotes »). Rendue hors ligne et mesurée : 0,002 de valeur efficace contre 0,14
+        // pour une note ordinaire, 36 dB en dessous. Aucune vérification de FORME ne pouvait l'attraper,
+        // puisque la forme était bonne. Seule une mesure du NIVEAU le pouvait.
+        //
+        // On branche donc un mètre sur la sortie réelle du lecteur, et non sur une copie de sa
+        // configuration reconstruite ici : c'est ce que produit l'application qu'on veut juger.
+        const niveau = await page.evaluate(async () => {
+            const T = window.Tone;
+            const L = window.app.lecteur;
+            await L.demarrer();
+            const creteDe = async (declencher, ms = 260) => {
+                const m = new T.Meter({ normalRange: true, smoothing: 0 });
+                T.getDestination().connect(m);
+                await new Promise(r => setTimeout(r, 30));
+                declencher();
+                let crete = 0;
+                const t0 = Date.now();
+                while (Date.now() - t0 < ms) {
+                    const v = m.getValue(); if (v > crete) crete = v;
+                    await new Promise(r => setTimeout(r, 4));
+                }
+                T.getDestination().disconnect(m); m.dispose();
+                return crete;
+            };
+            const etouffee = await creteDe(() => L.apercu(45, 0.8, { etouffee: true }));
+            await new Promise(r => setTimeout(r, 200));
+            const normale = await creteDe(() => L.apercu(45, 0.8));
+            await new Promise(r => setTimeout(r, 200));
+            const rien = await creteDe(() => {});
+            return { etouffee: +etouffee.toFixed(4), normale: +normale.toFixed(4), rien: +rien.toFixed(4) };
+        });
+        exiger(niveau.normale > 0.05, `préalable : une note ordinaire se mesure bien (crête ${niveau.normale})`);
+        check(niveau.etouffee > niveau.rien * 5 && niveau.etouffee > 0.05,
+            `ON ENTEND l'étouffée : crête ${niveau.etouffee} sur la sortie vivante, contre ${niveau.rien} `
+            + 'quand rien ne joue — la version précédente sortait 36 dB sous une note ordinaire, et aucune '
+            + 'vérification de FORME ne pouvait l\'attraper puisque la forme était bonne');
+        check(niveau.etouffee > niveau.normale * 0.5,
+            `et elle FRAPPE aussi fort qu'une note (${niveau.etouffee} contre ${niveau.normale}) : c'est le `
+            + 'profil d\'un percussif — il tape autant, il ne TIENT pas. Sur un riff de funk ou de basse, '
+            + 'les étouffées portent le groove autant que les notes');
 
         // ── 2. LA MESURE ENDETTÉE RESPIRE ───────────────────────────────────────────────────────
         const gravure = await page.evaluate(async () => {
@@ -154,6 +209,43 @@ const { check, exiger, plan, bilan } = creerHarnais('note étouffée, mesure end
             `neutralisation : à la seule capacité, SIX colonnes sur dix se retrouvaient rabattues sur le `
             + `dernier temps (${neutre.repartition.join(' ')}) — ce n'était pas un espacement un peu `
             + 'juste, c\'était tout le débordement empilé sur un quart de la mesure');
+
+        // ── NEUTRALISATION DU SON : l'ancienne construction, rejouée et mesurée ─────────────────
+        const ancien = await page.evaluate(async () => {
+            const T = window.Tone;
+            const mesurer = async (monter) => {
+                const buf = await T.Offline(() => monter(), 0.5);
+                const d = buf.getChannelData(0); let s = 0;
+                for (let i = 0; i < d.length; i++) s += d[i] * d[i];
+                return +Math.sqrt(s / d.length).toFixed(5);
+            };
+            const hz = 110;
+            // CE QU'ON AVAIT : bruit rose -> passe-bande Q 1,6 centré à 1,4 × la corde, puis -7 dB.
+            const avant = await mesurer(() => {
+                const f = new T.Filter({ type: 'bandpass', frequency: hz * 1.4, Q: 1.6 });
+                const n = new T.NoiseSynth({ noise: { type: 'pink' },
+                    envelope: { attack: 0.001, decay: 0.085, sustain: 0, release: 0.02 } });
+                n.chain(f, new T.Volume(-7), T.getDestination());
+                n.triggerAttackRelease(0.06, 0.01, 0.7);
+            });
+            // CE QU'ON A : passe-bas large + corps, aux niveaux figés dans player.js.
+            const apres = await mesurer(() => {
+                const lp = new T.Filter({ type: 'lowpass', frequency: Math.max(450, Math.min(3500, hz * 8)), Q: 0.7 });
+                const n = new T.NoiseSynth({ noise: { type: 'pink' },
+                    envelope: { attack: 0.001, decay: 0.07, sustain: 0, release: 0.02 } });
+                n.chain(lp, new T.Volume(0), T.getDestination());
+                n.triggerAttackRelease(0.06, 0.01, 0.8);
+                const c = new T.Synth({ oscillator: { type: 'sine' },
+                    envelope: { attack: 0.001, decay: 0.055, sustain: 0, release: 0.02 } });
+                c.chain(new T.Volume(-6), T.getDestination());
+                c.triggerAttackRelease(Math.max(55, Math.min(110, hz)), 0.045, 0.01, 0.76);
+            });
+            return { avant, apres, gain: +(apres / avant).toFixed(1) };
+        });
+        check(ancien.gain > 8,
+            `neutralisation : la construction précédente rendue côte à côte avec celle-ci sort ${ancien.gain}× `
+            + `plus bas (${ancien.avant} contre ${ancien.apres} de valeur efficace) — le passe-bande étroit `
+            + 'jetait presque toute l\'énergie du bruit, et les 7 dB de retrait finissaient le travail');
 
         check(erreurs.length === 0, 'aucune erreur de console ni exception (' + erreurs.join(' | ') + ')');
     } catch (e) {

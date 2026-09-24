@@ -371,11 +371,30 @@ async function permissionEcriture(handle, demander) {
  * On retomberait alors en silence dans Téléchargements alors qu'un dossier est configuré.
  */
 export async function preparerRangement({ demander = true, appli } = {}) {
-    if (!rangementDisponible()) return null;
+    return (await etatRangement({ demander, appli })).racine;
+}
+
+/**
+ * LE DOSSIER, ET LA RAISON QUAND IL N'Y EN A PAS — parce que « pas de dossier » et « le navigateur a
+ * retiré l'autorisation » ne se disent pas du tout à l'utilisateur de la même façon, et que les
+ * confondre coûte un travail perdu.
+ *
+ * LE DÉFAUT QU'ELLE RÉPARE (retour utilisateur : « lorsque je clique sur enregistrer maintenant,
+ * rien ne s'exporte dans le dossier alors que j'ai le message enregistré »). `preparerRangement`
+ * rendait `null` dans les deux cas, l'appelant ne pouvait donc rien en dire, et il annonçait
+ * « Enregistré » quoi qu'il arrive. Chrome ne garde l'autorisation d'écrire dans un dossier que le
+ * temps qu'il veut : le premier enregistrement, juste après le choix du dossier, passe ; un
+ * enregistrement plus tard tombe sur une autorisation redevenue « à demander », et tout le reste
+ * s'est fait en silence.
+ *
+ * @returns {{racine: object|null, raison: 'ok'|'indisponible'|'aucunDossier'|'permission'}}
+ */
+export async function etatRangement({ demander = true, appli } = {}) {
+    if (!rangementDisponible()) return { racine: null, raison: 'indisponible' };
     const racine = await lireRacineMemorisee(appli);
-    if (!racine) return null;
-    if (!(await permissionEcriture(racine, demander))) return null;
-    return racine;
+    if (!racine) return { racine: null, raison: 'aucunDossier' };
+    if (!(await permissionEcriture(racine, demander))) return { racine: null, raison: 'permission' };
+    return { racine, raison: 'ok' };
 }
 
 /** Ouvre le sélecteur de dossier. DOIT être appelé directement depuis un gestionnaire de clic : tout

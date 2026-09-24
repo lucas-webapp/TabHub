@@ -105,10 +105,22 @@ const TRIM_BEND_DB = -6;
  * main gauche assourdit. Elle n'a PAS DE HAUTEUR — c'est un bruit percussif, un « chick » sec, et
  * c'est tout son intérêt : elle marque le rythme sans rien ajouter à l'harmonie.
  *
- * Plus bas qu'une vraie note, mais pas discrète : sur un riff de funk ou de basse, les étouffées
- * portent le groove autant que les notes. -7 dB la place derrière sans l'effacer.
+ * CES DEUX NIVEAUX SONT MESURÉS, pas estimés — et il a fallu les mesurer parce qu'une première
+ * version, réglée à l'oreille du raisonnement, était tout bonnement INAUDIBLE (retour utilisateur :
+ * « on n'entend plus du tout les ghostnotes »). Elle passait un bruit rose dans un passe-bande
+ * étroit (Q 1,6) centré juste au-dessus de la corde, puis coupait de 7 dB : rendue hors ligne et
+ * mesurée, elle sortait à 0,002 de valeur efficace contre 0,14 pour une note ordinaire — 36 dB en
+ * dessous. Un passe-bande étroit jette presque toute l'énergie d'un bruit ; c'était l'erreur.
+ *
+ * AVEC CES VALEURS-CI, mesurées sur les dix cordes d'une basse et d'une guitare : crête 0,29 à 0,67
+ * contre 0,73 pour une note tenue, pour une valeur efficace quatre fois moindre. C'est exactement le
+ * profil d'un évènement percussif — il FRAPPE aussi fort, il ne TIENT pas. Une étouffée qui tombe
+ * pile sur une note tenue monte à 0,77, donc sans écrêtage (1,0), et quatre doubles-croches à 120
+ * restent distinctes au lieu de se fondre en grondement.
  */
-const TRIM_ETOUFFEE_DB = -7;
+const TRIM_ETOUFFEE_DB = 0;
+/** LE CORPS de l'instrument sous le bruit — voir la voix étouffée pour ce qu'il apporte. */
+const TRIM_CORPS_ETOUFFEE_DB = -6;
 /**
  * LA VOIX GLISSANTE ÉCHANTILLONNÉE NE SE RECALE PAS — 0 dB, comme l'échantillonneur.
  *
@@ -423,19 +435,39 @@ export class Lecteur {
         // fréquence, comme le corps de l'instrument — un bruit blanc siffle, il sonnerait comme un
         // charleston.
         //
-        // LE FILTRE SUIT LA CORDE, et c'est ce qui rend le résultat crédible : une étouffée sur le
-        // mi grave est un COUP SOURD, la même sur la chanterelle est un CLIC. Un passe-bande centré
-        // au-dessus de la hauteur que la note aurait eue donne les deux sans rien demander — c'est
-        // bien la corde qui décide, comme sur l'instrument.
-        this._filtreEtouffee = new Tone.Filter({ type: 'bandpass', frequency: 320, Q: 1.6 });
+        // UN PASSE-BAS LARGE, ET SURTOUT PAS UN PASSE-BANDE ÉTROIT. C'était l'erreur de la première
+        // version, et elle rendait l'étouffée inaudible : un percussif est BROADBAND par nature, et
+        // un passe-bande de Q 1,6 en jette presque toute l'énergie (mesuré : 0,002 de valeur efficace
+        // contre 0,14 pour une note). Le passe-bas garde le corps du bruit et n'en retire que le
+        // sifflement du haut du spectre.
+        //
+        // SA COUPURE SUIT LA CORDE, et c'est ce qui rend le résultat crédible : une étouffée sur le
+        // mi grave est un COUP SOURD, la même sur la chanterelle est un CLIC. C'est bien la corde qui
+        // décide, comme sur l'instrument.
+        this._filtreEtouffee = new Tone.Filter({ type: 'lowpass', frequency: 900, Q: 0.7 });
         this.voixEtouffee = new Tone.NoiseSynth({
             noise: { type: 'pink' },
             // Aussi brève qu'un claquement : elle doit être finie avant la double-croche suivante,
-            // sans quoi deux étouffées de suite se recouvriraient en un grondement continu.
-            envelope: { attack: 0.001, decay: 0.085, sustain: 0, release: 0.02 },
+            // sans quoi deux étouffées de suite se recouvriraient en un grondement continu (vérifié
+            // sur quatre doubles-croches à 120).
+            envelope: { attack: 0.001, decay: 0.07, sustain: 0, release: 0.02 },
         });
         this.voixEtouffee.chain(this._filtreEtouffee,
             new Tone.Volume(TRIM_ETOUFFEE_DB), Tone.Destination);
+
+        // LE CORPS DE L'INSTRUMENT, sous le bruit : une sinusoïde très brève et GRAVE. C'est elle qui
+        // fait la différence entre un « chick » d'instrument et un souffle de bruit blanc — sur une
+        // basse surtout, où l'étouffée est d'abord un COUP dans la caisse. Mesuré, elle double
+        // presque la crête du geste.
+        //
+        // ELLE RESTE BASSE ET BORNÉE (55 à 110 Hz), jamais à la hauteur de la corde : c'est le corps
+        // qui résonne, pas la note. La laisser suivre la corde ferait revenir sur les aiguës la
+        // hauteur qu'on vient précisément de faire taire — l'étouffée redeviendrait une note.
+        this._corpsEtouffee = new Tone.Synth({
+            oscillator: { type: 'sine' },
+            envelope: { attack: 0.001, decay: 0.055, sustain: 0, release: 0.02 },
+        });
+        this._corpsEtouffee.chain(new Tone.Volume(TRIM_CORPS_ETOUFFEE_DB), Tone.Destination);
 
         // LE MÉTRONOME — repris de HarmoHub (METRONOME_SOUNDS.click) : un triangle bref, sans
         // sustain, qui s'éteint avant même la double-croche la plus rapide de la partition. Une voix
@@ -1192,24 +1224,28 @@ export class Lecteur {
     /**
      * UN COUP DE MÉDIATOR SUR DES CORDES ÉTOUFFÉES.
      *
-     * `midi` sert UNIQUEMENT à placer le filtre : la note n'a pas de hauteur à jouer, mais la corde
-     * qu'on assourdit a bien un registre, et c'est lui qu'on entend. Le facteur 1,4 monte le centre
-     * du passe-bande un peu au-dessus de la fondamentale, parce que l'étouffement tue justement
-     * celle-ci et laisse ressortir le corps au-dessus. Les bornes gardent le résultat dans ce qu'un
-     * haut-parleur rend : en dessous de 60 Hz on n'entend plus rien, au-dessus de 2 kHz ce n'est
-     * plus un « chick » mais un sifflement.
+     * DEUX COUCHES, et il en faut deux : le BRUIT du médiator sur les cordes mortes, passé dans un
+     * passe-bas dont la coupure suit la corde (grave = sourd, aigu = clair), et le CORPS de
+     * l'instrument, une sinusoïde brève et grave qui donne le coup dans la caisse. Le bruit seul
+     * sonne comme un souffle ; c'est le corps qui en fait un instrument.
+     *
+     * `midi` sert UNIQUEMENT à régler ces deux-là : la note n'a pas de hauteur à jouer, mais la corde
+     * qu'on assourdit a bien un registre. Les bornes gardent le résultat dans ce qu'un haut-parleur
+     * rend, et enferment le corps dans le grave pour que la hauteur ne revienne jamais.
      */
     _jouerEtouffee(e, temps) {
         const Tone = globalThis.Tone;
         if (!this.voixEtouffee) return;
-        const hz = Number.isFinite(e.midi) ? Tone.Frequency(e.midi, 'midi').toFrequency() * 1.4 : 320;
+        const hz = Number.isFinite(e.midi) ? Tone.Frequency(e.midi, 'midi').toFrequency() : 110;
         // L'APERÇU À LA FRAPPE n'a pas d'instant programmé — il sonne MAINTENANT. `setValueAtTime`
         // n'accepte pas `undefined` ; on lui donne l'heure courante, ce que `triggerAttackRelease`
         // fait de lui-même pour le même cas.
         const quand = temps === undefined ? Tone.now() : temps;
         try {
-            this._filtreEtouffee.frequency.setValueAtTime(Math.max(60, Math.min(2000, hz)), quand);
+            this._filtreEtouffee.frequency.setValueAtTime(Math.max(450, Math.min(3500, hz * 8)), quand);
             this.voixEtouffee.triggerAttackRelease(0.06, quand, e.velocite);
+            this._corpsEtouffee?.triggerAttackRelease(
+                Math.max(55, Math.min(110, hz)), 0.045, quand, e.velocite * 0.95);
         } catch (err) { /* une note manquée ne doit jamais arrêter la lecture */ }
     }
 
