@@ -19,6 +19,42 @@ export const FIGURES = [
 
 export const VALEURS_FIGURES = FIGURES.map(f => f.valeur);
 
+/**
+ * Une fraction simple, dite avec le glyphe que tout le monde lit : ½, ⅓, ⅝…
+ *
+ * UNE SEULE TABLE, DEUX LECTEURS — le chiffre de dette gravé en fin de mesure (voir
+ * engine/layout.js#libelleEcart, « +½ ♩ ») et le repère de temps de la barre du bas (voir
+ * main.js#tempsDuCurseur, « temps 2½ »). Les deux disent une fraction de temps à la même personne,
+ * dans la même seconde : deux tables écrites séparément finiraient par écrire ½ d'un côté et 0,5 de
+ * l'autre.
+ *
+ * @returns {string} le glyphe, ou '' si la fraction ne tombe sur aucun des cas usuels — à l'appelant
+ *   de décider quoi faire de ce silence (dire le nombre, ou ne rien dire).
+ */
+export function nomDeFraction(reste) {
+    const TABLE = [[0.5, '½'], [0.25, '¼'], [0.75, '¾'], [1 / 3, '⅓'], [2 / 3, '⅔'],
+                   [0.125, '⅛'], [0.375, '⅜'], [0.625, '⅝'], [0.875, '⅞']];
+    if (!(reste > 1e-9)) return '';
+    return TABLE.find(([v]) => Math.abs(v - reste) < 1e-6)?.[1] || '';
+}
+
+/**
+ * Le NOM de la figure écrite — « croche », « noire pointée », « croche de triolet ».
+ *
+ * LU SUR LA FIGURE, PAS SUR SA DURÉE, et c'est ce qui le rend sûr : une croche de triolet dure un
+ * tiers de noire, un nombre qu'aucune table de durées ne retrouve proprement (voir la note en tête
+ * de ce fichier). En lisant `valeur`, `points` et `nolet` — ce que l'utilisateur a réellement choisi
+ * — on nomme toujours la figure qu'il a posée, jamais une approximation de ce qu'elle mesure.
+ */
+export function nomDeFigure(duree) {
+    const base = FIGURES.find(f => f.valeur === duree?.valeur)?.nom;
+    if (!base) return '';
+    let nom = base.toLowerCase();
+    if (duree.points) nom += ' pointée';
+    if (duree.nolet) nom += duree.nolet.dans === 3 ? ' de triolet' : ` de ${duree.nolet.dans}-olet`;
+    return nom;
+}
+
 /** Nombre de crochets (ou de ligatures) d'une figure : 0 pour la noire et au-delà, 1 par division. */
 export function crochetsDe(valeur) {
     const f = FIGURES.find(f => f.valeur === valeur);

@@ -9,7 +9,7 @@
 // indexe la table par touche ; la palette la parcourt pour fabriquer ses boutons et leurs infobulles.
 // Ajouter une action, c'est ajouter une ligne — elle apparaît des deux côtés, forcément d'accord.
 
-import { VALEURS_FIGURES } from '../model/duration.js';
+import { VALEURS_FIGURES, FIGURES } from '../model/duration.js';
 import { REPERES } from '../model/score.js';
 
 /**
@@ -75,7 +75,7 @@ export const ACTIONS = [
     ...VALEURS_FIGURES.map((valeur, i) => ({
         id: 'duree' + valeur,
         touches: i === 0 ? [] : [],
-        libelle: ['Ronde', 'Blanche', 'Noire', 'Croche', 'Double-croche', 'Triple-croche'][i],
+        libelle: FIGURES[i].nom,
         groupe: 'duree', figure: valeur,
         actif: ed => ed.dureeCourante.valeur === valeur,
         faire: ed => ed.appliquerDuree(valeur),

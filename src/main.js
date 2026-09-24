@@ -47,7 +47,7 @@ import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, ran
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
 import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
-import { VALEURS_FIGURES, uniteDeGroupement, dureeEnNoires } from './model/duration.js';
+import { VALEURS_FIGURES, uniteDeGroupement, dureeEnNoires, nomDeFraction, nomDeFigure } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
 const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
@@ -1410,10 +1410,45 @@ class TabHubApp {
         this._detacherGroupeVitesse = null;
     }
 
+    /**
+     * OÙ LE CURSEUR SE TROUVE DANS LA MESURE, dit comme un musicien le compte : « temps 2½ ».
+     *
+     * LE DÉFAUT QU'IL COMBLE, dans les mots de l'utilisateur : « la saisie consistera majoritairement
+     * des modifications des longueurs de notes et silences, SANS TOUJOURS SAVOIR SUR QUEL TEMPS JE
+     * SUIS. » La barre du bas disait la mesure, la corde, la hauteur, la dette — jamais le temps. La
+     * réglette numérotée existe, mais seulement dans la fenêtre d'aide rythmique : sur la partition,
+     * rien ne numérote les temps.
+     *
+     * LE TEMPS SUIT LA SIGNATURE, pas la noire : en 6/8 un temps vaut une noire pointée (voir
+     * uniteDeGroupement), et compter en noires y donnerait « temps 1, 1½, 2, 2½ » là où le musicien
+     * compte « 1, 2 ». C'est la même unité que celle des ligatures et de la grille d'écriture — une
+     * seule idée de « temps » dans toute l'application.
+     *
+     * LE DÉCALAGE EST COMPRIS : viser le deuxième tiers d'un silence (voir Editeur, `curseur.decalage`)
+     * change le temps qu'on désigne, et c'est précisément dans ce cas qu'on a besoin qu'on le dise.
+     *
+     * AU-DELÀ DE LA CAPACITÉ, on continue de compter : une mesure endettée a un « temps 5 » en 4/4,
+     * et le taire au moment même où la mesure déborde serait taire l'information la plus utile.
+     */
+    tempsDuCurseur() {
+        const c = this.editeur.curseur;
+        const mesure = this.editeur.partition.mesures[c.mesure];
+        if (!mesure) return '';
+        const voix = Math.min(c.voix, mesure.voix.length - 1);
+        const pos = positionDansMesure(mesure, c.evenement, voix) + (c.decalage || 0);
+        const unite = uniteDeGroupement(signatureEffective(this.editeur.partition, c.mesure)) || 1;
+        const index = Math.floor(pos / unite + 1e-9);
+        // La fraction est celle DU TEMPS, pas de la noire : un huitième de noire pointée fait un
+        // tiers de temps, et c'est « ⅓ » qu'il faut lire en 6/8, pas « ⅛ ».
+        const frac = nomDeFraction((pos - index * unite) / unite);
+        return `temps ${index + 1}${frac}`;
+    }
+
     rafraichirInfos() {
         const c = this.editeur.curseur;
         const total = this.editeur.partition.mesures.length;
-        this.el.position.innerHTML = `Mesure <strong>${c.mesure + 1}</strong> / <strong>${total}</strong>`;
+        this.el.position.innerHTML = `Mesure <strong>${c.mesure + 1}</strong> / <strong>${total}</strong>`
+            + ` · <strong>${this.tempsDuCurseur()}</strong>`;
 
         // CE QUE DIT ENCORE LA BARRE DU BAS : la hauteur réellement sonnée par la note sous le
         // curseur, et l'état de la mesure. C'est le seul endroit où la note se lit en clair — la
@@ -1430,6 +1465,12 @@ class TabHubApp {
         // (une seule voix), le mentionner serait du bruit sans rien apprendre à personne.
         const bouts = [];
         if (this.editeur.nbVoixMesure() > 1) bouts.push(`Voix ${c.voix + 1} (${c.voix === 0 ? 'mélodie' : 'accompagnement'})`);
+        // LA FIGURE SOUS LE CURSEUR, nommée — pas celle que la palette propose d'écrire. Les deux
+        // diffèrent constamment quand on corrige un rythme (c'est même à ça qu'on corrige : la
+        // palette dit ce qu'on veut, la barre du bas ce qu'il y a), et c'est l'autre moitié de la
+        // question « où suis-je » quand on passe son temps à changer des longueurs.
+        const figure = nomDeFigure(this.editeur.evenementCourant()?.duree);
+        if (figure) bouts.push(figure);
         if (note) {
             const midi = hauteurDeNote(this.editeur.partition, note);
             if (midi != null) bouts.push(`case ${note.frette} · ${nomDeHauteur(midi)}`);

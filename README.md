@@ -323,6 +323,25 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Savoir sur quel temps on est
+
+« La saisie consistera majoritairement des modifications des longueurs de notes et silences, **sans
+toujours savoir sur quel temps je suis**. » La barre du bas disait la mesure, la corde, la hauteur,
+la dette — jamais le temps. Une réglette numérotée existe, mais seulement dans la fenêtre d'aide
+rythmique : sur la partition, rien ne numérote les temps.
+
+Elle lit désormais **`Mesure 1 / 4 · temps 2½`**, et le temps suit le curseur, décalage compris —
+viser le milieu d'un silence dit « temps 2½ », pas « temps 2 ».
+
+**Le temps suit la signature, pas la noire.** En 6/8 un temps vaut une noire pointée : six croches
+s'y comptent « 1, 1⅓, 1⅔, 2, 2⅓, 2⅔ », et non « 1, 1½, 2, 2½, 3, 3½ ». C'est la même unité que celle
+des ligatures et de la grille d'écriture — une seule idée de « temps » dans toute l'application.
+
+**Et la figure sous le curseur est nommée** — « croche », « croche pointée », « croche de triolet ».
+C'est l'autre moitié de la question quand on passe son temps à changer des longueurs : la palette dit
+ce qu'on veut écrire, la barre du bas ce qu'il y a. Les deux diffèrent constamment, et c'est
+précisément à cet écart qu'on corrige.
+
 #### Entendre ce qu'on écrit
 
 Écrire une mélodie qu'on a **dans la tête** n'est pas recopier : l'oreille est le seul juge, et elle

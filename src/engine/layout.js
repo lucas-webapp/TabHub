@@ -17,7 +17,7 @@
 // de ce qui est dessiné.
 
 import * as G from './glyphs.js';
-import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure } from '../model/duration.js';
+import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure, nomDeFraction } from '../model/duration.js';
 import {
     signatureEffective, armureEffective, modeEffectif, positionDansMesure, hauteurDeNote, nbCordes, REPERES,
 } from '../model/score.js';
@@ -121,9 +121,9 @@ function libelleEcart(ecart) {
     const a = Math.abs(ecart);
     const entier = Math.floor(a + 1e-9);
     const reste = a - entier;
-    const FRACTIONS = [[0.5, '½'], [0.25, '¼'], [0.75, '¾'], [1 / 3, '⅓'], [2 / 3, '⅔'],
-                       [0.125, '⅛'], [0.375, '⅜'], [0.625, '⅝'], [0.875, '⅞']];
-    const frac = reste > 1e-9 ? FRACTIONS.find(([v]) => Math.abs(v - reste) < 1e-6)?.[1] : '';
+    // La table des fractions vit dans model/duration.js, lue aussi par le repère de temps de la
+    // barre du bas : une même fraction doit s'écrire pareil aux deux endroits.
+    const frac = nomDeFraction(reste);
     if (reste > 1e-9 && !frac) return `${signe}${a.toFixed(2)} ♩`;
     const corps = `${entier || (frac ? '' : '0')}${frac}`;
     return `${signe}${corps} ♩`;
