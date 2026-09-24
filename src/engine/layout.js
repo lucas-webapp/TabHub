@@ -2059,16 +2059,29 @@ function ligneTab(note, yTab, ST) {
     return yTab + note.corde * ST;
 }
 
+// PLAFOND DE LIGNES SUPPLÉMENTAIRES, au-dessus comme en dessous. Aucune musique n'en demande autant :
+// la note la plus aiguë d'une guitare (mi 6, case 24) en réclame cinq sur une portée de sol 8vb, et
+// au-delà de deux ou trois la gravure passe de toute façon à une 8va. Ce n'est donc pas une limite
+// musicale, c'est un FILET : les deux boucles ci-dessous comptent en interlignes depuis la portée, et
+// une hauteur aberrante — un document abîmé, une case lue comme du texte, un import mal formé — les
+// fait tourner autant de fois qu'il y a d'interlignes jusqu'à cette hauteur. MESURÉ, une seule note
+// dont la hauteur avait dérivé : 188 710 éléments <line> et 23 Mo de SVG pour QUATRE mesures, la page
+// figée près de quatre secondes à chaque redessin, et le coût doublant à chaque note ajoutée. Une
+// note fausse doit se voir et se corriger, jamais bloquer l'application ; passé ce plafond elle
+// s'affiche donc sans son échelle de lignes, ce qui la signale au moins aussi bien.
+const MAX_LIGNES_SUPPLEMENTAIRES = 12;
+
 function poserLignesSupplementaires(out, x, y, yPortee, S, demiTete = 0.59) {
     const ep = G.EPAISSEURS.ligneSupplementaire * S;
     // La ligne dépasse la tête d'un quart d'interligne de chaque côté — proportion de gravure. Une
     // largeur fixe, comme dans une version antérieure, était trop courte pour une ronde (nettement
     // plus large qu'une noire) et la ligne disparaissait sous la tête.
     const larg = (demiTete + 0.26) * S;
+    let reste = MAX_LIGNES_SUPPLEMENTAIRES;
     if (y < yPortee - 0.1) {
-        for (let yy = yPortee - S; yy >= y - 0.1; yy -= S) out.push(ligne(x - larg, yy, x + larg, yy, ep));
+        for (let yy = yPortee - S; yy >= y - 0.1 && reste > 0; yy -= S, reste--) out.push(ligne(x - larg, yy, x + larg, yy, ep));
     } else if (y > yPortee + 4 * S + 0.1) {
-        for (let yy = yPortee + 5 * S; yy <= y + 0.1; yy += S) out.push(ligne(x - larg, yy, x + larg, yy, ep));
+        for (let yy = yPortee + 5 * S; yy <= y + 0.1 && reste > 0; yy += S, reste--) out.push(ligne(x - larg, yy, x + larg, yy, ep));
     }
 }
 
