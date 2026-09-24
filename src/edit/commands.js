@@ -2345,6 +2345,43 @@ export class Editeur {
         this.prevenir('edition');
     }
 
+    /**
+     * Pose ou retire la MAISON (« 1re fois », « 2e fois ») sur la mesure courante.
+     *
+     * UNE BASCULE, comme les reprises juste en dessous : rappuyer sur « 1re fois » la retire. Poser
+     * l'autre maison REMPLACE la première plutôt que de s'ajouter — une mesure jouée « à la 1re et à
+     * la 2e fois » se joue à tous les passages, ce qui est exactement une mesure sans maison ; on ne
+     * laisse donc pas écrire une chose qui ne veut rien dire.
+     */
+    definirVolta(numero) {
+        this.memoriser();
+        const m = this.mesureCourante();
+        const actuelle = m.volta?.length === 1 ? m.volta[0] : null;
+        m.volta = actuelle === numero ? null : [numero];
+        this.prevenir('edition');
+        return m.volta;
+    }
+
+    /**
+     * COMBIEN DE FOIS la section bornée par la reprise fermante de la mesure courante se joue.
+     *
+     * Refuse hors d'une mesure qui porte un `:‖` — le nombre n'aurait alors rien à commander, et un
+     * réglage sans effet est pire qu'un réglage absent.
+     */
+    definirNbFois(combien) {
+        this.derniereErreur = null;
+        const m = this.mesureCourante();
+        if (!m.repriseFin) {
+            this.derniereErreur = 'Cette mesure ne porte pas de reprise fermante : il n\'y a rien à répéter.';
+            return false;
+        }
+        const n = Math.max(2, Math.min(Math.round(combien) || 2, 99));
+        this.memoriser();
+        m.nbFois = n;
+        this.prevenir('edition');
+        return n;
+    }
+
     basculerReprise(bord) {
         this.memoriser();
         const m = this.mesureCourante();

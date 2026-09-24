@@ -707,8 +707,13 @@ export function mettreEnPage(partition, options = {}) {
         // parcourant la page (voir edit/raccourcis.js#accord).
         const aUnAccord = sys.mesures.some(m => m.ref.voix.some(v => v.evenements.some(e => (e.accord || '').trim())));
         const extraAccords = aUnAccord ? HAUTEUR_ACCORDS * S : 0;
-        // Bande des repères de navigation : voir HAUTEUR_REPERE.
-        const aUnRepere = sys.mesures.some(m => !!m.ref.repere);
+        // Bande des repères de navigation : voir HAUTEUR_REPERE. LES MAISONS DE REPRISE (1re / 2e
+        // fois) l'occupent aussi — ce sont des instructions de parcours au même titre qu'un D.C., et
+        // elles se posent au plus près de la musique qu'elles commandent. Les faire cohabiter dans
+        // une seule bande plutôt que d'en réserver une cinquième : un Segno et une maison sur la MÊME
+        // mesure ne s'écrivent pas (l'un renvoie ailleurs, l'autre choisit un passage), et réserver
+        // deux hauteurs pour un cas qui n'arrive pas écarterait toutes les lignes pour rien.
+        const aUnRepere = sys.mesures.some(m => !!m.ref.repere || m.ref.volta?.length);
         const extraRepere = aUnRepere ? HAUTEUR_REPERE * S : 0;
         const yAccords = y + extraAnnotation + 1.5 * S;
         const yAnnotation = y + 1.6 * S;
@@ -1175,6 +1180,46 @@ function tracerCoda(out, x, y, S) {
  * jeu sur une partition gravée — et en retrait à droite (`al Coda` se lit après la barre qu'il
  * concerne), tandis qu'un signe se pose franchement sur le début de la mesure.
  */
+/**
+ * LA MAISON DE REPRISE (« 1re fois », « 2e fois ») — le crochet horizontal au-dessus de la mesure.
+ *
+ * TRACÉE MESURE PAR MESURE, jamais d'un seul trait sur toute la maison. Une maison couvre souvent
+ * plusieurs mesures, et ces mesures peuvent se retrouver sur deux systèmes différents : un tracé
+ * global devrait alors savoir où la ligne se coupe, et rouvrir un crochet au début du système
+ * suivant. En traçant chaque mesure pour elle-même, la coupure se fait toute seule — chaque système
+ * dessine ce qu'il porte, et rien d'autre.
+ *
+ * LES DEUX CROCHETS DESCENDANTS marquent les BORDS de la maison, pas ceux de la mesure : celui de
+ * gauche n'apparaît que si la mesure précédente ne porte pas la même maison, celui de droite que si
+ * la suivante ne la porte pas. Au milieu d'une maison de quatre mesures, on ne voit donc qu'un trait
+ * continu — exactement ce que grave une partition.
+ *
+ * LE NUMÉRO suit le crochet de gauche, et lui seul : « 1. » se lit une fois, au début de la maison.
+ */
+function poserMaison(out, partition, m, x, xFin, y, S) {
+    const volta = m.ref.volta;
+    if (!volta?.length) return;
+    // LES VOISINES SE LISENT DANS LA PARTITION, pas dans le système : une maison peut commencer à la
+    // dernière mesure d'une ligne et finir à la première de la suivante, et c'est bien le voisinage
+    // MUSICAL qui décide où se ferme le crochet, pas la mise en page.
+    const memeMaison = (autre) => {
+        const v = autre?.volta;
+        return !!v?.length && v.length === volta.length && v.every((n, i) => n === volta[i]);
+    };
+    const ouvre = !memeMaison(partition.mesures[m.index - 1]);
+    const ferme = !memeMaison(partition.mesures[m.index + 1]);
+    const epaisseur = Math.max(1, S * 0.16);
+    const hauteurCrochet = S * 1.1;
+    out.push(rect(x, y, Math.max(0, xFin - x), epaisseur));
+    if (ouvre) out.push(rect(x, y, epaisseur, hauteurCrochet));
+    if (ferme) out.push(rect(xFin - epaisseur, y, epaisseur, hauteurCrochet));
+    if (ouvre) {
+        out.push(texte(x + S * 0.45, y + S * 1.15, volta.join('.') + '.', {
+            taille: S * 1.15, police: 'sans-serif', poids: '700', ancre: 'debut',
+        }));
+    }
+}
+
 function poserRepere(out, mesure, x, xFin, y, S) {
     const def = REPERES[mesure.repere];
     if (!def) return;
@@ -1713,6 +1758,7 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     // REPÈRE DE NAVIGATION (Segno, Coda, D.C., D.S., al Coda, Fine) — voir poserRepere. Posé APRÈS
     // les barres pour qu'il se dessine par-dessus si les deux se croisaient, jamais dessous.
     poserRepere(out, m.ref, xDebutMesure, xBarre, yRepere ?? (yPortee - HAUTEUR_REPERE * S), S);
+    poserMaison(out, partition, m, xDebutMesure, xBarre, yRepere ?? (yPortee - HAUTEUR_REPERE * S), S);
 
     ancrages.mesures.push({
         index: m.index, x: xDebutMesure, xFin: xBarre, yPortee, yTab, hauteurTab, systeme: ctx.iSys,

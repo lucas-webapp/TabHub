@@ -346,6 +346,17 @@ qu'il est écrit*, pas la forme entière du morceau. Poser ou retirer la boucle 
 Et sur un morceau sans reprise — l'immense majorité — aucun parcours n'est construit : pas même une
 conversion de plus.
 
+**Les maisons de 1re / 2e fois** se posent depuis le popover *Repères*, là où vivent déjà les barres
+de reprise. Poser l'autre maison **remplace** la première plutôt que de s'ajouter : « à la 1re et à
+la 2e fois » veut dire « à tous les passages », c'est-à-dire pas de maison du tout — on ne laisse pas
+écrire une chose qui ne veut rien dire. Le crochet se trace **mesure par mesure** : une maison peut
+commencer à la dernière mesure d'une ligne et finir à la première de la suivante, et la coupure se
+fait alors toute seule. Les deux crochets descendants marquent les bords de la **maison**, pas ceux
+de la mesure — au milieu d'une maison de trois mesures on ne voit qu'un trait continu.
+
+**Le nombre de reprises** (`nbFois`) se règle au clic droit, et seulement sur une mesure qui porte un
+`:‖` — ailleurs il ne commanderait rien, et un réglage sans effet est pire qu'un réglage absent.
+
 #### Atteindre la mesure 47
 
 `allerAMesure` existait dans le modèle depuis toujours et **n'était joignable par aucun geste**. Le

@@ -148,7 +148,10 @@ const { check, exiger, plan, bilan } = creerHarnais('popover Effets');
         // 11 pour « repere » depuis que le RYTHME TERNAIRE y a rejoint les reprises, les barres et les
         // repères de navigation : comme eux, c'est une indication qui MARQUE la portée et se lit en
         // tête de partition (voir edit/raccourcis.js, action `ternaire`).
-        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 10]]) {
+        // « repere » en porte DOUZE depuis que les maisons de 1re/2e fois l'ont rejoint (voir
+        // maisons_test.js) : c'est là que vivent les barres de reprise, et c'est avec elles que les
+        // maisons font sens.
+        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 12]]) {
             await page.click(bouton);
             await page.waitForTimeout(250);
             const etat = await page.evaluate((g) => {

@@ -184,6 +184,13 @@ export const ACTIONS = [
     // une famille qui se tient enfin.
     { id: 'repriseDebut', touches: [], libelle: 'Reprise ouvrante', groupe: 'repere', apercu: { type: 'icone', nom: 'repriseDebut' },
       actif: ed => ed.mesureCourante().repriseDebut, faire: ed => ed.basculerReprise('debut') },
+    // LES MAISONS, juste après les deux barres de reprise : c'est là qu'on les cherche, et c'est
+    // avec elles qu'elles font sens. Un libellé en toutes lettres plutôt qu'un pictogramme à
+    // apprendre — « 1re fois » se lit, un crochet numéroté se devine.
+    { id: 'volta1', touches: [], libelle: 'Maison de 1re fois', groupe: 'repere', apercu: { type: 'texteGras', texte: '1.' },
+      actif: ed => ed.mesureCourante().volta?.[0] === 1, faire: ed => ed.definirVolta(1) },
+    { id: 'volta2', touches: [], libelle: 'Maison de 2e fois', groupe: 'repere', apercu: { type: 'texteGras', texte: '2.' },
+      actif: ed => ed.mesureCourante().volta?.[0] === 2, faire: ed => ed.definirVolta(2) },
     { id: 'repriseFin', touches: [], libelle: 'Reprise fermante', groupe: 'repere', apercu: { type: 'icone', nom: 'repriseFin' },
       actif: ed => ed.mesureCourante().repriseFin, faire: ed => ed.basculerReprise('fin') },
     { id: 'barreDouble', touches: [], libelle: 'Double barre (fin de section)', groupe: 'repere', apercu: { type: 'icone', nom: 'barreDouble' },

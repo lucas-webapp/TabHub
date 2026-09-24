@@ -1443,6 +1443,31 @@ class TabHubApp {
     }
 
     /**
+     * COMBIEN DE FOIS la section bornée par cette reprise se joue.
+     *
+     * `nbFois` existait sur la mesure depuis le premier jour et RIEN ne l'écrivait ni ne le lisait —
+     * de la donnée morte. Maintenant que le parcours de lecture le lit (voir
+     * model/score.js#parcoursDeLecture), il lui fallait une porte.
+     */
+    async demanderNbFois() {
+        const actuel = this.editeur.mesureCourante().nbFois || 2;
+        const reponse = await saisir({
+            titre: 'Nombre de reprises',
+            texte: 'Combien de fois cette section se joue-t-elle EN TOUT ? (2 = une fois, puis une reprise)',
+            etiquette: 'Fois',
+            valeur: String(actuel),
+            libelleOk: 'Appliquer',
+        });
+        if (reponse === null) { this.el.zone.focus(); return; }
+        const n = parseInt(String(reponse).trim(), 10);
+        if (!Number.isFinite(n)) { this.message('Il faut un nombre.'); this.el.zone.focus(); return; }
+        const pose = this.editeur.definirNbFois(n);
+        if (this.editeur.derniereErreur) { this.message(this.editeur.derniereErreur); this.editeur.derniereErreur = null; }
+        else this.message(`Cette section se jouera ${pose} fois`);
+        this.el.zone.focus();
+    }
+
+    /**
      * AJOUTER PLUSIEURS MESURES D'UN COUP, après celle du curseur.
      *
      * Alt+M en ajoute UNE : préparer un morceau de soixante-quatre mesures demandait soixante appuis.
@@ -3897,6 +3922,12 @@ class TabHubApp {
             { texte: 'Ajouter une mesure avant', faire: action(() => this.editeur.ajouterMesure(false)) },
             { texte: 'Ajouter une mesure après', faire: action(() => this.editeur.ajouterMesure(true)) },
             { texte: 'Ajouter des mesures…', faire: () => { this.fermerMenuContextuel(); this.ajouterDesMesures(); } },
+            // SEULEMENT SUR UNE MESURE QUI PORTE UN `:‖` : ailleurs, le nombre ne commanderait rien,
+            // et un réglage sans effet est pire qu'un réglage absent.
+            ...(this.editeur.mesureCourante().repriseFin
+                ? [{ texte: `Jouer cette reprise N fois… (actuellement ${this.editeur.mesureCourante().nbFois})`,
+                     faire: () => { this.fermerMenuContextuel(); this.demanderNbFois(); } }]
+                : []),
             { texte: 'Supprimer cette mesure', faire: action(() => this.editeur.supprimerMesure()) },
             null,
             // RETOUR À LA LIGNE (retour utilisateur : « permets-moi de faire un retour à la ligne
