@@ -420,10 +420,28 @@ cette même case en silence**. Mesuré sur un morceau neuf de 4 mesures : *24 fr
 `→` l'a toujours fait. Le prix, assumé : une mesure vide reste au bout. Une mesure vide de trop se
 voit et s'efface en un geste ; huit notes avalées ne se voient pas du tout.
 
-**Ce que ça coûte, honnêtement.** Un accord et une case à deux chiffres paient une frappe de retour
-(`←`), là où chaque note isolée en gagne une. À la guitare les notes isolées dominent largement, et
-l'avance s'éteint dans *Réglages → Affichage → Avancer après chaque case* pour qui écrit surtout des
-accords.
+**L'accord a sa touche.** L'avance écrivait les trois cases d'un accord sur trois temps successifs :
+il fallait un `←` entre chaque, et surtout rien ne prévenait — on croyait écrire un accord, on
+écrivait une gamme. **`Maj`+`↑` / `Maj`+`↓`** disent « la même case, une corde plus haut » et
+reviennent sur la case qu'on vient d'écrire, même si l'avance a franchi une barre de mesure. Trois
+notes : **5 frappes au lieu de 7**. Six cordes : **11 au lieu de 16**.
+
+`↑` seul garde son sens de toujours — la note suivante, sur une autre corde. Et c'est pour cela qu'il
+fallait une touche à part : après avoir écrit une note, « `↑` puis un chiffre » veut dire *l'accord*
+pour un guitariste et *la note suivante* pour un bassiste. Même état, intentions opposées : aucune
+règle ne peut trancher, il faut un geste explicite.
+
+**`Maj`+chiffre était impossible**, et c'est ce qu'on aurait essayé d'abord : sur un clavier AZERTY,
+`Maj`+`2` est *la façon de taper un 2*. Le modificateur était déjà pris. `Maj`+flèche est libre, et
+c'est le « ajouter à la sélection » universel — MuseScore s'en sert exactement pour ajouter une note
+à un accord.
+
+**Au doigt, l'accord garde son ancien coût** : il n'y a pas de `Maj` sur un écran tactile, et le
+pavé n'a pas de bouton pour ce geste. On repasse donc par ←, ↑, chiffre. Limite reconnue.
+
+**Ce que ça coûte, honnêtement.** Une case à deux chiffres paie une frappe de retour (`←`), là où
+chaque note isolée en gagne une. L'avance s'éteint dans *Réglages → Affichage → Avancer après chaque
+case* pour qui préfère l'ancienne façon.
 
 **La règle des cases 10 à 24 a dû changer, et c'est le piège qu'il a fallu mesurer pour le voir.**
 L'ancienne était « le second chiffre complète le premier s'il arrive dans les 950 ms ». Elle ne
@@ -502,6 +520,7 @@ reprendre) et entre deux signatures différentes (le rythme n'y tomberait pas ju
 | `0` … `9` | Poser une case. Deux chiffres tapés rapidement = cases 10 à 24 |
 | `←` `→` | Évènement précédent / suivant. À droite, prolonge la mesure tant qu'elle n'est pas pleine |
 | `↑` `↓` | Changer de corde |
+| `Maj`+`↑` `↓` | **Accord** — la même case, une corde plus haut / plus bas |
 | `Ctrl`+`←` `→` | Mesure précédente / suivante |
 | `Origine` / `Fin` | Début / fin de mesure (avec `Ctrl` : du morceau) |
 | `⌫` / `Suppr` | Effacer la note |

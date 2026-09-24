@@ -50,6 +50,10 @@ export const ACTIONS = [
     { id: 'droite', touches: ['arrowright'], libelle: 'Évènement suivant', palette: false, faire: ed => ed.deplacerEvenement(1) },
     { id: 'haut', touches: ['arrowup'], libelle: 'Corde plus aiguë', palette: false, faire: ed => ed.deplacerCorde(-1) },
     { id: 'bas', touches: ['arrowdown'], libelle: 'Corde plus grave', palette: false, faire: ed => ed.deplacerCorde(1) },
+    // L'ACCORD : même temps, une corde plus haut/bas (voir Editeur.resterSurLeTemps). Maj+flèche,
+    // parce que Maj+chiffre est déjà la façon de taper un chiffre sur un clavier AZERTY.
+    { id: 'accordHaut', touches: ['shift+arrowup'], libelle: 'Ajouter à l\'accord — corde plus aiguë', palette: false, faire: ed => ed.resterSurLeTemps(-1) },
+    { id: 'accordBas', touches: ['shift+arrowdown'], libelle: 'Ajouter à l\'accord — corde plus grave', palette: false, faire: ed => ed.resterSurLeTemps(1) },
     { id: 'mesurePrec', touches: ['ctrl+arrowleft'], libelle: 'Mesure précédente', palette: false, faire: ed => ed.allerAMesure(ed.curseur.mesure - 1) },
     { id: 'mesureSuiv', touches: ['ctrl+arrowright'], libelle: 'Mesure suivante', palette: false, faire: ed => ed.allerAMesure(ed.curseur.mesure + 1) },
     { id: 'debutMesure', touches: ['home'], libelle: 'Début de la mesure', palette: false, faire: ed => ed.allerAMesure(ed.curseur.mesure, 0) },

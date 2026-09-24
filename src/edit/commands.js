@@ -326,6 +326,51 @@ export class Editeur {
     }
 
     /**
+     * MÊME TEMPS, UNE CORDE PLUS HAUT (ou plus bas) — le geste de l'accord, Maj+↑ / Maj+↓.
+     *
+     * LE DÉFAUT QU'IL CORRIGE. Depuis l'avance automatique, taper les trois cases d'un accord les
+     * écrit sur TROIS TEMPS SUCCESSIFS : on tape 2, le curseur avance, on tape 2, il avance encore.
+     * Pour obtenir un accord il fallait un « ← » entre chaque — 7 frappes au lieu de 5 pour trois
+     * notes, 16 au lieu de 11 à six cordes — et surtout RIEN ne prévenait : on croyait écrire un
+     * accord, on écrivait une gamme.
+     *
+     * POURQUOI PAS ↑ TOUT SEUL, et c'est la question qu'on se pose d'abord. Après avoir écrit une
+     * note, « ↑ puis un chiffre » veut dire L'ACCORD pour un guitariste et LA NOTE SUIVANTE, sur une
+     * autre corde, pour un bassiste. Même état, intentions opposées : aucune règle locale ne peut
+     * trancher, il faut un geste explicite. Maj+↑ garde donc à ↑ son sens de toujours.
+     *
+     * POURQUOI PAS MAJ+CHIFFRE, le réflexe suivant : sur un clavier AZERTY, Maj+2 est LA FAÇON de
+     * taper un 2 (voir edit/keyboard.js, qui lit `e.key` sans exclure Maj, et c'est ce qui rend la
+     * saisie utilisable en AZERTY). Le modificateur est pris. Maj+flèche est libre, et c'est déjà le
+     * « ajouter à la sélection » universel — MuseScore s'en sert exactement pour ajouter une note à
+     * un accord.
+     *
+     * L'ANCRE EST LA DERNIÈRE CASE ÉCRITE (`_dernierChiffre`), pas « une case en arrière » : c'est ce
+     * qui rend le geste juste quand l'avance a franchi une barre de mesure, et ce qui permet
+     * d'empiler quatre notes en répétant Maj+↑ sans jamais dériver. On ne la consomme PAS — les
+     * appuis successifs partent tous du même évènement.
+     *
+     * SANS ANCRE, il se comporte comme ↑ : aucune case n'a été écrite depuis le dernier geste qui
+     * l'aurait rendue caduque (un clic, un déplacement, une mutation), il n'y a donc pas d'accord en
+     * cours et rien à retrouver.
+     */
+    resterSurLeTemps(delta) {
+        const ancre = this._dernierChiffre?.cible;
+        const existe = ancre && this.partition.mesures[ancre.mesure]?.voix[ancre.voix]?.evenements[ancre.evenement];
+        if (existe) {
+            this.curseur.mesure = ancre.mesure;
+            this.curseur.voix = ancre.voix;
+            this.curseur.evenement = ancre.evenement;
+            this.curseur.decalage = 0;
+        }
+        const n = nbCordes(this.partition);
+        const suivant = this.curseur.corde + delta;
+        if (suivant >= 0 && suivant < n) this.curseur.corde = suivant;
+        this.prevenir('curseur');
+        return true;
+    }
+
+    /**
      * Déplace le curseur d'un évènement, en franchissant les barres de mesure.
      *
      * LE GESTE CENTRAL DE LA SAISIE, et celui qui décide de la fluidité de l'application : on tape une
