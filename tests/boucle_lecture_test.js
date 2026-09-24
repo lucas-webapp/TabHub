@@ -66,7 +66,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
 
 (async () => {
-    plan(112);
+    plan(135);
 
     // --- 0. À LA SOURIS D'ABORD (page à part, sans hasTouch) : la mesure de référence pour le
     // comparatif tactile juste après — cette page ne sert qu'à ça, fermée aussitôt. -----------------
@@ -164,13 +164,21 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
         /** Point d'écran sur le VRAI bord ('debut' = a.x, 'fin' = a.xFin) de la mesure `i`, à la
          *  hauteur de la bande — là où se dessine et se saisit une poignée (voir marquesBoucle/
          *  poigneeBoucleAuPoint), par opposition à pointMesure ci-dessus qui vise son CENTRE. */
+        // LE POINT VISÉ EST CELUI OÙ LA POIGNÉE EST DESSINÉE, lu sur le SVG — pas un bord de mesure
+        // recalculé ici. Une version antérieure prenait `a.x`/`a.xFin`, ce qui n'a jamais été le même
+        // point : la bande se borne aux BORNES FINES (player.js#bornesBoucle), et le bord de mesure
+        // d'un début de système inclut en plus la clef et le chiffrage (69 px d'écart mesurés à S=9).
+        // Un banc qui vise ailleurs que l'utilisateur ne prouve rien de ce que l'utilisateur fait.
         const pointBordMesure = (i, bord) => page.evaluate(({ i, bord }) => {
             const svg = document.querySelector('#feuille svg');
             const b = svg.getBoundingClientRect();
             const a = window.app.page.ancrages.mesures.find(x => x.index === i);
             const S = window.app.page.geo.S;
             const yBande = a.yTab + a.hauteurTab + 1.2 * S;
-            const xSvg = bord === 'debut' ? a.x : a.xFin;
+            const dessinee = svg.querySelector(bord === 'debut' ? '.poignee-debut' : '.poignee-fin');
+            const xSvg = dessinee
+                ? +dessinee.getAttribute('x') + (+dessinee.getAttribute('width')) / 2
+                : (bord === 'debut' ? a.x : a.xFin);   // repli : aucune boucle posée, donc aucune poignée
             return {
                 x: b.left + (xSvg / window.app.page.largeur) * b.width,
                 y: b.top + (yBande / window.app.page.hauteur) * b.height,
@@ -923,7 +931,13 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             const b = svg.getBoundingClientRect(), ech = b.width / app.page.largeur;
             const a = app.page.ancrages.mesures.find(m => m.index === i);
             const sys = app.page.ancrages.systemes.find(s2 => s2.index === a.systeme);
-            const x = bord === 'debut' ? a.x : (bord === 'fin' ? a.xFin : (a.x + a.xFin) / 2);
+            // Même raison que pointBordMesure plus haut : on vise la poignée DESSINÉE, pas un bord de
+            // mesure recalculé, qui n'est le même point ni sur un début de système ni sur une borne fine.
+            const dessinee = bord === 'debut' || bord === 'fin'
+                ? svg.querySelector(bord === 'debut' ? '.poignee-debut' : '.poignee-fin') : null;
+            const x = dessinee
+                ? +dessinee.getAttribute('x') + (+dessinee.getAttribute('width')) / 2
+                : (bord === 'debut' ? a.x : (bord === 'fin' ? a.xFin : (a.x + a.xFin) / 2));
             return { x: b.left + x * ech, y: b.top + (sys.yBas + 1.2 * app.page.geo.S) * ech };
         }, { i, bord });
         const etatPoignees = () => p.evaluate(() => {
@@ -1077,6 +1091,243 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
     } finally { await geste.fermer(); }
 
     // ============================================================================================
+    // LA POIGNÉE SE PREND LÀ OÙ ELLE SE VOIT — et un clic manqué n'efface plus la bande.
+    //
+    // CE QU'ILS PROTÈGENT (retour utilisateur, capture à l'appui) : « j'ai une barre de lecture
+    // orange. Mais je ne peux plus attraper de poignée sur la droite, je suis obligé de redessiner la
+    // barre. En somme, je la trouve plutôt instable, souvent je la supprime sans faire exprès, où les
+    // fonctions à la souris ne sont pas claires. »
+    //
+    // UN SEUL DÉFAUT, TROIS SYMPTÔMES. La bande était DESSINÉE d'après les bornes fines
+    // (player.js#bornesBoucle, depuis qu'une boucle se cale au temps) et ATTRAPÉE d'après les seuls
+    // bords de mesure — deux calculs séparés du même x. MESURÉ à S=9 sur quatre mesures de noires,
+    // rayon de prise 1,1 × S = 9,9 px :
+    //   • poignée de DÉBUT sur la 1re mesure : dessinée à 189,2, cherchée à 119,8 — 69,3 px d'écart,
+    //     SEPT fois le rayon (le bord de mesure y inclut la clef et le chiffrage) ;
+    //   • poignée de FIN d'une boucle finissant au 3e temps : dessinée à 471,8, cherchée à 574,4 —
+    //     102,6 px, DIX fois le rayon.
+    // Donc : poignées insaisissables, surbrillance au survol morte (elle interroge la même méthode),
+    // et le clic manqué retombant sur le geste générique de la bande, qui RETIRAIT la boucle. Les
+    // trois se corrigent en une seule lecture partagée (main.js#bordsBoucleDuSysteme).
+    //
+    // ET LA RÈGLE DU CLIC IMMOBILE SE LIT DÉSORMAIS SUR CE QU'ON VOIT (pointSurLaBoucle) : cliquer LA
+    // BARRE la retire, cliquer la piste VIDE y pose la boucle. Avant, n'importe quel clic immobile
+    // l'effaçait dès qu'elle existait — même à l'autre bout de la ligne, sans rien d'orange sous le
+    // pointeur.
+    const poign = await ouvrirApp({ viewport: { width: 1320, height: 900 } });
+    try {
+        const pg = poign.page;
+        await pg.evaluate(() => {
+            const ed = window.app.editeur;
+            ed.nouveau('guitare');
+            ed.placerCurseur(0, 0, 0, 0);
+            const n = (v, f) => { ed.appliquerDuree(v); ed.saisirChiffre(f); };
+            for (let m = 0; m < 4; m++) for (const f of [0, 2, 3, 5]) n(4, f);
+        });
+        await pg.waitForTimeout(200);
+
+        /** Point d'écran au milieu vertical de la bande de boucle du 1er système, à l'abscisse `x`. */
+        const surLaBande = (x) => pg.evaluate((x) => {
+            const app = window.app;
+            const boite = app.el.feuille.querySelector('svg').getBoundingClientRect();
+            const sys = app.page.ancrages.systemes[0];
+            const S = app.page.geo.S;
+            const y = sys.yBas + (1.0 + app.basBandeDuSysteme(sys)) / 2 * S;
+            return { x: boite.left + x / (app.page.largeur / boite.width),
+                     y: boite.top + y / (app.page.hauteur / boite.height) };
+        }, x);
+
+        /** Pose une boucle, puis rend l'abscisse DESSINÉE de chaque poignée et ce que la PRISE y répond. */
+        const poserEtSonder = (debut, fin, fines) => pg.evaluate(([d, f, fi]) => {
+            const app = window.app;
+            app.lecteur.definirBoucle(app.editeur.partition, d, f, fi);
+            app.dessiner();
+            const svg = app.el.feuille.querySelector('svg');
+            const boite = svg.getBoundingClientRect();
+            const bande = svg.querySelector('.bande-boucle');
+            const yb = +bande.getAttribute('y') + (+bande.getAttribute('height')) / 2;
+            const clientY = boite.top + yb / (app.page.hauteur / boite.height);
+            const versClient = (x) => boite.left + x / (app.page.largeur / boite.width);
+            const milieuDe = (sel) => {
+                const e = svg.querySelector(sel);
+                return e ? +e.getAttribute('x') + (+e.getAttribute('width')) / 2 : null;
+            };
+            const xDebut = milieuDe('.poignee-debut'), xFin = milieuDe('.poignee-fin');
+            return {
+                xDebut, xFin,
+                priseDebut: xDebut == null ? null : app.poigneeBoucleAuPoint(versClient(xDebut), clientY),
+                priseFin: xFin == null ? null : app.poigneeBoucleAuPoint(versClient(xFin), clientY),
+            };
+        }, [debut, fin, fines]);
+
+        // --- A. LES DEUX POIGNÉES SE PRENNENT, MESURE ENTIÈRE COMME BORNE FINE --------------------
+        const casPoignees = [
+            ['1re mesure entière (clef et chiffrage compris)', 0, 0, {}],
+            ['deux mesures entières', 0, 1, {}],
+            ['fin au 3e temps de la 2e mesure', 0, 1, { finDansMesure: 2 }],
+            ['début au 2e temps, fin au 3e', 0, 1, { debutDansMesure: 1, finDansMesure: 2 }],
+        ];
+        for (const [nom, d, f, fi] of casPoignees) {
+            const r = await poserEtSonder(d, f, fi);
+            if (!exiger(r.xDebut != null && r.xFin != null, `${nom} : les deux poignées sont dessinées`)) continue;
+            check(r.priseDebut === 'debut',
+                `${nom} : la poignée de DÉBUT s'attrape là où elle se voit (x=${r.xDebut.toFixed(1)}, prise « ${r.priseDebut} »)`);
+            check(r.priseFin === 'fin',
+                `${nom} : la poignée de FIN s'attrape là où elle se voit (x=${r.xFin.toFixed(1)}, prise « ${r.priseFin} »)`);
+        }
+
+        // --- B. LE GESTE COMPLET : ÉTIRER LA POIGNÉE DE FIN ---------------------------------------
+        const avantEtirement = await poserEtSonder(0, 1, { finDansMesure: 2 });
+        const pf = await surLaBande(avantEtirement.xFin);
+        const cible = await surLaBande(740);
+        await pg.mouse.move(pf.x, pf.y);
+        const survol = await pg.evaluate(([x, y]) => window.app.poigneeBoucleAuPoint(x, y), [pf.x, pf.y]);
+        check(survol === 'fin',
+            `le SURVOL de la poignée de fin la reconnaît (« ${survol} ») — c'est la même méthode qui allume `
+            + 'la surbrillance et change le curseur en ↔, restée muette tant que les deux x divergeaient');
+        await pg.mouse.down();
+        await pg.mouse.move(cible.x, cible.y, { steps: 8 });
+        await pg.mouse.up();
+        await pg.waitForTimeout(150);
+        const apres = await pg.evaluate(() => ({ ...window.app.lecteur.boucleLecture }));
+        check(apres.debut === 0 && apres.fin > 1,
+            `étirer cette poignée allonge la boucle sans la redessiner (mesures ${apres.debut + 1}-${apres.fin + 1}) : `
+            + 'le début n\'a pas bougé');
+
+        // --- C. LE CLIC IMMOBILE : SUR LA BARRE IL RETIRE, À CÔTÉ IL POSE -------------------------
+        await poserEtSonder(0, 1, {});
+        const dedans = await surLaBande(300);
+        check(await pg.evaluate(([x, y]) => window.app.pointSurLaBoucle(x, y), [dedans.x, dedans.y]),
+            'préalable : ce point est bien SUR la barre orange');
+        await pg.mouse.move(dedans.x, dedans.y); await pg.mouse.down(); await pg.mouse.up();
+        await pg.waitForTimeout(150);
+        check(await pg.evaluate(() => window.app.lecteur.boucleLecture) === null,
+            'un clic immobile SUR la barre la retire — le geste se lit sur ce qu\'on voit, et reste le seul moyen tactile d\'annuler');
+
+        await poserEtSonder(0, 0, {});
+        const dehors = await surLaBande(700);
+        check(!(await pg.evaluate(([x, y]) => window.app.pointSurLaBoucle(x, y), [dehors.x, dehors.y])),
+            'préalable : ce point-ci est HORS de la barre');
+        await pg.mouse.move(dehors.x, dehors.y); await pg.mouse.down(); await pg.mouse.up();
+        await pg.waitForTimeout(150);
+        const deplacee = await pg.evaluate(() => window.app.lecteur.boucleLecture && { ...window.app.lecteur.boucleLecture });
+        check(deplacee && deplacee.debut > 0,
+            `un clic immobile À CÔTÉ la DÉPLACE au lieu de l'effacer (mesure ${deplacee ? deplacee.debut + 1 : '—'}) — `
+            + 'c\'est la moitié « souvent je la supprime sans faire exprès » du retour');
+
+        // --- C bis. LA DERNIÈRE MESURE D'UNE LIGNE : la bande garde une largeur ------------------
+        // LE DÉFAUT : la FIN d'une boucle est un instant qui tombe PILE sur la barre de mesure, et
+        // `lieuDeLaPosition` répondait « c'est le début de la mesure suivante » — la lecture juste
+        // pour une tête de lecture, fausse pour un bord de bande. Au MILIEU d'une ligne, l'erreur
+        // passait pour un léger débord ; au BOUT, la mesure suivante ouvre le système d'APRÈS, et la
+        // bande retombait à gauche de celui-ci. MESURÉ sur un téléphone (une mesure par système) :
+        // x1 = x2 = 79,76 — largeur NULLE, deux poignées superposées, plus rien à attraper.
+        await pg.evaluate(() => {
+            window.app.mesuresParLigne = 2;   // deux mesures par ligne : la 2e finit la ligne
+            window.app.dessiner();
+        });
+        await pg.waitForTimeout(150);
+        /** Bornes de la bande sur la mesure `i`, et les repères auxquels sa FIN doit se comparer. */
+        const finSur = (i) => pg.evaluate((i) => {
+            const app = window.app;
+            app.lecteur.definirBoucle(app.editeur.partition, i, i);
+            app.dessiner();
+            const a = app.page.ancrages.mesures.find(m => m.index === i);
+            const sys = app.page.ancrages.systemes.find(s => s.index === a.systeme);
+            const suivante = app.page.ancrages.mesures.find(m => m.index === i + 1);
+            const evs = app.page.ancrages.evenements.filter(z => z.mesure === i && z.voix === 0);
+            const b = app.bordsBoucleDuSysteme(sys);
+            return {
+                x1: b.x1, x2: b.x2, largeur: b.x2 - b.x1,
+                finDerniereFigure: evs.length ? evs[evs.length - 1].xFin : null,
+                barreDeMesure: a.xFin,
+                debutSuivante: suivante ? suivante.x : null,
+                changeDeSysteme: suivante ? suivante.systeme !== a.systeme : null,
+            };
+        }, i);
+
+        // LA FIN TOMBE OÙ LA DERNIÈRE FIGURE S'ACHÈVE — c'est-à-dire là où passe la tête de lecture
+        // à cet instant. Trois repères distincts existent à quelques pixels les uns des autres (fin de
+        // la dernière figure, barre de mesure, début de la mesure suivante) et c'est bien le PREMIER
+        // qu'il faut : les deux autres décrivent la mesure, pas la musique qui s'y termine.
+        const finMilieu = await finSur(0);
+        exiger(finMilieu.changeDeSysteme === false,
+            'préalable : cette mesure-ci est SUIVIE sur la même ligne');
+        check(Math.abs(finMilieu.x2 - finMilieu.finDerniereFigure) < 0.01,
+            `au milieu d'une ligne, la fin de la bande tombe sur la fin de la dernière figure `
+            + `(${finMilieu.x2.toFixed(1)}), et non sur le début de la mesure suivante `
+            + `(${finMilieu.debutSuivante.toFixed(1)}) ni sur la barre (${finMilieu.barreDeMesure.toFixed(1)})`);
+
+        const finDeLigne = await finSur(1);
+        exiger(finDeLigne.changeDeSysteme === true,
+            'préalable : cette mesure-là finit bien la ligne (la suivante ouvre le système d\'après)');
+        check(finDeLigne.largeur > 20,
+            `la bande garde une vraie largeur en bout de ligne (${finDeLigne.largeur.toFixed(1)} px de `
+            + `${finDeLigne.x1.toFixed(1)} à ${finDeLigne.x2.toFixed(1)}) — elle en faisait ZÉRO tant que `
+            + 'sa fin allait chercher le bord gauche de la mesure suivante, sur le système d\'après');
+        check(Math.abs(finDeLigne.x2 - finDeLigne.finDerniereFigure) < 0.01,
+            `et elle s'y termine au même repère qu'ailleurs (${finDeLigne.x2.toFixed(1)}), sans déborder `
+            + `la barre de mesure (${finDeLigne.barreDeMesure.toFixed(1)}) : le bout de ligne n'est pas un cas à part`);
+        await pg.evaluate(() => { window.app.mesuresParLigne = 0; window.app.dessiner(); });
+        await pg.waitForTimeout(150);
+
+        // --- D. NEUTRALISATION : la PRISE seule retrouve son ancien calcul ------------------------
+        // Sans ce sabotage, rien ne prouverait que la section A mesure bien ce que la lecture partagée
+        // gouverne : quatre cas verts pourraient décrire deux calculs restés d'accord par hasard.
+        // ON NE SABOTE QUE `poigneeBoucleAuPoint`, jamais bordsBoucleDuSysteme : celui-ci sert AUSSI à
+        // DESSINER, et le trafiquer déplacerait la poignée EN MÊME TEMPS que sa prise — les deux
+        // resteraient d'accord et le banc ne verrait rien. C'est précisément le défaut qu'on éprouve
+        // ici : DEUX lectures qui divergent, pas une lecture fausse.
+        const sabote = await pg.evaluate(() => {
+            const app = window.app;
+            const vrai = app.poigneeBoucleAuPoint.bind(app);
+            app.poigneeBoucleAuPoint = function (clientX, clientY) {
+                const boucle = this.lecteur.boucleLecture;
+                const dans = this._pointDansBandeBoucle(clientX, clientY);
+                if (!boucle || !dans) return null;
+                const touche = this.page.ancrages.mesures.filter(a =>
+                    a.systeme === dans.systeme.index && a.index >= boucle.debut && a.index <= boucle.fin);
+                if (!touche.length) return null;
+                // L'ANCIEN CALCUL : les bords de MESURE, en ignorant les bornes fines.
+                const prise = 1.1 * dans.S;
+                if (touche.some(a => a.index === boucle.debut)
+                    && Math.abs(dans.x - Math.min(...touche.map(a => a.x))) <= prise) return 'debut';
+                if (touche.some(a => a.index === boucle.fin)
+                    && Math.abs(dans.x - Math.max(...touche.map(a => a.xFin))) <= prise) return 'fin';
+                return null;
+            };
+            app.lecteur.definirBoucle(app.editeur.partition, 0, 1, { finDansMesure: 2 });
+            app.dessiner();
+            const svg = app.el.feuille.querySelector('svg');
+            const boite = svg.getBoundingClientRect();
+            const bande = svg.querySelector('.bande-boucle');
+            const yb = +bande.getAttribute('y') + (+bande.getAttribute('height')) / 2;
+            const clientY = boite.top + yb / (app.page.hauteur / boite.height);
+            const lis = (sel) => {
+                const e = svg.querySelector(sel);
+                if (!e) return { x: null, prise: null };
+                const x = +e.getAttribute('x') + (+e.getAttribute('width')) / 2;
+                return { x, prise: app.poigneeBoucleAuPoint(boite.left + x / (app.page.largeur / boite.width), clientY) };
+            };
+            const fin = lis('.poignee-fin'), debut = lis('.poignee-debut');
+            app.poigneeBoucleAuPoint = vrai;
+            const rendu = lis('.poignee-fin');
+            return { fin, debut, rendu };
+        });
+        check(sabote.fin.prise === null && sabote.debut.prise === null,
+            `NEUTRALISATION : avec l'ancien calcul (bords de mesure), les DEUX poignées redeviennent `
+            + `insaisissables là où elles sont dessinées (début x=${sabote.debut.x && sabote.debut.x.toFixed(1)} → `
+            + `« ${sabote.debut.prise} », fin x=${sabote.fin.x && sabote.fin.x.toFixed(1)} → « ${sabote.fin.prise} ») — `
+            + 'la section A mesure bien la lecture partagée');
+        check(sabote.rendu.prise === 'fin',
+            `et la méthode rendue les reprend aussitôt (« ${sabote.rendu.prise} ») : le sabotage n'a rien laissé derrière lui`);
+
+        check(poign.erreurs.length === 0,
+            'aucune erreur JavaScript pendant les gestes de poignée'
+            + (poign.erreurs.length ? ' — ' + poign.erreurs.join(' | ') : ''));
+    } finally { await poign.fermer(); }
+
+    // ============================================================================================
     // AU DOIGT : LA PARTITION VIENT À NOUS, ET LA POIGNÉE EST ATTRAPABLE.
     //
     // CE QU'ILS PROTÈGENT (retour utilisateur, téléphone) : « je peux cliquer pour ajouter la barre,
@@ -1108,7 +1359,13 @@ const { check, exiger, plan, bilan } = creerHarnais('boucle de lecture');
             const a = app.page.ancrages.mesures.find(m => m.index === 1);
             const liste = app.page.ancrages.systemes;
             const sys = liste.find(s => s.index === a.systeme);
-            const x = b.left + a.xFin * ech, y = b.top + (sys.yBas + 0.9 * app.page.geo.S) * ech;
+            // Le centre de la poignée DESSINÉE, pas le bord de mesure : une boucle sur une mesure
+            // ENTIÈRE se borne à la fin de la zone de notes, en retrait de la barre (c'est aussi là
+            // que passe la tête de lecture, voir lieuDeLaPosition) — balayer depuis la barre partait
+            // d'un point où il n'y a jamais eu de poignée à prendre.
+            const pg = svg.querySelector('.poignee-fin');
+            const xSvg = pg ? +pg.getAttribute('x') + (+pg.getAttribute('width')) / 2 : a.xFin;
+            const x = b.left + xSvg * ech, y = b.top + (sys.yBas + 0.9 * app.page.geo.S) * ech;
             const dedans = (dx, dy) => app.poigneeBoucleAuPoint(x + dx, y + dy) === 'fin';
             const portee = (sx, sy) => { for (let d = 0; d < 400; d++) if (!dedans(sx * d, sy * d)) return d; return 400; };
             const j = liste.findIndex(s => s.index === sys.index);

@@ -697,11 +697,37 @@ class TabHubApp {
         // désigné, ce qui est la définition d'une surprise.
         const d = this.editeur.curseur.decalage || 0;
         const total = a.ref ? dureeEnNoires(a.ref.duree) : 0;
-        const xDepart = (d > 1e-9 && total > 0)
-            ? a.xDebut + (d / total) * (a.xFin - a.xDebut)
-            : a.xDebut;
+        let xDepart, xArrivee;
+        if (d > 1e-9 && total > 0) {
+            // VISÉE À L'INTÉRIEUR D'UN SILENCE : le bandeau part du point visé et court jusqu'au bout
+            // du silence. Ici on ne cherche PAS à le centrer — il ne désigne pas une figure, il
+            // désigne un INSTANT et ce qu'il reste après lui.
+            xDepart = a.xDebut + (d / total) * (a.xFin - a.xDebut);
+            xArrivee = a.xFin;
+        } else {
+            // LE BANDEAU EST CENTRÉ SUR LA TÊTE, pas sur la case (retour utilisateur : « elle n'est
+            // pas toujours centrée avec la note »). Une tête de note ne se pose PAS au milieu de la
+            // case qu'elle occupe : la gravure la place à 42 % de sa première colonne (voir
+            // engine/layout.js, `xNote`), pour laisser à sa gauche la place d'une altération et à sa
+            // droite celle de la hampe et des ligatures. Un bandeau tendu de `xDebut` à `xFin`
+            // héritait donc d'un décalage de 8 % de la case — MESURÉ à S=10 : 1 px sur une
+            // double-croche, 2 sur une croche, 4 sur une noire, 8 sur une blanche, 16 sur une ronde.
+            // Invisible sur les figures brèves, franc sur les longues : exactement le « pas TOUJOURS
+            // centrée » du retour.
+            //
+            // LA DEMI-LARGEUR EST LA PLUS PETITE DES DEUX, jamais la moitié de la case : c'est ce qui
+            // garantit que le bandeau ne mord ni sur la case précédente ni au-delà de la barre de
+            // mesure (la dernière figure d'une mesure s'étend jusqu'à la barre, voir `xFinMesureNotes`).
+            // Le bandeau perd 16 % de sa largeur et garde tout le reste : il grandit toujours avec la
+            // durée, il commence toujours au bord de la case, et il est désormais centré.
+            const demi = Math.min(a.x - a.xDebut, a.xFin - a.x);
+            // Filet : une géométrie dégénérée (tête hors de sa propre case) ne doit pas faire
+            // DISPARAÎTRE le curseur — on retombe alors sur la case entière, l'ancien comportement.
+            if (demi > 0.5) { xDepart = a.x - demi; xArrivee = a.x + demi; }
+            else { xDepart = a.xDebut; xArrivee = a.xFin; }
+        }
         const marques = [
-            { t: 'rect', x: xDepart, y, w: a.xFin - xDepart, h: bas - y, couleur: 'var(--curseur-halo)' },
+            { t: 'rect', x: xDepart, y, w: xArrivee - xDepart, h: bas - y, couleur: 'var(--curseur-halo)' },
         ];
         // Le trait « sur quelle corde » n'a de sens que sur une TABLATURE — un piano (a.yTab absent,
         // voir engine/layout.js#poserMesurePiano) montre déjà SA note à sa hauteur réelle sur la
@@ -778,7 +804,7 @@ class TabHubApp {
      * @param {Array} [plat]     `aplatir(partition)` déjà calculé, si l'appelant l'a sous la main.
      * @returns {{x: number, ancrage: object}|null}
      */
-    lieuDeLaPosition(position, plat = null) {
+    lieuDeLaPosition(position, plat = null, { fermeture = false } = {}) {
         if (!this.page) return null;
         const liste = plat || aplatir(this.editeur.partition);
         const EPS = 1e-9;
@@ -786,7 +812,20 @@ class TabHubApp {
             x => x.mesure === e.mesure && x.voix === e.voix && x.evenement === e.evenement);
 
         const systemeDe = (a) => this.page.ancrages.mesures.find(m => m.index === a.mesure)?.systeme ?? 0;
-        const dans = liste.find(e => position >= e.debut - EPS && position < e.debut + e.duree - EPS);
+        // `fermeture` : L'INSTANT QUI FERME PLUTÔT QUE CELUI QUI OUVRE. Le même intervalle, mais
+        // semi-ouvert de l'autre côté — la figure qu'un instant TERMINE, pas celle qu'il commence.
+        //
+        // POURQUOI CE SECOND MODE EXISTE. La tête de lecture demande légitimement « qui sonne à cet
+        // instant » : à la position 8 d'un morceau en 4/4, c'est la 3e mesure qui commence. La FIN
+        // d'une boucle bornée à la 2e mesure demande tout le contraire — l'endroit où cette mesure-là
+        // s'achève. Sans cette distinction, la bande de boucle allait chercher le bord GAUCHE de la
+        // mesure SUIVANTE : à peu près juste au milieu d'une ligne, catastrophique à son bout, où la
+        // mesure suivante ouvre le système d'APRÈS. MESURÉ sur un téléphone (une mesure par système) :
+        // x1 = x2 = 79,76 — la barre orange n'avait plus aucune largeur, et ses deux poignées
+        // tombaient l'une sur l'autre. « Je la trouve plutôt instable », dit le retour utilisateur.
+        const dans = fermeture
+            ? liste.find(e => position > e.debut + EPS && position <= e.debut + e.duree + EPS)
+            : liste.find(e => position >= e.debut - EPS && position < e.debut + e.duree - EPS);
         if (dans) {
             const a = ancrageDe(dans);
             if (!a) return null;
@@ -4487,20 +4526,13 @@ class TabHubApp {
             // poserApercuBoucle) : sans cela on verrait DEUX bandes, l'ancienne figée sous la
             // nouvelle qui suit le doigt — et on ne saurait plus laquelle on est en train de définir.
             if (!boucle || this._gesteBoucle) continue;
-            const touche = this.page.ancrages.mesures.filter(a =>
-                a.systeme === sys.index && a.index >= boucle.debut && a.index <= boucle.fin);
-            if (!touche.length) continue;
-            // LES BORNES FINES DÉCIDENT DES DEUX BOUTS (voir player.js#bornesBoucle) : une boucle
-            // peut commencer ou finir EN COURS de mesure depuis qu'elle se cale au temps. Sur les
-            // systèmes du MILIEU d'une longue boucle, en revanche, il n'y a pas de bout à placer —
-            // la bande y couvre toute la largeur, et c'est `touche` qui le dit.
-            const bornes = this.lecteur.bornesBoucle(this.editeur.partition);
-            const portDebut = touche.some(a => a.index === boucle.debut)
-                ? this.lieuDeLaPosition(bornes.debut) : null;
-            const portFin = touche.some(a => a.index === boucle.fin)
-                ? this.lieuDeLaPosition(bornes.fin) : null;
-            const x1 = portDebut ? portDebut.x : Math.min(...touche.map(a => a.x));
-            const x2 = portFin ? portFin.x : Math.max(...touche.map(a => a.xFin));
+            // LES DEUX BORDS SE LISENT AU SEUL ENDROIT QUI SAIT LES CALCULER (bordsBoucleDuSysteme) —
+            // le même que celui où la poignée s'ATTRAPE. Voir le docblock de cette méthode : les
+            // avoir écrits deux fois est exactement ce qui avait rendu les poignées insaisissables.
+            // `null` = ce système ne porte aucun morceau de la boucle : rien à dessiner ici.
+            const bords = this.bordsBoucleDuSysteme(sys);
+            if (!bords) continue;
+            const { x1, x2 } = bords;
             // Marge d'affichage (voir MARGE_BOUCLE_LATERALE/VERTICALE) : x1/x2/y/h restent les
             // valeurs BRUTES (zone de saisie, celle ci-dessus) ; xAff*/yAff/hAff sont celles, en
             // retrait, qu'on montre réellement — halo ET poignées ci-dessous. L'ÉPAISSEUR visuelle
@@ -4539,10 +4571,10 @@ class TabHubApp {
             // surbrillance au survol (retour utilisateur : « en plus du curseur qui change, il faut
             // mettre en surbrillance les 2 petites poignées »), la seconde porte le touch-action.
             const largeurPx = LARGEUR_POIGNEE_BOUCLE * S;
-            if (touche.some(a => a.index === boucle.debut)) {
+            if (bords.aDebut) {
                 marques.push({ t: 'rect', x: x1 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle poignee-boucle poignee-debut' });
             }
-            if (touche.some(a => a.index === boucle.fin)) {
+            if (bords.aFin) {
                 marques.push({ t: 'rect', x: x2 - largeurPx / 2, y: yAff, w: largeurPx, h: hAff, couleur: 'var(--lecture)', classe: 'bande-boucle poignee-boucle poignee-fin' });
             }
         }
@@ -4970,18 +5002,63 @@ class TabHubApp {
     }
 
     /**
-     * Poignée de boucle (voir marquesBoucle) sous le point d'écran donné — 'debut', 'fin', ou `null`
-     * hors de toute poignée. Zone de PRISE bien plus large que le trait visuel (PRISE_POIGNEE_BOUCLE,
-     * environ le double de LARGEUR_POIGNEE_BOUCLE) : un doigt vise rarement le pixel exact, et
-     * HarmoHub élargit pareillement sa propre zone de préhension au-delà de ce qu'elle montre.
-     * MÊME PLAGE VERTICALE que mesureDansBandeBoucle, volontairement : jamais un pixel au-delà de ce
-     * que `.bande-boucle` (touch-action: none) couvre déjà, voir la remarque de LARGEUR_POIGNEE_BOUCLE.
-     * Testée AVANT mesureDansBandeBoucle par l'appelant (demarrerGeste) : une poignée gagne toujours
-     * sur le geste générique « redéfinir depuis ce point » quand les deux zones se recouvrent.
+     * LES DEUX BORDS DE LA BANDE DE BOUCLE SUR UN SYSTÈME — `{x1, x2, aDebut, aFin}` en coordonnées
+     * de la partition, ou `null` si ce système n'en porte aucun morceau.
+     *
+     * UNE SEULE LECTURE POUR DEUX LECTEURS, et c'est tout l'objet de cette méthode. Ce qui DESSINE la
+     * bande (marquesBoucle), ce qui ATTRAPE ses poignées (poigneeBoucleAuPoint) et ce qui décide
+     * qu'un clic est tombé DESSUS (pointSurLaBoucle) doivent parler du même x, sans quoi la poignée
+     * se voit là où elle ne se prend pas. C'est exactement ce qui était arrivé : le dessin lisait les
+     * BORNES FINES (player.js#bornesBoucle, depuis que la boucle se cale au temps), la prise lisait
+     * encore les seuls BORDS DE MESURE. MESURÉ à S=9, sur quatre mesures de noires :
+     *   • poignée de DÉBUT sur la 1re mesure — dessinée à 189,2, cherchée à 119,8 : 69,3 px d'écart,
+     *     soit SEPT fois le rayon de prise (1,1 × S = 9,9 px). Le bord de mesure y inclut la clef et
+     *     le chiffrage, que la première note ne commence qu'après ;
+     *   • poignée de FIN d'une boucle finissant au 3e temps — dessinée à 471,8, cherchée à 574,4 :
+     *     102,6 px, soit DIX fois le rayon.
+     * Les deux poignées étaient donc insaisissables (retour utilisateur : « je ne peux plus attraper
+     * de poignée sur la droite, je suis obligé de redessiner la barre ») — et, avec elles, la
+     * surbrillance au survol, qui interroge la même méthode. Pire : le clic manqué retombait sur le
+     * geste générique de la bande, qui RETIRE la boucle (« souvent je la supprime sans faire
+     * exprès »). Un seul défaut, trois symptômes.
+     *
+     * `aDebut`/`aFin` disent si le VRAI bout de la boucle tombe sur CE système : une boucle qui court
+     * sur plusieurs lignes n'a de poignée à étirer qu'à ses deux extrémités réelles, jamais au simple
+     * retour à la ligne (même distinction que HarmoHub, voir buildLoopRangeBars).
      */
-    poigneeBoucleAuPoint(clientX, clientY) {
+    bordsBoucleDuSysteme(sys) {
         const boucle = this.lecteur.boucleLecture;
-        if (!boucle || !this.page) return null;
+        if (!boucle || !this.page || !sys) return null;
+        const touche = this.page.ancrages.mesures.filter(a =>
+            a.systeme === sys.index && a.index >= boucle.debut && a.index <= boucle.fin);
+        if (!touche.length) return null;
+        const aDebut = touche.some(a => a.index === boucle.debut);
+        const aFin = touche.some(a => a.index === boucle.fin);
+        // LES BORNES FINES DÉCIDENT DES DEUX BOUTS (voir player.js#bornesBoucle) : une boucle peut
+        // commencer ou finir EN COURS de mesure depuis qu'elle se cale au temps. Sur les systèmes du
+        // MILIEU d'une longue boucle, en revanche, il n'y a pas de bout à placer — la bande y couvre
+        // toute la largeur, et c'est `aDebut`/`aFin` qui le disent.
+        const bornes = this.lecteur.bornesBoucle(this.editeur.partition);
+        // LA FIN SE LIT « EN FERMETURE » (voir lieuDeLaPosition) : l'endroit où la dernière figure de
+        // la boucle s'achève, jamais le bord gauche de la mesure suivante.
+        let portDebut = aDebut && bornes ? this.lieuDeLaPosition(bornes.debut) : null;
+        let portFin = aFin && bornes ? this.lieuDeLaPosition(bornes.fin, null, { fermeture: true }) : null;
+        // FILET : un bord qu'on irait chercher sur un AUTRE système ne dit rien de celui-ci — on
+        // retombe alors sur le bord de mesure, qui, lui, est toujours ici. C'est exactement ce qui
+        // manquait quand la fin partait sur le système suivant.
+        if (portDebut && portDebut.systeme !== sys.index) portDebut = null;
+        if (portFin && portFin.systeme !== sys.index) portFin = null;
+        return {
+            x1: portDebut ? portDebut.x : Math.min(...touche.map(a => a.x)),
+            x2: portFin ? portFin.x : Math.max(...touche.map(a => a.xFin)),
+            aDebut, aFin,
+        };
+    }
+
+    /** Système dont la BANDE DE BOUCLE contient ce point d'écran, et le point en coordonnées de la
+     *  partition — le petit calcul commun à poigneeBoucleAuPoint et pointSurLaBoucle. */
+    _pointDansBandeBoucle(clientX, clientY) {
+        if (!this.page) return null;
         const svg = this.el.feuille.querySelector('svg');
         if (!svg) return null;
         const boite = svg.getBoundingClientRect();
@@ -4990,20 +5067,50 @@ class TabHubApp {
         const S = this.page.geo.S;
         const systeme = this.page.ancrages.systemes.find(s =>
             y >= s.yBas + HAUT_BANDE_BOUCLE * S && y <= s.yBas + this.basBandeDuSysteme(s) * S);
-        if (!systeme) return null;
-        const touche = this.page.ancrages.mesures.filter(a =>
-            a.systeme === systeme.index && a.index >= boucle.debut && a.index <= boucle.fin);
-        if (!touche.length) return null;
-        const prise = prisePoigneeBoucle() * S;
-        if (touche.some(a => a.index === boucle.debut)) {
-            const x1 = Math.min(...touche.map(a => a.x));
-            if (Math.abs(x - x1) <= prise) return 'debut';
-        }
-        if (touche.some(a => a.index === boucle.fin)) {
-            const x2 = Math.max(...touche.map(a => a.xFin));
-            if (Math.abs(x - x2) <= prise) return 'fin';
-        }
-        return null;
+        return systeme ? { systeme, x, y, S } : null;
+    }
+
+    /**
+     * Poignée de boucle (voir marquesBoucle) sous le point d'écran donné — 'debut', 'fin', ou `null`
+     * hors de toute poignée. Zone de PRISE bien plus large que le trait visuel (PRISE_POIGNEE_BOUCLE,
+     * environ le double de LARGEUR_POIGNEE_BOUCLE) : un doigt vise rarement le pixel exact, et
+     * HarmoHub élargit pareillement sa propre zone de préhension au-delà de ce qu'elle montre.
+     * MÊME PLAGE VERTICALE que mesureDansBandeBoucle, volontairement : jamais un pixel au-delà de ce
+     * que `.bande-boucle` (touch-action: none) couvre déjà, voir la remarque de LARGEUR_POIGNEE_BOUCLE.
+     * Testée AVANT mesureDansBandeBoucle par l'appelant (demarrerGeste) : une poignée gagne toujours
+     * sur le geste générique « redéfinir depuis ce point » quand les deux zones se recouvrent.
+     * LA PLUS PROCHE GAGNE quand les deux sont à portée (boucle très courte) : sans cela le début
+     * confisquait la fin, et une boucle d'un temps n'avait plus qu'une seule poignée utilisable.
+     */
+    poigneeBoucleAuPoint(clientX, clientY) {
+        const dans = this._pointDansBandeBoucle(clientX, clientY);
+        if (!dans) return null;
+        const bords = this.bordsBoucleDuSysteme(dans.systeme);
+        if (!bords) return null;
+        const prise = prisePoigneeBoucle() * dans.S;
+        const dDebut = bords.aDebut ? Math.abs(dans.x - bords.x1) : Infinity;
+        const dFin = bords.aFin ? Math.abs(dans.x - bords.x2) : Infinity;
+        if (Math.min(dDebut, dFin) > prise) return null;
+        return dDebut <= dFin ? 'debut' : 'fin';
+    }
+
+    /**
+     * LE POINT TOMBE-T-IL SUR LA BANDE ORANGE ELLE-MÊME ? — ce qui distingue « j'ai cliqué SUR la
+     * boucle » de « j'ai cliqué à côté, dans la piste vide ».
+     *
+     * POURQUOI CETTE DISTINCTION EXISTE. Un clic immobile alors qu'une boucle est posée la RETIRAIT,
+     * où qu'il tombe — y compris à l'autre bout de la ligne, loin de toute trace orange. Rien sous le
+     * pointeur n'annonçait la disparition, et c'est la deuxième moitié du retour utilisateur
+     * (« souvent je la supprime sans faire exprès »). Désormais la règle se lit sur ce qu'on voit :
+     * cliquer LA BARRE la retire, cliquer la piste VIDE y pose la boucle — exactement ce que fait
+     * déjà le même clic quand aucune boucle n'existe.
+     */
+    pointSurLaBoucle(clientX, clientY) {
+        const dans = this._pointDansBandeBoucle(clientX, clientY);
+        if (!dans) return false;
+        const bords = this.bordsBoucleDuSysteme(dans.systeme);
+        if (!bords) return false;
+        return dans.x >= bords.x1 && dans.x <= bords.x2;
     }
 
     /**
@@ -5209,13 +5316,26 @@ class TabHubApp {
             if (bouge && derniere) {
                 this.poserBornesCalees(ancre.position, derniere.position);
             } else if (!bouge) {
-                // TAP IMMOBILE. Deux gestes distincts selon qu'une boucle existe déjà :
-                //   • aucune boucle -> on en POSE une sur la mesure visée (retour utilisateur : « si
-                //     je clique, elle sera mise en place sur la mesure considérée ») ;
-                //   • une boucle en place -> on la RETIRE, seul moyen tactile d'en annuler une (à la
-                //     souris, Échap ne fait pas ce lien).
-                if (this.lecteur.boucleLecture) this.lecteur.retirerBoucle(this.editeur.partition);
-                else this.poserBoucleSurMesure(mesureAncre);
+                // TAP IMMOBILE. Deux gestes distincts, et c'est CE QU'IL Y A SOUS LE POINTEUR qui
+                // tranche, pas l'existence d'une boucle quelque part sur la page :
+                //   • sur la BARRE ORANGE elle-même -> on la RETIRE. Seul moyen tactile d'annuler une
+                //     boucle (à la souris, Échap ne fait pas ce lien), et il se lit directement : on
+                //     a cliqué la chose, la chose s'en va ;
+                //   • sur la piste VIDE -> on pose la boucle sur la mesure visée (retour utilisateur :
+                //     « si je clique, elle sera mise en place sur la mesure considérée »), qu'une
+                //     boucle existe ailleurs ou non.
+                // AVANT, N'IMPORTE QUEL CLIC IMMOBILE LA SUPPRIMAIT dès qu'elle existait — même à
+                // l'autre bout de la ligne, sans rien d'orange sous le pointeur. Combiné aux poignées
+                // devenues insaisissables (voir bordsBoucleDuSysteme), c'était la mécanique exacte du
+                // retour utilisateur : on visait la poignée, on manquait de 100 px, et le clic
+                // manqué effaçait la boucle (« souvent je la supprime sans faire exprès »).
+                // LE POINT DE DÉPART, pas celui de relâche : un tap immobile tient dans SEUIL px (6),
+                // et c'est le point qu'on a visé des yeux.
+                if (this.lecteur.boucleLecture && this.pointSurLaBoucle(depart.x, depart.y)) {
+                    this.lecteur.retirerBoucle(this.editeur.partition);
+                } else {
+                    this.poserBoucleSurMesure(mesureAncre);
+                }
                 this.dessiner();
             }
             cloreEtape();
@@ -5271,7 +5391,10 @@ class TabHubApp {
         // boucle étant justement en train d'être redéfinie sous nos pieds.
         const bornes = this.lecteur.bornesBoucle(this.editeur.partition);
         const positionFixe = bord === 'debut' ? bornes.fin : bornes.debut;
-        const lieuFixe = this.lieuDeLaPosition(positionFixe);
+        // MÊME RÈGLE QUE LA BANDE POSÉE (voir bordsBoucleDuSysteme) : quand c'est la FIN qui reste
+        // fixe, on veut l'endroit où elle ferme, pas le début de la mesure d'après — sans quoi
+        // l'aperçu tracé pendant le geste ne tomberait pas où la bande se reposera.
+        const lieuFixe = this.lieuDeLaPosition(positionFixe, null, { fermeture: bord === 'debut' });
         this._gesteBoucle = true;
         this.dessiner();
 
