@@ -268,7 +268,15 @@ export function creerMesure(extra = {}) {
         mode: null,
         repriseDebut: false,
         repriseFin: false,
+        // COMBIEN DE FOIS la section bornée par cette reprise fermante se joue EN TOUT (2 par défaut :
+        // une fois, puis une reprise). Lu par parcoursDeLecture, et par lui seul — c'est une
+        // instruction de PARCOURS, pas une propriété de la musique écrite.
         nbFois: 2,
+        // MAISON DE 1re / 2e FOIS (volta) : la liste des passages où CETTE mesure se joue, ou `null`
+        // si elle se joue à tous. `[1]` = « 1re fois », `[2]` = « 2e fois », `[1, 3]` = « 1re et 3e ».
+        // Portée par la mesure et non par la reprise, parce que c'est bien la mesure qu'on saute :
+        // une maison couvre souvent plusieurs mesures, chacune marquée du même numéro.
+        volta: null,
         // RETOUR À LA LIGNE FORCÉ AVANT cette mesure (retour utilisateur : « permets-moi de faire un
         // retour à la ligne pour la portée [...] si je veux uniquement créer une fiche d'exercices
         // avec plusieurs petits morceaux de 2 mesures »). De la MISE EN PAGE, pas de la musique — mais
@@ -504,6 +512,74 @@ export function nbCordes(partition) {
     return partition.piste.accordage.cordes.length;
 }
 
+/** Garde-fou du parcours de lecture : un morceau ne se joue pas indéfiniment, même mal écrit. */
+const MESURES_JOUEES_MAX = 4000;
+
+/**
+ * LE PARCOURS DE LECTURE — la suite des mesures réellement TRAVERSÉES, reprises dépliées.
+ *
+ * CE QU'IL CORRIGE. Les barres de reprise étaient DESSINÉES mais jamais JOUÉES : zéro occurrence de
+ * « reprise » dans audio/player.js. On écrivait ‖: :‖ et la lecture passait tout droit. Or c'est
+ * précisément en comparant à l'oreille qu'on vérifie une recopie — et on comparait un morceau qui
+ * n'avait pas la forme de l'original.
+ *
+ * SÉPARÉ D'`aplatir`, ET C'EST LE POINT D'ARCHITECTURE. `aplatir` décrit la partition ÉCRITE : un
+ * évènement, une place. Y déplier les reprises créerait des évènements en double sans identité
+ * propre, que le rendu ne saurait plus rattacher à une position à l'écran (c'est la note qu'on
+ * trouve en tête d'`aplatir`, et elle tient toujours). Le parcours, lui, ne parle que de MESURES,
+ * et il ne duplique rien : il répète un INDEX. Le lecteur programme donc la même note plusieurs
+ * fois, et la tête de lecture retraduit sa position en position écrite — une seule note à l'écran,
+ * jouée deux fois (voir Lecteur.programmer et _suivre).
+ *
+ * LES RÈGLES, celles de la gravure :
+ *   — `:‖` renvoie au dernier `‖:` rencontré, ou au début du morceau s'il n'y en a pas ;
+ *   — `nbFois` dit combien de fois la section se joue EN TOUT (2 par défaut) ;
+ *   — une mesure qui porte une MAISON (`volta: [1]`) n'est jouée qu'aux passages qu'elle liste.
+ *
+ * LE COMPTEUR DE PASSAGE NE SE REMET À 1 QU'EN ARRIVANT PAR L'AVANT sur un `‖:`. Y revenir par un
+ * saut ne rouvre pas une nouvelle section — c'est le même passage qui continue, un tour plus loin,
+ * et c'est ce qui permet à la maison de 2e fois de savoir qu'on en est au deuxième tour.
+ *
+ * @returns {number[]} les index de mesure, dans l'ordre où on les joue
+ */
+export function parcoursDeLecture(partition) {
+    const mesures = partition?.mesures || [];
+    const sortie = [];
+    let i = 0;
+    let debutSection = 0;
+    let passe = 1;
+    let parSaut = false;
+    const tours = new Map();          // index du `:‖` -> tours déjà pris
+    while (i >= 0 && i < mesures.length && sortie.length < MESURES_JOUEES_MAX) {
+        const m = mesures[i];
+        if (m.repriseDebut && !parSaut) { debutSection = i; passe = 1; }
+        parSaut = false;
+        // LA MAISON FILTRE AVANT TOUT LE RESTE : une mesure qu'on saute ne compte pas ses reprises
+        // non plus. C'est ce qui fait qu'un `:‖` posé DANS la maison de 1re fois ne renvoie pas une
+        // deuxième fois au deuxième tour — on ne passe simplement plus dessus.
+        if (m.volta?.length && !m.volta.includes(passe)) { i++; continue; }
+        sortie.push(i);
+        if (m.repriseFin) {
+            const faits = (tours.get(i) || 0) + 1;
+            tours.set(i, faits);
+            if (faits < Math.max(2, m.nbFois || 2)) {
+                i = debutSection;
+                passe = faits + 1;
+                parSaut = true;
+                continue;
+            }
+        }
+        i++;
+    }
+    return sortie;
+}
+
+/** Le morceau contient-il au moins une instruction de reprise ? Sert à ne rien changer quand il n'y
+ *  en a pas : le parcours vaut alors exactement 0, 1, 2… et tout se comporte comme avant. */
+export function aDesReprises(partition) {
+    return (partition?.mesures || []).some(m => m.repriseFin || m.volta?.length);
+}
+
 /**
  * Aplatit la partition en une suite d'évènements datés, TOUTES VOIX CONFONDUES, en noires depuis le
  * début du morceau. Une seule traversée sert à la fois au moteur audio (quand programmer chaque
@@ -674,6 +750,13 @@ export function normaliser(brut) {
         else if (mesure.armure !== null && mesure.armure !== undefined) mesure.mode = 'majeur';
         mesure.repriseDebut = !!mb?.repriseDebut;
         mesure.repriseFin = !!mb?.repriseFin;
+        // La volta arrive d'un fichier : on ne garde que des entiers ≥ 1, et `null` plutôt qu'un
+        // tableau vide — « aucune maison » et « une maison qui ne couvre aucun passage » ne sont pas
+        // la même chose, et la seconde n'a pas de sens.
+        const volta = Array.isArray(mb?.volta)
+            ? [...new Set(mb.volta.map(v => Math.round(Number(v))).filter(v => Number.isFinite(v) && v >= 1))].sort((a, b) => a - b)
+            : null;
+        mesure.volta = volta && volta.length ? volta : null;
         mesure.sautAvant = !!mb?.sautAvant;
         // Bornés à ce que le moteur sait dessiner : un fichier importé (ou écrit à la main) ne doit
         // pas pouvoir demander un repère inconnu, qui ne s'afficherait nulle part tout en restant

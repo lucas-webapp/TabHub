@@ -4606,7 +4606,7 @@ class TabHubApp {
         if (dejaDessus && this.lecteur.etat === 'lecture') {
             this.arreter();
             const finEtape = this.etapeBoucle();
-            this.lecteur.retirerBoucle();
+            this.lecteur.retirerBoucle(this.editeur.partition);
             finEtape();
             this.dessiner();
             this.message(`Boucle retirée`);
@@ -5104,7 +5104,7 @@ class TabHubApp {
                 //     je clique, elle sera mise en place sur la mesure considérée ») ;
                 //   • une boucle en place -> on la RETIRE, seul moyen tactile d'en annuler une (à la
                 //     souris, Échap ne fait pas ce lien).
-                if (this.lecteur.boucleLecture) this.lecteur.retirerBoucle();
+                if (this.lecteur.boucleLecture) this.lecteur.retirerBoucle(this.editeur.partition);
                 else this.poserBoucleSurMesure(mesureAncre);
                 this.dessiner();
             }

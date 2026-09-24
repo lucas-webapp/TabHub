@@ -11,6 +11,7 @@
 
 import { midiVersNomTone } from '../model/theory.js';
 import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, longueurMesure, positionDebutMesure,
+         parcoursDeLecture, aDesReprises,
          grilleTernaire, sonneDepuisEcrit, ecritDepuisSonne } from '../model/score.js';
 import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
 
@@ -135,6 +136,11 @@ export class Lecteur {
         // la tête de lecture à chaque image. `null` = morceau binaire, et les conversions sont alors
         // l'identité : c'est l'état de départ, celui d'une partition qu'on n'a pas encore programmée.
         this._grilleTernaire = null;
+        // LE PARCOURS DE LECTURE DÉPLIÉ — `null` quand il n'y a rien à déplier (aucune reprise, ou
+        // une boucle en cours), et TOUT se comporte alors exactement comme avant. Sinon : la liste
+        // des passages, chacun avec sa place sur la ligne du temps JOUÉE et la place ÉCRITE qui lui
+        // correspond. Voir programmer et _suivre.
+        this._parcours = null;
         // Métronome pendant la lecture — voir HarmoHub (METRONOME_KEY/METRONOME_SUBDIVISION_KEY) :
         // désactivé par défaut dans les deux cas, une préférence explicite, pas un bruit permanent
         // qu'il faudrait couper à chaque lancement. La persistance (localStorage) est du ressort de
@@ -421,6 +427,74 @@ export class Lecteur {
      * audible à l'endroit exact où la notation dit qu'il ne doit pas y en avoir. Hammer-on et pull-off
      * sont, eux, bien REJOUÉS — plus doucement : ce sont des attaques, simplement pas à la main droite.
      */
+    /**
+     * CONSTRUIT LE PARCOURS DÉPLIÉ — la suite des passages, chacun placé sur la ligne du temps JOUÉE.
+     *
+     * `null` DANS DEUX CAS, et tout se comporte alors exactement comme avant :
+     *   — le morceau n'a aucune reprise (l'immense majorité) : il n'y a rien à déplier ;
+     *   — une BOUCLE est posée. On travaille alors un passage, et on veut l'entendre TEL QU'IL EST
+     *     ÉCRIT, pas la forme entière du morceau. C'est aussi ce qui évite d'avoir à traduire les
+     *     bornes de la boucle sur une ligne du temps qui n'est plus celle de la partition — deux
+     *     systèmes de coordonnées à tenir d'accord, pour un cas que personne n'a demandé.
+     *
+     * CHAQUE PASSAGE PORTE SA CONVERSION. `sonneDebut` est la place SONNÉE (ternaire compris) du
+     * début de la mesure dans la partition écrite ; `offset` est sa place sur la ligne jouée. Un
+     * instant joué se retraduit donc en instant écrit par une soustraction et une addition — voir
+     * _ecritDepuisJoue. Sans reprise, les deux coïncident et la conversion est l'identité.
+     */
+    _construireParcours(partition) {
+        if (!aDesReprises(partition) || this.boucleLecture) return null;
+        const ordre = parcoursDeLecture(partition);
+        // Un parcours qui ne fait que lister les mesures dans l'ordre n'a rien à déplier non plus :
+        // une reprise « jouée une seule fois » (nbFois ramené à 1) ne doit pas coûter une conversion.
+        if (ordre.length === partition.mesures.length && ordre.every((m, i) => m === i)) return null;
+        const passages = [];
+        let offset = 0;
+        for (const mesure of ordre) {
+            const debutEcrit = positionDebutMesure(partition, mesure);
+            const sonneDebut = sonneDepuisEcrit(this._grilleTernaire, debutEcrit);
+            const sonneFin = sonneDepuisEcrit(this._grilleTernaire, debutEcrit + longueurMesure(partition, mesure));
+            const longueur = Math.max(0, sonneFin - sonneDebut);
+            passages.push({ mesure, debutEcrit, sonneDebut, longueur, offset });
+            offset += longueur;
+        }
+        return { passages, duree: offset };
+    }
+
+    /**
+     * Un instant de la ligne du temps JOUÉE, retraduit en instant SONNÉ de la partition écrite.
+     *
+     * C'est ce qui permet à la tête de lecture de rester une seule marque sur une seule note, quand
+     * cette note est jouée trois fois : l'écran n'a jamais à connaître le dépliage.
+     */
+    _sonneDepuisJoue(joue) {
+        if (!this._parcours) return joue;
+        const { passages } = this._parcours;
+        // Recherche linéaire : un parcours dépasse rarement quelques centaines de passages, et cette
+        // fonction est appelée une fois par image — pas une fois par note.
+        for (const p of passages) {
+            if (joue < p.offset + p.longueur - 1e-9) return p.sonneDebut + (joue - p.offset);
+        }
+        const dernier = passages[passages.length - 1];
+        return dernier ? dernier.sonneDebut + dernier.longueur : joue;
+    }
+
+    /**
+     * L'aller de `_sonneDepuisJoue` : un instant SONNÉ de la partition écrite, placé sur la ligne du
+     * temps JOUÉE — au PREMIER passage qui le couvre.
+     *
+     * « Le premier » et non « le dernier » : lancer la lecture à la mesure 3 veut dire la première
+     * fois qu'on y arrive, jamais sa reprise. C'est aussi ce qu'on attend en cliquant sur une note
+     * pour l'entendre dans son contexte.
+     */
+    _joueDepuisSonne(sonne) {
+        if (!this._parcours) return sonne;
+        for (const p of this._parcours.passages) {
+            if (sonne < p.sonneDebut + p.longueur - 1e-9) return p.offset + Math.max(0, sonne - p.sonneDebut);
+        }
+        return this._parcours.duree;
+    }
+
     programmer(partition) {
         const Tone = globalThis.Tone;
         Tone.Transport.cancel();
@@ -438,6 +512,12 @@ export class Lecteur {
         // Elle survit à la programmation parce que la TÊTE DE LECTURE en a besoin à chaque image
         // (voir _suivre), bien après que programmer() a rendu la main.
         this._grilleTernaire = grilleTernaire(partition);
+        // LE PARCOURS APRÈS LA GRILLE : il s'appuie dessus pour mesurer chaque passage en temps
+        // SONNÉ (voir _construireParcours). L'ordre compte.
+        this._parcours = this._construireParcours(partition);
+        // La durée du transport est celle de ce qu'on VA JOUER, reprises comprises — sans quoi
+        // l'arrêt de fin tomberait au milieu du deuxième passage.
+        if (this._parcours) this.duree = this._parcours.duree;
         const consommees = new Set();
         this._evenements = [];
 
@@ -532,6 +612,10 @@ export class Lecteur {
 
                 this._evenements.push({
                     debut: entree.debut,
+                    // LA MESURE D'ORIGINE, pour retrouver les passages où cette note se joue (voir le
+                    // dépliage des reprises, plus bas). Une note LIÉE par-dessus une barre garde la
+                    // mesure de son ATTAQUE : c'est là qu'elle sonne, sa prolongation suit.
+                    mesure: entree.mesure,
                     duree: Math.max(0.05, sonnante),
                     note: midiVersNomTone(midi),
                     velocite: Math.max(0.05, Math.min(1, velocite)),
@@ -556,6 +640,17 @@ export class Lecteur {
         // leurs anciennes secondes et se désynchronisaient aussitôt. En tics, changer le tempo réétire
         // tout — la partition et ce qu'on entend — sans qu'il y ait rien à reprogrammer.
         const PPQ = Tone.Transport.PPQ;
+        // LES PLACES OÙ CHAQUE MESURE SE JOUE. Sans reprise, `null` : chaque évènement est programmé
+        // une fois, à sa place écrite, exactement comme avant. Avec reprises, une mesure jouée trois
+        // fois donne trois décalages — et la MÊME note est programmée trois fois, sans qu'aucun
+        // évènement ne soit dupliqué dans le document.
+        const decalagesParMesure = new Map();
+        if (this._parcours) {
+            for (const p of this._parcours.passages) {
+                if (!decalagesParMesure.has(p.mesure)) decalagesParMesure.set(p.mesure, []);
+                decalagesParMesure.get(p.mesure).push(p.offset - p.sonneDebut);
+            }
+        }
         for (const e of this._evenements) {
             // LECTURE TERNAIRE : le temps ÉCRIT n'est plus le temps SONNÉ. On transforme la POSITION
             // de début ET celle de fin, jamais la durée seule — une croche ne vaut pas une durée fixe
@@ -566,14 +661,20 @@ export class Lecteur {
             const debutSonne = sonneDepuisEcrit(this._grilleTernaire, e.debut);
             const finSonnee = sonneDepuisEcrit(this._grilleTernaire, e.debut + e.duree);
             const ticksDuree = Math.max(1, Math.round((finSonnee - debutSonne) * PPQ));
-            Tone.Transport.schedule((temps) => {
-                // La DURÉE, elle, doit bien être en secondes au moment du déclenchement : on la
-                // convertit ici, donc au tempo courant, et non à celui d'il y a une minute.
-                const secondes = Tone.Ticks(ticksDuree).toSeconds();
-                if (e.bend) this._jouerBend(e, secondes, temps);
-                else if (e.glisse) this._jouerSlide(e, ticksDuree, temps);
-                else this.synthe.triggerAttackRelease(e.note, secondes, temps, e.velocite);
-            }, `${Math.round(debutSonne * PPQ)}i`);
+            // UN DÉCALAGE PAR PASSAGE. `[0]` sans reprise : une seule programmation, à la place
+            // écrite — le comportement d'avant, à l'identique. Une mesure jouée trois fois en donne
+            // trois, et la même note part trois fois.
+            const decalages = this._parcours ? (decalagesParMesure.get(e.mesure) || []) : [0];
+            for (const decalage of decalages) {
+                Tone.Transport.schedule((temps) => {
+                    // La DURÉE, elle, doit bien être en secondes au moment du déclenchement : on la
+                    // convertit ici, donc au tempo courant, et non à celui d'il y a une minute.
+                    const secondes = Tone.Ticks(ticksDuree).toSeconds();
+                    if (e.bend) this._jouerBend(e, secondes, temps);
+                    else if (e.glisse) this._jouerSlide(e, ticksDuree, temps);
+                    else this.synthe.triggerAttackRelease(e.note, secondes, temps, e.velocite);
+                }, `${Math.round((debutSonne + decalage) * PPQ)}i`);
+            }
         }
 
         if (this.metronomeActif) this._programmerMetronome(partition, PPQ);
@@ -588,6 +689,19 @@ export class Lecteur {
     }
 
     /**
+     * Reprogramme SI ET SEULEMENT SI la décision de déplier les reprises vient de basculer.
+     *
+     * Appelé par les deux gestes qui peuvent la faire basculer (poser une boucle, la retirer). Sans
+     * reprise dans le morceau, la décision est « non » des deux côtés et il ne se passe rien.
+     */
+    _reprogrammerSiDepliageChange(partition, deplierAvant) {
+        if (this.etat === 'arret') return;
+        const deplierApres = !!(aDesReprises(partition) && !this.boucleLecture);
+        if (deplierApres === deplierAvant) return;
+        this.reprogrammerSiEnCours(partition);
+    }
+
+    /**
      * Définit (ou étend/déplace) la boucle de lecture sur [mesureDebut, mesureFin] (fin comprise).
      * Appelable À TOUT MOMENT, lecture en cours ou non — glisser la barre PENDANT que ça joue doit
      * faire sentir le nouveau bornage tout de suite, pas seulement au prochain démarrage : on ne
@@ -595,6 +709,13 @@ export class Lecteur {
      * un à-coup audible), seul le point de bouclage de l'horloge bouge.
      */
     definirBoucle(partition, mesureDebut, mesureFin, fines = {}) {
+        // POSER OU RETIRER UNE BOUCLE CHANGE LA DÉCISION DE DÉPLIAGE (voir _construireParcours : on
+        // ne déplie pas sous une boucle). Quand cette décision bascule ET que la lecture tourne, il
+        // faut reprogrammer pour de bon — sinon l'horloge boucle sur une ligne du temps qui n'est
+        // plus celle des notes programmées. Sur un morceau SANS reprise, rien ne bascule jamais et
+        // ce chemin ne coûte rien : c'est le cas de l'immense majorité des gestes de boucle, et
+        // c'est pour eux que `definirBoucle` évite de reprogrammer (un à-coup audible).
+        const deplierAvant = !!this._parcours;
         const r = this.boucleLecture;
         // LES BORNES FINES, en noires DEPUIS LE DÉBUT DE LEUR MESURE D'ANCRAGE (voir bornesBoucle).
         // `debutDansMesure` vaut 0 et `finDansMesure` vaut `null` par défaut : c'est exactement
@@ -615,6 +736,7 @@ export class Lecteur {
         };
         const Tone = globalThis.Tone;
         if (Tone?.Transport) this._appliquerBoucle(partition, Tone.Transport.PPQ);
+        this._reprogrammerSiDepliageChange(partition, deplierAvant);
     }
 
     /**
@@ -789,11 +911,19 @@ export class Lecteur {
         }
     }
 
-    retirerBoucle() {
+    /**
+     * @param {object} [partition] la partition courante — SEULEMENT pour pouvoir redéplier les
+     *   reprises si la lecture tourne (voir _reprogrammerSiDepliageChange). Omise, on retire la
+     *   boucle sans reprogrammer : c'est ce que font les appels de fermeture de document, où la
+     *   partition d'après n'est pas celle d'avant.
+     */
+    retirerBoucle(partition = null) {
+        const deplierAvant = !!this._parcours;
         this.boucleLecture = null;
         this._ancresBoucle = null;
         const Tone = globalThis.Tone;
         if (Tone?.Transport) Tone.Transport.loop = false;
+        if (partition) this._reprogrammerSiDepliageChange(partition, deplierAvant);
     }
 
     /**
@@ -839,6 +969,14 @@ export class Lecteur {
      */
     _programmerMetronome(partition, PPQ) {
         const Tone = globalThis.Tone;
+        // LE MÉTRONOME SUIT LE PARCOURS, comme les notes : sans cela il s'arrêterait de cliquer dès
+        // la première reprise, et c'est précisément quand on rejoue un passage qu'on s'appuie dessus.
+        // Sans reprise, `passagesDe` rend la place écrite et unique de chaque mesure — le
+        // comportement d'avant, à l'identique.
+        const passagesDe = (i) => {
+            if (!this._parcours) return [sonneDepuisEcrit(this._grilleTernaire, positionDebutMesure(partition, i))];
+            return this._parcours.passages.filter(p => p.mesure === i).map(p => p.offset);
+        };
         let debutMesure = 0;
         partition.mesures.forEach((mesure, i) => {
             const capacite = capaciteMesure(partition, i);
@@ -848,19 +986,26 @@ export class Lecteur {
             // unité qu'on sache reconnaître (x/8 non composé, voir uniteDeGroupement) : rien de plus
             // fin à cliquer entre deux temps qui sont déjà des croches.
             const parTemps = this.metronomeSubdivision ? Math.max(1, Math.round(unite / 0.5)) : 1;
-            for (let t = 0; t < nTemps; t++) {
-                for (let s = 0; s < parTemps; s++) {
-                    const instant = debutMesure + t * unite + s * (unite / parTemps);
-                    const accent = t === 0 && s === 0;
-                    const sub = s > 0;
-                    // LE MÉTRONOME SWINGUE AVEC LA MUSIQUE, sinon son clic de contretemps taperait
-                    // au milieu du temps quand la musique joue aux deux tiers — deux pulsations
-                    // concurrentes, et le repère devient un piège. Les clics de TEMPS, eux, ne
-                    // bougent pas : une borne de temps est un point fixe de la transformation.
-                    const ticks = Math.round(sonneDepuisEcrit(this._grilleTernaire, instant) * PPQ);
-                    Tone.Transport.schedule((temps) => {
-                        try { this._clicMetronome(accent, temps, sub); } catch (e) { /* ignoré, comme une note manquée */ }
-                    }, `${ticks}i`);
+            // La place SONNÉE du début de cette mesure dans la partition écrite : c'est d'elle que
+            // se comptent les clics, et d'elle qu'on se décale pour chaque passage.
+            const sonneMesure = sonneDepuisEcrit(this._grilleTernaire, debutMesure);
+            for (const depart of passagesDe(i)) {
+                for (let t = 0; t < nTemps; t++) {
+                    for (let s = 0; s < parTemps; s++) {
+                        const instant = debutMesure + t * unite + s * (unite / parTemps);
+                        const accent = t === 0 && s === 0;
+                        const sub = s > 0;
+                        // LE MÉTRONOME SWINGUE AVEC LA MUSIQUE, sinon son clic de contretemps
+                        // taperait au milieu du temps quand la musique joue aux deux tiers — deux
+                        // pulsations concurrentes, et le repère devient un piège. Les clics de TEMPS,
+                        // eux, ne bougent pas : une borne de temps est un point fixe de la
+                        // transformation.
+                        const sonne = sonneDepuisEcrit(this._grilleTernaire, instant);
+                        const ticks = Math.round((depart + (sonne - sonneMesure)) * PPQ);
+                        Tone.Transport.schedule((temps) => {
+                            try { this._clicMetronome(accent, temps, sub); } catch (e) { /* ignoré, comme une note manquée */ }
+                        }, `${ticks}i`);
+                    }
                 }
             }
             // LES CLICS VIENNENT DE LA SIGNATURE, L'AVANCE DE CE QUI EST ÉCRIT. Une mesure trop
@@ -1119,7 +1264,11 @@ export class Lecteur {
             // compte le temps sonné. La conversion est l'identité sur une borne de mesure — mais
             // c'est elle qui fait qu'un départ posé AILLEURS (au milieu d'un temps) tombe au bon
             // endroit du son, plutôt qu'un tiers de temps trop tôt.
-            Tone.Transport.ticks = Math.round(sonneDepuisEcrit(this._grilleTernaire, depuis ?? 0) * Tone.Transport.PPQ);
+            // …puis, s'il y a des reprises dépliées, du temps sonné au temps JOUÉ : on part au
+            // PREMIER passage qui couvre cet endroit (voir _joueDepuisSonne). Partir « à la mesure 3 »
+            // veut dire la première fois qu'on y arrive, jamais la reprise.
+            const sonne = sonneDepuisEcrit(this._grilleTernaire, depuis ?? 0);
+            Tone.Transport.ticks = Math.round(this._joueDepuisSonne(sonne) * Tone.Transport.PPQ);
         }
         // `start(quand)` diffère le départ du transport à cet instant de l'horloge audio, sans rien
         // changer à ce qui y est programmé : pendant le décompte, les tics restent à leur place et la
@@ -1212,8 +1361,13 @@ export class Lecteur {
             // temps ÉCRIT, et sur un morceau swingué les deux ne coïncident plus qu'aux bornes de
             // temps. Sans cette réciproque, la tête de lecture avancerait en retard d'un tiers de
             // temps sur chaque contretemps — visible à l'œil nu, et pire que pas de ternaire du tout.
-            const sonne = Tone.Transport.ticks / Tone.Transport.PPQ;
-            this.position = ecritDepuisSonne(this._grilleTernaire, sonne);
+            // DEUX CONVERSIONS, dans cet ordre. Le transport compte sur la ligne du temps JOUÉE
+            // (reprises dépliées) ; on revient d'abord à la ligne SONNÉE de la partition écrite, puis
+            // de celle-ci au temps ÉCRIT (le ternaire). Sans reprise, la première est l'identité et
+            // rien ne change. C'est ce qui permet à la tête de lecture de rester UNE marque sur UNE
+            // note, quand cette note est jouée trois fois : l'écran ignore tout du dépliage.
+            const joue = Tone.Transport.ticks / Tone.Transport.PPQ;
+            this.position = ecritDepuisSonne(this._grilleTernaire, this._sonneDepuisJoue(joue));
             this._prevenir();
             this._boucleAnim = requestAnimationFrame(tic);
         };

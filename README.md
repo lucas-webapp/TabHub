@@ -323,6 +323,29 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Les reprises s'entendent
+
+Les barres de reprise étaient **dessinées mais jamais jouées** — zéro occurrence de « reprise » dans
+le moteur audio. On écrivait ‖: :‖ et la lecture passait tout droit. Or c'est précisément en
+comparant à l'oreille qu'on vérifie une recopie : on comparait un morceau qui n'avait pas la forme
+de l'original. `nbFois` existait sur la mesure depuis toujours et **rien ne l'écrivait ni ne le
+lisait** — de la donnée morte.
+
+Les règles sont celles de la gravure : `:‖` renvoie au dernier `‖:` (ou au début du morceau s'il n'y
+en a pas), `nbFois` dit combien de fois la section se joue en tout, et une mesure marquée d'une
+**maison** ne se joue qu'aux passages qu'elle liste.
+
+**Le point d'architecture, parce qu'il décide de tout le reste.** La partition écrite n'est pas
+dépliée : y dupliquer des évènements créerait des notes sans identité propre, que le rendu ne saurait
+plus rattacher à une position à l'écran. Le *parcours* ne parle que de **mesures**, et il ne duplique
+rien — il répète un index. Le lecteur programme donc la même note plusieurs fois, et la tête de
+lecture retraduit sa position : **une seule note à l'écran, jouée deux fois**.
+
+**La boucle l'emporte.** Sous une barre orange, on travaille un passage et on veut l'entendre *tel
+qu'il est écrit*, pas la forme entière du morceau. Poser ou retirer la boucle rebascule le dépliage.
+Et sur un morceau sans reprise — l'immense majorité — aucun parcours n'est construit : pas même une
+conversion de plus.
+
 #### Atteindre la mesure 47
 
 `allerAMesure` existait dans le modèle depuis toujours et **n'était joignable par aucun geste**. Le
