@@ -1275,9 +1275,20 @@ export class Editeur {
         // ne reste qu'un évènement — et un banc l'a atteint en posant le curseur à la main. Une
         // commande d'édition ne doit jamais jeter une exception sur un état simplement inattendu.
         if (!this.evenementCourant()) return false;
-        this.memoriser();
         const e = this.evenementCourant();
-        if (e.silence || !e.notes.length) { e.silence = false; }
+        // UN SILENCE NE REDEVIENT PAS UNE NOTE : sa hauteur n'existe plus, on l'a effacée en le
+        // posant. Rappuyer sur R le laisse donc tel quel — et surtout ne le transforme pas en
+        // évènement SANS silence ET SANS note, qui occupait du temps sans rien être : le moteur le
+        // gravait quand même comme un silence (il n'a rien d'autre à dessiner), pendant que le bouton
+        // « Silence » de la palette s'éteignait, puisqu'il lit `silence`. La partition disait
+        // « silence », la barre d'outils disait « pas un silence », et il fallait TROIS frappes pour
+        // revenir à un état nommable. Pour retrouver une note, on tape sa case — c'est le geste.
+        if (e.silence && !e.notes.length) return false;
+        this.memoriser();
+        // Un silence QUI PORTE ENCORE DES NOTES ne devrait pas exister ; s'il s'en trouve un (vieux
+        // fichier, collage d'une version antérieure), on le répare plutôt que de le recopier.
+        if (e.silence) { e.silence = false; }
+        else if (!e.notes.length) { e.silence = true; this._fusionnerSilences(); }
         else {
             e.notes = []; e.silence = true;
             // Devenu silence, cet évènement rejoint ses voisins silencieux (voir _fusionnerSilences) :
@@ -1750,6 +1761,11 @@ export class Editeur {
         this.partition.mesures.splice(at, 0, ...neuves);
         this.curseur.mesure = at;
         this.curseur.evenement = 0;
+        // ET LA VOIX AVEC : une mesure neuve n'en a qu'UNE, alors qu'on peut très bien venir d'en
+        // écrire la seconde (la basse tenue sous la mélodie). Sans ce recadrage, le curseur atterrit
+        // sur la voix 2 d'une mesure qui n'en a pas, et tout ce qui lit `voixCourante()` ensuite
+        // reçoit `undefined` — pour un simple Alt+M pressé depuis la seconde voix.
+        this.corrigerCurseur();
         this.prevenir('edition');
         return n;
     }
@@ -2469,6 +2485,12 @@ export class Editeur {
             }
             voix.evenements = gardes.length ? gardes : voix.evenements;
         }
+        // LE CURSEUR PEUT ÊTRE RESTÉ SUR UN ÉVÈNEMENT QU'ON VIENT DE RETIRER : déclarer une levée
+        // raccourcit la mesure, et si l'on était posé au-delà de sa nouvelle fin (dans les silences
+        // de queue qu'on vient de supprimer), il pointerait dans le vide. Tout ce qui lit
+        // `evenementCourant()` ensuite — la barre du bas, la palette, la frappe suivante — retombait
+        // alors sur `undefined`.
+        this.corrigerCurseur();
         this.prevenir('edition');
         return longueur;
     }

@@ -448,6 +448,43 @@ planterait au milieu du morceau une mesure raccourcie que le geste aurait refus�
 *sur* une levée, une mesure ordinaire ne la détruit pas non plus : la dette s'affiche (`+3 ♩`) et se
 solde comme partout ailleurs.
 
+#### Ce qu'une marche aléatoire a trouvé
+
+Les bancs vérifient des gestes qu'on a pensés. Restent ceux qu'on n'a pas pensés — et surtout les
+**enchaînements**. On a donc rempli des mesures de croches, doubles, triples, pointées, triolets et
+silences, puis joué **quatre mille gestes tirés au sort** sur la même partition, en vérifiant après
+chacun une poignée d'invariants qui confrontent deux promenades écrites séparément : la durée totale
+contre la somme des longueurs de mesure, `aplatir` contre le modèle, l'écart annoncé contre l'écart
+réel, le curseur contre ce qu'il prétend désigner.
+
+Quatre défauts sont tombés. **Aucun n'était atteignable par un geste isolé** : tous demandaient une
+partition déjà tordue par ce qui précédait, c'est-à-dire exactement la situation de quelqu'un qui
+recopie un morceau depuis une heure.
+
+- **Une récursion sans fin.** `figuresDeCourse` découpe une course à cheval sur plusieurs temps en
+  tête / bloc / queue. Deux de ces tranches pouvaient valoir le tableau *entier*, et l'appel se
+  rappelait alors à l'identique : « Maximum call stack size exceeded » au beau milieu d'une frappe ou
+  d'une insertion — l'application se fige, le travail en cours est perdu. Le code s'en méfiait déjà
+  (« ce garde-fou n'existe que pour ne pas risquer une récursion sans fin ») mais ne couvrait qu'un
+  troisième cas, celui qui n'arrivait pas. Corriger la première forme ne suffisait pas : la seconde
+  est restée visible sur une graine de tirage sur six.
+- **Le silence qui n'en était plus un.** Rappuyer sur `R` sur un silence produisait un évènement *ni
+  silence ni note* : la portée le gravait quand même comme un silence — elle n'a rien d'autre à
+  dessiner — pendant que le bouton « Silence » de la palette s'éteignait, puisqu'il lit ce champ. La
+  partition disait une chose, la barre d'outils l'inverse, et il fallait **trois** frappes pour
+  revenir à un état nommable. Désormais `R` sur un silence ne fait rien (et n'empile rien dans
+  l'historique) : un silence ne redevient pas une note, sa hauteur a été effacée en le posant. Pour
+  retrouver une note, on tape sa case.
+- **Le curseur après `Alt`+`M` depuis la seconde voix.** Une mesure neuve n'a qu'une voix ; le
+  curseur gardait son index et pointait la voix 2 d'une mesure qui n'en a pas. Tout ce qui lit
+  `voixCourante()` ensuite recevait `undefined`.
+- **Le curseur après une levée.** Déclarer une levée retire les silences de queue ; si l'on était
+  posé dedans, le curseur pointait dans le vide.
+
+Après correction : **zéro anomalie sur quatre mille gestes**, sur dix tirages différents. Les entrées
+exactes des deux récursions sont figées dans `tests/recursion_test.js` — aucun chemin public ne
+permet de les fabriquer à la demande, il a fallu les croiser pour les avoir.
+
 #### Savoir sur quel temps on est
 
 « La saisie consistera majoritairement des modifications des longueurs de notes et silences, **sans

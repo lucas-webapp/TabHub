@@ -648,7 +648,11 @@ function figureDeNolet(total, nolet) {
     return { valeur: figs[0].valeur, points: figs[0].points, nolet: { ...nolet } };
 }
 
-function figuresDeCourse(cellules, unite, silence = false) {
+// EXPORTÉE POUR LE BANC, et pour elle seule : `recursion_test.js` lui passe deux courses dont les
+// cellules ne se touchent pas, parce qu'aucun chemin public ne permet de les fabriquer à la demande
+// — il a fallu quatre mille gestes tirés au sort pour en croiser une. Les figer ici, en entrée
+// directe, est ce qui rend le défaut rejouable en une seconde.
+export function figuresDeCourse(cellules, unite, silence = false) {
     if (!cellules.length) return [];
     const EPS = 1e-9;
     const debut = cellules[0].debut;
@@ -694,6 +698,23 @@ function figuresDeCourse(cellules, unite, silence = false) {
     // Le bloc s'arrête à la dernière cellule qui CLÔT son temps.
     let kBloc = cellules.length;
     if (dernier.iCell !== dernier.sub - 1) kBloc = frontieres[frontieres.length - 1];
+    // AUCUN APPEL RÉCURSIF NE DOIT RECEVOIR UNE COURSE AUSSI LONGUE QUE CELLE-CI, sans quoi il se
+    // rappelle à l'identique, indéfiniment. Les trois appels plus bas découpent tous `cellules` en
+    // `[0, iBloc[`, `[iBloc, kBloc[` et `[kBloc, fin[` ; deux de ces tranches peuvent valoir le
+    // tableau ENTIER, et c'est exactement ce qui arrivait :
+    //   · `iBloc === 0 && kBloc === cellules.length` — la tranche du milieu est tout ;
+    //   · `kBloc === 0` — la tranche de queue est tout.
+    // Le garde-fou d'au-dessus (`!frontieres.length`) visait déjà ce risque, mais ne couvrait que le
+    // cas où il n'y a AUCUNE frontière ; il laissait passer celui où il n'y en a qu'une, en tête.
+    //
+    // COMMENT ON Y ARRIVE : une course dont les cellules ne se touchent pas, parce qu'un découpage
+    // précédent lui a pris la cellule qui ouvrait son second temps. La course enjambe alors deux
+    // temps sans porter de frontière intérieure, et l'invariante sur laquelle repose l'étape 4 est
+    // fausse. Trouvé par une marche aléatoire de gestes d'édition ; les deux entrées exactes sont
+    // figées dans `recursion_test.js`. Le symptôme était un « Maximum call stack size exceeded » au
+    // beau milieu d'une frappe ou d'une insertion — c'est-à-dire l'application qui se fige et le
+    // travail en cours perdu.
+    if (kBloc === 0 || (iBloc === 0 && kBloc === cellules.length)) return decouper();
     if (kBloc > iBloc) sortie.push(...figuresDeCourse(cellules.slice(iBloc, kBloc), unite, silence));
     if (kBloc < cellules.length) sortie.push(...figuresDeCourse(cellules.slice(kBloc), unite, silence));
     return sortie;
