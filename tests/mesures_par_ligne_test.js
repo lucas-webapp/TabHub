@@ -27,7 +27,7 @@ const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
 
 (async () => {
-    plan(29);
+    plan(31);
     const { page, erreurs, fermer } = await ouvrirApp();
     try {
         // --- Le moteur, hors interface : tous les cas au même endroit, une seule mise en page par cas ---
@@ -103,9 +103,26 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
             //    cohérente avec la capacité — comparée ici via `largeurNotes` (voir l'ancrage de
             //    mesure), qui exclut l'en-tête et n'est donc jamais faussée par lui.
             const pSig = m.creerPartition('guitare');
-            pSig.mesures = [mesureVide(), mesureVide()];
+            // LA MESURE À 3/4 CONTIENT BIEN TROIS TEMPS (une blanche pointée), et c'était le défaut
+            // de ce montage : elle gardait la RONDE de `mesureVide()`, donc quatre temps dans une
+            // mesure qui n'en accorde que trois — une mesure DÉBORDANTE. La comparaison ne disait
+            // alors pas ce que son intitulé annonce, et elle est devenue franchement fausse le jour
+            // où une mesure endettée a cessé d'être tassée dans la largeur de sa capacité (voir le
+            // cas juste en dessous, et engine/layout.js, `etendue`).
+            pSig.mesures = [mesureVide(),
+                m.creerMesure({ voix: [{ evenements: [m.creerEvenement({ valeur: 2, points: 1 }, [])] }] })];
             pSig.mesures[1].signature = { battements: 3, unite: 4 };
             const pageSig = L.mettreEnPage(pSig, { largeurPage: 1100, S: 10, mesuresParLigne: 2 });
+
+            // 8bis. UNE MESURE QUI PORTE UNE DETTE s'élargit à proportion de ce qu'elle CONTIENT,
+            //       au lieu d'y tasser sa musique. Le modèle de dette laisse écrire six temps dans
+            //       une mesure qui en accorde quatre ; la gravure doit suivre, sans quoi les notes
+            //       en trop se retrouvent empilées sur le dernier temps (retour utilisateur, capture
+            //       à l'appui : six croches à 8 px quand leurs voisines en avaient 30 à 40).
+            const pDette = m.creerPartition('guitare');
+            pDette.mesures = [mesureVide(), m.creerMesure({ voix: [{ evenements:
+                Array.from({ length: 12 }, () => m.creerEvenement({ valeur: 4 }, [m.creerNote(0, 3)])) }] })];
+            const pageDette = L.mettreEnPage(pDette, { largeurPage: 2400, S: 10, mesuresParLigne: 2 });
 
             // 9. Page ABSURDEMENT étroite (plus étroite qu'une seule mesure, même vide) : le compte
             //    demandé n'est PLUS JAMAIS réduit à cause de la largeur — c'est justement ce que ce
@@ -133,6 +150,8 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
                 largeursMix: pageMix.ancrages.mesures.map((_, i) => largeurMesure(pageMix, i)),
                 capacitesSig: pageSig.ancrages.mesures.map(a => a.capacite),
                 largeursNotesSig: pageSig.ancrages.mesures.map(a => a.largeurNotes),
+                largeursNotesDette: pageDette.ancrages.mesures.map(a => a.largeurNotes),
+                capacitesDette: pageDette.ancrages.mesures.map(a => a.capacite),
                 comptes9: compteParSysteme(page9),
                 largeurUtile9: 60 - 34 - 22,
                 largeurSysteme9: page9.ancrages.systemes.length ? largeurSysteme(page9, 0) : 0,
@@ -169,6 +188,14 @@ const { check, exiger, plan, bilan } = creerHarnais('mesures par ligne');
         exiger(r.capacitesSig[0] === 4 && r.capacitesSig[1] === 3, 'la seconde mesure passe bien à 3/4 (capacité 3, contre 4)');
         check(Math.abs(r.largeursNotesSig[1] / r.largeursNotesSig[0] - 0.75) < 1e-6,
             'CHANGEMENT DE SIGNATURE : la largeur de note d\'une mesure à 3/4 fait exactement les 3/4 de celle d\'une mesure à 4/4 (même LARGEUR_PAR_NOIRE)');
+
+        exiger(r.capacitesDette[1] === 4, 'préalable : la mesure endettée a bien une capacité de 4 (douze noires écrites)');
+        check(Math.abs(r.largeursNotesDette[1] / r.largeursNotesDette[0] - 3) < 1e-6,
+            `DETTE : une mesure qui contient douze temps pour une capacité de quatre se grave TROIS fois `
+            + `plus large (${(r.largeursNotesDette[1] / r.largeursNotesDette[0]).toFixed(2)}×) — la règle `
+            + '« largeur fixée par la signature » vaut pour les mesures JUSTES, qui sont l\'immense '
+            + 'majorité ; une mesure endettée est réellement plus longue, et l\'y tasser rendait '
+            + 'illisible exactement la mesure qu\'on est en train de corriger');
 
         exiger(r.comptes9.join(',') === '3,3', '9. page bien plus étroite qu\'une seule mesure, 3 demandées : toujours deux systèmes de 3 (plus jamais réduit à 1 faute de place)');
         check(r.largeurSysteme9 > r.largeurUtile9, 'et le système déborde franchement la largeur utile plutôt que d\'y être rétréci (la page grandit pour l\'accueillir, voir mettreEnPage)');

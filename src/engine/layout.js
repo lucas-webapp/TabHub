@@ -20,7 +20,7 @@ import * as G from './glyphs.js';
 import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure, nomDeFraction } from '../model/duration.js';
 import {
     signatureEffective, armureEffective, modeEffectif, positionDansMesure, hauteurDeNote, nbCordes, REPERES,
-    numeroDeMesure, capaciteMesure,
+    numeroDeMesure, capaciteMesure, longueurMesure,
 } from '../model/score.js';
 import { ecrireHauteur, hauteurDepuisPas, alterationsDeLArmure, NOMS_LETTRES, tonaliteDe } from '../model/theory.js';
 import { INSTRUMENTS } from '../model/instruments.js';
@@ -621,7 +621,9 @@ export function mettreEnPage(partition, options = {}) {
         // ce qui est exactement ce qu'on voit sur une partition imprimée, et ce qui la rend
         // reconnaissable d'un coup d'œil sans lire son contenu.
         const capacite = capaciteMesure(partition, i);
-        const colonnes = calculerColonnes(mesure, capacite, S);
+        // `calculerColonnes` borne la DERNIÈRE colonne à ce qu'on lui donne : sur l'étendue, pour
+        // qu'une note qui déborde garde une largeur au lieu d'être rabattue sur la barre.
+        const colonnes = calculerColonnes(mesure, longueurMesure(partition, i), S);
         // Largeur FIXÉE par la capacité, jamais par le contenu réel (voir LARGEUR_PAR_NOIRE), et
         // répartie À PARTS ÉGALES entre les TEMPS de la mesure — jamais au prorata de la densité de
         // chacun (voir repartirParTemps) : sans quoi un temps dense (une rafale de doubles-croches)
@@ -629,8 +631,28 @@ export function mettreEnPage(partition, options = {}) {
         // graduations sur ces mêmes colonnes — héritait de cet espacement irrégulier entre ses
         // graduations de temps. Les colonnes gardent leurs poids relatifs SEULEMENT entre elles, à
         // l'intérieur d'un même temps (une case à deux chiffres réclame plus de champ qu'une simple).
-        const largeurNotes = capacite * LARGEUR_PAR_NOIRE * S;
-        repartirParTemps(colonnes, capacite, uniteDeGroupement(sig), largeurNotes);
+        // L'ÉTENDUE, ET NON LA SEULE CAPACITÉ — c'est-à-dire la plus longue des deux : ce que la
+        // signature accorde, ou ce qui est RÉELLEMENT écrit. Pour une mesure juste les deux sont
+        // égales et il ne se passe rigoureusement rien : la règle « largeur fixée par la signature,
+        // jamais par le contenu » tient pour toutes les mesures correctes, qui sont l'immense
+        // majorité.
+        //
+        // POUR UNE MESURE QUI PORTE UNE DETTE, elle change tout. Le modèle de dette laisse écrire six
+        // temps dans une mesure qui en accorde quatre (la mesure le dit, « +2 ♩ », et deux gestes la
+        // soldent) — mais la gravure, elle, tassait ces six temps dans la largeur de quatre. Pire :
+        // `repartirParTemps` range chaque colonne dans SON temps et rabat tout ce qui dépasse sur le
+        // dernier (le Math.min), si bien que la totalité du débordement se retrouvait empilée sur un
+        // seul temps. Mesuré sur la mesure d'une capture utilisateur — ♩ ♪ ♪ ♩ puis six croches :
+        // les six croches recevaient 8 px chacune quand leurs voisines en avaient 30 à 40. Illisible,
+        // et exactement là où on a le plus besoin de lire, puisque c'est la mesure qu'on est en train
+        // de corriger.
+        //
+        // LES TEMPS RESTENT ÉGAUX ENTRE EUX : c'est la mesure ENTIÈRE qui s'élargit, à proportion de
+        // ce qu'elle porte. La réglette, qui pose ses graduations sur ces mêmes colonnes, garde donc
+        // son espacement régulier — la raison d'être de toute cette répartition.
+        const etendue = longueurMesure(partition, i);
+        const largeurNotes = etendue * LARGEUR_PAR_NOIRE * S;
+        repartirParTemps(colonnes, etendue, uniteDeGroupement(sig), largeurNotes);
         return {
             index: i, ref: mesure, signature: sig, armure: arm, capacite, colonnes,
             largeurNotes,
@@ -837,9 +859,31 @@ function mettreEnPagePiano(partition, geo) {
         // ce qui est exactement ce qu'on voit sur une partition imprimée, et ce qui la rend
         // reconnaissable d'un coup d'œil sans lire son contenu.
         const capacite = capaciteMesure(partition, i);
-        const colonnes = calculerColonnes(mesure, capacite, S);
-        const largeurNotes = capacite * LARGEUR_PAR_NOIRE * S;
-        repartirParTemps(colonnes, capacite, uniteDeGroupement(sig), largeurNotes);
+        // `calculerColonnes` borne la DERNIÈRE colonne à ce qu'on lui donne : sur l'étendue, pour
+        // qu'une note qui déborde garde une largeur au lieu d'être rabattue sur la barre.
+        const colonnes = calculerColonnes(mesure, longueurMesure(partition, i), S);
+        // L'ÉTENDUE, ET NON LA SEULE CAPACITÉ — c'est-à-dire la plus longue des deux : ce que la
+        // signature accorde, ou ce qui est RÉELLEMENT écrit. Pour une mesure juste les deux sont
+        // égales et il ne se passe rigoureusement rien : la règle « largeur fixée par la signature,
+        // jamais par le contenu » tient pour toutes les mesures correctes, qui sont l'immense
+        // majorité.
+        //
+        // POUR UNE MESURE QUI PORTE UNE DETTE, elle change tout. Le modèle de dette laisse écrire six
+        // temps dans une mesure qui en accorde quatre (la mesure le dit, « +2 ♩ », et deux gestes la
+        // soldent) — mais la gravure, elle, tassait ces six temps dans la largeur de quatre. Pire :
+        // `repartirParTemps` range chaque colonne dans SON temps et rabat tout ce qui dépasse sur le
+        // dernier (le Math.min), si bien que la totalité du débordement se retrouvait empilée sur un
+        // seul temps. Mesuré sur la mesure d'une capture utilisateur — ♩ ♪ ♪ ♩ puis six croches :
+        // les six croches recevaient 8 px chacune quand leurs voisines en avaient 30 à 40. Illisible,
+        // et exactement là où on a le plus besoin de lire, puisque c'est la mesure qu'on est en train
+        // de corriger.
+        //
+        // LES TEMPS RESTENT ÉGAUX ENTRE EUX : c'est la mesure ENTIÈRE qui s'élargit, à proportion de
+        // ce qu'elle porte. La réglette, qui pose ses graduations sur ces mêmes colonnes, garde donc
+        // son espacement régulier — la raison d'être de toute cette répartition.
+        const etendue = longueurMesure(partition, i);
+        const largeurNotes = etendue * LARGEUR_PAR_NOIRE * S;
+        repartirParTemps(colonnes, etendue, uniteDeGroupement(sig), largeurNotes);
         return {
             index: i, ref: mesure, signature: sig, armure: arm, capacite, colonnes,
             largeurNotes,

@@ -101,6 +101,15 @@ const SAMPLER_TRIM_DB = 0;
  */
 const TRIM_BEND_DB = -6;
 /**
+ * LA NOTE ÉTOUFFÉE (« ghost note », le × de la tablature) : un coup de médiator sur des cordes que la
+ * main gauche assourdit. Elle n'a PAS DE HAUTEUR — c'est un bruit percussif, un « chick » sec, et
+ * c'est tout son intérêt : elle marque le rythme sans rien ajouter à l'harmonie.
+ *
+ * Plus bas qu'une vraie note, mais pas discrète : sur un riff de funk ou de basse, les étouffées
+ * portent le groove autant que les notes. -7 dB la place derrière sans l'effacer.
+ */
+const TRIM_ETOUFFEE_DB = -7;
+/**
  * LA VOIX GLISSANTE ÉCHANTILLONNÉE NE SE RECALE PAS — 0 dB, comme l'échantillonneur.
  *
  * Et c'est le même raisonnement que SAMPLER_TRIM_DB, pas une valeur choisie à l'oreille : cette voix
@@ -399,6 +408,35 @@ export class Lecteur {
         // `triggerRelease` de la voix de bend corrige déjà pour elle).
         this._glissandos = new Set();
 
+        // LA VOIX ÉTOUFFÉE — celle des notes fantômes.
+        //
+        // LE DÉFAUT (retour utilisateur : « les ghostnotes sonnent mal, je veux un son neutre et
+        // étouffé comme c'est le cas en guitare et basse »). Elles n'avaient pas de voix du tout :
+        // on jouait la MÊME note, simplement à 35 % de vélocité. Une note fantôme devenait donc une
+        // note ordinaire jouée doucement — avec sa hauteur, son harmonie, tout. Or c'est exactement
+        // ce qu'une étouffée n'est PAS : la main gauche assourdit la corde, le médiator la frappe
+        // quand même, et il en sort un bruit sec SANS hauteur. Jouée en douceur, la hauteur restait
+        // là et venait polluer l'accord qu'elle était censée ne pas toucher.
+        //
+        // DU BRUIT ROSE, PAS UNE ONDE. Un bruit filtré est ce qui décrit une corde étouffée : il n'a
+        // aucune fondamentale à entendre. Le rose plutôt que le blanc parce qu'il décroît avec la
+        // fréquence, comme le corps de l'instrument — un bruit blanc siffle, il sonnerait comme un
+        // charleston.
+        //
+        // LE FILTRE SUIT LA CORDE, et c'est ce qui rend le résultat crédible : une étouffée sur le
+        // mi grave est un COUP SOURD, la même sur la chanterelle est un CLIC. Un passe-bande centré
+        // au-dessus de la hauteur que la note aurait eue donne les deux sans rien demander — c'est
+        // bien la corde qui décide, comme sur l'instrument.
+        this._filtreEtouffee = new Tone.Filter({ type: 'bandpass', frequency: 320, Q: 1.6 });
+        this.voixEtouffee = new Tone.NoiseSynth({
+            noise: { type: 'pink' },
+            // Aussi brève qu'un claquement : elle doit être finie avant la double-croche suivante,
+            // sans quoi deux étouffées de suite se recouvriraient en un grondement continu.
+            envelope: { attack: 0.001, decay: 0.085, sustain: 0, release: 0.02 },
+        });
+        this.voixEtouffee.chain(this._filtreEtouffee,
+            new Tone.Volume(TRIM_ETOUFFEE_DB), Tone.Destination);
+
         // LE MÉTRONOME — repris de HarmoHub (METRONOME_SOUNDS.click) : un triangle bref, sans
         // sustain, qui s'éteint avant même la double-croche la plus rapide de la partition. Une voix
         // à part, comme le bend : elle doit pouvoir sonner MÊME quand le morceau lui-même est
@@ -546,6 +584,11 @@ export class Lecteur {
         plat.forEach((entree) => {
             const evenement = entree.ref;
             if (evenement.silence || !evenement.notes.length) return;
+            // UN SEUL COUP PAR ÉVÈNEMENT pour les étouffées, si nombreuses soient-elles. Balayer six
+            // cordes assourdies d'un coup de médiator fait UN « chick », pas six — c'est même à ça
+            // qu'on le reconnaît. Six bruits superposés au même instant donneraient une bouillie
+            // bien plus forte que la note voisine, et la fausseté s'entendrait aussitôt.
+            let etouffeeFaite = false;
 
             for (const note of evenement.notes) {
                 const cle = `${entree.mesure}:${entree.voix}:${entree.evenement}:${note.corde}`;
@@ -553,6 +596,23 @@ export class Lecteur {
 
                 const midi = hauteurDeNote(partition, note);
                 if (midi == null) continue;
+
+                // LA NOTE ÉTOUFFÉE SORT ICI, avant tout le reste : elle n'a pas de hauteur à tenir,
+                // donc rien à prolonger par une liaison, rien à faire glisser, rien à bender. Sa
+                // `midi` ne voyage que pour placer le filtre (voir _jouerEtouffee) — c'est le
+                // registre de la corde qu'on entend, pas sa note.
+                if (note.ghost) {
+                    if (etouffeeFaite) continue;
+                    etouffeeFaite = true;
+                    this._evenements.push({
+                        debut: entree.debut, mesure: entree.mesure,
+                        duree: Math.max(0.05, Math.min(entree.duree, 0.25)),
+                        note: null, etouffee: true, midi,
+                        velocite: evenement.accent ? 0.95 : 0.7,
+                        bend: null, glisse: null,
+                    });
+                    continue;
+                }
 
                 // Prolonge tant que la chaîne de liaisons continue sur la même corde, DANS LA MÊME VOIX.
                 let duree = entree.duree;
@@ -603,7 +663,9 @@ export class Lecteur {
                 const obtenueSansAttaque = precedente && ['hammer', 'pull', 'slide'].includes(precedente.lien);
                 let velocite = evenement.accent ? 1 : 0.78;
                 if (obtenueSansAttaque) velocite *= 0.62;
-                if (note.ghost) velocite *= 0.35;
+                // (Plus de cas `note.ghost` ici : une étouffée n'arrive jamais jusqu'à cette ligne,
+                // elle est partie plus haut vers sa propre voix. Le laisser en place aurait été du
+                // code mort qui donne à croire qu'une note fantôme est encore une note jouée doucement.)
                 // Palm mute et staccato écourtent la note sans en changer la place : c'est bien ce que
                 // font ces deux gestes sur l'instrument.
                 let sonnante = duree;
@@ -670,7 +732,8 @@ export class Lecteur {
                     // La DURÉE, elle, doit bien être en secondes au moment du déclenchement : on la
                     // convertit ici, donc au tempo courant, et non à celui d'il y a une minute.
                     const secondes = Tone.Ticks(ticksDuree).toSeconds();
-                    if (e.bend) this._jouerBend(e, secondes, temps);
+                    if (e.etouffee) this._jouerEtouffee(e, temps);
+                    else if (e.bend) this._jouerBend(e, secondes, temps);
                     else if (e.glisse) this._jouerSlide(e, ticksDuree, temps);
                     else this.synthe.triggerAttackRelease(e.note, secondes, temps, e.velocite);
                 }, `${Math.round((debutSonne + decalage) * PPQ)}i`);
@@ -1126,6 +1189,30 @@ export class Lecteur {
      * suit le logarithme de la fréquence, donc une rampe linéaire en hertz s'entend comme une montée
      * qui ralentit sur la fin.
      */
+    /**
+     * UN COUP DE MÉDIATOR SUR DES CORDES ÉTOUFFÉES.
+     *
+     * `midi` sert UNIQUEMENT à placer le filtre : la note n'a pas de hauteur à jouer, mais la corde
+     * qu'on assourdit a bien un registre, et c'est lui qu'on entend. Le facteur 1,4 monte le centre
+     * du passe-bande un peu au-dessus de la fondamentale, parce que l'étouffement tue justement
+     * celle-ci et laisse ressortir le corps au-dessus. Les bornes gardent le résultat dans ce qu'un
+     * haut-parleur rend : en dessous de 60 Hz on n'entend plus rien, au-dessus de 2 kHz ce n'est
+     * plus un « chick » mais un sifflement.
+     */
+    _jouerEtouffee(e, temps) {
+        const Tone = globalThis.Tone;
+        if (!this.voixEtouffee) return;
+        const hz = Number.isFinite(e.midi) ? Tone.Frequency(e.midi, 'midi').toFrequency() * 1.4 : 320;
+        // L'APERÇU À LA FRAPPE n'a pas d'instant programmé — il sonne MAINTENANT. `setValueAtTime`
+        // n'accepte pas `undefined` ; on lui donne l'heure courante, ce que `triggerAttackRelease`
+        // fait de lui-même pour le même cas.
+        const quand = temps === undefined ? Tone.now() : temps;
+        try {
+            this._filtreEtouffee.frequency.setValueAtTime(Math.max(60, Math.min(2000, hz)), quand);
+            this.voixEtouffee.triggerAttackRelease(0.06, quand, e.velocite);
+        } catch (err) { /* une note manquée ne doit jamais arrêter la lecture */ }
+    }
+
     _jouerSlide(e, ticksDuree, temps) {
         const Tone = globalThis.Tone;
         const PART_GLISSEE = 0.45, PLAFOND_GLISSE = 0.16;   // fraction du palier quitté ; secondes
@@ -1392,8 +1479,12 @@ export class Lecteur {
     }
 
     /** Note isolée, pour le retour sonore à la saisie. Silencieux tant que l'audio n'est pas armé. */
-    apercu(midi, velocite = 0.7) {
+    apercu(midi, velocite = 0.7, { etouffee = false } = {}) {
         if (!this.pret || !this.synthe) return;
+        // ON ENTEND CE QU'ON ÉCRIT, étouffée comprise : taper une note fantôme doit rendre le bruit
+        // sec qu'elle fera à la lecture, pas la note qu'elle n'est pas. Sans ça le retour sonore
+        // mentirait exactement sur la seule chose qui distingue ce geste des autres.
+        if (etouffee) { this._jouerEtouffee({ midi, velocite }, undefined); return; }
         this.synthe.triggerAttackRelease(midiVersNomTone(midi), 0.35, undefined, velocite);
     }
 }

@@ -984,7 +984,7 @@ class TabHubApp {
         if (ecrite) this.editeur.derniereNoteSaisie = null;
         if (ecrite && this.lecteur.etat !== 'lecture') {
             const midi = hauteurDeNote(this.editeur.partition, ecrite);
-            if (midi != null) this.lecteur.apercu(midi);
+            if (midi != null) this.lecteur.apercu(midi, 0.7, { etouffee: !!ecrite.ghost });
         }
         this.planifierBrouillon();
         // TOUTE MODIFICATION DU DOCUMENT REND L'EXPORT PÉRIMÉ (voir travailExporte et

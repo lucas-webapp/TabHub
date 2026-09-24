@@ -448,6 +448,33 @@ planterait au milieu du morceau une mesure raccourcie que le geste aurait refus�
 *sur* une levée, une mesure ordinaire ne la détruit pas non plus : la dette s'affiche (`+3 ♩`) et se
 solde comme partout ailleurs.
 
+#### Deux défauts remontés sur capture
+
+**La mesure endettée était tassée.** Le modèle de dette laisse écrire six temps dans une mesure qui en
+accorde quatre — elle le dit, `+2 ♩`, et deux gestes la soldent. Mais la gravure, elle, les tassait
+dans la largeur de quatre, et pire : la répartition range chaque colonne dans *son* temps et rabat sur
+le dernier tout ce qui dépasse. Mesuré sur la mesure de la capture : **six croches à 8 px** quand leurs
+voisines en avaient 30 à 40, et six colonnes sur dix empilées sur un quart de la mesure. Illisible
+exactement là où on en a le plus besoin, puisque c'est la mesure qu'on est en train de corriger.
+
+La géométrie se calcule désormais sur l'**étendue** — la plus longue de la capacité et de ce qui est
+réellement écrit. Pour une mesure juste les deux sont égales et rien ne change : la règle « largeur
+fixée par la signature, jamais par le contenu » tient pour toutes les mesures correctes. Une mesure
+endettée s'élargit à proportion de ce qu'elle porte, **ses temps restant égaux entre eux**, si bien que
+la réglette garde son espacement régulier. Mesuré après : 24–25 px.
+
+**Les notes fantômes sonnaient mal.** Elles n'avaient pas de voix du tout : on jouait la *même note*,
+simplement à 35 % de vélocité. Une note fantôme devenait donc une note ordinaire jouée doucement —
+avec sa hauteur, donc son harmonie. Or c'est exactement ce qu'une étouffée n'est pas : la main gauche
+assourdit la corde, le médiator la frappe quand même, il en sort un bruit sec **sans hauteur**.
+
+Elles ont leur voix : un **bruit rose** — un bruit filtré n'a aucune fondamentale à entendre, et le
+rose décroît avec la fréquence comme le corps de l'instrument, là où un bruit blanc sifflerait — à
+travers un **passe-bande qui suit la corde**. Une étouffée sur le mi grave est un coup sourd, la même
+sur la chanterelle est un clic : c'est la corde qui décide, comme sur l'instrument. La hauteur voyage
+encore jusqu'au lecteur, mais seulement pour placer ce filtre. Et un balayage de trois cordes
+assourdies fait **un** « chick », pas trois — c'est même à ça qu'on le reconnaît.
+
 #### Ce que la comparaison a changé
 
 On a écrit un vrai morceau de dix mesures — croches pointées, triolets, syncopes, doubles, accords,
