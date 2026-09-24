@@ -391,6 +391,63 @@ l'ancienne. Elles sont désormais **redimensionnées avec elle**, et les deux bo
   plus juste, sa dette — que la mesure affiche et que `Alt`+`A` / `Alt`+`R` savent solder. Redécouper
   une voix écrite serait détruire sans qu'on l'ait demandé.
 
+#### La levée
+
+D'innombrables morceaux commencent **avant le premier temps**. Il n'y avait que deux façons de les
+recopier, mauvaises toutes les deux : écrire la levée dans une mesure pleine et la laisser fausse
+pour toujours, ou bourrer le début de silences — ce qui **décale toute la numérotation**, et « reprendre
+à la mesure 12 » sur la partition qu'on recopie ne tombe plus sur la mesure 12 d'ici.
+
+Et rien ne le signalait. Une mesure neuve naît **pleine de silences** ; écrire une note en remplace
+un ; la mesure reste donc « complète » aux yeux du moteur. Le morceau démarrait trois temps trop
+tard, tout était numéroté d'un cran de trop, et pas un pixel ne le disait. Le fond rouge ne pouvait
+pas nous sauver : il ne connaît que les mesures qui ne tombent pas juste, et celle-là tombait juste.
+
+**Le geste** : on écrit les notes de sa levée, puis on déclare *Levée* (popover *Repères*). Elle prend
+la longueur de ce qu'elle porte — aucune boîte à remplir, aucun nombre de temps à calculer, on l'a
+déjà dit en l'écrivant. Les silences qui traînent derrière sont retirés : une levée d'une croche fait
+une croche, pas quatre temps.
+
+**Une levée porte une longueur, pas un drapeau**, et c'est ce choix qui fait tenir le reste. Tout ce
+qui juge une mesure passait déjà par `capaciteMesure` — le fond rouge, la dette gravée, l'insertion,
+la grille d'écriture, le métronome, la largeur à la gravure. Il a suffi de lui apprendre à rendre la
+levée quand il y en a une. Un `estLevee` booléen aurait obligé chacun de ces endroits à se demander
+séparément « et combien fait-elle, alors ? ».
+
+Ce qui en découle, sans qu'on ait eu à le programmer séparément :
+
+- elle se grave **plus étroite** (141 px au lieu de 291 sur une mesure d'un temps en 4/4), parce que
+  la largeur se déduit de la capacité ;
+- elle **ne porte pas de numéro**, et la mesure d'après est la 1 — la convention de la gravure, celle
+  qui fait que « mesure 12 » désigne ici la même mesure que dans l'édition imprimée ;
+- `Ctrl`+`G` demande le **numéro gravé**, pas le rang dans le tableau : les deux diffèrent d'un cran
+  pour tout le morceau dès qu'il y a une levée ;
+- la barre du bas affiche **« Levée »** au lieu d'un numéro, et **compte par la fin** : la première
+  note d'une levée de deux noires en 4/4 est le *temps 3*. C'est ce qu'annonce le batteur et ce
+  qu'écrit l'édition imprimée ; compter « temps 1 » obligerait à refaire le calcul de tête ;
+- le **décompte d'entrée** compte la mesure pleine, pas la levée — un décompte d'un seul clic
+  n'installerait aucune pulsation ;
+- le métronome **n'accentue pas** dans une levée : son clic est le dernier temps d'une mesure qui n'a
+  pas été écrite, et l'accentuer ferait entendre un « un » là où il n'y en a pas ;
+- l'export MusicXML la marque `implicit="yes"`, sans quoi MuseScore ou Dorico rouvriraient le morceau
+  avec une première mesure numérotée 1 et trop courte, c'est-à-dire fausse.
+
+**Deux refus.** Sur une mesure vide — une levée qui ne porte rien ne veut rien dire, et l'enfermerait
+à une longueur nulle dont on ne saurait plus sortir. Et **au milieu du morceau**, sauf juste après une
+double barre ou une reprise : le début d'un nouveau couplet peut avoir son anacrouse, mais ailleurs
+une mesure courte est une mesure *fausse*, et c'est ce qu'il faut dire plutôt que de la déclarer juste
+d'un clic.
+
+**Rappuyer la retire et rend les silences.** Sans eux la mesure redeviendrait ordinaire et rouge, et
+il faudrait un `Ctrl`+`Z` pour réparer ce qu'une simple bascule vient de faire — une bascule qui ne
+rebascule pas proprement n'en est pas une.
+
+**Et elle ne voyage pas au copier-coller.** Une levée dit « ici commence le morceau » : c'est une
+propriété de la *place*, comme la signature qu'on rend à ce qui suit un collage. La laisser voyager
+planterait au milieu du morceau une mesure raccourcie que le geste aurait refusé d'y déclarer. Collée
+*sur* une levée, une mesure ordinaire ne la détruit pas non plus : la dette s'affiche (`+3 ♩`) et se
+solde comme partout ailleurs.
+
 #### Savoir sur quel temps on est
 
 « La saisie consistera majoritairement des modifications des longueurs de notes et silences, **sans
@@ -1509,8 +1566,6 @@ Dit franchement, pour que la suite se décide sur des faits :
   *Saisie*), pas pour une fugue : `MAX_VOIX = 2`. Une troisième voix demanderait de répartir les
   hampes autrement que « l'une en haut, l'autre en bas », donc de revoir la gravure, pas d'ouvrir un
   cran de plus.
-- **Pas de dépliage des reprises à la lecture.** Les barres de reprise s'écrivent et s'exportent,
-  mais la lecture parcourt la partition écrite, une fois.
 - **Un synthétiseur simple**, pas un échantillon de guitare — un son d'échantillons pèserait plusieurs
   mégaoctets à vendorer.
 - **Pas d'IMPORT Guitar Pro** (`.gp5`, `.gpx`) **ni MusicXML.** L'export MusicXML existe (voir

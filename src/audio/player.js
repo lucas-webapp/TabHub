@@ -13,7 +13,7 @@ import { midiVersNomTone } from '../model/theory.js';
 import { aplatir, hauteurDeNote, dureeTotale, signatureEffective, capaciteMesure, longueurMesure, positionDebutMesure,
          parcoursDeLecture, aDesReprises,
          grilleTernaire, sonneDepuisEcrit, ecritDepuisSonne } from '../model/score.js';
-import { dureeEnNoires, uniteDeGroupement } from '../model/duration.js';
+import { dureeEnNoires, uniteDeGroupement, noiresParMesure } from '../model/duration.js';
 
 /** Réduction du volume par rapport au 0 dB de Tone.js : une polyphonie à six voix sature vite. */
 const TRIM_DB = -9;
@@ -993,7 +993,12 @@ export class Lecteur {
                 for (let t = 0; t < nTemps; t++) {
                     for (let s = 0; s < parTemps; s++) {
                         const instant = debutMesure + t * unite + s * (unite / parTemps);
-                        const accent = t === 0 && s === 0;
+                        // PAS D'ACCENT DANS UNE LEVÉE : elle ne contient aucun premier temps. Son
+                        // unique clic est le dernier temps d'une mesure qui n'a pas été écrite, et
+                        // l'accentuer ferait entendre un « un » là où il n'y en a pas — exactement
+                        // le contresens qu'une levée est faite d'éviter. Le premier accent tombe sur
+                        // la mesure d'après, à sa vraie place.
+                        const accent = t === 0 && s === 0 && !(mesure.levee > 0);
                         const sub = s > 0;
                         // LE MÉTRONOME SWINGUE AVEC LA MUSIQUE, sinon son clic de contretemps
                         // taperait au milieu du temps quand la musique joue aux deux tiers — deux
@@ -1052,8 +1057,15 @@ export class Lecteur {
         const Tone = globalThis.Tone;
         if (!this.metronome || !Tone?.Transport) return null;
         const i = this._mesureALaPosition(partition, position);
-        const unite = uniteDeGroupement(signatureEffective(partition, i));
-        const nTemps = Math.max(1, Math.round(capaciteMesure(partition, i) / unite));
+        const sig = signatureEffective(partition, i);
+        const unite = uniteDeGroupement(sig);
+        // DEVANT UNE LEVÉE, ON COMPTE LA MESURE PLEINE, pas la levée. Un décompte sert à installer
+        // la pulsation avant d'entrer ; devant une levée d'une noire il ne durerait qu'un clic, et
+        // on entrerait sans savoir où est le premier temps — c'est-à-dire sans rien de ce qu'on lui
+        // demande. `capaciteMesure` rend ici la longueur courte de la levée : on passe donc
+        // délibérément par la signature.
+        const longueur = partition.mesures[i]?.levee > 0 ? noiresParMesure(sig) : capaciteMesure(partition, i);
+        const nTemps = Math.max(1, Math.round(longueur / unite));
         // EN SECONDES AU TEMPO COURANT : un décompte se compte à la vitesse de ce qui suit. Les tics
         // ne servent à rien ici — on ne programme pas sur le transport, justement (voir ci-dessus).
         const parTemps = Tone.Ticks(Math.round(unite * Tone.Transport.PPQ)).toSeconds();

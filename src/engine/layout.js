@@ -20,6 +20,7 @@ import * as G from './glyphs.js';
 import { dureeEnNoires, crochetsDe, uniteDeGroupement, noiresParMesure, nomDeFraction } from '../model/duration.js';
 import {
     signatureEffective, armureEffective, modeEffectif, positionDansMesure, hauteurDeNote, nbCordes, REPERES,
+    numeroDeMesure, capaciteMesure,
 } from '../model/score.js';
 import { ecrireHauteur, hauteurDepuisPas, alterationsDeLArmure, NOMS_LETTRES, tonaliteDe } from '../model/theory.js';
 import { INSTRUMENTS } from '../model/instruments.js';
@@ -614,7 +615,12 @@ export function mettreEnPage(partition, options = {}) {
     const mesures = partition.mesures.map((mesure, i) => {
         const sig = signatureEffective(partition, i);
         const arm = armureEffective(partition, i);
-        const capacite = noiresParMesure(sig);
+        // `capaciteMesure` ET NON `noiresParMesure(sig)` : une LEVÉE porte sa propre longueur, plus
+        // courte que la signature. Et comme la largeur se déduit de la capacité (largeurNotes plus
+        // bas), une levée d'une noire en 4/4 se grave au quart de la largeur d'une mesure pleine —
+        // ce qui est exactement ce qu'on voit sur une partition imprimée, et ce qui la rend
+        // reconnaissable d'un coup d'œil sans lire son contenu.
+        const capacite = capaciteMesure(partition, i);
         const colonnes = calculerColonnes(mesure, capacite, S);
         // Largeur FIXÉE par la capacité, jamais par le contenu réel (voir LARGEUR_PAR_NOIRE), et
         // répartie À PARTS ÉGALES entre les TEMPS de la mesure — jamais au prorata de la densité de
@@ -825,7 +831,12 @@ function mettreEnPagePiano(partition, geo) {
     const mesures = partition.mesures.map((mesure, i) => {
         const sig = signatureEffective(partition, i);
         const arm = armureEffective(partition, i);
-        const capacite = noiresParMesure(sig);
+        // `capaciteMesure` ET NON `noiresParMesure(sig)` : une LEVÉE porte sa propre longueur, plus
+        // courte que la signature. Et comme la largeur se déduit de la capacité (largeurNotes plus
+        // bas), une levée d'une noire en 4/4 se grave au quart de la largeur d'une mesure pleine —
+        // ce qui est exactement ce qu'on voit sur une partition imprimée, et ce qui la rend
+        // reconnaissable d'un coup d'œil sans lire son contenu.
+        const capacite = capaciteMesure(partition, i);
         const colonnes = calculerColonnes(mesure, capacite, S);
         const largeurNotes = capacite * LARGEUR_PAR_NOIRE * S;
         repartirParTemps(colonnes, capacite, uniteDeGroupement(sig), largeurNotes);
@@ -998,7 +1009,8 @@ function poserMesurePiano(out, ancrages, partition, m, ctx) {
     poserEnTeteStaff(xApresReprise, yPorteeFa, CLEFS.fa);
 
     // Numéro de mesure, au-dessus de la portée de sol — la même place que guitare/basse.
-    out.push(texte(xDebutMesure + m.enTete + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {
+    const numeroPiano = numeroDeMesure(partition, m.index);
+    if (numeroPiano != null) out.push(texte(xDebutMesure + m.enTete + 0.2 * S, yPortee - 1.6 * S, String(numeroPiano), {
         taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
     }));
 
@@ -1586,10 +1598,15 @@ function poserMesure(out, ancrages, partition, m, ctx) {
     }
     if (m.enTete > 0) x += 1.5 * S;   // la respiration comptée par largeurEnTete
 
-    // Numéro de mesure, au-dessus de la portée, à l'aplomb du début de la mesure.
-    out.push(texte(x + 0.2 * S, yPortee - 1.6 * S, String(m.index + 1), {
-        taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
-    }));
+    // Numéro de mesure, au-dessus de la portée, à l'aplomb du début de la mesure. `null` pour une
+    // LEVÉE, qui n'en porte pas (voir numeroDeMesure) : c'est la convention de la gravure, et elle
+    // fait que « mesure 12 » désigne la même mesure ici que dans n'importe quelle édition imprimée.
+    const numero = numeroDeMesure(partition, m.index);
+    if (numero != null) {
+        out.push(texte(x + 0.2 * S, yPortee - 1.6 * S, String(numero), {
+            taille: S * 1.05, police: 'sans-serif', poids: '600', ancre: 'debut', couleur: 'discret',
+        }));
+    }
 
     // DE COMBIEN LA MESURE DÉBORDE (ou de combien il lui manque), à l'autre bout de la même ligne.
     //

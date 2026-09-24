@@ -197,6 +197,12 @@ export const ACTIONS = [
       actif: ed => ed.mesureCourante().barre === 'double', faire: ed => ed.definirBarre('double') },
     { id: 'barreFinale', touches: [], libelle: 'Barre finale (fin du morceau)', groupe: 'repere', apercu: { type: 'icone', nom: 'barreFinale' },
       actif: ed => ed.mesureCourante().barre === 'finale', faire: ed => ed.definirBarre('finale') },
+    // LA LEVÉE, JUSTE APRÈS LES DEUX BARRES, et pas ailleurs : c'est l'une d'elles qu'il faut avoir
+    // posée pour qu'une levée soit recevable en cours de morceau (`basculerLevee` la réclame). Le
+    // bouton qui débloque l'autre est donc son voisin immédiat. Au tout début du morceau aucune
+    // barre n'est requise, et c'est là qu'on s'en sert neuf fois sur dix.
+    { id: 'levee', touches: [], libelle: 'Levée (anacrouse)', groupe: 'repere', apercu: { type: 'texteLeger', texte: 'lev.' },
+      actif: ed => ed.mesureCourante().levee > 0, faire: ed => ed.basculerLevee() },
 
     // RYTHME TERNAIRE (retour utilisateur : « est-ce qu'on peut implémenter dans la portée un système
     // classique, qui permet de dire "croche=triolet", et ainsi écrire de façon ternaire ? Les portées

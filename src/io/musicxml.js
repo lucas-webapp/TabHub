@@ -40,7 +40,7 @@
 
 import { dureeEnNoires } from '../model/duration.js';
 import {
-    signatureEffective, armureEffective, modeEffectif, capaciteMesure, dureeEcrite,
+    signatureEffective, armureEffective, modeEffectif, capaciteMesure, dureeEcrite, numeroDeMesure,
     hauteurDeNote, nbCordes, decouperEnEvenements,
 } from '../model/score.js';
 import { ecrireHauteur } from '../model/theory.js';
@@ -464,7 +464,16 @@ function poserMesure(flux, partition, iMesure, chaines, etatPrecedent) {
     const tab = aUneTablature(partition);
     const nbPortees = tab ? 2 : clefs.length;
 
-    flux.ouvrir('measure', ` number="${iMesure + 1}"`);
+    // LE NUMÉRO EXPORTÉ EST CELUI QUI EST GRAVÉ, et une LEVÉE part avec `implicit="yes"` — le mot
+    // par lequel MusicXML dit « cette mesure existe mais ne compte pas dans la numérotation ». Sans
+    // lui, MuseScore, Finale ou Dorico rouvriraient le morceau avec une première mesure numérotée 1
+    // et trop courte : une mesure fausse, là où on avait écrit une anacrouse. Le numéro reste
+    // obligatoire dans l'attribut, même implicite ; on y met celui de la mesure suivante, qui est la
+    // convention (la levée de la mesure 1 porte number="1" implicit="yes").
+    const numeroXml = numeroDeMesure(partition, iMesure);
+    const implicite = numeroXml == null;
+    flux.ouvrir('measure', ` number="${implicite ? (numeroDeMesure(partition, iMesure + 1) ?? 1) : numeroXml}"`
+        + (implicite ? ' implicit="yes"' : ''));
 
     if (mesure.sautAvant && iMesure > 0) flux.seule('print', '', ' new-system="yes"');
 

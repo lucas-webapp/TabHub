@@ -151,7 +151,10 @@ const { check, exiger, plan, bilan } = creerHarnais('popover Effets');
         // « repere » en porte DOUZE depuis que les maisons de 1re/2e fois l'ont rejoint (voir
         // maisons_test.js) : c'est là que vivent les barres de reprise, et c'est avec elles que les
         // maisons font sens.
-        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 12]]) {
+        // TREIZE depuis la LEVÉE : elle ne marque pas la portée d'un signe à jouer, mais elle décide
+        // de la LONGUEUR d'une mesure et de sa numérotation, comme une double barre décide d'une
+        // section — même famille, même popover (voir levee_test.js).
+        for (const [bouton, groupe, attendu] of [['.btn-effets-bascule', 'effet', 9], ['.btn-reperes-bascule', 'repere', 13]]) {
             await page.click(bouton);
             await page.waitForTimeout(250);
             const etat = await page.evaluate((g) => {

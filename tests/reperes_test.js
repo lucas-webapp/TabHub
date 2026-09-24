@@ -147,10 +147,13 @@ const { check, exiger, plan, bilan } = creerHarnais('repères, mise en page, en-
         // LES DEUX MAISONS se sont glissées ENTRE les deux barres de reprise, et c'est leur place :
         // une maison ne se lit qu'avec la reprise qu'elle sert, et on la cherche là où on vient de
         // poser le ‖: (voir maisons_test.js).
-        check(popover.actions.join(',') === 'repriseDebut,volta1,volta2,repriseFin,barreDouble,barreFinale,'
+        // LA LEVÉE SUIT LES DEUX BARRES, et pas par hasard : c'est l'une d'elles qu'il faut avoir
+        // posée pour qu'une levée soit acceptée en cours de morceau. Le bouton qui ouvre la porte
+        // est le voisin immédiat de celui qui la franchit (voir levee_test.js).
+        check(popover.actions.join(',') === 'repriseDebut,volta1,volta2,repriseFin,barreDouble,barreFinale,levee,'
             + 'repere-segno,repere-coda,repere-daCapo,repere-dalSegno,repere-alCoda,repere-fine',
-            `et il réunit les deux reprises, les deux maisons, les deux barres et les six repères de `
-            + `navigation — douze marques, un seul bouton (${popover.actions.join(',')})`);
+            `et il réunit les deux reprises, les deux maisons, les deux barres, la levée et les six repères `
+            + `de navigation — treize marques, un seul bouton (${popover.actions.join(',')})`);
         // LE TERNAIRE N'EST PLUS ICI (retour utilisateur : « il faut sortir le bouton ternaire du
         // bouton "Repère", et le placer à un endroit plus stratégique »). Un repère se pose SUR UNE
         // MESURE et dit où aller ; le ternaire se pose sur LE MORCEAU et dit comment le lire. Il a

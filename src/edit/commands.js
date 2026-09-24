@@ -2017,6 +2017,13 @@ export class Editeur {
         if (!this.peutCollerMesures()) { this.derniereErreur = 'Aucune mesure copiée.'; return null; }
         const cordesCibles = nbCordes(this.partition);
         const bloc = this.presseMesures.mesures.map(cloner);
+        // LA LEVÉE NE VOYAGE PAS AVEC LES NOTES. Elle dit « ici commence le morceau, et cette mesure
+        // est volontairement courte » — c'est une propriété de la PLACE, comme la signature qu'on
+        // rend plus bas à ce qui suit, pas du contenu qu'on transporte. La laisser voyager planterait
+        // au milieu du morceau une mesure raccourcie que `basculerLevee` aurait refusé d'y déclarer,
+        // et la levée d'origine perdrait la sienne en recevant un bloc ordinaire. On la retire donc
+        // du bloc, et on rend plus bas celle de chaque place écrasée.
+        for (const m of bloc) m.levee = null;
         let abandonnees = 0;
         for (const copie of bloc) {
             for (const voix of copie.voix) {
@@ -2058,7 +2065,11 @@ export class Editeur {
                 this.partition.mesures.push(creerMesure());
                 ajoutees++;
             }
+            // Les levées des places écrasées, relevées AVANT le splice pour être rendues après.
+            const leveesEnPlace = [];
+            for (let k = 0; k < bloc.length; k++) leveesEnPlace.push(this.partition.mesures[debut + k]?.levee ?? null);
             this.partition.mesures.splice(debut, bloc.length, ...bloc);
+            leveesEnPlace.forEach((l, k) => { if (l > 0) this.partition.mesures[debut + k].levee = l; });
         }
         // Rendre à la suite la signature qu'elle avait : sans ça, le 4/4 du bloc collé deviendrait
         // celui de tout ce qui le suit.
@@ -2380,6 +2391,86 @@ export class Editeur {
         m.nbFois = n;
         this.prevenir('edition');
         return n;
+    }
+
+    /**
+     * DÉCLARE (ou retire) LA LEVÉE sur la mesure courante — l'anacrouse, cette mise en train avant le
+     * premier temps fort.
+     *
+     * ELLE PREND LA LONGUEUR DE CE QU'ON Y A ÉCRIT, et c'est ce qui rend le geste naturel : on écrit
+     * les notes de sa levée, puis on déclare « c'est une levée ». Aucune boîte à remplir, aucun
+     * nombre de temps à calculer — on a déjà dit ce qu'on voulait en l'écrivant.
+     *
+     * RIEN NE SIGNALE LE PROBLÈME AVANT CE GESTE, et c'est pour ça qu'il faut un geste : une mesure
+     * neuve naît PLEINE DE SILENCES, écrire une note en remplace un, et la mesure reste donc
+     * « complète » aux yeux du moteur. Le morceau démarre trois temps trop tard, tout est numéroté
+     * d'un cran de trop, et pas un pixel ne l'indique. Le fond rouge ne peut pas nous sauver ici : il
+     * ne connaît que les mesures qui ne tombent pas juste, et celle-là tombe juste.
+     *
+     * REFUSÉE SUR UNE MESURE VIDE : une levée qui ne contient rien ne veut rien dire, et la déclarer
+     * enfermerait la mesure à une longueur nulle dont on ne saurait plus sortir.
+     *
+     * REFUSÉE AILLEURS QU'AU DÉBUT, tant qu'aucune barre de section ne la précède : une anacrouse se
+     * place avant la première mesure, ou après une double barre (le début d'un nouveau couplet). Au
+     * milieu d'un morceau, une mesure courte est une mesure fausse — et c'est bien ce qu'il faut
+     * dire, plutôt que de la déclarer juste d'un clic.
+     */
+    basculerLevee() {
+        this.derniereErreur = null;
+        const i = this.curseur.mesure;
+        const m = this.partition.mesures[i];
+        if (m.levee > 0) {
+            this.memoriser();
+            m.levee = null;
+            // ET ON REND LES SILENCES QU'ON AVAIT RETIRÉS : sans eux la mesure redeviendrait une
+            // mesure ORDINAIRE et INCOMPLÈTE, teintée de rouge, alors qu'on vient seulement de
+            // revenir en arrière. Le geste doit s'annuler lui-même, sans obliger à un Ctrl+Z pour
+            // réparer ce qu'il a fait — une bascule qui ne rebascule pas proprement n'est pas une
+            // bascule. Les silences passent par `_silences`, donc par la grille des temps.
+            const pleine = noiresParMesure(signatureEffective(this.partition, i));
+            for (const voix of m.voix) {
+                const ecrit = voix.evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0);
+                voix.evenements.push(...this._silences(voix, ecrit, pleine - ecrit, i));
+            }
+            this.prevenir('edition');
+            return null;
+        }
+        const precedente = i > 0 ? this.partition.mesures[i - 1] : null;
+        if (i > 0 && !(precedente?.barre === 'double' || precedente?.repriseFin)) {
+            this.derniereErreur = 'Une levée se place au début du morceau, ou juste après une double barre '
+                + 'ou une reprise — ailleurs, une mesure courte est une mesure fausse.';
+            return false;
+        }
+        const ecrite = dureeEcrite(m, 0);
+        const aDesNotes = m.voix.some(v => v.evenements.some(e => !e.silence && e.notes.length));
+        if (!aDesNotes) {
+            this.derniereErreur = 'Écrivez d\'abord les notes de la levée : elle prend la longueur de ce qu\'elle porte.';
+            return false;
+        }
+        // La longueur retenue est celle qui va jusqu'à la DERNIÈRE NOTE, pas jusqu'au bout des
+        // silences qui la suivent : une levée d'une croche écrite dans une mesure de 4/4 porte trois
+        // temps et demi de silence derrière elle, et les compter ferait une levée de quatre temps.
+        let derniere = 0, t = 0;
+        for (const e of m.voix[0].evenements) {
+            t += dureeEnNoires(e.duree);
+            if (!e.silence && e.notes.length) derniere = t;
+        }
+        const longueur = derniere > 1e-9 ? derniere : ecrite;
+        this.memoriser();
+        m.levee = longueur;
+        // Les silences de queue n'ont plus lieu d'être : la mesure s'arrête où la musique s'arrête.
+        for (const voix of m.voix) {
+            let vu = 0;
+            const gardes = [];
+            for (const e of voix.evenements) {
+                if (vu >= longueur - 1e-9) break;
+                gardes.push(e);
+                vu += dureeEnNoires(e.duree);
+            }
+            voix.evenements = gardes.length ? gardes : voix.evenements;
+        }
+        this.prevenir('edition');
+        return longueur;
     }
 
     basculerReprise(bord) {

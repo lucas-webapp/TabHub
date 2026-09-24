@@ -96,6 +96,33 @@ const { check, exiger, plan, bilan } = creerHarnais('naviguer');
         check(modele.borneHaute.mesure === modele.borneHaute.total - 1,
             `aller à la mesure 200 sur un morceau de ${modele.borneHaute.total} mène à la dernière `
             + `(m${modele.borneHaute.mesure}) : hors bornes veut dire « la fin », pas « refusé »`);
+
+        // …ET PAR LA PORTE QU'ON EMPRUNTE VRAIMENT, pas seulement par la méthode du modèle. La
+        // boîte « Aller à une mesure » traduit un NUMÉRO GRAVÉ en rang dans le tableau (les deux
+        // diffèrent dès qu'il y a une levée, voir levee_test.js), et cette traduction-là pouvait
+        // parfaitement borner autrement que `allerAMesure` sans que ce banc s'en aperçoive : il
+        // n'était jamais passé par elle.
+        const total12 = await page.evaluate(() => {
+            window.app.editeur.nouveau('guitare');
+            window.app.editeur.ajouterMesure(true, 8);                // douze mesures
+            return window.app.editeur.partition.mesures.length;
+        });
+        // Le champ arrive PRÉ-REMPLI : on le vide avant de taper, sans quoi `type()` écrit à la suite.
+        const allerParLaBoite = async (valeur) => {
+            await page.evaluate(() => { window.app.allerAUneMesure(); });
+            await page.waitForTimeout(250);
+            await page.evaluate(() => { document.querySelector('.dialogue-champ').value = ''; });
+            await page.keyboard.type(String(valeur));
+            await page.keyboard.press('Enter');
+            await page.waitForTimeout(250);
+            return page.evaluate(() => window.app.editeur.curseur.mesure);
+        };
+        const parLaBoite = { total: total12, loin: await allerParLaBoite(200), sept: await allerParLaBoite(7) };
+        check(parLaBoite.loin === parLaBoite.total - 1,
+            `la BOÎTE elle-même borne pareil : 200 sur ${parLaBoite.total} mesures mène à la dernière `
+            + `(rang ${parLaBoite.loin}) — la même règle des deux côtés de la porte`);
+        check(parLaBoite.sept === 6,
+            `et « 7 » ouvre bien la mesure gravée 7 (rang ${parLaBoite.sept})`);
         check(modele.borneBasse === 0, `et un numéro négatif mène à la première (m${modele.borneBasse})`);
 
         // ── Partie INTERFACE ────────────────────────────────────────────────────────────────────

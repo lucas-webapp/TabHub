@@ -45,9 +45,10 @@ import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, ran
          lireMorceauSurDisque, listerVersions, demanderStockageDurable, morceauxSurDisque,
          fichiersDuMorceau, supprimerFichiers } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition } from './model/score.js';
+import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition,
+         numeroDeMesure, indexDeNumero, nbMesuresNumerotees } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
-import { VALEURS_FIGURES, uniteDeGroupement, dureeEnNoires, nomDeFraction, nomDeFigure } from './model/duration.js';
+import { VALEURS_FIGURES, uniteDeGroupement, dureeEnNoires, nomDeFraction, nomDeFigure, noiresParMesure } from './model/duration.js';
 
 /** Les figures dans l'ordre de VALEURS_FIGURES — pour dire à l'écran ce qu'un étirement vise. */
 const NOMS_FIGURES = ['ronde', 'blanche', 'noire', 'croche', 'double-croche', 'triple-croche'];
@@ -1427,18 +1428,26 @@ class TabHubApp {
      * morceau de 64 mesures veut dire « la fin ». Un refus n'apprendrait rien qu'on ne voie déjà.
      */
     async allerAUneMesure() {
-        const total = this.editeur.partition.mesures.length;
+        // LE NUMÉRO DEMANDÉ EST CELUI QUI EST GRAVÉ, pas le rang dans le tableau : avec une levée,
+        // les deux diffèrent d'un cran pour tout le morceau. On passe donc par `indexDeNumero`, qui
+        // relit le même comptage que le moteur de gravure (voir model/score.js).
+        const total = nbMesuresNumerotees(this.editeur.partition);
+        const ici = numeroDeMesure(this.editeur.partition, this.editeur.curseur.mesure);
         const reponse = await saisir({
             titre: 'Aller à une mesure',
             texte: `Le morceau en compte ${total}.`,
             etiquette: 'Numéro de mesure',
-            valeur: String(this.editeur.curseur.mesure + 1),
+            valeur: String(ici ?? 1),
             libelleOk: 'Y aller',
         });
         if (reponse === null) { this.el.zone.focus(); return; }
         const n = parseInt(String(reponse).trim(), 10);
         if (!Number.isFinite(n)) { this.message('Il faut un numéro de mesure.'); this.el.zone.focus(); return; }
-        this.editeur.allerAMesure(n - 1);
+        // HORS BORNES VEUT DIRE « LA FIN », PAS « REFUSÉ » — la règle d'`allerAMesure`, qu'on garde
+        // ici : 200 sur un morceau de 64 est une façon de dire « emmène-moi au bout ». On borne donc
+        // le NUMÉRO avant de chercher sa place, plutôt que de rendre la main sans rien faire.
+        const borne = Math.max(1, Math.min(n, total));
+        this.editeur.allerAMesure(indexDeNumero(this.editeur.partition, borne) ?? 0);
         this.el.zone.focus();
     }
 
@@ -1518,17 +1527,31 @@ class TabHubApp {
         const voix = Math.min(c.voix, mesure.voix.length - 1);
         const pos = positionDansMesure(mesure, c.evenement, voix) + (c.decalage || 0);
         const unite = uniteDeGroupement(signatureEffective(this.editeur.partition, c.mesure)) || 1;
-        const index = Math.floor(pos / unite + 1e-9);
+        // DANS UNE LEVÉE, ON COMPTE PAR LA FIN. Une levée d'une noire en 4/4 est le QUATRIÈME temps
+        // de la mesure qu'elle amorce — c'est ce qu'annonce le batteur, c'est ce qu'écrit l'édition
+        // imprimée qu'on recopie, et c'est ce qu'il faut lire ici pour que les deux s'accordent.
+        // Compter « temps 1 » dans une levée obligerait à refaire le calcul de tête à chaque fois.
+        const mesureRef = this.editeur.partition.mesures[c.mesure];
+        const avance = mesureRef?.levee > 0
+            ? noiresParMesure(signatureEffective(this.editeur.partition, c.mesure)) - mesureRef.levee : 0;
+        const index = Math.floor((pos + avance) / unite + 1e-9);
         // La fraction est celle DU TEMPS, pas de la noire : un huitième de noire pointée fait un
         // tiers de temps, et c'est « ⅓ » qu'il faut lire en 6/8, pas « ⅛ ».
-        const frac = nomDeFraction((pos - index * unite) / unite);
+        const frac = nomDeFraction((pos + avance - index * unite) / unite);
         return `temps ${index + 1}${frac}`;
     }
 
     rafraichirInfos() {
         const c = this.editeur.curseur;
-        const total = this.editeur.partition.mesures.length;
-        this.el.position.innerHTML = `Mesure <strong>${c.mesure + 1}</strong> / <strong>${total}</strong>`
+        // LE MÊME NUMÉRO QUE CELUI GRAVÉ AU-DESSUS DE LA MESURE, levée comprise — c'est-à-dire
+        // AUCUN numéro quand on est dans la levée, et le mot à la place. Deux comptages qui se
+        // contrediraient à l'écran (« Mesure 1 » ici, « 1 » gravé sur la mesure d'à côté) valent
+        // moins que pas de numéro du tout.
+        const total = nbMesuresNumerotees(this.editeur.partition);
+        const numero = numeroDeMesure(this.editeur.partition, c.mesure);
+        this.el.position.innerHTML = (numero == null
+            ? '<strong>Levée</strong>'
+            : `Mesure <strong>${numero}</strong> / <strong>${total}</strong>`)
             + ` · <strong>${this.tempsDuCurseur()}</strong>`;
 
         // CE QUE DIT ENCORE LA BARRE DU BAS : la hauteur réellement sonnée par la note sous le

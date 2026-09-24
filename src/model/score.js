@@ -272,6 +272,11 @@ export function creerMesure(extra = {}) {
         // une fois, puis une reprise). Lu par parcoursDeLecture, et par lui seul — c'est une
         // instruction de PARCOURS, pas une propriété de la musique écrite.
         nbFois: 2,
+        // LEVÉE (anacrouse) : la DURÉE en noires de cette mesure volontairement courte, ou `null`
+        // pour une mesure ordinaire. Une levée n'est pas une mesure fausse : c'est la mise en train
+        // avant le premier temps fort, et elle vaut ce qu'elle vaut. C'est donc une CAPACITÉ, posée
+        // sur la mesure, qui l'emporte sur celle de la signature (voir capaciteMesure).
+        levee: null,
         // MAISON DE 1re / 2e FOIS (volta) : la liste des passages où CETTE mesure se joue, ou `null`
         // si elle se joue à tous. `[1]` = « 1re fois », `[2]` = « 2e fois », `[1, 3]` = « 1re et 3e ».
         // Portée par la mesure et non par la reprise, parce que c'est bien la mesure qu'on saute :
@@ -399,7 +404,58 @@ export function dureeEcrite(mesure, iVoix = 0) {
 
 /** Capacité de la mesure d'après sa signature effective, en noires — commune à toutes ses voix. */
 export function capaciteMesure(partition, index) {
+    // LA LEVÉE L'EMPORTE SUR LA SIGNATURE. Une anacrouse d'un temps en 4/4 ne vaut pas quatre temps
+    // — elle vaut un, et elle est JUSTE. Tout ce qui juge une mesure passe par ici (le fond rouge,
+    // le chiffre de dette, l'insertion, la grille d'écriture, le métronome), et tout se met donc
+    // d'accord d'un seul coup plutôt qu'en ajoutant un cas particulier à chacun.
+    const levee = partition?.mesures?.[index]?.levee;
+    if (levee > 0) return levee;
     return noiresParMesure(signatureEffective(partition, index));
+}
+
+/**
+ * LE NUMÉRO AFFICHÉ d'une mesure — 1 pour la première mesure COMPLÈTE, et rien pour une levée.
+ *
+ * C'est la convention de la gravure, et elle n'est pas cosmétique : « mesure 12 » doit désigner la
+ * même mesure pour le musicien qui lit la partition et pour celui qui la lui a envoyée. Compter la
+ * levée décalerait tout d'un cran par rapport à n'importe quelle édition imprimée du même morceau.
+ *
+ * @returns {number|null} le numéro, ou `null` si cette mesure n'en porte pas (la levée).
+ */
+export function numeroDeMesure(partition, index) {
+    if (partition?.mesures?.[index]?.levee > 0) return null;
+    let n = 0;
+    for (let i = 0; i <= index && i < (partition?.mesures?.length || 0); i++) {
+        if (!(partition.mesures[i].levee > 0)) n++;
+    }
+    return n;
+}
+
+/**
+ * L'INVERSE : le rang dans le tableau de la mesure qui porte ce NUMÉRO gravé.
+ *
+ * Il faut les deux sens, et il faut qu'ils viennent d'ici tous les deux. « Aller à la mesure 12 »
+ * doit ouvrir la mesure sur laquelle le moteur a écrit « 12 », sans quoi un morceau à levée
+ * enverrait systématiquement une mesure trop loin — et la partition imprimée qu'on recopie, qui dit
+ * « reprendre mesure 12 », ne voudrait plus rien dire ici. Un second comptage écrit ailleurs
+ * finirait par diverger du premier ; celui-ci relit `numeroDeMesure`.
+ *
+ * Rend `null` pour un numéro qui n'existe pas : mieux vaut ne rien faire que sauter au plus proche.
+ */
+export function indexDeNumero(partition, numero) {
+    const mesures = partition?.mesures || [];
+    for (let i = 0; i < mesures.length; i++) {
+        if (numeroDeMesure(partition, i) === numero) return i;
+    }
+    return null;
+}
+
+/** Combien de mesures NUMÉROTÉES compte le morceau — la levée n'en fait pas partie. */
+export function nbMesuresNumerotees(partition) {
+    const mesures = partition?.mesures || [];
+    let n = 0;
+    for (const m of mesures) if (!(m.levee > 0)) n++;
+    return n;
 }
 
 /**
@@ -764,6 +820,10 @@ export function normaliser(brut) {
         mesure.repere = REPERES[mb?.repere] ? mb.repere : null;
         mesure.barre = ['double', 'finale'].includes(mb?.barre) ? mb.barre : null;
         mesure.nbFois = borne(mb?.nbFois, 2, 99, 2);
+        // Une levée lue d'un fichier : une durée strictement positive, ou rien. Zéro et négatif ne
+        // décrivent aucune mesure jouable.
+        const levee = Number(mb?.levee);
+        mesure.levee = Number.isFinite(levee) && levee > 0 ? levee : null;
         // Bornée en longueur : contrairement au titre (affiché une fois, dans l'en-tête), une
         // annotation se pose au-dessus d'UNE mesure qui peut être étroite — une chaîne sans limite
         // déborderait allègrement sur les mesures voisines (le rendu ne fait aucun retour à la ligne).
