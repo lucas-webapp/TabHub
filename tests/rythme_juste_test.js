@@ -222,10 +222,19 @@ const T3 = { dans: 3, valent: 2 };
             'et une mesure qui ne serait PAS complète garde sa capacité — le silence manquant '
             + 's\'entend comme un silence, jamais comme un empiètement sur la mesure suivante');
 
-        check(Math.abs(S.dureeTotale(ed6.partition) - (4 + 4 + 4 + 4)) < 1e-9,
-            `la durée totale du morceau compte la mesure trop pleine pour ce qu'elle dure `
-            + `(${S.dureeTotale(ed6.partition)} noires) — sinon la lecture s'arrêterait avant sa `
-            + 'dernière note');
+        // LA SOMME EST CALCULÉE, PAS ÉCRITE EN DUR. Elle l'était (« 4 + 4 + 4 + 4 »), et ce total
+        // supposait que les mesures VIDES qui suivent gardent la capacité d'avant le changement de
+        // signature — ce qui était vrai tant que `definirSignature` ne redimensionnait que la mesure
+        // courante, et n'était qu'un effet de bord du défaut qu'elle a depuis corrigé (voir
+        // signature_test.js). Ce qu'on veut vraiment vérifier ici tient en une phrase : la mesure
+        // trop pleine compte pour ce qu'elle DURE, pas pour ce que sa signature annonce.
+        const longueurs = ed6.partition.mesures.map((_, i) => S.longueurMesure(ed6.partition, i));
+        check(Math.abs(S.dureeTotale(ed6.partition) - longueurs.reduce((a, b) => a + b, 0)) < 1e-9
+              && Math.abs(longueurs[0] - 4) < 1e-9
+              && Math.abs(S.capaciteMesure(ed6.partition, 0) - 3) < 1e-9,
+            `la durée totale du morceau (${S.dureeTotale(ed6.partition)} noires) est la somme des LONGUEURS `
+            + `(${longueurs.join(' + ')}), et la mesure trop pleine y compte pour 4 et non pour les 3 `
+            + 'que sa signature annonce — sinon la lecture s\'arrêterait avant sa dernière note');
 
         // =====================================================================================
         // G. CHANGER LA SIGNATURE — ce qui est vide se redimensionne, ce qui est écrit est gardé

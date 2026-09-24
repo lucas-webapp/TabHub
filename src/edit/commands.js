@@ -2111,14 +2111,39 @@ export class Editeur {
      * la lecture suit la durée écrite, ce qui est écrit continue de sonner en entier plutôt que
      * d'empiéter d'un temps sur la mesure suivante.
      */
+    /**
+     * Pose la signature rythmique SUR LA MESURE COURANTE — et elle vaut de là jusqu'au prochain
+     * changement déclaré (voir signatureEffective, qui remonte à la dernière mesure qui en fixe une).
+     *
+     * LES MESURES VIDES QUI SUIVENT SONT REDIMENSIONNÉES AVEC ELLE, et c'est ce qui manquait.
+     * Seule la mesure courante l'était ; les suivantes héritaient bien de la nouvelle signature —
+     * donc d'une nouvelle CAPACITÉ — mais gardaient les silences de l'ancienne. Mesuré sur un
+     * morceau NEUF, en posant 3/4 sur la première mesure : TROIS MESURES SUR QUATRE viraient au
+     * rouge avec « +1 ♩ », vides de toute note. Or déclarer la mesure est le tout premier geste
+     * qu'on fait pour écrire une valse ou un 6/8 : l'application répondait en marquant fausse la
+     * presque totalité du morceau.
+     *
+     * ON S'ARRÊTE AU PROCHAIN CHANGEMENT DÉCLARÉ : une mesure qui porte sa propre signature n'est
+     * pas régie par celle-ci, et la toucher déborderait de ce qu'on a demandé.
+     *
+     * ET SEULEMENT LES VOIX VIDES, ici comme avant : une voix qui porte des notes garde son rythme
+     * et, si le compte ne tombe plus juste, sa dette — que la mesure affiche et que les deux
+     * règlements savent solder. Redécouper une voix écrite serait détruire sans qu'on l'ait demandé.
+     */
     definirSignature(battements, unite) {
         this.memoriser();
-        const m = this.mesureCourante();
-        m.signature = { battements, unite };
-        const capacite = capaciteMesure(this.partition, this.curseur.mesure);
-        for (const voix of m.voix) {
-            if (!voix.evenements.every(e => e.silence || !e.notes.length)) continue;
-            voix.evenements = creerVoix(capacite).evenements;
+        const depart = this.curseur.mesure;
+        this.partition.mesures[depart].signature = { battements, unite };
+        const videe = (voix) => voix.evenements.every(e => e.silence || !e.notes.length);
+        for (let i = depart; i < this.partition.mesures.length; i++) {
+            // La mesure de départ vient de recevoir la signature ; les suivantes ne sont concernées
+            // que tant qu'elles n'en déclarent pas une à elles.
+            if (i > depart && this.partition.mesures[i].signature) break;
+            const capacite = capaciteMesure(this.partition, i);
+            for (const voix of this.partition.mesures[i].voix) {
+                if (!videe(voix)) continue;
+                voix.evenements = creerVoix(capacite).evenements;
+            }
         }
         this.corrigerCurseur();
         this.prevenir('edition');

@@ -323,6 +323,22 @@ disent maintenant ce qu'ils ont pris, et rappellent que `Ctrl`+`Z` le ramène. U
 **Et rien ne parle pour rien** : écrire huit croches d'affilée ne déclenche aucun des trois canaux.
 Un message qui se déclenche sans motif apprend à ignorer les messages.
 
+#### Déclarer la mesure ne casse rien
+
+Poser 3/4 ou 6/8 est le **tout premier geste** qu'on fait pour écrire une valse ou une gigue — avant
+la moindre note. L'application y répondait en marquant fausse la presque totalité du morceau :
+mesuré sur une partition neuve, poser 3/4 sur la première mesure faisait virer **trois mesures sur
+quatre** au rouge avec « +1 ♩ », vides de toute note.
+
+La signature vaut de la mesure où on la pose jusqu'au prochain changement déclaré ; les mesures
+suivantes en héritaient donc — donc d'une nouvelle capacité — mais gardaient les silences de
+l'ancienne. Elles sont désormais **redimensionnées avec elle**, et les deux bornes tiennent :
+
+- on s'arrête au **prochain changement déclaré**, qui n'est pas régi par celui qu'on vient de poser ;
+- on ne touche **que les voix vides**. Une voix écrite garde son rythme et, si le compte ne tombe
+  plus juste, sa dette — que la mesure affiche et que `Alt`+`A` / `Alt`+`R` savent solder. Redécouper
+  une voix écrite serait détruire sans qu'on l'ait demandé.
+
 #### Savoir sur quel temps on est
 
 « La saisie consistera majoritairement des modifications des longueurs de notes et silences, **sans
