@@ -159,7 +159,16 @@ export function rendreSvg(page, options = {}) {
     // reporté sur chaque primitive : le fond, lui, reste en place — c'est la PAGE, pas son contenu.
     const d = options.decalage;
     const enveloppe = (contenu) => d ? `<g transform="translate(${ech(d.dx || 0)},${ech(d.dy || 0)})">${contenu}</g>` : contenu;
-    return `<svg xmlns="http://www.w3.org/2000/svg" width="${ech(page.largeur)}" height="${ech(page.hauteur)}" viewBox="0 0 ${ech(page.largeur)} ${ech(page.hauteur)}" role="img">${defs}${fond}${enveloppe(dessous + corps + dessus)}</svg>`;
+    // CALQUE VIDE DE LA TÊTE DE LECTURE, à la place EXACTE qu'elle occupait quand elle voyageait
+    // avec les autres calques du dessous : sous la musique, au-dessus du fond, et DANS l'enveloppe
+    // décalée (sans quoi elle ne suivrait pas l'aperçu PDF page à page). Elle bouge soixante fois par
+    // seconde et ne repasse donc plus par ici (voir main.js#poserTeteDeLecture, qui remplit ce
+    // calque-ci en réécrivant quelques attributs) : le rendu se contente de lui réserver sa place.
+    // Un premier essai l'insérait à la racine du SVG, juste après `<defs>` — c'est-à-dire SOUS le
+    // rectangle de fond, opaque : la tête de lecture était bien dans le document, aux bonnes
+    // coordonnées, et rigoureusement invisible.
+    const tete = '<g id="tete-lecture" pointer-events="none"></g>';
+    return `<svg xmlns="http://www.w3.org/2000/svg" width="${ech(page.largeur)}" height="${ech(page.hauteur)}" viewBox="0 0 ${ech(page.largeur)} ${ech(page.hauteur)}" role="img">${defs}${fond}${enveloppe(tete + dessous + corps + dessus)}</svg>`;
 }
 
 export { primitiveVersSvg, couleurDe };

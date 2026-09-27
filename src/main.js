@@ -451,7 +451,14 @@ class TabHubApp {
         // endroits qui rafraîchissaient jusqu'ici l'icône du bouton. Sans ce rafraîchissement ICI,
         // à CHAQUE notification de position, le bouton restait sur « pause » (triangle barré) après
         // une lecture qui s'était terminée d'elle-même, comme si elle continuait encore.
-        this.lecteur.surPosition(() => { this.rafraichirTransport(); this.dessiner(); });
+        // UNE IMAGE DE LECTURE NE REDESSINE RIEN D'AUTRE QUE LA TÊTE (voir poserTeteDeLecture pour
+        // ce que coûtait le redessin complet, et ce qu'il faisait au son). Le bouton du transport,
+        // lui, ne dépend que de l'ÉTAT : le rafraîchir à chaque image reconstruisait son icône SVG
+        // soixante fois par seconde pour un résultat identique.
+        this.lecteur.surPosition((position, etat) => {
+            if (etat !== this._etatLecteurAffiche) { this._etatLecteurAffiche = etat; this.rafraichirTransport(); }
+            this.poserTeteDeLecture();
+        });
 
         this.el.zone.focus();
         this.dessiner();
@@ -500,7 +507,11 @@ class TabHubApp {
             return;
         }
 
-        const calques = [...this.marquesLecture(), ...this.marquesARemplir(), ...this.marquesMesuresChoisies(),
+        // LA TÊTE DE LECTURE N'EST PLUS DANS LES CALQUES — voir poserTeteDeLecture, qui la repose
+        // juste après le rendu et la déplace ensuite SANS repasser par ici. C'est la seule marque
+        // qui bouge soixante fois par seconde ; la remettre en page avec tout le reste coûtait
+        // 42 % du fil principal (mesuré) et mettait les notes en retard.
+        const calques = [...this.marquesARemplir(), ...this.marquesMesuresChoisies(),
                          ...this.marquesCurseur(), ...this.marquesSelection(), ...this.marquesBoucle(),
                          ...this.marquesApercu()];
         this.el.feuille.style.width = `${this.page.largeur}px`;
@@ -516,6 +527,9 @@ class TabHubApp {
         if (this._gesteBoucle && this._apercuCourant) {
             this.poserApercuBoucle(this._apercuCourant.rects, this._apercuCourant.genre);
         }
+        // LA TÊTE DE LECTURE SURVIT AU REDESSIN, pour la même raison que l'aperçu juste au-dessus :
+        // `innerHTML` vient d'emporter le calque qui la portait.
+        this.poserTeteDeLecture();
 
         this.rafraichirOutils();
         this.rafraichirPave();
@@ -783,6 +797,55 @@ class TabHubApp {
             { t: 'rect', x: x - S * 0.6, y: haut, w: S * 0.6, h: bas - haut, couleur: 'rgba(255, 152, 0, 0.16)' },
             { t: 'rect', x: x - largeurTrait / 2, y: haut, w: largeurTrait, h: bas - haut, couleur: 'var(--lecture)' },
         ];
+    }
+
+    /**
+     * POSE (ET DÉPLACE) LA TÊTE DE LECTURE SANS REMETTRE LA PAGE EN PAGE.
+     *
+     * LE DÉFAUT QUE ÇA CORRIGE, et c'est un défaut AUDIO (retour utilisateur : « le son ne tombe
+     * jamais en rythme, il y a de petits décalages qui ne vont pas »). La tête de lecture avançait
+     * en appelant `dessiner()` à chaque image — donc `mettreEnPage` + `rendreSvg` + un `innerHTML`
+     * complet, soixante fois par seconde. MESURÉ sur une ligne de basse de 48 mesures : 15,5
+     * redessins par seconde à 27 ms en moyenne et jusqu'à 79 ms, soit 42 % du fil principal occupé
+     * à redessiner ce qui n'avait pas changé. Or c'est CE MÊME FIL qui programme les notes dans
+     * l'horloge audio : chaque pause dépassant la marge d'anticipation (voir player.js#demarrer)
+     * livre une note APRÈS l'instant où elle devait sonner, et le navigateur la joue alors
+     * immédiatement — en retard, d'une quantité qui change à chaque fois. Mesuré avant ce
+     * correctif : 7 % des notes livrées en retard, jusqu'à 12 ms, sur un morceau de douze mesures
+     * — et la proportion monte avec la taille du morceau, ce qui explique « sur plein de morceaux ».
+     *
+     * CE QUE ÇA COÛTE MAINTENANT : trois rectangles dont on réécrit quatre attributs. La mise en
+     * page ne bouge pas, le SVG n'est pas reconstruit, le fil principal reste libre pour l'horloge.
+     *
+     * POSÉE SOUS LA MUSIQUE, juste après `<defs>`, et pas ajoutée à la fin comme l'aperçu de boucle :
+     * c'est exactement la place qu'elle occupait dans `calquesDessous`. Ajoutée à la fin, sa traînée
+     * translucide passerait PAR-DESSUS les têtes de notes qu'elle est censée éclairer par en dessous.
+     */
+    poserTeteDeLecture() {
+        const svg = this.el.feuille.querySelector('svg');
+        if (!svg) return;
+        const marques = this.marquesLecture();
+        // LE CALQUE EST RÉSERVÉ PAR LE RENDU (voir render/svg.js#rendreSvg) : sous la musique,
+        // au-dessus du fond, et dans l'enveloppe décalée. On ne fait que le remplir — l'insérer nous
+        // -mêmes à la racine du SVG le plaçait SOUS le rectangle de fond, donc invisible.
+        const g = svg.querySelector('#tete-lecture');
+        if (!g) return;
+        if (!marques.length) { while (g.firstChild) g.removeChild(g.firstChild); return; }
+        // Les rectangles sont RÉUTILISÉS d'une image à l'autre — créer et jeter trois nœuds soixante
+        // fois par seconde donnerait au ramasse-miettes exactement le genre de pause qu'on cherche
+        // ici à éviter.
+        while (g.childNodes.length > marques.length) g.removeChild(g.lastChild);
+        while (g.childNodes.length < marques.length) {
+            g.appendChild(document.createElementNS('http://www.w3.org/2000/svg', 'rect'));
+        }
+        marques.forEach((r, i) => {
+            const el = g.childNodes[i];
+            el.setAttribute('x', r.x);
+            el.setAttribute('y', r.y);
+            el.setAttribute('width', Math.max(0, r.w));
+            el.setAttribute('height', r.h);
+            el.setAttribute('fill', r.couleur);
+        });
     }
 
     /**

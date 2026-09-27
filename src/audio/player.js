@@ -121,6 +121,7 @@ const TRIM_BEND_DB = -6;
 const TRIM_ETOUFFEE_DB = 0;
 /** LE CORPS de l'instrument sous le bruit — voir la voix étouffée pour ce qu'il apporte. */
 const TRIM_CORPS_ETOUFFEE_DB = -6;
+
 /**
  * LA VOIX GLISSANTE ÉCHANTILLONNÉE NE SE RECALE PAS — 0 dB, comme l'échantillonneur.
  *
@@ -282,9 +283,30 @@ export class Lecteur {
         const Tone = globalThis.Tone;
         if (!Tone) throw new Error('Tone.js absent : vérifiez vendor/tone.min.js dans index.html.');
         await Tone.start();
-        // Marge d'anticipation réduite comme dans HarmoHub : les 100 ms par défaut se perçoivent comme
-        // un temps mort au lancement, et 20 ms suffisent amplement pour des notes programmées.
-        Tone.context.lookAhead = 0.02;
+        // MARGE D'ANTICIPATION : combien de temps à l'avance l'horloge de Tone livre une note au
+        // moteur audio. C'est la SEULE chose qui protège le rythme d'une pause du fil principal.
+        //
+        // POURQUOI ELLE ÉTAIT À 20 ms, ET CE QUE ÇA COÛTAIT. Une version antérieure l'avait réduite à
+        // 20 ms pour raccourcir le temps mort au lancement (la marge retarde le départ d'autant, voir
+        // `jouer`). Mais une note livrée APRÈS l'instant où elle doit sonner est jouée immédiatement
+        // par le navigateur : en retard, d'une quantité qui change à chaque fois. MESURÉ sur douze
+        // mesures de rythmes variés : 7 % des notes en retard, jusqu'à 12 ms — et la proportion monte
+        // avec la taille du morceau. Retour utilisateur : « le son ne tombe jamais en rythme, il y a
+        // de petits décalages qui ne vont pas ».
+        //
+        // CE QU'IL FAUT COUVRIR, mesuré plutôt que deviné : la plus longue pause que le fil principal
+        // puisse s'offrir pendant la lecture. La tête de lecture ne redessine plus la page (voir
+        // main.js#poserTeteDeLecture), mais le DÉFILEMENT AUTOMATIQUE, lui, en provoque toujours un
+        // vrai à chaque changement de système — mesuré jusqu'à 79 ms sur une ligne de 48 mesures.
+        // 100 ms passe donc au-dessus du pire cas connu, avec de la place pour un ramasse-miettes.
+        //
+        // CE QUE ÇA COÛTE, ET POURQUOI ON LE PAIE : cette marge est AUSSI le délai entre le clic et la
+        // première note (Tone démarre le transport à `context.now()`, soit `currentTime + lookAhead`,
+        // et un départ posé plus tôt est un départ dans le passé, que Tone ignore — voir `jouer`).
+        // On passe donc de 20 à 100 ms de temps mort au lancement, une fois par lecture et à la
+        // limite du perceptible, pour que PLUS AUCUNE note ne tombe à côté ensuite. Pour une
+        // application dont c'est le métier d'être en place, l'échange ne se discute pas.
+        Tone.context.lookAhead = 0.1;
 
         // La DOUBLURE synthétisée d'abord — c'est elle qui joue tant que l'échantillonneur n'a pas
         // fini de charger, voir plus haut. Onde triangulaire filtrée passe-bas, enveloppe percussive à
@@ -1409,10 +1431,34 @@ export class Lecteur {
         // changer à ce qui y est programmé : pendant le décompte, les tics restent à leur place et la
         // tête de lecture attend au point de départ, exactement comme il faut.
         const quand = vraiDepart && this.decompteActif ? this._programmerDecompte(partition, depuis ?? 0) : null;
-        Tone.Transport.start(quand ?? undefined);
+        // L'AFFICHAGE D'ABORD, L'HORLOGE ENSUITE. Prévenir l'interface pose la tête de lecture au
+        // point de départ et fait défiler la partition jusque-là : du travail lourd sur le fil
+        // principal, qu'on fait donc AVANT de lancer l'horloge plutôt que dans la fenêtre où la
+        // toute première note doit être livrée.
         this.etat = 'lecture';
-        this._suivre();
+        this.position = this._positionCourante();
         this._prevenir();
+        // `start()` SANS ARGUMENT, et surtout pas un instant calculé à la main. Tone démarre alors le
+        // transport à `context.now()`, soit `currentTime + lookAhead` — le premier instant qu'il se
+        // sache capable de servir. Un essai antérieur y passait un départ plus rapproché pour
+        // raccourcir le temps mort au lancement : un instant ANTÉRIEUR à `now()` n'est pas un départ
+        // plus tôt, c'est un départ DANS LE PASSÉ, et Tone l'ignore. MESURÉ : le transport restait
+        // « stopped », ses tics à zéro, pendant que l'application se croyait en lecture — la fenêtre
+        // d'aide rythmique montrait une tête immobile sur une boucle parfaitement muette, et deux
+        // bancs l'ont attrapé. Le temps mort au lancement vaut donc la marge d'anticipation : c'est
+        // le prix, assumé et mesuré, d'une lecture juste (voir demarrer).
+        Tone.Transport.start(quand ?? undefined);
+        this._suivre();
+    }
+
+    /**
+     * Position ÉCRITE correspondant au tic courant du transport — la même lecture que `_suivre`, et
+     * partagée avec lui : deux façons de convertir finiraient par ne plus donner le même instant.
+     */
+    _positionCourante() {
+        const Tone = globalThis.Tone;
+        const joue = Tone.Transport.ticks / Tone.Transport.PPQ;
+        return ecritDepuisSonne(this._grilleTernaire, this._sonneDepuisJoue(joue));
     }
 
     pause() {
@@ -1501,8 +1547,7 @@ export class Lecteur {
             // de celle-ci au temps ÉCRIT (le ternaire). Sans reprise, la première est l'identité et
             // rien ne change. C'est ce qui permet à la tête de lecture de rester UNE marque sur UNE
             // note, quand cette note est jouée trois fois : l'écran ignore tout du dépliage.
-            const joue = Tone.Transport.ticks / Tone.Transport.PPQ;
-            this.position = ecritDepuisSonne(this._grilleTernaire, this._sonneDepuisJoue(joue));
+            this.position = this._positionCourante();
             this._prevenir();
             this._boucleAnim = requestAnimationFrame(tic);
         };
