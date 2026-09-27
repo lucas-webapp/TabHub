@@ -182,22 +182,44 @@ function arcLiaison(x1, y1, x2, y2, sens, hauteur) {
  *     ne varie jamais, sa largeur affichée ne doit donc pas varier non plus selon ce qui s'y joue. Le
  *     linéaire garantit qu'un ÉCART ÉGAL donne une LARGEUR ÉGALE — donc une grille de temps parfaitement
  *     régulière — tant que le plancher ci-dessous ne s'en mêle pas.
- *   • UN PLANCHER matériel : la place qu'occupent réellement les altérations et les chiffres à deux
- *     chiffres de la tablature, pour CHAQUE voix présente à cet instant. Sans lui, « 12 » déborderait
- *     sur la note suivante. Il ne joue que sur un passage EXTRÊMEMENT dense (au-delà de la double-croche
- *     courante) : la régularité en pâtit alors localement, un compromis assumé plutôt que de laisser
- *     des chiffres se chevaucher.
+ *   • UN SUPPLÉMENT matériel, AJOUTÉ à cette part et non mis en concurrence avec elle : le champ
+ *     qu'un chiffre de tablature à DEUX chiffres ou un point d'augmentation réclame en plus de sa
+ *     part de temps, pour CHAQUE voix présente à cet instant.
+ *
+ * ADDITIF, ET C'EST TOUT L'OBJET DE CE CORRECTIF. Une version antérieure prenait le MAXIMUM des deux
+ * — `max(proportionnelle, 3,2 S)`. Ce plancher de 3,2 S est atteint dès que l'écart descend sous
+ * 3,2/3,9 = 0,82 noire : TOUTES les figures plus brèves qu'une noire pointée s'y écrasaient donc à la
+ * MÊME largeur. MESURÉ à S=10, sur un temps contenant deux doubles-croches et une croche : 16,7 px
+ * chacune, alors que la croche dure le DOUBLE des autres. Un soupir de croche, un demi-soupir et une
+ * double-croche recevaient tous les trois le même champ.
+ *
+ * CE QUE ÇA COÛTAIT À LA LECTURE, et c'est par là que le retour utilisateur est arrivé (« les deux
+ * premières doubles croches sont beaucoup plus rapides que celles d'après ») : la tête de lecture
+ * interpole À L'INTÉRIEUR de chaque colonne (voir main.js#lieuDeLaPosition). À largeur égale et durée
+ * inégale, elle traverse donc la même distance à des vitesses différentes — MESURÉ à ♩=90 et S=10 :
+ * 100 px/s sur les doubles-croches, 50 px/s sur les soupirs de croche, 28 px/s sur le soupir de
+ * noire. Le son était juste, l'œil voyait un rubato qui n'existait pas.
+ *
+ * ET LE PLANCHER NE PROTÉGEAIT RIEN : `repartirParTemps` rescale ensuite les colonnes d'un temps pour
+ * qu'elles tiennent EXACTEMENT dans le budget de ce temps (largeur fixée par la signature, voir
+ * LARGEUR_PAR_NOIRE) — un plancher absolu y est donc systématiquement ramené à l'échelle, quelle que
+ * soit sa valeur. Son seul effet réel était d'égaliser les colonnes entre elles. Le supplément, lui,
+ * survit à ce rescale puisqu'il pèse sur le POIDS RELATIF de sa colonne : « 12 » garde bien le champ
+ * de plus qu'il réclame, ce qui était l'intention d'origine.
  */
 function largeurColonne(gapNoires, evenementsIci, S) {
     const d = Math.max(gapNoires, 1 / 64);
     const proportionnelle = 3.9 * S * d;
 
-    let plancher = 3.2 * S;
+    // Les deux suppléments reprennent EXACTEMENT l'écart que les anciens planchers creusaient au-dessus
+    // du plancher de base (3,9 - 3,2 et 3,7 - 3,2) : l'intention de gravure est conservée, seule la
+    // façon de la composer change — ajoutée plutôt que substituée.
+    let supplement = 0;
     for (const { ref } of evenementsIci) {
-        if (ref.notes.some(n => n.frette >= 10)) plancher = Math.max(plancher, 3.9 * S);
-        if (ref.duree.points > 0) plancher = Math.max(plancher, 3.7 * S);
+        if (ref.notes.some(n => n.frette >= 10)) supplement = Math.max(supplement, 0.7 * S);
+        if (ref.duree.points > 0) supplement = Math.max(supplement, 0.5 * S);
     }
-    return Math.max(proportionnelle, plancher);
+    return proportionnelle + supplement;
 }
 
 /**
@@ -208,42 +230,53 @@ function largeurColonne(gapNoires, evenementsIci, S) {
  * affichée ne doit donc pas varier non plus selon ce qui s'y joue.
  *
  * CHAQUE TEMPS REÇOIT EXACTEMENT largeurNotes/nTemps, INCONDITIONNELLEMENT — qu'il contienne une
- * rafale de doubles-croches ou une seule ronde. À L'INTÉRIEUR d'un temps, les colonnes qui s'y
- * trouvent gardent leurs poids RELATIFS (une case à deux chiffres réclame plus de champ qu'une case
- * simple), rescalés pour tenir exactement dans CE budget LOCAL — jamais dans le budget de la mesure
- * entière : un temps dense peut ainsi devenir plus serré que son plancher matériel idéal (des chiffres
- * un peu à l'étroit, un compromis assumé), mais IL N'EMPIÈTE JAMAIS SUR SES VOISINS pour autant.
+ * rafale de doubles-croches ou une seule ronde.
  *
- * UNE NOTE QUI CHEVAUCHE PLUSIEURS TEMPS (une blanche, par exemple) n'a qu'une seule colonne, posée
- * au temps où elle attaque ; les temps suivants qu'elle traverse SANS qu'aucune autre voix n'y
- * attaque n'ont eux-mêmes aucune colonne à poser — leur part du budget est alors simplement
- * ADDITIONNÉE à celui du dernier temps qui, lui, porte une colonne (voir `iPortant` ci-dessous), pour
- * que la somme globale sur la mesure reste exacte malgré ces temps « vides ».
+ * UNE COLONNE EST PAYÉE PAR CHAQUE TEMPS QU'ELLE TRAVERSE, au prorata de ce qu'elle y occupe — et
+ * c'est ce qui la distingue d'une version antérieure, qui rangeait chaque colonne dans le SEUL temps
+ * où elle attaque. Une figure à cheval sur deux temps (un soupir de noire posé sur la seconde moitié
+ * du 3e temps, par exemple) était alors entièrement financée par son temps de départ, tandis que le
+ * temps suivant payait à lui seul le peu qui restait après elle. MESURÉ à ♩=90, S=10, sur la mesure
+ * du retour utilisateur : la tête de lecture tombait à 25 px/s sur ce soupir de noire puis remontait
+ * à 135 px/s sur le demi-soupir suivant — plus de CINQ fois plus vite, pour de la musique qui ne
+ * change pas de tempo.
+ *
+ * LES DEUX EXIGENCES TIENNENT ENSEMBLE, et c'est la propriété qui justifie ce calcul : les colonnes
+ * PAVENT exactement la mesure, donc ce que chaque temps distribue revient toujours à largeurNotes /
+ * nTemps (la grille des temps reste rigoureusement régulière, ce dont dépend la réglette), pendant
+ * qu'une colonne collecte une part exactement proportionnelle à sa DURÉE (écart égal, largeur égale,
+ * partout dans la mesure — donc une tête de lecture à vitesse constante). Le supplément matériel
+ * d'une colonne (voir largeurColonne) voyage avec elle, temps par temps : il ne déforme jamais que
+ * son propre voisinage.
+ *
+ * LE CAS « TEMPS SANS AUCUNE ATTAQUE » se traite tout seul, sans le rattrapage que demandait
+ * l'ancien calcul : le temps qu'une longue figure traverse sans que personne n'y attaque n'a qu'UNE
+ * colonne qui le chevauche — la sienne —, qui en reçoit donc tout le budget.
  */
 function repartirParTemps(colonnes, capacite, unite, largeurNotes) {
     const nTemps = Math.max(1, Math.round(capacite / unite));
     const largeurParTemps = largeurNotes / nTemps;
-    const groupes = Array.from({ length: nTemps }, () => []);
-    for (const c of colonnes) {
-        const iTemps = Math.min(nTemps - 1, Math.max(0, Math.floor((c.debut + 1e-9) / unite)));
-        groupes[iTemps].push(c);
-    }
-    const budgets = new Array(nTemps).fill(largeurParTemps);
-    let iPortant = -1;
+    const parts = colonnes.map(() => 0);
     for (let i = 0; i < nTemps; i++) {
-        if (groupes[i].length) { iPortant = i; }
-        else if (iPortant !== -1) { budgets[iPortant] += budgets[i]; budgets[i] = 0; }
-        // Un temps vide EN TOUT DÉBUT de mesure (iPortant encore -1) ne devrait jamais se produire —
-        // calculerColonnes garantit toujours une colonne à l'origine — mais si ça arrivait quand
-        // même (données malformées), son budget reste simplement de côté plutôt que de faire planter
-        // la mise en page : un défaut visuel mineur, jamais une exception.
+        const debutTemps = i * unite, finTemps = (i + 1) * unite;
+        const poids = [];
+        let total = 0;
+        colonnes.forEach((c, k) => {
+            const chevauche = Math.min(c.debut + c.gap, finTemps) - Math.max(c.debut, debutTemps);
+            if (chevauche <= 1e-9) return;
+            // `c.largeur * (chevauche / c.gap)` : la part proportionnelle ET le supplément matériel,
+            // tous deux ramenés à ce que cette colonne occupe DANS ce temps-ci.
+            const p = c.largeur * (chevauche / c.gap);
+            poids.push([k, p]);
+            total += p;
+        });
+        // Un temps que RIEN ne chevauche ne devrait jamais se produire — les colonnes pavent la
+        // mesure (voir calculerColonnes) — mais si ça arrivait (données malformées), son budget reste
+        // simplement de côté plutôt que de faire planter la mise en page.
+        if (total <= 1e-9) continue;
+        for (const [k, p] of poids) parts[k] += largeurParTemps * (p / total);
     }
-    for (let i = 0; i < nTemps; i++) {
-        if (!groupes[i].length) continue;
-        const brut = groupes[i].reduce((t, c) => t + c.largeur, 0);
-        const ratio = brut > 1e-9 ? budgets[i] / brut : 1;
-        groupes[i].forEach(c => { c.largeur *= ratio; });
-    }
+    colonnes.forEach((c, k) => { c.largeur = parts[k]; });
 }
 
 /**
