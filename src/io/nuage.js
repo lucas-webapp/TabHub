@@ -489,7 +489,7 @@
 
         var api = {
             demarrer: function () {
-                if (!fb || !options.config) { console.warn('Firebase indisponible : mode local uniquement.'); return false; }
+                if (!fb || !options.config) { console.info('Firebase indisponible : mode local uniquement.'); return false; }
                 try {
                     app = fb.apps && fb.apps.length ? fb.app() : fb.initializeApp(options.config);
                     auth = fb.auth();
