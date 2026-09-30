@@ -35,7 +35,7 @@ import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
-import { enregistrerPartition, lireFichierPartition } from './io/json.js';
+import { enregistrerPartition, lireFichierPartition, telecharger } from './io/json.js';
 import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, MAX_VERSIONS } from './io/versions.js';
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi, detecterRythme } from './io/midi.js';
@@ -45,7 +45,7 @@ import { preparerRangement, choisirDossier, oublierRacine, nomRacineAffiche, ran
          lireMorceauSurDisque, listerVersions, demanderStockageDurable, morceauxSurDisque,
          fichiersDuMorceau, supprimerFichiers, etatRangement } from './io/fichiers.js';
 import { INSTRUMENTS, ACCORDAGES, libelleAccordage } from './model/instruments.js';
-import { aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition,
+import { normaliser, aplatir, hauteurDeNote, nbCordes, positionDansMesure, positionDebutMesure, capaciteMesure, longueurMesure, sectionsDe, armureEffective, signatureEffective, creerPartition,
          numeroDeMesure, indexDeNumero, nbMesuresNumerotees } from './model/score.js';
 import { nomDeHauteur, hauteurDepuisPas } from './model/theory.js';
 import { VALEURS_FIGURES, uniteDeGroupement, dureeEnNoires, nomDeFraction, nomDeFigure, noiresParMesure } from './model/duration.js';
@@ -130,6 +130,32 @@ const PRISE_POIGNEE_BOUCLE_TACTILE = 2.4;   // × S — au doigt
 function prisePoigneeBoucle() { return (appareilTactile() ? PRISE_POIGNEE_BOUCLE_TACTILE : PRISE_POIGNEE_BOUCLE); }
 
 const CLE_BROUILLON = 'tabhub.brouillon';
+
+/**
+ * L'IDENTITÉ D'UN MORCEAU DANS LE NUAGE : sa date de création, exactement comme pour le brouillon
+ * (`_cleMorceau`) et le garde-fou du disque (`memeMorceau`). Trois endroits, une seule notion de « c'est
+ * le même morceau » — en avoir une quatrième pour le nuage ferait des doublons là où les autres
+ * reconnaissent un seul morceau. `normaliser` garantit qu'elle existe.
+ */
+const idNuage = (p) => p?.meta?.creeLe || null;
+
+/**
+ * L'EMPREINTE D'UN MORCEAU pour la synchro : son CONTENU, sans ce que `normaliser` réécrit à chaque
+ * chargement sans que rien n'ait changé. Deux choses :
+ *   • `meta.modifieLe` — sans l'exclure, recevoir un morceau du nuage le ferait paraître modifié, et il
+ *     repartirait aussitôt : un écho sans fin entre deux appareils ;
+ *   • les `id` des mesures, des évènements et des notes. MESURÉ : `normaliser` les REGÉNÈRE à chaque
+ *     appel (`m9` devient `ml`, `eb` devient `en`), si bien que le même morceau, normalisé deux fois,
+ *     donne deux JSON différents. Ce sont des identités d'objets en mémoire (les ancres de la boucle
+ *     de lecture, par exemple), jamais du contenu. Sans cette exclusion, deux copies identiques
+ *     passaient pour différentes — de fausses copies « conflit », une sauvegarde relue jamais reconnue
+ *     comme déjà à jour.
+ * Seulement SOUS `mesures` : `piste.accordage.id` (« standard », « dropD »…), lui, est du contenu.
+ */
+const empreintePourNuage = (p) => JSON.stringify([
+    JSON.stringify({ ...p, mesures: undefined }, (cle, v) => (cle === 'modifieLe' ? undefined : v)),
+    JSON.stringify(p.mesures, (cle, v) => (cle === 'id' ? undefined : v)),
+]);
 // LE REPÈRE DE FRAÎCHEUR : quand le travail a-t-il été mis à l'abri dans un FICHIER pour la dernière
 // fois ? Distinct du brouillon, qui n'est qu'un état du navigateur (voir _ecrireBrouillon) : c'est
 // justement la différence entre les deux qu'on rappelle.
@@ -368,6 +394,7 @@ class TabHubApp {
         this.selectionMesures = null;
 
         this.restaurerBrouillon();
+        this.demarrerNuage();
         this.poserIcones();
         const crochetsUi = {
             rendreLeFocus: () => this.el.zone.focus(),
@@ -1094,7 +1121,13 @@ class TabHubApp {
         // cette exclusion, un simple déplacement de curseur ferait réapparaître l'avertissement sur
         // un morceau qu'on vient d'exporter, et un avertissement qui se déclenche pour rien s'apprend
         // à cliquer sans lire.
-        if (raison !== 'curseur' && raison !== 'lecture') this.travailExporte = false;
+        if (raison !== 'curseur' && raison !== 'lecture') {
+            this.travailExporte = false;
+            // LE NUAGE SUIT, sur les mêmes raisons que l'export périmé : un déplacement de curseur ou une
+            // image de lecture ne changent pas le morceau, et réveiller la synchro pour ça ferait
+            // clignoter la pastille à chaque flèche.
+            this.nuage?.changement();
+        }
     }
 
     rafraichirBoutonsHistorique() {
@@ -1836,6 +1869,9 @@ class TabHubApp {
         // muette — c'est un confort (voir io/versions.js), le brouillon est la vraie sauvegarde.
         if (!err) this._archiverVersion();
         if (err) { this.message('Échec de l\'enregistrement local : ' + err.message); return; }
+        // ET LE NUAGE, sans attendre les 1,5 s de l'envoi différé : qui appuie sur Enregistrer attend
+        // que ce soit parti. La pastille dit ensuite où ça en est.
+        this.nuage?.rapprocher();
         // ENREGISTRER ÉCRIT AUSSI LE FICHIER, quand un dossier est configuré — sans JAMAIS bloquer
         // l'enregistrement local, qui vient d'avoir lieu et reste la vraie sauvegarde. C'est le geste
         // que HarmoHub a étendu de la même façon : sans cela, « Enregistrer » et « le fichier sur le
@@ -3318,7 +3354,7 @@ class TabHubApp {
         // l'historique peut contenir des étapes qui n'ont touché à AUCUNE note (voir
         // Editeur.memoriserAnnexe). Poser une barre orange ne doit pas faire réclamer un
         // enregistrement — elle n'est même pas enregistrée dans le fichier.
-        if (this.editeur.etapesDocument() === 0 || this.travailExporte) {
+        if (this.editeur.etapesDocument() === 0 || this.travailExporte || this.nuageAJour()) {
             return this._archiverAvantRemplacement(demanderVersion);
         }
         const choix = await demander({
@@ -3534,10 +3570,15 @@ class TabHubApp {
      *  remplacerait rien. C'est pourquoi il ne passe PAS par le garde-fou d'écrasement : il n'écrase
      *  précisément rien (voir peutEcraserLeMorceau, qui protège le contraire). */
     nouvelOnglet() {
+        this.ouvrirDansNouvelOnglet(creerPartition(this.editeur.partition.piste.instrument));
+    }
+
+    /** Un onglet de plus, sur CE morceau (nouvelOnglet y met un morceau neuf ; le nuage, un morceau reçu). */
+    ouvrirDansNouvelOnglet(partition) {
         this.arreter();
         this._recolterOngletActif();
         this.onglets.push({ etat: null });
-        this.editeur.remplacer(creerPartition(this.editeur.partition.piste.instrument));
+        this.editeur.remplacer(partition);
         this.ongletActif = this.onglets.length - 1;
         // `remplacer` a déjà prévenu, mais AVANT que `ongletActif` ne bouge : la barre montrerait
         // encore l'ancien onglet comme actif. On redessine donc une fois de plus, ici.
@@ -3578,6 +3619,282 @@ class TabHubApp {
     }
 
     // ==========================================================================================
+    // Le nuage (Firebase) — voir io/nuage.js pour le moteur, ici seulement ce qui est propre à TabHub
+    // ==========================================================================================
+
+    /** Les partitions ouvertes, dans l'ordre des onglets : celle de l'éditeur pour l'onglet actif, celle
+     *  de l'état rangé pour les autres (même règle que titresOnglets). */
+    partitionsOuvertes() {
+        return this.onglets
+            .map((o, i) => (i === this.ongletActif ? this.editeur.partition : o.etat?.partition))
+            .filter(Boolean);
+    }
+
+    /** Le morceau actif est-il, à l'instant, identique à sa copie du nuage ? */
+    nuageAJour() {
+        const id = idNuage(this.editeur.partition);
+        return !!(this.nuage?.etat().connecte && id && this.nuage.estSynchro(id));
+    }
+
+    demarrerNuage() {
+        if (!globalThis.Nuage) { this.nuage = null; return; }
+        let copies = 0;
+        this.nuage = globalThis.Nuage.creer({
+            slug: globalThis.FIREBASE_APP_SLUG || 'tabhub',
+            config: globalThis.FIREBASE_CONFIG,
+            // TabHub N'A PAS DE BIBLIOTHÈQUE LOCALE : ses morceaux sont ses onglets ouverts. Le nuage, lui,
+            // en contient autant qu'on en a écrit — on les LISTE (fenêtre Nuage) et on les ouvre à la
+            // demande, plutôt que d'ouvrir cinquante onglets à la connexion.
+            adaptateur: {
+                miroirComplet: false,
+                // Fermer un onglet n'est pas supprimer un morceau : seul le bouton « Supprimer » le fait.
+                suppressionParDisparition: false,
+                lister: () => this.partitionsOuvertes().filter(p => idNuage(p))
+                    .map(p => ({ id: idNuage(p), titre: p.meta.titre || 'Sans titre', donnees: p })),
+                lire: (id) => this.partitionsOuvertes().find(p => idNuage(p) === id) ?? null,
+                ecrire: (id, donnees) => this.recevoirDuNuage(id, donnees),
+                retirer: (id) => this.retirerDuNuage(id),
+                empreinte: empreintePourNuage,
+                nouvelleCopie: (donnees, suffixe) => {
+                    const copie = JSON.parse(JSON.stringify(donnees));
+                    // Une NOUVELLE identité : c'est un autre morceau désormais, qui ne doit plus être pris
+                    // pour celui dont il vient.
+                    copie.meta.creeLe = new Date(Date.now() + (++copies)).toISOString();
+                    copie.meta.titre = `${copie.meta.titre || 'Sans titre'}${suffixe}`.slice(0, 200);
+                    return { id: copie.meta.creeLe, titre: copie.meta.titre, donnees: copie };
+                },
+            },
+            surEtat: (mode, message) => this.afficherEtatNuage(mode, message),
+            surCompte: (utilisateur) => this.afficherCompteNuage(utilisateur),
+            surCatalogue: () => this.rafraichirListeNuage(),
+        });
+        this.nuage.demarrer();
+    }
+
+    /** Un morceau arrive du nuage : il REMPLACE l'onglet qui le porte, ou s'ouvre dans un nouvel onglet. */
+    recevoirDuNuage(id, donnees) {
+        const partition = normaliser(donnees);
+        const i = this.onglets.findIndex((o, k) => idNuage(k === this.ongletActif ? this.editeur.partition : o.etat?.partition) === id);
+        if (i < 0) {
+            this.ouvrirDansNouvelOnglet(partition);
+            this.message(`« ${partition.meta.titre} » ouvert depuis le nuage`);
+            return;
+        }
+        if (i === this.ongletActif) {
+            // Le curseur reste où il était : `remplacer` le ramène au début, et se retrouver en mesure 1
+            // parce qu'un autre appareil a enregistré serait une surprise de plus.
+            if (this.lecteur.etat === 'lecture') this.arreter();
+            const curseur = { ...this.editeur.curseur };
+            this.editeur.remplacer(partition);
+            this.editeur.curseur = { ...curseur, decalage: 0 };
+            this.editeur.corrigerCurseur();
+            this.editeur.prevenir('document');
+            this.message('Morceau mis à jour depuis un autre appareil');
+        } else {
+            const o = this.onglets[i];
+            o.etat = { ...(o.etat || {}), partition, passe: [], futur: [] };
+            this.rafraichirOnglets();
+        }
+    }
+
+    /** Un morceau a été supprimé ailleurs : on ferme son onglet (une sauvegarde de secours a déjà été faite). */
+    retirerDuNuage(id) {
+        const i = this.onglets.findIndex((o, k) => idNuage(k === this.ongletActif ? this.editeur.partition : o.etat?.partition) === id);
+        if (i < 0) return;
+        if (this.onglets.length <= 1) {
+            this.editeur.remplacer(creerPartition(this.editeur.partition.piste.instrument));
+        } else if (i === this.ongletActif) {
+            this.onglets.splice(i, 1);
+            this._installerOnglet(Math.max(0, i - 1));
+        } else {
+            this.onglets.splice(i, 1);
+            if (i < this.ongletActif) this.ongletActif--;
+            this.rafraichirOnglets();
+        }
+        this.message('Un morceau supprimé depuis un autre appareil a été fermé');
+        this.planifierBrouillon();
+    }
+
+    afficherEtatNuage(mode, message) {
+        const p = document.getElementById('pastille-nuage');
+        if (p) {
+            p.hidden = !this.nuage?.etat().connecte;
+            p.classList.remove('synced', 'syncing', 'error', 'hors-ligne');
+            if (mode) p.classList.add(mode);
+            const titres = {
+                synced: 'Nuage : tout est enregistré',
+                syncing: 'Nuage : enregistrement en cours…',
+                'hors-ligne': 'Nuage : hors ligne — les modifications partiront au retour du réseau',
+                error: `Nuage : ${message || 'erreur'}`,
+            };
+            p.title = titres[mode] || 'Nuage';
+        }
+        const note = document.getElementById('nuage-note');
+        if (note) {
+            note.textContent = !this.nuage?.etat().connecte
+                ? 'Connecte-toi avec Google : tes morceaux s\'enregistrent alors tout seuls dans ton compte, et se retrouvent sur tes autres appareils.'
+                : ({ synced: 'Tout est enregistré dans le nuage.', syncing: 'Enregistrement en cours…',
+                     'hors-ligne': 'Hors ligne — les modifications partiront au retour du réseau.',
+                     error: message || 'Erreur de synchronisation.' }[mode] || '');
+            note.classList.toggle('valeur-etat-alerte', mode === 'error');
+        }
+    }
+
+    afficherCompteNuage(utilisateur) {
+        const nom = document.getElementById('nuage-nom');
+        const entrer = document.getElementById('nuage-connexion');
+        const sortir = document.getElementById('nuage-deconnexion');
+        if (!nom || !entrer || !sortir) return;
+        entrer.hidden = !!utilisateur;
+        sortir.hidden = !utilisateur;
+        nom.hidden = !utilisateur;
+        nom.textContent = utilisateur ? (utilisateur.displayName || utilisateur.email || 'Connecté') : '';
+        this.afficherEtatNuage(utilisateur ? 'syncing' : null);
+        this.rafraichirListeNuage();
+    }
+
+    /** La liste des morceaux du nuage : ouvrir (ou revenir à l'onglet qui le porte), supprimer. */
+    rafraichirListeNuage() {
+        const hote = document.getElementById('nuage-liste');
+        if (!hote) return;
+        hote.textContent = '';
+        if (!this.nuage?.etat().connecte) return;
+        const ouverts = new Map(this.onglets.map((o, k) => [idNuage(k === this.ongletActif ? this.editeur.partition : o.etat?.partition), k]));
+        for (const e of this.nuage.catalogue().filter(x => !x.supprime)) {
+            const ligne = document.createElement('div');
+            ligne.className = 'nuage-ligne';
+            ligne.setAttribute('role', 'listitem');
+            const titre = document.createElement('span');
+            titre.className = 'nuage-ligne-titre';
+            titre.textContent = e.titre || 'Sans titre';
+            const date = document.createElement('span');
+            date.className = 'nuage-ligne-date';
+            date.textContent = e.maj ? new Date(e.maj).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+            const ouvrir = document.createElement('button');
+            ouvrir.type = 'button'; ouvrir.className = 'btn-neutre';
+            const dejaOuvert = ouverts.has(e.id);
+            ouvrir.textContent = dejaOuvert ? 'Aller à l\'onglet' : 'Ouvrir';
+            ouvrir.addEventListener('click', async () => {
+                this.fermerFenetres();
+                if (dejaOuvert) { this.activerOnglet(ouverts.get(e.id)); return; }
+                try { await this.nuage.ouvrirDistant(e.id); } catch (err) { this.message(err.message || 'Impossible d\'ouvrir ce morceau'); }
+            });
+            const suppr = document.createElement('button');
+            suppr.type = 'button'; suppr.className = 'btn-neutre';
+            suppr.textContent = 'Supprimer'; suppr.setAttribute('aria-label', `Supprimer « ${e.titre} » du nuage`);
+            suppr.addEventListener('click', async () => {
+                const choix = await demander({
+                    titre: `Supprimer « ${e.titre || 'Sans titre'} » ?`,
+                    texte: 'Le morceau disparaît de tes appareils connectés. Son contenu reste conservé dans le nuage : '
+                         + 'il n\'est pas effacé pour de bon, et peut être récupéré depuis la console Firebase.',
+                    boutons: [{ cle: 'annuler', libelle: 'Annuler' }, { cle: 'supprimer', libelle: 'Supprimer', style: 'danger' }],
+                });
+                if (choix !== 'supprimer') return;
+                try { await this.nuage.supprimer(e.id, e.titre); } catch (err) { this.message(err.message || 'Suppression impossible'); }
+                this.nuage.rapprocher();
+            });
+            ligne.append(titre);
+            if (dejaOuvert) { const o = document.createElement('span'); o.className = 'nuage-ligne-ouvert'; o.textContent = 'ouvert'; ligne.append(o); }
+            ligne.append(date, ouvrir, suppr);
+            hote.append(ligne);
+        }
+    }
+
+    ouvrirNuage() {
+        this.afficherCompteNuage(this.nuage?.etat().utilisateur || null);
+        this.afficherEtatNuage(this.nuage?.etat().mode ?? null, this.nuage?.etat().message);
+        if (!this.nuage) document.getElementById('nuage-note').textContent = 'Le nuage est indisponible (hors ligne, ou bloqué par le navigateur). Tout continue de fonctionner en local.';
+        this.ouvrirFenetre('fenetre-nuage');
+    }
+
+    brancherNuage() {
+        const surClic = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
+        surClic('nuage-connexion', () => {
+            if (!this.nuage) { this.message('Le nuage est indisponible pour l\'instant.'); return; }
+            this.nuage.connecter().catch((err) => this.message('Connexion impossible : ' + (err?.message || 'erreur inconnue'), 5000));
+        });
+        surClic('nuage-deconnexion', () => this.nuage?.deconnecter());
+        surClic('nuage-tout-exporter', () => this.exporterToutesLesTablatures());
+        surClic('nuage-tout-importer', () => this.importerUneSauvegarde());
+    }
+
+    /**
+     * LA SAUVEGARDE DE SECOURS : tous les morceaux dans UN fichier. Ce qui est ouvert ici fait foi (c'est
+     * la version la plus fraîche), le reste vient du nuage si on est connecté. Le format est le .json
+     * d'un morceau, en liste — pas un format de plus à maintenir.
+     */
+    async exporterToutesLesTablatures() {
+        const parId = new Map();
+        try {
+            if (this.nuage?.etat().connecte) {
+                for (const m of await this.nuage.toutLeNuage()) parId.set(m.id, m.donnees);
+            }
+        } catch (err) {
+            this.message('Le nuage n\'a pas pu être lu (' + (err?.message || 'erreur') + ') : seuls les morceaux ouverts seront exportés.', 5000);
+        }
+        for (const p of this.partitionsOuvertes()) if (idNuage(p)) parId.set(idNuage(p), p);
+        const morceaux = [...parId.values()];
+        const contenu = JSON.stringify({
+            format: 'tabhub-sauvegarde', version: 1, exporteLe: new Date().toISOString(), morceaux,
+        }, null, 2);
+        telecharger(contenu, `tabhub-sauvegarde-${new Date().toISOString().slice(0, 10)}.json`, 'application/json');
+        this.message(`${morceaux.length} morceau${morceaux.length > 1 ? 'x' : ''} exporté${morceaux.length > 1 ? 's' : ''} dans un seul fichier`);
+    }
+
+    /**
+     * Relit une sauvegarde de secours. RIEN N'EST ÉCRASÉ : un morceau déjà présent et identique est
+     * ignoré ; déjà présent mais DIFFÉRENT, il arrive à côté, sous un autre titre ; absent, il est
+     * posé. Connecté, les morceaux vont dans le nuage (ils ne remplissent pas la barre d'onglets —
+     * une sauvegarde en compte des dizaines) ; sinon ils s'ouvrent, dans la limite de huit.
+     */
+    async importerUneSauvegarde() {
+        const champ = document.createElement('input');
+        champ.type = 'file'; champ.accept = '.json,application/json';
+        champ.addEventListener('change', async () => {
+            try {
+                const brut = JSON.parse(await champ.files[0].text());
+                if (brut?.format !== 'tabhub-sauvegarde' || !Array.isArray(brut.morceaux)) {
+                    this.message('Ce fichier n\'est pas une sauvegarde complète TabHub. Pour un seul morceau : Fichiers > Ouvrir.', 5000);
+                    return;
+                }
+                await this.integrerSauvegarde(brut.morceaux.map(m => normaliser(m)));
+            } catch (err) {
+                this.message('Sauvegarde illisible : ' + (err?.message || 'erreur'), 5000);
+            }
+        });
+        champ.click();
+    }
+
+    async integrerSauvegarde(partitions) {
+        const enLigne = !!this.nuage?.etat().connecte;
+        const ouverts = new Map(this.partitionsOuvertes().map(p => [idNuage(p), p]));
+        let poses = 0, ignores = 0, copies = 0, nonOuverts = 0;
+        for (const p of partitions) {
+            const id = idNuage(p);
+            const existant = ouverts.get(id) ?? (enLigne ? await this.nuage.lireDistant(id).catch(() => null) : null);
+            let cible = p;
+            if (existant) {
+                if (empreintePourNuage(normaliser(existant)) === empreintePourNuage(p)) { ignores++; continue; }
+                cible = JSON.parse(JSON.stringify(p));
+                cible.meta.creeLe = new Date(Date.now() + copies + 1).toISOString();
+                cible.meta.titre = `${p.meta.titre || 'Sans titre'} (sauvegarde du ${new Date().toLocaleDateString('fr-FR')})`.slice(0, 200);
+                copies++;
+            }
+            if (enLigne) { await this.nuage.deposer(idNuage(cible), cible.meta.titre, cible); poses++; }
+            else if (this.onglets.length < 8) { this.ouvrirDansNouvelOnglet(cible); poses++; }
+            else nonOuverts++;
+        }
+        const morceaux = (n) => `${n} morceau${n > 1 ? 'x' : ''}`;
+        this.message([
+            poses ? `${morceaux(poses)} ${enLigne ? 'remis dans le nuage' : 'ouvert' + (poses > 1 ? 's' : '')}` : '',
+            ignores ? `${morceaux(ignores)} déjà à jour` : '',
+            copies ? `${copies} gardé${copies > 1 ? 's' : ''} à côté (contenu différent)` : '',
+            nonOuverts ? `${morceaux(nonOuverts)} non ouvert${nonOuverts > 1 ? 's' : ''} : connecte-toi au nuage pour les importer tous` : '',
+        ].filter(Boolean).join(' · ') || 'Rien à importer', 6000);
+        this.rafraichirListeNuage();
+    }
+
+    // ==========================================================================================
     // Interface
     // ==========================================================================================
 
@@ -3607,6 +3924,7 @@ class TabHubApp {
         surClic('btn-annuler', () => this.editeur.annuler());
         surClic('btn-retablir', () => this.editeur.retablir());
         surClic('btn-enregistrer', () => this.enregistrer());
+        this.brancherNuage();
         surClic('btn-fichiers', () => this.basculerPopoverFichiers());
         // Popover Fichiers : un seul câblage par délégation plutôt que six `surClic` séparés — les
         // boutons sont fixes (voir index.html), leur `data-action` suffit à les distinguer.
@@ -3615,6 +3933,7 @@ class TabHubApp {
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
             'musicxml-exporter': () => this.exporterMusicXMLFichier(),
             disque: () => this.ouvrirFichiersDuDisque(),
+            nuage: () => this.ouvrirNuage(),
             versions: () => this.ouvrirVersions(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {
@@ -3772,6 +4091,14 @@ class TabHubApp {
         window.addEventListener('beforeunload', (e) => {
             // Même raison qu'à peutEcraserLeMorceau : une bande de boucle posée n'est pas du
             // travail à sauver, et ne doit donc pas retenir la fermeture de l'onglet.
+            // TOUT EST DÉJÀ DANS LE NUAGE : rien à perdre, donc rien à demander. C'est la moitié du
+            // bénéfice de la synchro — ne plus avoir à exporter « pour être tranquille ». Et si un
+            // envoi est EN COURS ou en échec, on prévient même un travail exporté : la copie du nuage
+            // n'est alors pas celle qu'on croit.
+            if (this.nuage?.etat().connecte) {
+                if (this.nuage.enAttente()) { e.preventDefault(); e.returnValue = ''; return; }
+                if (this.nuage.toutEstSynchro()) return;
+            }
             if (this.travailExporte || this.editeur.etapesDocument() === 0) return;
             e.preventDefault();
             e.returnValue = '';

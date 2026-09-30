@@ -2053,3 +2053,27 @@ body.avec-pave .dpad-flottant { display: grid; }
     .apercu-rythme { max-height: 26vh; }
 }
 }
+
+
+/* ============================================================
+   NUAGE (Firebase) — pastille d'état et fenêtre « Nuage et sauvegarde »
+   ============================================================ */
+/* La pastille vit DANS le bouton Fichiers : c'est le seul endroit de la barre du haut qui a encore de
+   la place, et il parle déjà de « où est mon travail ». Invisible tant qu'on n'est pas connecté —
+   une application qu'on n'a pas reliée au nuage n'a pas à afficher une pastille grise qui inquiète. */
+.pastille-nuage { margin-left: 5px; font-size: .7em; vertical-align: 1px; color: var(--text-muted); }
+.pastille-nuage[hidden] { display: none; }
+.pastille-nuage.synced { color: var(--accent); }
+.pastille-nuage.syncing { color: #ffb74d; }
+.pastille-nuage.hors-ligne { color: var(--text-muted); }
+.pastille-nuage.error { color: #ff6b6b; }
+.nuage-compte { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px; }
+.nuage-nom { font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
+.nuage-titre { margin: 16px 0 6px; font-size: var(--fs-sm); color: var(--text-main); }
+.nuage-secours { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
+.nuage-ligne { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-groupe); border-radius: 9px;
+    padding: 7px 10px; background: var(--fond-bouton-sombre); }
+.nuage-ligne-titre { font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.nuage-ligne-date { margin-left: auto; font-size: var(--fs-xs); color: var(--text-muted); white-space: nowrap; }
+.nuage-ligne-ouvert { font-size: var(--fs-xs); color: var(--accent); white-space: nowrap; }
+#nuage-liste:empty::after { content: 'Rien dans le nuage pour l\'instant.'; color: var(--text-muted); font-size: var(--fs-xs); }

@@ -37,6 +37,12 @@ async function ouvrirApp(options = {}) {
         ...(options.hasTouch ? { hasTouch: true } : {}),
         ...(options.isMobile ? { isMobile: true } : {}),
     });
+    // SCRIPTS INJECTÉS AVANT LE CHARGEMENT (`options.avant`) — pour simuler Firebase sans réseau ni
+    // compte Google (voir avecFauxFirebase). Le CDN de Google est alors COUPÉ : sur une machine qui a
+    // du réseau, le vrai SDK se chargerait après l'injection et l'écraserait, et le banc éprouverait
+    // Firebase au lieu de l'application.
+    for (const contenu of options.avant || []) await contexte.addInitScript({ content: contenu });
+    if (options.avant) await contexte.route(/gstatic\.com\/firebasejs/, (r) => r.abort());
     const page = await contexte.newPage();
     const erreurs = [];
     page.on('pageerror', e => erreurs.push('exception : ' + e.message));
@@ -47,7 +53,9 @@ async function ouvrirApp(options = {}) {
         // style de repli pour les polices, une doublure synthétisée pour le piano (voir onerror sur le
         // Sampler, qui l'absorbe déjà côté application ; c'est le NAVIGATEUR qui journalise malgré
         // tout l'échec réseau lui-même en console, hors de portée de ce onerror applicatif).
-        if (m.type() === 'error' && !/fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_CERT_AUTHORITY_INVALID/.test(m.text())) {
+        if (m.type() === 'error' && !/fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_CERT_AUTHORITY_INVALID/.test(m.text())
+            // Les requêtes vers le CDN Firebase qu'on COUPE exprès quand on injecte un faux (voir `avant`).
+            && !(options.avant && /ERR_FAILED/.test(m.text()))) {
             erreurs.push('console : ' + m.text());
         }
     });
@@ -59,6 +67,18 @@ async function ouvrirApp(options = {}) {
     await page.waitForTimeout(250);
 
     return { navigateur, contexte, page, erreurs, fermer: () => navigateur.close() };
+}
+
+/**
+ * Les scripts à passer à `ouvrirApp({ avant })` pour que l'application trouve un Firebase en mémoire :
+ * le faux (tests/_firebase_factice.js) puis son branchement. `window.__backend` est le « nuage » — le
+ * banc y lit ce qui a été écrit, et y écrit à son tour pour jouer un AUTRE appareil.
+ */
+function avecFauxFirebase(compte = { uid: 'u1', nom: 'Testeur' }) {
+    const fs = require('fs');
+    const source = fs.readFileSync(path.join(__dirname, '_firebase_factice.js'), 'utf8');
+    return [source, `window.__backend = FirebaseFactice.creerBackend();
+        window.firebase = FirebaseFactice.creerFirebase(window.__backend, ${JSON.stringify(compte)});`];
 }
 
 /**
@@ -107,4 +127,4 @@ function lireEtat(page) {
     });
 }
 
-module.exports = { ouvrirApp, taper, lireEtat, URL_BASE, chargerPlaywright };
+module.exports = { ouvrirApp, taper, lireEtat, avecFauxFirebase, URL_BASE, chargerPlaywright };

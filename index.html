@@ -37,6 +37,14 @@
          elles se posent sur `window` (Tone, jspdf), où les modules de src/ vont les chercher. -->
     <script src="vendor/tone.min.js"></script>
     <script src="vendor/jspdf.umd.min.js"></script>
+    <!-- LE NUAGE (Firebase) — mêmes versions et même projet que TrainHub. Chargé depuis le CDN de Google
+         et NON recopié dans vendor/ : hors ligne ou bloqué, `firebase` reste simplement indéfini et
+         l'application fonctionne comme avant, en local (voir src/io/nuage.js#demarrer). -->
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+    <script src="firebase-config.js"></script>
+    <script src="src/io/nuage.js"></script>
 </head>
 <body>
 
@@ -50,7 +58,7 @@
          se retrouvait poussé hors champ). Enregistrer reste seul, à côté : c'est le geste le plus
          fréquent (Ctrl+S), il ne doit pas se cacher derrière un second clic. Popover peuplé une
          fois, voir main.js#basculerPopoverFichiers/#popover-fichiers plus bas. -->
-    <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers</button>
+    <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers<span id="pastille-nuage" class="pastille-nuage" hidden aria-hidden="true">●</span></button>
     <button type="button" id="btn-enregistrer" class="btn-icone btn-icone-accent" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"></button>
     <!-- RÉGLAGES/AIDE : dans le DOM ici (avec Annuler/Fichiers), mais VISUELLEMENT déplacés contre le
          logo dès qu'il y a la place (voir style.css, .groupe-reglages — `order` en flex, à partir de
@@ -587,6 +595,36 @@
     </div>
 </div>
 
+<div class="voile" id="fenetre-nuage" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-nuage">
+        <div class="fenetre-tete">
+            <h2 id="titre-nuage">Nuage et sauvegarde</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer">×</button>
+        </div>
+        <div class="fenetre-corps">
+            <p class="note-fenetre" id="nuage-note"></p>
+            <div class="nuage-compte">
+                <button type="button" class="btn-plein" id="nuage-connexion">Se connecter avec Google</button>
+                <span id="nuage-nom" class="nuage-nom" hidden></span>
+                <button type="button" class="btn-neutre" id="nuage-deconnexion" hidden>Se déconnecter</button>
+            </div>
+            <h3 class="nuage-titre">Dans le nuage</h3>
+            <div id="nuage-liste" class="liste-disque" role="list"></div>
+            <h3 class="nuage-titre">Sauvegarde de secours</h3>
+            <p class="note-fenetre">Le nuage est la copie de tous les jours ; ceci est la copie à garder de côté, sur ton disque,
+               de temps en temps. Un seul fichier, qui contient tous les morceaux.</p>
+            <div class="nuage-secours">
+                <button type="button" class="btn-neutre" id="nuage-tout-exporter">Tout exporter (.json)</button>
+                <button type="button" class="btn-neutre" id="nuage-tout-importer">Tout importer…</button>
+            </div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-plein" data-fermer>Terminé</button>
+        </div>
+    </div>
+</div>
+
 <div class="voile" id="fenetre-aide" hidden>
     <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-aide">
         <div class="fenetre-tete">
@@ -913,6 +951,10 @@
          À CÔTÉ DES VERSIONS, et pas ailleurs : les deux répondent à « où est passé mon travail ? »,
          l'une dans le navigateur, l'autre sur le disque. -->
     <button type="button" data-action="disque">Fichiers du disque…</button>
+    <!-- LE NUAGE : la sauvegarde qui se fait toute seule, et le filet de sécurité qui va avec (tout
+         exporter / tout importer en un fichier). À CÔTÉ DES FICHIERS DU DISQUE : c'est la même
+         question — « où est passé mon travail ? » — avec la réponse qui ne dépend d'aucun dossier. -->
+    <button type="button" data-action="nuage">Nuage et sauvegarde…</button>
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>

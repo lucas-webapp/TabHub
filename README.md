@@ -482,6 +482,103 @@ a maintenant sa phrase, parce que chacune appelle un geste différent :
 - conflit annulé → « Enregistré dans le navigateur — le fichier du dossier n'a pas été touché »
 - aucun dossier → « Enregistré dans le navigateur (aucun dossier de rangement configuré) »
 
+#### Le nuage : on n'enregistre plus, ça se fait
+
+Retour utilisateur, après deux mauvais épisodes de sauvegarde : *« L'enregistrement me semble trop
+aléatoire sur HarmoHub et TabHub. On va connecter tous les documents à mon Firebase, comme c'est déjà
+le cas pour TrainHub. Conserve des exports/imports de secours, de temps en temps je conserverai mes
+données sur un disque. »*
+
+**Le principe.** Connecté avec Google (Fichiers > *Nuage et sauvegarde…*), chaque morceau est recopié
+dans le compte dès qu'il change — 1,5 s après la dernière modification — et se retrouve sur les autres
+appareils. La pastille à droite de « Fichiers » dit où ça en est : verte (tout est enregistré), orange
+(en cours), grise (hors ligne), rouge (un problème, et la raison en infobulle). Elle n'apparaît
+qu'une fois connecté. Sans Firebase — hors ligne, bloqué — l'application fonctionne exactement comme
+avant : le nuage est un plus, jamais une condition.
+
+**Ce qui est repris de TrainHub**, parce que ça marche : connexion Google par fenêtre, SDK Firestore
+« compat » 10.13.2, chemin `users/{uid}/apps/{slug}`, envoi différé de 1,5 s, pastille d'état,
+avertissement à la fermeture pendant un envoi, sauvegardes de secours locales avant tout remplacement,
+repli silencieux en mode local.
+
+**Ce qui est différent, et pourquoi :**
+
+- **Un document Firestore par morceau, plus un petit index.** TrainHub range tout l'état dans un seul
+  document, et son propre code note que Firestore refuse au-delà de 1 Mo. Une bibliothèque de
+  partitions y arrive vite ; un morceau seul, jamais. Les documents sont tous des *frères* dans la
+  collection `apps` (`tabhub`, `tabhub__<id>`…), sans sous-collection : la règle de sécurité qui couvre
+  déjà `apps/{appId}` les couvre aussi. Plafond : 900 Ko par morceau, dit clairement s'il est dépassé
+  (un morceau trop gros ne bloque pas les autres).
+- **Le contenu est une chaîne JSON.** Firestore refuse les tableaux imbriqués, les `undefined` et
+  certains noms de champs ; une partition en contient.
+- **Aucune perte silencieuse.** TrainHub remplace l'état entier par le plus récent. Ici, on compare
+  morceau par morceau à ce qui a été synchronisé la dernière fois — par une *empreinte du contenu*, pas
+  une horloge. Si les deux côtés ont changé, le plus récent gagne **et l'autre est gardé en copie**
+  (« … (conflit 28/09 14:32) », ouverte dans un onglet). Supprimer un morceau laisse son contenu dans
+  le nuage (seul l'index le marque supprimé). Une suppression de masse, presque toujours un accident,
+  est refusée. Hors ligne, rien n'est envoyé sur la foi d'un cache qu'on prendrait pour un nuage vide.
+- **Fermer un onglet n'est pas supprimer un morceau.** TabHub n'a pas de bibliothèque locale : ses morceaux
+  sont ses onglets. Le nuage, lui, en contient autant qu'on en a écrit ; la fenêtre les *liste* et les
+  ouvre à la demande, plutôt que d'ouvrir cinquante onglets à la connexion. Seul le bouton *Supprimer*
+  supprime — avec confirmation, et le contenu reste récupérable depuis la console Firebase.
+
+**Les avertissements se taisent quand ils n'ont plus lieu d'être.** « Ce travail n'a pas été exporté »
+ne se pose plus si le morceau est déjà identique à sa copie du nuage, ni à la fermeture de la page. En
+revanche, un envoi *en cours* ou *en échec* retient la fermeture, même pour un travail exporté : la
+copie du nuage n'est alors pas celle qu'on croit.
+
+**La sauvegarde de secours** (même fenêtre) : *Tout exporter* écrit **un seul fichier** qui contient
+tous les morceaux — les ouverts ici ET ceux qui ne sont que dans le nuage. *Tout importer* n'écrase
+rien : un morceau identique est ignoré, un morceau différent arrive à côté sous un titre daté, un
+morceau absent est posé. Connecté, l'import va dans le nuage (une sauvegarde en compte des dizaines,
+elle ne remplit pas la barre d'onglets). Les exports `.json` / PDF / MIDI / MusicXML d'un morceau
+restent inchangés.
+
+**Deux pièges trouvés en mesurant.**
+
+- `normaliser` **régénère les identifiants internes** des mesures, des évènements et des notes à chaque
+  appel (`m9` devient `ml`). Le même morceau, normalisé deux fois, donne deux JSON différents : une
+  empreinte naïve y voyait des modifications qui n'en sont pas (fausses copies de conflit, sauvegarde
+  relue jamais reconnue comme déjà à jour). L'empreinte les exclut — sous `mesures` seulement, car
+  `piste.accordage.id` (« standard »…) est du contenu — ainsi que `meta.modifieLe`.
+- Le moteur attend le premier instantané **venu du serveur** avant de décider quoi que ce soit. Sans
+  ce verrou, une modification annoncée au démarrage, avant que le nuage ait répondu, le faisait croire
+  vide : il envoyait tout par-dessus des versions plus récentes qu'il n'avait jamais vues.
+
+**À faire UNE fois dans la console Firebase** (le code ne peut pas le faire, et je n'y ai pas accès) :
+
+1. *Authentication > Sign-in method* : Google activé (déjà le cas pour TrainHub).
+2. *Authentication > Settings > Authorized domains* : le domaine où TabHub est publié (déjà le cas s'il
+   est sur le même domaine que TrainHub).
+3. *Firestore > Rules* : une règle doit autoriser `users/{uid}/apps/{appId}` pour *tous* les
+   identifiants, pas seulement `trainhub`. Si elle est déjà écrite ainsi, rien à faire ; sinon :
+
+   ```
+   rules_version = '2';
+   service cloud.firestore {
+     match /databases/{database}/documents {
+       match /users/{uid}/apps/{appId} {
+         allow read, write: if request.auth != null && request.auth.uid == uid;
+       }
+     }
+   }
+   ```
+
+   Si elle nomme chaque app (`trainhub`, `harmohub`…), elle refusera `tabhub__<id>` : la pastille
+   passera au rouge avec « Firestore refuse l'accès : les règles de sécurité ne couvrent pas ce
+   document ».
+
+Ce qui n'est **pas** synchronisé : les réglages (volume, zoom, position de la barre d'outils…), les
+versions précédentes, les fichiers du disque. `firebase-config.js` reprend la configuration publique de
+TrainHub (même projet `lucas-apps`) avec `FIREBASE_APP_SLUG = "tabhub"` ; `appId` est celui de TrainHub,
+sans conséquence pour l'authentification et Firestore.
+
+**Bancs.** `nuage_moteur_test.js` (le moteur, sous Node, deux « appareils » sur un même faux nuage :
+67 vérifications, 12 sabotages de la source tous détectés) et `nuage_test.js` (TabHub dans un vrai
+navigateur, Firebase injecté en mémoire, CDN coupé). **Aucun de ces bancs ne parle au vrai Firebase** :
+il faudrait un compte Google. Ils éprouvent la logique de synchro, pas la configuration du projet — d'où
+la liste ci-dessus.
+
 #### Deux défauts remontés sur capture
 
 **La mesure endettée était tassée.** Le modèle de dette laisse écrire six temps dans une mesure qui en
