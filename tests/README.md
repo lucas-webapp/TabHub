@@ -13,6 +13,7 @@ d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentair
 | `exports_test.js` | Aller-retour `.json` sans perte, PDF réellement vectoriel |
 | `lecture_audio_test.js` | Transport, fusion des liaisons, tête de lecture accrochée à l'horloge audio |
 | `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
+| `synchro_cloud_test.js` | Synchro Firebase (contre un FAUX Firebase, `_firebase_faux.js`) : appareil neuf qui ne doit jamais écraser le cloud, édition concurrente, remplacements volontaires, horloge de synchro, pastille sans encombrement |
 
 ## Lancer
 

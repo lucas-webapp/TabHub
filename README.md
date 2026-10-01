@@ -295,3 +295,26 @@ Pour régénérer les glyphes après une mise à jour de Bravura :
 pip install fonttools
 python3 outils/generer-glyphes.py chemin/vers/Bravura.otf
 ```
+
+
+---
+
+## Synchro cloud (Firebase)
+
+TabHub enregistre automatiquement dans le Firebase de l'utilisateur, comme HarmoHub et TrainHub : même
+projet partagé, chemin `users/{uid}/apps/tabhub`, connexion Google. Se connecter se fait depuis le menu
+**Fichiers**. La pastille de l'état vit sur le bouton **Enregistrer** (pseudo-élément : la barre du haut
+n'a pas la place d'un élément de plus, voir `style.css`). `synchro-cloud.js` est la couche générique,
+**copiée à l'identique de HarmoHub** ; tout ce qui dépend des données est dans `src/io/synchro.js`.
+
+**À savoir.** TabHub n'a qu'*un* brouillon : le cloud garde la tablature en cours, pas l'historique. « Nouvelle
+tablature », un import ou une restauration remplacent aussi la copie du cloud — la tablature abandonnée reste
+dans les **Sauvegardes de secours** de l'appareil (menu Fichiers) et dans les `.json` exportés. Les garder toutes
+au cloud demanderait une vraie bibliothèque.
+
+**Le piège évité.** `normaliser` réécrit `meta.modifieLe` à l'instant présent à chaque chargement : s'y fier
+ferait gagner un appareil resté des semaines sans y toucher. L'arbitrage se fait sur une horloge de synchro à
+part (`tabhub.sync.at`), qui ne bouge que pour une vraie modification — jamais pour un déplacement du curseur.
+
+**À vérifier sur de vrais appareils** (le banc n'a qu'un faux Firebase) : règles de sécurité Firestore, domaines
+autorisés, et la fenêtre Google sur Safari. Voir `firebase-config.js`.

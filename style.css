@@ -1164,3 +1164,33 @@ body.avec-pave .dpad-flottant { display: grid; }
    nettement plus grands qu'un libellé de bouton ordinaire — ce sont des SIGNES musicaux, et un
    bémol rendu au corps du texte courant se confond avec un « b » minuscule. */
 .btn-transposer { font-size: 17px; font-weight: 700; line-height: 1; padding-bottom: 2px; }
+
+/* ---------- Synchro cloud : pastille d'état portée par le bouton Enregistrer ---------- */
+/* PSEUDO-ÉLÉMENT, et non un nœud ajouté : (1) la barre du haut déborde déjà de 97 px à 390 px (voir le
+   commentaire d'index.html), il n'y a de place pour rien de plus — la pastille, en position absolue, n'en
+   prend aucune ; (2) `poserIcones` réécrit le contenu du bouton, et effacerait tout nœud qu'on y aurait mis.
+   L'attribut `data-sync` est posé par io/synchro.js ; sans compte connecté, il n'existe pas et rien ne s'affiche.
+   Six états, six couleurs, libellé précis au survol. Le plus important est `pending` (« modifications pas
+   encore envoyées ») : c'est lui qui répond à « est-ce que c'est bien parti ? ». */
+#btn-enregistrer { position: relative; }
+#btn-enregistrer[data-sync]::after {
+    content: '';
+    position: absolute; top: 3px; right: 3px;
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--text-muted);
+    box-shadow: 0 0 0 2px var(--btn-green-1);   /* liseré : la pastille reste lisible sur l'icône — le bouton Enregistrer est vert (.btn-icone-accent) */
+    pointer-events: none;
+}
+#btn-enregistrer[data-sync="synced"]::after { background: #79c99a; }
+#btn-enregistrer[data-sync="syncing"]::after { background: #6aa9ff; animation: sync-pulse 1s ease-in-out infinite; }
+#btn-enregistrer[data-sync="pending"]::after { background: #e0a64a; }
+#btn-enregistrer[data-sync="offline"]::after { background: #8a8a8a; }
+#btn-enregistrer[data-sync="error"]::after, #btn-enregistrer[data-sync="toolarge"]::after { background: #ff6b6b; }
+@keyframes sync-pulse { 50% { opacity: .35; } }
+@media (prefers-reduced-motion: reduce) { #btn-enregistrer[data-sync="syncing"]::after { animation: none; } }
+
+/* Fenêtres de choix et de sauvegardes de secours : une carte par version. */
+.version-choix { padding: 9px 11px; margin: 7px 0; border: 1px solid var(--border); border-radius: 8px; line-height: 1.45; }
+.version-choix.plus-recente { border-color: #79c99a; }
+.version-choix small { color: var(--text-muted); }
+.actions-version { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 7px; }

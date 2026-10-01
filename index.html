@@ -367,6 +367,48 @@
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
+    <!-- CLOUD : les deux entrées de connexion sont masquées/affichées à chaque ouverture (voir
+         main.js#rafraichirEntreesCloud), selon qu'un compte est connecté. Elles vivent ici et non dans
+         la barre du haut, qui déborde déjà à 390 px. -->
+    <hr class="separateur" data-sep-cloud hidden>
+    <button type="button" data-action="cloud-connexion" hidden>Se connecter pour synchroniser</button>
+    <button type="button" data-action="cloud-deconnexion" hidden>Se déconnecter du cloud</button>
+    <button type="button" data-action="sauvegardes">Sauvegardes de secours…</button>
+</div>
+
+<!-- Première connexion d'un appareil qui a déjà une tablature, face à un cloud qui en a une autre :
+     on DEMANDE au lieu de laisser la date trancher (voir io/synchro.js#premiereConnexion). L'autre version
+     est gardée dans les sauvegardes de secours dans tous les cas. -->
+<div class="voile" id="fenetre-synchro-choix" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-synchro-choix">
+        <div class="fenetre-tete">
+            <h2 id="titre-synchro-choix">Deux tablatures différentes</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps">
+            <p>Cet appareil et ton cloud ont chacun une tablature. Laquelle garder ? <strong>L'autre est conservée dans « Sauvegardes de secours »</strong>, rien n'est perdu. Fermer sans choisir garde la plus récente.</p>
+            <div id="corps-synchro-choix"></div>
+        </div>
+        <div class="fenetre-pied">
+            <button type="button" class="btn-neutre" data-choix="appareil">Garder celle de cet appareil</button>
+            <button type="button" class="btn-plein" data-choix="cloud">Prendre celle du cloud</button>
+        </div>
+    </div>
+</div>
+
+<!-- Sauvegardes de secours de CET appareil (voir main.js#ouvrirSauvegardes) : les tablatures remplacées
+     par une synchronisation, un import ou « Nouvelle tablature ». -->
+<div class="voile" id="fenetre-sauvegardes" hidden>
+    <div class="fenetre" role="dialog" aria-modal="true" aria-labelledby="titre-sauvegardes">
+        <div class="fenetre-tete">
+            <h2 id="titre-sauvegardes">Sauvegardes de secours</h2>
+            <span class="pousse"></span>
+            <button type="button" class="btn-icone" data-fermer aria-label="Fermer"></button>
+        </div>
+        <div class="fenetre-corps" id="corps-sauvegardes"></div>
+        <div class="fenetre-pied"><button type="button" class="btn-plein" data-fermer>Fermer</button></div>
+    </div>
 </div>
 
 <!-- ÉDITION DE L'EN-TÊTE AU CLIC — s'ouvre sur le titre, le sous-titre ou l'artiste gravés sur la
@@ -391,6 +433,17 @@
     </div>
 </div>
 
-<script type="module" src="src/main.js?v=202609140300"></script>
+<!-- SYNCHRO CLOUD (Firebase), la même que HarmoHub et TrainHub : même projet partagé, chemin
+     users/{uid}/apps/tabhub. SDK « compat » en <script> classiques — TabHub n'a aucune chaîne de build, et
+     les modules ES n'en ont pas besoin ici. Chargés AVANT le module, qui s'exécute différé. Si le SDK
+     manque (premier chargement hors ligne), la synchro ne démarre pas et TabHub reste pleinement
+     utilisable en local. synchro-cloud.js est copié à l'identique de HarmoHub : il ne sait rien des
+     données, tout ce qui en dépend est dans src/io/synchro.js. -->
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
+<script src="firebase-config.js?v=202610010100"></script>
+<script src="synchro-cloud.js?v=202610010100"></script>
+<script type="module" src="src/main.js?v=202610010100"></script>
 </body>
 </html>

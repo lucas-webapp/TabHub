@@ -28,6 +28,7 @@ import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
+import { demarrerSynchro } from './io/synchro.js';
 import { enregistrerPartition, lireFichierPartition } from './io/json.js';
 import { exporterPdf } from './io/pdf.js';
 import { exporterMidi, exporterMidiParPartie, analyserFichierMidi, analyserZonesManche, construirePartitionDepuisMidi } from './io/midi.js';
@@ -201,6 +202,12 @@ class TabHubApp {
 
         this.restaurerBrouillon();
         this.poserIcones();
+        // SYNCHRO CLOUD — APRÈS la restauration du brouillon, et c'est l'ordre qui compte : la synchro lit
+        // le document dès que la connexion répond. Démarrée avant, elle aurait vu une tablature vierge,
+        // l'aurait prise pour « vide », et le brouillon de cet appareil aurait cédé la place au cloud
+        // sans qu'on ait rien demandé. APRÈS poserIcones aussi : celle-ci réécrit le contenu des boutons
+        // (la pastille est portée par #btn-enregistrer, voir style.css).
+        this.synchro = demarrerSynchro(this);
         const crochetsUi = {
             rendreLeFocus: () => this.el.zone.focus(),
             signalerErreur: (texte) => this.message(texte),
@@ -482,7 +489,7 @@ class TabHubApp {
                 if (midi != null) this.lecteur.apercu(midi);
             }
         }
-        this.planifierBrouillon();
+        this.planifierBrouillon(raison);
     }
 
     rafraichirBoutonsHistorique() {
@@ -735,7 +742,12 @@ class TabHubApp {
         try {
             const partition = await lireFichierPartition(fichier);
             this.arreter();
+            // SYNCHRO : la tablature abandonnée part en copie de secours AVANT d'être remplacée, et la
+            // nouvelle est REDATÉE après — un fichier porte la date de SON dernier enregistrement, donc
+            // plus ancienne que la copie du cloud, qui la ferait revenir à la première réception.
+            this.synchro?.avantRemplacement('Avant l\'ouverture d\'un fichier');
             this.editeur.remplacer(partition);
+            this.synchro?.apresRemplacement();
             this.message(`Importé : ${partition.meta.titre}`);
         } catch (err) {
             this.message(err.message || 'Impossible d\'ouvrir ce fichier');
@@ -914,7 +926,9 @@ class TabHubApp {
                 }
                 this.message(parties.join(' · '), parties.length > 1 ? 6000 : undefined);
             } else {
+                this.synchro?.avantRemplacement('Avant l\'import d\'un fichier MIDI');   // voir chargerFichier
                 this.editeur.remplacer(partition);
+                this.synchro?.apresRemplacement();
                 this.message(abandonnees
                     ? `Importé (${abandonnees} note${abandonnees > 1 ? 's' : ''} hors du manche abandonnée${abandonnees > 1 ? 's' : ''}${detailHorsPortee})`
                     : `Importé : ${partition.meta.titre}`, abandonnees ? 6000 : undefined);
@@ -929,7 +943,11 @@ class TabHubApp {
     nouveau() {
         if (this.editeur.peutAnnuler() && !confirm('Abandonner la tablature en cours ?')) return;
         this.arreter();
+        // La tablature abandonnée reste dans les sauvegardes de secours de cet appareil : avec la
+        // synchro, « Nouvelle » remplace aussi la copie du cloud, qui ne garde que la tablature en cours.
+        this.synchro?.avantRemplacement('Avant « Nouvelle tablature »');
         this.editeur.nouveau(this.editeur.partition.piste.instrument);
+        this.synchro?.apresRemplacement();
         this.message('Nouvelle tablature');
     }
 
@@ -942,18 +960,27 @@ class TabHubApp {
      * brouillon, écrasé à chaque changement, qui existe pour qu'un rechargement accidentel ne coûte
      * pas une heure de travail. L'enregistrement durable reste le .json, explicite et exportable.
      */
-    planifierBrouillon() {
+    planifierBrouillon(raison) {
         clearTimeout(this._minuterieBrouillon);
         this._minuterieBrouillon = setTimeout(() => {
             try { localStorage.setItem(CLE_BROUILLON, JSON.stringify(this.editeur.partition)); }
             catch (err) { /* quota plein ou stockage refusé : le brouillon est un confort, pas une garantie */ }
         }, 700);
+        // SYNCHRO CLOUD : chaque changement du document part aussi au cloud, avec son propre délai (voir
+        // synchro-cloud.js). La copie LOCALE ci-dessus vient toujours en premier : rien n'est perdu sur
+        // cet appareil si l'envoi échoue.
+        this.synchro?.planifier(raison);
     }
 
     restaurerBrouillon() {
         try {
             const brut = localStorage.getItem(CLE_BROUILLON);
             if (!brut) return;
+            // La DATE de ce brouillon, relevée AVANT `remplacer` : `normaliser` réécrit `modifieLe` à
+            // l'instant présent, si bien qu'après la restauration tout brouillon paraît modifié à l'instant
+            // — même celui qu'on n'a pas touché depuis un mois. La synchro s'en sert pour dater un appareil
+            // qui n'a encore jamais été synchronisé (voir io/synchro.js, l'horloge de synchro).
+            try { this._modifieLeBrouillon = Date.parse(JSON.parse(brut).meta.modifieLe); } catch (e) { /* pas de date : sans gravité */ }
             // Passe par `normaliser` (via `remplacer`), PAS une simple assignation : un brouillon
             // écrit par une version antérieure du format (l'ancien tableau plat `evenements`, par
             // exemple) planterait sinon `mettreEnPage` au premier accès à `mesure.voix`, en silence —
@@ -995,6 +1022,11 @@ class TabHubApp {
         const actionsFichiers = {
             nouveau: () => this.nouveau(), ouvrir: () => this.ouvrir(), 'exporter-json': () => this.exporterJson(),
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
+            // La connexion part DIRECTEMENT du clic, sans `await` devant : le navigateur ne laisse ouvrir la
+            // fenêtre Google que dans le geste de l'utilisateur.
+            'cloud-connexion': () => window.SYNCHRO?.seConnecter(),
+            'cloud-deconnexion': () => window.SYNCHRO?.seDeconnecter(),
+            'sauvegardes': () => this.ouvrirSauvegardes(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {
             const b = e.target.closest('[data-action]');
@@ -1378,6 +1410,7 @@ class TabHubApp {
     basculerPopoverFichiers() {
         if (!this.el.popoverFichiers.hidden) { this.fermerPopoverFichiers(); return; }
         const popover = this.el.popoverFichiers;
+        this.rafraichirEntreesCloud();
         popover.hidden = false;
         this.el.btnFichiers.setAttribute('aria-expanded', 'true');
         this._positionnerPanneau(popover, this.el.btnFichiers);
@@ -1424,6 +1457,69 @@ class TabHubApp {
         this._detacherPanneauEnTete?.();
         this._detacherPanneauEnTete = null;
         this.el.zone.focus();
+    }
+
+    // Les entrées « Cloud » du popover dépendent de l'état de la connexion : proposées seulement si le SDK a
+    // pu démarrer (un bouton qui ne peut rien faire serait trompeur), et « se connecter » ou « se
+    // déconnecter » selon qu'un compte est connecté. Recalculées à CHAQUE ouverture, le popover lui-même
+    // étant peuplé une fois pour toutes.
+    rafraichirEntreesCloud() {
+        const synchro = window.SYNCHRO;
+        const dispo = !!(synchro && synchro.disponible);
+        const connecte = !!(dispo && synchro.etat.utilisateur);
+        const pop = this.el.popoverFichiers;
+        const cacher = (action, cache) => { const b = pop.querySelector(`[data-action="${action}"]`); if (b) b.hidden = cache; };
+        cacher('cloud-connexion', !dispo || connecte);
+        cacher('cloud-deconnexion', !dispo || !connecte);
+        const sep = pop.querySelector('[data-sep-cloud]');
+        if (sep) sep.hidden = !dispo;
+        if (connecte) {
+            const b = pop.querySelector('[data-action="cloud-deconnexion"]');
+            const nom = synchro.etat.utilisateur.displayName || synchro.etat.utilisateur.email || 'connecté';
+            if (b) b.textContent = `Cloud : ${nom} — se déconnecter`;
+        }
+    }
+
+    /**
+     * Les SAUVEGARDES DE SECOURS de cet appareil : les tablatures remplacées par une synchronisation, un
+     * import ou « Nouvelle tablature ». Sans cette fenêtre elles existeraient sans qu'on puisse jamais y
+     * accéder — un filet dont on n'atteint pas les mailles n'en est pas un. Reprise de TrainHub.
+     */
+    ouvrirSauvegardes() {
+        const liste = this.synchro ? this.synchro.sauvegardes().slice().reverse() : [];
+        const corps = document.getElementById('corps-sauvegardes');
+        corps.innerHTML = liste.length
+            ? liste.map((s, i) => `
+                <div class="version-choix">
+                    <strong>${escapeHtml(s.titre)}</strong> — ${s.mesures} mesure(s), ${s.notes} note(s)<br>
+                    <small>${new Date(s.at).toLocaleString('fr-FR', { dateStyle: 'medium', timeStyle: 'short' })} · ${escapeHtml(s.raison)}</small>
+                    <div class="actions-version">
+                        <button type="button" class="btn-neutre" data-restaurer="${i}">Restaurer</button>
+                        <button type="button" class="btn-neutre" data-telecharger="${i}">Télécharger .json</button>
+                    </div>
+                </div>`).join('')
+            : '<p>Aucune sauvegarde de secours pour l\'instant. Elles apparaissent quand une tablature est remplacée — par une synchronisation, un import ou « Nouvelle tablature ».</p>';
+        corps.querySelectorAll('[data-restaurer]').forEach(b => b.onclick = () => {
+            const s = liste[Number(b.dataset.restaurer)];
+            if (!s) return;
+            this.arreter();
+            // La tablature qu'on quitte part à son tour en copie de secours : restaurer ne doit jamais coûter.
+            this.synchro.avantRemplacement('Avant une restauration');
+            this.editeur.remplacer(JSON.parse(s.json));
+            this.synchro.apresRemplacement();
+            document.getElementById('fenetre-sauvegardes').hidden = true;
+            this.message(`Restauré : ${s.titre}`);
+        });
+        corps.querySelectorAll('[data-telecharger]').forEach(b => b.onclick = () => {
+            const s = liste[Number(b.dataset.telecharger)];
+            if (!s) return;
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(new Blob([s.json], { type: 'application/json' }));
+            a.download = `TabHub - ${s.titre} - secours.json`;
+            document.body.appendChild(a); a.click(); a.remove();
+            URL.revokeObjectURL(a.href);
+        });
+        this.ouvrirFenetre('fenetre-sauvegardes');
     }
 
     fermerPopoverFichiers() {
