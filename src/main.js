@@ -1469,10 +1469,18 @@ class TabHubApp {
         const connecte = !!(dispo && synchro.etat.utilisateur);
         const pop = this.el.popoverFichiers;
         const cacher = (action, cache) => { const b = pop.querySelector(`[data-action="${action}"]`); if (b) b.hidden = cache; };
-        cacher('cloud-connexion', !dispo || connecte);
+        // SDK absent : l'entrée reste VISIBLE mais éteinte, avec la raison — une entrée qui disparaît en
+        // silence ressemble à une panne (retour utilisateur : « je ne vois pas le bouton »).
+        const bc = pop.querySelector('[data-action="cloud-connexion"]');
+        if (bc) {
+            bc.disabled = !dispo;
+            bc.textContent = dispo ? 'Se connecter pour synchroniser'
+                : `Synchronisation indisponible — ${(synchro && synchro.raison) || 'Firebase n\'a pas pu démarrer'}`;
+        }
+        cacher('cloud-connexion', connecte);
         cacher('cloud-deconnexion', !dispo || !connecte);
         const sep = pop.querySelector('[data-sep-cloud]');
-        if (sep) sep.hidden = !dispo;
+        if (sep) sep.hidden = false;
         if (connecte) {
             const b = pop.querySelector('[data-action="cloud-deconnexion"]');
             const nom = synchro.etat.utilisateur.displayName || synchro.etat.utilisateur.email || 'connecté';

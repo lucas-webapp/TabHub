@@ -24,7 +24,7 @@ const pause = (p, ms) => p.waitForTimeout(ms);
 const BRUIT = /fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_CERT|ERR_FAILED/;
 const PANNES = /Envoi vers le cloud impossible|Écoute de la synchro interrompue|Synchro initiale impossible|Tablature illisible dans le cloud/;
 
-plan(70);
+plan(71);
 
 (async () => {
     const navigateur = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -91,7 +91,11 @@ plan(70);
     // ================= 0. SANS FIREBASE =================
     {
         const D = await ouvrir(null, 'X', { sdk: false });
-        check(!(await menuFichiers(D.p)).some(a => a.startsWith('cloud-')), 'sans SDK Firebase, le menu ne propose pas de se connecter');
+        const sansSdk = await menuFichiers(D.p);
+        check(sansSdk.includes('cloud-connexion') && await D.p.evaluate(() => document.querySelector('#popover-fichiers [data-action="cloud-connexion"]').disabled),
+            'sans SDK Firebase, l\'entrée reste visible mais ÉTEINTE : une entrée qui disparaît en silence ressemble à une panne');
+        check(/indisponible/.test(await D.p.evaluate(() => document.querySelector('#popover-fichiers [data-action="cloud-connexion"]').textContent)),
+            'et dit pourquoi');
         await tablature(D, 'Local', [3, 5]);
         check((await notes(D)).join() === '3,5', 'et TabHub fonctionne exactement comme avant');
         check(await etat(D) === null, 'aucune pastille tant qu\'il n\'y a pas de compte');

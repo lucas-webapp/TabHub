@@ -321,6 +321,11 @@ function demarrerSynchro(adaptateur, elements) {
             // avertissement à chaque chargement hors ligne noierait les vrais, et faisait échouer tout
             // banc qui compte les avertissements de la console.
             console.info('Firebase indisponible : mode local uniquement.');
+            // La RAISON est gardée pour que le menu l'affiche : une entrée qui disparaît sans explication
+            // laisse croire à une panne de l'appli (retour utilisateur : « je ne vois pas le bouton »).
+            SYNCHRO.raison = typeof firebase === 'undefined'
+                ? 'Le service Firebase n\'a pas pu se charger (hors ligne, ou bloqué par un bloqueur de contenu ?)'
+                : 'Le fichier firebase-config.js est absent ou illisible';
             if ($connexion) $connexion.hidden = true;
             return false;
         }
@@ -332,6 +337,7 @@ function demarrerSynchro(adaptateur, elements) {
             return true;
         } catch (e) {
             console.error('Initialisation Firebase impossible', e);
+            SYNCHRO.raison = 'Initialisation de Firebase impossible : ' + ((e && e.message) || 'erreur inconnue');
             if ($connexion) $connexion.hidden = true;
             return false;
         }
