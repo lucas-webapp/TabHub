@@ -25,7 +25,7 @@ import { ACTIONS, toucheDe } from './edit/raccourcis.js';
 import { construireBarreOutils, flecheOutilsSvg, ajusterFleches } from './ui/toolbar.js';
 import { rendreOnglets, titreOnglet } from './ui/onglets.js';
 import { construirePave, construireDpadFlottant } from './ui/pave.js';
-import { demander, saisir } from './ui/dialogue.js';
+import { demander, saisir, fermerDialogue } from './ui/dialogue.js';
 import * as Rythme from './ui/rythme.js';
 // La grille d'une mesure, déduite de ce qu'elle porte — la MÊME que celle sur laquelle l'éditeur
 // écrit ses silences (voir model/rythme.js). Un clic se cale donc exactement là où une figure
@@ -1127,6 +1127,10 @@ class TabHubApp {
             // image de lecture ne changent pas le morceau, et réveiller la synchro pour ça ferait
             // clignoter la pastille à chaque flèche.
             this.nuage?.changement();
+            // LE GARDE-FOU « tu travailles sans être connecté » (voir Nuage#travail et demanderSansConnexion).
+            // 'document' est exclu : ouvrir un fichier ou changer d'onglet n'est pas travailler — c'est la
+            // première vraie modification qui pose la question, pas le simple fait d'ouvrir l'appli.
+            if (raison !== 'document') this.nuage?.travail();
         }
     }
 
@@ -3637,7 +3641,7 @@ class TabHubApp {
     }
 
     demarrerNuage() {
-        if (!globalThis.Nuage) { this.nuage = null; return; }
+        if (!globalThis.Nuage) { this.nuage = null; this.rafraichirBoutonNuage(); return; }
         let copies = 0;
         this.nuage = globalThis.Nuage.creer({
             slug: globalThis.FIREBASE_APP_SLUG || 'tabhub',
@@ -3667,8 +3671,77 @@ class TabHubApp {
             surEtat: (mode, message) => this.afficherEtatNuage(mode, message),
             surCompte: (utilisateur) => this.afficherCompteNuage(utilisateur),
             surCatalogue: () => this.rafraichirListeNuage(),
+            // Le bouton de la barre du haut suit tout ce qui le concerne : qui est connecté, l'état, la fenêtre Google.
+            surAffichage: () => this.rafraichirBoutonNuage(),
+            confirmerSansConnexion: (outils) => this.demanderSansConnexion(outils),
         });
         this.nuage.demarrer();
+        this.rafraichirBoutonNuage();   // l'état de départ : « inconnu », ou « Hors ligne » si le nuage n'existe pas ici
+    }
+
+    /**
+     * LE BOUTON DU NUAGE dans la barre du haut. Ce qu'il montre est décidé par le moteur (Nuage.presentation,
+     * vérifié sans navigateur) ; ici on ne fait que le poser dans le DOM, et le CSS dessine d'après
+     * data-etat / data-avatar / data-point.
+     */
+    rafraichirBoutonNuage() {
+        const b = document.getElementById('btn-nuage');
+        if (!b) return;
+        // Sans moteur (le script n'a pas chargé) : pas de bouton, plutôt qu'un bouton qui ne mène nulle part. Il est
+        // CACHÉ dans le balisage (attribut `hidden`) : tant que rien ne le montre, il le reste.
+        if (!this.nuage) return;
+        const p = globalThis.Nuage.presentation(this.nuage.etat());
+        b.hidden = false;
+        b.dataset.etat = p.cle;
+        b.dataset.avatar = p.avatar;
+        b.dataset.point = p.point;
+        b.title = p.titre;
+        b.setAttribute('aria-label', p.titre);
+        b.querySelector('.nuage-libelle').textContent = p.libelle;
+        b.querySelector('.nuage-initiale').textContent = p.initiale;
+    }
+
+    /** Le clic sur le bouton : déconnecté, Google s'ouvre tout de suite ; connecté, c'est la fenêtre du compte. */
+    cliquerBoutonNuage() {
+        if (!this.nuage) return;
+        const p = globalThis.Nuage.presentation(this.nuage.etat());
+        if (p.action === 'connecter') this.connecterAuNuage();
+        else this.ouvrirNuage();
+    }
+
+    /** Ouvre la fenêtre Google. À appeler DIRECTEMENT depuis un clic, sans rien attendre avant : un navigateur
+     *  (Safari, iPhone surtout) refuse sinon d'ouvrir la fenêtre. Fermer la fenêtre Google n'est pas une erreur. */
+    connecterAuNuage() {
+        if (!this.nuage) { this.message('Le nuage est indisponible pour l\'instant.'); return Promise.resolve(); }
+        return this.nuage.connecter().catch((err) => this.direErreurConnexion(err));
+    }
+
+    direErreurConnexion(err) {
+        const dit = globalThis.Nuage.expliquerConnexion(err);
+        if (dit) this.message(dit, 5000);
+    }
+
+    /**
+     * LE GARDE-FOU (voir Nuage#travail) : la première modification faite sans être connecté. Le moteur décide
+     * QUAND poser la question (une fois par séance, jamais si l'on est connecté ou si le nuage n'existe pas
+     * ici) ; ici, seulement COMMENT.
+     *
+     * « Me connecter » appelle `connecter` dans son propre clic (`auClic`), pas après la promesse : sinon le
+     * navigateur refuserait la fenêtre Google. `sansFocus` : la question surgit pendant qu'on écrit, et la
+     * frappe suivante (Entrée, espace) ne doit pas l'activer avant d'avoir été lue. Échap, ou un clic à côté,
+     * vaut « continuer sans me connecter » — voir le moteur.
+     */
+    demanderSansConnexion({ connecter }) {
+        this._gardeNuageOuverte = true;
+        return demander({
+            titre: 'Tu n\'es pas connecté',
+            texte: 'Sans connexion à ton compte Google, ce que tu écris reste sur cet appareil : rien n\'est enregistré dans le nuage, et tu ne le retrouveras pas sur tes autres appareils.',
+            boutons: [
+                { cle: 'continuer', libelle: 'Continuer sans me connecter' },
+                { cle: 'connecter', libelle: 'Me connecter avec Google', style: 'plein', auClic: () => connecter().catch((err) => this.direErreurConnexion(err)) },
+            ],
+            sansFocus: true,
+        }).finally(() => { this._gardeNuageOuverte = false; });
     }
 
     /** Un morceau arrive du nuage : il REMPLACE l'onglet qui le porte, ou s'ouvre dans un nouvel onglet. */
@@ -3716,22 +3789,13 @@ class TabHubApp {
     }
 
     afficherEtatNuage(mode, message) {
-        const p = document.getElementById('pastille-nuage');
-        if (p) {
-            p.hidden = !this.nuage?.etat().connecte;
-            p.classList.remove('synced', 'syncing', 'error', 'hors-ligne');
-            if (mode) p.classList.add(mode);
-            const titres = {
-                synced: 'Nuage : tout est enregistré',
-                syncing: 'Nuage : enregistrement en cours…',
-                'hors-ligne': 'Nuage : hors ligne — les modifications partiront au retour du réseau',
-                error: `Nuage : ${message || 'erreur'}`,
-            };
-            p.title = titres[mode] || 'Nuage';
-        }
+        // (La pastille d'état est sur le bouton de la barre du haut : voir rafraichirBoutonNuage.)
         const note = document.getElementById('nuage-note');
         if (note) {
-            note.textContent = !this.nuage?.etat().connecte
+            const etat = this.nuage?.etat();
+            note.textContent = !etat?.disponible
+                ? 'Le nuage est indisponible (hors ligne, ou bloqué par le navigateur). Tout continue de fonctionner en local.'
+                : !etat.connecte
                 ? 'Connecte-toi avec Google : tes morceaux s\'enregistrent alors tout seuls dans ton compte, et se retrouvent sur tes autres appareils.'
                 : ({ synced: 'Tout est enregistré dans le nuage.', syncing: 'Enregistrement en cours…',
                      'hors-ligne': 'Hors ligne — les modifications partiront au retour du réseau.',
@@ -3744,8 +3808,12 @@ class TabHubApp {
         const nom = document.getElementById('nuage-nom');
         const entrer = document.getElementById('nuage-connexion');
         const sortir = document.getElementById('nuage-deconnexion');
+        // Connecté pendant que la question du garde-fou est à l'écran (depuis un autre onglet) : elle n'a plus
+        // d'objet. Refermée comme Échap ; le moteur n'en retient rien puisqu'on est connecté. AVANT le retour
+        // anticipé ci-dessous : la question doit se refermer même si la fenêtre du compte est introuvable.
+        if (utilisateur && this._gardeNuageOuverte) fermerDialogue();
         if (!nom || !entrer || !sortir) return;
-        entrer.hidden = !!utilisateur;
+        entrer.hidden = !!utilisateur || !this.nuage?.etat().disponible;
         sortir.hidden = !utilisateur;
         nom.hidden = !utilisateur;
         nom.textContent = utilisateur ? (utilisateur.displayName || utilisateur.email || 'Connecté') : '';
@@ -3809,10 +3877,8 @@ class TabHubApp {
 
     brancherNuage() {
         const surClic = (id, fn) => document.getElementById(id)?.addEventListener('click', fn);
-        surClic('nuage-connexion', () => {
-            if (!this.nuage) { this.message('Le nuage est indisponible pour l\'instant.'); return; }
-            this.nuage.connecter().catch((err) => this.message('Connexion impossible : ' + (err?.message || 'erreur inconnue'), 5000));
-        });
+        surClic('btn-nuage', () => this.cliquerBoutonNuage());
+        surClic('nuage-connexion', () => this.connecterAuNuage());
         surClic('nuage-deconnexion', () => this.nuage?.deconnecter());
         surClic('nuage-tout-exporter', () => this.exporterToutesLesTablatures());
         surClic('nuage-tout-importer', () => this.importerUneSauvegarde());
@@ -3933,7 +3999,7 @@ class TabHubApp {
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
             'musicxml-exporter': () => this.exporterMusicXMLFichier(),
             disque: () => this.ouvrirFichiersDuDisque(),
-            nuage: () => this.ouvrirNuage(),
+            sauvegarde: () => this.ouvrirNuage(),
             versions: () => this.ouvrirVersions(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {

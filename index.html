@@ -58,7 +58,7 @@
          se retrouvait poussé hors champ). Enregistrer reste seul, à côté : c'est le geste le plus
          fréquent (Ctrl+S), il ne doit pas se cacher derrière un second clic. Popover peuplé une
          fois, voir main.js#basculerPopoverFichiers/#popover-fichiers plus bas. -->
-    <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers<span id="pastille-nuage" class="pastille-nuage" hidden aria-hidden="true">●</span></button>
+    <button type="button" id="btn-fichiers" class="btn-transport-texte" title="Fichiers : nouveau, ouvrir, exporter…" aria-haspopup="true" aria-expanded="false">Fichiers</button>
     <button type="button" id="btn-enregistrer" class="btn-icone btn-icone-accent" title="Enregistrer (Ctrl+S)" aria-label="Enregistrer"></button>
     <!-- RÉGLAGES/AIDE : dans le DOM ici (avec Annuler/Fichiers), mais VISUELLEMENT déplacés contre le
          logo dès qu'il y a la place (voir style.css, .groupe-reglages — `order` en flex, à partir de
@@ -80,6 +80,32 @@
          téléphone il était de toute façon réduit à trois lettres coupées. Le titre se modifie
          désormais là où il se lit : sur la partition (voir #panneau-en-tete), et dans Réglages. -->
     <span class="pousse"></span>
+
+    <!-- LE NUAGE — un bouton À PART, voyant, dans la barre du haut (retour utilisateur : « pour la
+         synchronisation, je préfère un bouton à part plus voyant avec mon nom ou Google dans la barre du
+         haut, plutôt que de l'intégrer dans Fichiers »). Il dit où l'on en est SANS rien ouvrir :
+           • « Se connecter » avec le G de Google, en ambre — le seul état qui demande quelque chose ;
+           • le prénom, avec une pastille d'état (vert : tout est enregistré, orange : en cours, gris : hors
+             ligne, rouge : problème), une fois connecté ;
+           • « Hors ligne » quand le nuage n'existe pas ici.
+         Ce que le bouton montre et ce que son clic fait sont décidés par le moteur (Nuage.presentation) ;
+         main.js#rafraichirBoutonNuage ne fait que l'afficher. Déconnecté, le clic ouvre Google tout de
+         suite ; connecté, il ouvre la fenêtre du compte (#fenetre-nuage). -->
+    <button type="button" id="btn-nuage" class="btn-nuage" data-etat="inconnu" data-point="" aria-haspopup="dialog" title="Nuage" hidden>
+        <span class="nuage-avatar" aria-hidden="true">
+            <!-- Le « G » de Google, aux couleurs de Google (lignes directrices : jamais recoloré). -->
+            <svg class="nuage-g" viewBox="0 0 48 48" focusable="false">
+                <path fill="#EA4335" d="M24 9.5c3.54 0 6.71 1.22 9.21 3.6l6.85-6.85C35.9 2.38 30.47 0 24 0 14.62 0 6.51 5.38 2.56 13.22l7.98 6.19C12.43 13.72 17.74 9.5 24 9.5z"/>
+                <path fill="#4285F4" d="M46.98 24.55c0-1.57-.15-3.09-.38-4.55H24v9.02h12.94c-.58 2.96-2.26 5.48-4.78 7.18l7.73 6c4.51-4.18 7.09-10.36 7.09-17.65z"/>
+                <path fill="#FBBC05" d="M10.53 28.59c-.48-1.45-.76-2.99-.76-4.59s.27-3.14.76-4.59l-7.98-6.19C.92 16.46 0 20.12 0 24c0 3.88.92 7.54 2.56 10.78l7.97-6.19z"/>
+                <path fill="#34A853" d="M24 48c6.48 0 11.93-2.13 15.89-5.81l-7.73-6c-2.15 1.45-4.92 2.3-8.16 2.3-6.26 0-11.57-4.22-13.47-9.91l-7.98 6.19C6.51 42.62 14.62 48 24 48z"/>
+            </svg>
+            <svg class="nuage-icone" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" focusable="false"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9Z"/></svg>
+            <span class="nuage-initiale"></span>
+            <span class="nuage-point"></span>
+        </span>
+        <span class="nuage-libelle"></span>
+    </button>
 
     <a class="logo" href="#" onclick="return false" title="TabHub" aria-label="TabHub">
         <span class="logo-marque">
@@ -951,10 +977,12 @@
          À CÔTÉ DES VERSIONS, et pas ailleurs : les deux répondent à « où est passé mon travail ? »,
          l'une dans le navigateur, l'autre sur le disque. -->
     <button type="button" data-action="disque">Fichiers du disque…</button>
-    <!-- LE NUAGE : la sauvegarde qui se fait toute seule, et le filet de sécurité qui va avec (tout
-         exporter / tout importer en un fichier). À CÔTÉ DES FICHIERS DU DISQUE : c'est la même
-         question — « où est passé mon travail ? » — avec la réponse qui ne dépend d'aucun dossier. -->
-    <button type="button" data-action="nuage">Nuage et sauvegarde…</button>
+    <!-- LA SAUVEGARDE DE SECOURS : tout exporter / tout importer en un seul fichier, à garder sur un disque de
+         temps en temps. C'est un geste sur des FICHIERS, donc sa place est ici — alors que le NUAGE (la copie
+         qui se fait toute seule, le compte, l'état) a son propre bouton dans la barre du haut (#btn-nuage) : il
+         n'est plus rangé dans Fichiers. Cette entrée ouvre la même fenêtre, pour qu'on atteigne la sauvegarde
+         même quand on n'est pas connecté. -->
+    <button type="button" data-action="sauvegarde">Sauvegarde de secours…</button>
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>

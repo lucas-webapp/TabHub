@@ -15,7 +15,10 @@
 //   • un morceau supprimé ailleurs puis modifié ici : il revient (le travail ne se perd pas) ;
 //   • un instantané HORS LIGNE : pris pour un nuage vide, il ferait tout renvoyer par-dessus le vrai ;
 //   • des droits refusés, un morceau trop gros : dits clairement, sans bloquer le reste ;
-//   • un contenu que Firestore refuserait tel quel (tableaux imbriqués) : il voyage en chaîne JSON.
+//   • un contenu que Firestore refuserait tel quel (tableaux imbriqués) : il voyage en chaîne JSON ;
+//   • le GARDE-FOU « tu travailles sans être connecté » : demandé une fois par séance, jamais à quelqu'un
+//     qui est connecté (ni à quelqu'un dont Firebase n'a pas encore dit s'il l'est), jamais quand le nuage
+//     n'existe pas ici, et la fenêtre Google se lance DANS le geste du clic.
 //
 // NEUTRALISATIONS faites à la main sur la source (voir la fin du fichier pour ce qu'elles prouvent).
 
@@ -42,7 +45,7 @@ function appareil(nom, backend, options = {}) {
     const docs = options.docs || {};
     const stockage = options.stockage || stockageMemoire();
     const etats = [];
-    const fb = creerFirebase(backend, { uid: options.uid || 'u1' });
+    const fb = creerFirebase(backend, { uid: options.uid || 'u1', ...(options.compte || {}) });
     let compteurCopie = 0;
     const apresAppels = { n: 0 };
     const adaptateur = {
@@ -66,6 +69,7 @@ function appareil(nom, backend, options = {}) {
         slug: 'harmohub', firebase: fb, config: {}, stockage, adaptateur,
         delaiEnvoi: 10, reessais: [25, 25, 25],
         surEtat: (mode, message) => etats.push({ mode, message }),
+        ...(options.moteur || {}),
     });
     return { nom, docs, stockage, etats, moteur, fb, adaptateur, backend, apresAppels };
 }
@@ -82,7 +86,7 @@ async function connecter(a, attendreSynchro = true) {
 }
 
 (async () => {
-    plan(67);
+    plan(117);
 
     // ===== 1. PREMIER ENVOI, PUIS UN SECOND APPAREIL VIDE ==========================================
     {
@@ -464,6 +468,295 @@ async function connecter(a, attendreSynchro = true) {
         A.moteur.changement();
         await attendre(150);
         check(backend.ecritures === avant, 'un champ que l\'adaptateur exclut de l\'empreinte (la date d\'enregistrement) ne déclenche aucun envoi');
+        A.moteur.arreter();
+    }
+
+    // ===== 17. LE GARDE-FOU « TU TRAVAILLES SANS ÊTRE CONNECTÉ » ===================================
+    // Retour utilisateur : « je veux un garde-fou pour me demander une confirmation si je commence à
+    // travailler alors que je ne suis pas connecté ». Chaque cas ci-dessous est un moment où un garde-fou
+    // naïf dérape : il demande à quelqu'un qui est déjà connecté (Firebase n'a pas encore répondu), il
+    // redemande à chaque touche, ou il propose de se connecter quand c'est impossible.
+    const questionneur = (reponse) => {
+        const journal = { appels: 0, outils: [] };
+        const confirmer = (outils) => {
+            journal.appels++;
+            journal.outils.push(typeof outils.connecter);
+            return Promise.resolve(typeof reponse === 'function' ? reponse(outils, journal) : reponse);
+        };
+        return { journal, confirmer };
+    };
+    const avecQuestion = (backend, q, extra = {}) => appareil('G', backend, { moteur: { confirmerSansConnexion: q.confirmer }, ...extra });
+
+    // -- 17a. « continuer sans me connecter » : une seule question par séance --------------------------
+    {
+        const q = questionneur('continuer');
+        const A = avecQuestion(creerBackend(), q);
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail();
+        check(q.journal.appels === 0, 'la question n\'est pas posée DANS le geste : la commande qui travaille va d\'abord au bout, sans fenêtre ouverte en son milieu');
+        await attendre(15);
+        check(q.journal.appels === 1 && q.journal.outils[0] === 'function', 'déconnecté, le nuage existe : la première modification pose la question — et lui remet `connecter`');
+        for (let i = 0; i < 25; i++) A.moteur.travail();
+        await attendre(25);
+        check(q.journal.appels === 1, 'vingt-cinq modifications de plus après « continuer » : plus aucune question (pas une par touche)');
+        A.moteur.arreter();
+    }
+
+    // -- 17b. Échap, clic à côté : c'est une réponse aussi ----------------------------------------------
+    {
+        const q = questionneur(null);
+        const A = avecQuestion(creerBackend(), q);
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail(); await attendre(15);
+        A.moteur.travail(); A.moteur.travail(); await attendre(15);
+        check(q.journal.appels === 1, 'la question fermée sans choix (Échap, clic à côté) vaut « continuer » : elle ne revient pas à la touche suivante');
+        A.moteur.arreter();
+    }
+
+    // -- 17c. « me connecter » : la fenêtre Google se lance dans le geste, puis le garde-fou repart de zéro
+    {
+        const backend = creerBackend();
+        let appelsDansLeGeste = -1;
+        const q = questionneur((outils) => { outils.connecter(); appelsDansLeGeste = A.fb.auth()._appelsConnexion; return 'connecter'; });
+        const A = avecQuestion(backend, q);
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail(); await attendre(40);
+        check(appelsDansLeGeste === 1, 'appeler `connecter` depuis la question ouvre la fenêtre Google tout de suite, de façon SYNCHRONE (rien à attendre avant : un navigateur la refuserait)');
+        check(A.moteur.etat().connecte, 'et une fois Google passé, on est connecté');
+        A.moteur.travail(); await attendre(20);
+        check(q.journal.appels === 1, 'connecté : plus aucune question');
+        await A.moteur.deconnecter(); await attendre(30);
+        A.moteur.travail(); await attendre(20);
+        check(q.journal.appels === 2, 'déconnecté de nouveau pendant la même séance : la modification suivante REDEMANDE (se connecter a remis le garde-fou à zéro)');
+        A.moteur.arreter();
+    }
+
+    // -- 17c2. « continuer », puis on se connecte PAR LE BOUTON (pas par la question), puis on se déconnecte -----
+    {
+        const q = questionneur('continuer');
+        const A = avecQuestion(creerBackend(), q);
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail(); await attendre(15);
+        A.moteur.travail(); await attendre(15);
+        check(q.journal.appels === 1, 'départ : « continuer sans me connecter », une question');
+        await A.moteur.connecter(); await attendre(40);
+        check(A.moteur.etat().connecte, 'puis il se connecte par le bouton de la barre du haut');
+        await A.moteur.deconnecter(); await attendre(30);
+        A.moteur.travail(); await attendre(20);
+        check(q.journal.appels === 2, 'puis se déconnecte : la modification suivante REDEMANDE — « continuer » ne vaut que pour la période où il n\'était pas connecté');
+        A.moteur.arreter();
+    }
+
+    // -- 17c3. connecté dans un AUTRE onglet pendant que la question est à l'écran -----------------------------
+    {
+        const q = questionneur(() => attendre(90).then(() => 'continuer'));
+        const A = avecQuestion(creerBackend(), q);
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail(); await attendre(20);
+        await A.fb.auth()._connecter(); await attendre(30);      // l'autre onglet vient de se connecter
+        check(A.moteur.etat().connecte, 'pendant que la question est à l\'écran, un autre onglet se connecte : ici aussi');
+        await attendre(120);                                      // la question se referme sur « continuer »
+        await A.moteur.deconnecter(); await attendre(30);
+        A.moteur.travail(); await attendre(20);
+        check(q.journal.appels === 2, 'la réponse « continuer » donnée alors qu\'on était connecté ne vaut pas pour la suite : déconnecté, la prochaine modification redemande');
+        A.moteur.arreter();
+    }
+
+    // -- 17c4. on se connecte DANS LE MÊME TOUR que la modification, avant que la question ne parte -------------
+    {
+        const q = questionneur('continuer');
+        const A = avecQuestion(creerBackend(), q, { compte: { authSynchrone: true } });
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail();                       // la question est programmée…
+        await A.moteur.connecter();               // …mais Firebase signale la connexion avant qu'elle ne parte
+        await attendre(40);
+        check(A.moteur.etat().connecte && q.journal.appels === 0, 'connecté dans le même tour que la modification : la question programmée est abandonnée, on ne demande pas de se connecter à quelqu\'un de connecté');
+        A.moteur.arreter();
+    }
+
+    // -- 17d. fenêtre Google refermée sans se connecter : il avait dit vouloir le faire, ce n'est pas fait
+    {
+        const q = questionneur((outils) => { outils.connecter().catch(() => {}); return 'connecter'; });
+        const A = avecQuestion(creerBackend(), q);
+        A.fb.auth()._echecConnexion = { code: 'auth/popup-closed-by-user' };
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail(); await attendre(40);
+        check(!A.moteur.etat().connecte && !A.moteur.etat().connexionEnCours, 'fenêtre Google refermée sans se connecter : toujours déconnecté, et plus de connexion « en cours »');
+        A.moteur.travail(); await attendre(20);
+        check(q.journal.appels === 2, '…donc la modification suivante redemande');
+        A.moteur.arreter();
+    }
+
+    // -- 17e. connecté : jamais -----------------------------------------------------------------------------
+    {
+        const q = questionneur('continuer');
+        const A = avecQuestion(creerBackend(), q, { compte: { dejaConnecte: true } });
+        A.moteur.demarrer(); await attendre(25);
+        for (let i = 0; i < 5; i++) A.moteur.travail();
+        await attendre(25);
+        check(q.journal.appels === 0, 'connecté : jamais de question');
+        A.moteur.travail();
+        check(A.moteur._diagnostic().garde.ouvert === false, 'et connecté, travail() ne prépare même rien (il est appelé à chaque touche : pas une promesse de plus par frappe)');
+        A.moteur.arreter();
+    }
+
+    // -- 17f. le nuage n'existe pas ici : proposer de se connecter serait proposer l'impossible ----------
+    {
+        const q = questionneur('continuer');
+        const moteur = Nuage.creer({ slug: 'harmohub', firebase: null, config: null, stockage: stockageMemoire(), confirmerSansConnexion: q.confirmer,
+            adaptateur: { lister: () => [], lire: () => null, ecrire() {}, retirer() {} } });
+        moteur.demarrer(); moteur.travail(); await attendre(25);
+        check(q.journal.appels === 0 && moteur.etat().disponible === false,
+            'Firebase bloqué ou hors ligne au chargement : aucune question (et `disponible` le dit)');
+    }
+
+    // -- 17g. on a travaillé AVANT que Firebase dise qui est connecté ---------------------------------------
+    {
+        const q = questionneur('continuer');
+        const A = avecQuestion(creerBackend(), q, { compte: { authApres: 90 } });
+        A.moteur.demarrer();
+        for (let i = 0; i < 5; i++) A.moteur.travail();
+        await attendre(40);
+        check(q.journal.appels === 0 && A.moteur.etat().authConnue === false,
+            'Firebase n\'a pas encore dit qui est connecté : on ne demande RIEN (on ne sait pas encore s\'il faut)');
+        await attendre(150);
+        check(q.journal.appels === 1, 'dès qu\'il répond « personne », la question est posée — une fois, pour les cinq modifications faites entre-temps');
+        A.moteur.arreter();
+
+        const q2 = questionneur('continuer');
+        const B = avecQuestion(creerBackend(), q2, { compte: { authApres: 90, dejaConnecte: true } });
+        B.moteur.demarrer();
+        for (let i = 0; i < 5; i++) B.moteur.travail();
+        await attendre(220);
+        check(q2.journal.appels === 0 && B.moteur.etat().connecte,
+            'même retard, mais une session est restaurée : on était connecté, la question ne vient jamais (c\'est le piège que ce cas garde)');
+        B.moteur.arreter();
+    }
+
+    // -- 17h. une rafale, une question à l'écran : pas deux -------------------------------------------------
+    {
+        const q = questionneur(() => attendre(80).then(() => 'continuer'));
+        const A = avecQuestion(creerBackend(), q);
+        A.moteur.demarrer(); await attendre(25);
+        for (let i = 0; i < 10; i++) A.moteur.travail();
+        await attendre(20);
+        for (let i = 0; i < 10; i++) A.moteur.travail();
+        check(q.journal.appels === 1, 'vingt modifications pendant que la question est à l\'écran : une seule question, pas une pile de fenêtres');
+        await attendre(120);
+        A.moteur.travail(); await attendre(20);
+        check(q.journal.appels === 1, 'et la réponse donnée plus tard vaut toujours');
+        A.moteur.arreter();
+    }
+
+    // -- 17i. la fenêtre Google est ouverte : on ne pose pas une question par-dessus ----------------------
+    {
+        const q = questionneur('continuer');
+        const A = avecQuestion(creerBackend(), q);
+        A.fb.auth()._popupEnAttente = true;
+        A.moteur.demarrer(); await attendre(25);
+        const connexion = A.moteur.connecter();
+        check(A.moteur.etat().connexionEnCours === true, 'connecter() : la connexion est « en cours » tant que la fenêtre Google est ouverte');
+        A.moteur.travail(); await attendre(25);
+        check(q.journal.appels === 0, 'on travaille pendant que la fenêtre Google est ouverte : aucune question par-dessus');
+        A.fb.auth()._finirPopup(true); await connexion; await attendre(30);
+        check(A.moteur.etat().connecte && !A.moteur.etat().connexionEnCours && q.journal.appels === 0, 'connecté, plus « en cours », et toujours aucune question');
+        A.moteur.arreter();
+    }
+
+    // -- 17j. une question qui plante ne replante pas à chaque touche ---------------------------------------
+    {
+        const q = questionneur(() => { throw new Error('boum'); });
+        const A = avecQuestion(creerBackend(), q);
+        const erreurs = []; const consoleError = console.error; console.error = (...a) => erreurs.push(a.join(' '));
+        try {
+            A.moteur.demarrer(); await attendre(25);
+            for (let i = 0; i < 6; i++) { A.moteur.travail(); await attendre(8); }
+        } finally { console.error = consoleError; }
+        check(q.journal.appels === 1 && erreurs.length === 1, `une question qui plante est posée UNE fois et l'erreur est dite (${q.journal.appels} appel, ${erreurs.length} message)`);
+        A.moteur.arreter();
+    }
+
+    // -- 17k. sans question fournie (autre application, anciens bancs), travail() ne fait rien --------------
+    {
+        const A = appareil('A', creerBackend());
+        A.moteur.demarrer(); await attendre(25);
+        A.moteur.travail();
+        check(true, 'travail() sans question fournie est sans effet et ne plante pas');
+        A.moteur.arreter();
+    }
+
+    // ===== 18. CE QUE LE BOUTON MONTRE =============================================================
+    // Un bouton « Se connecter » qui clignote chez quelqu'un de connecté, ou qui affiche un nom périmé,
+    // est pire qu'un bouton absent. La présentation est une fonction pure du moteur : on la vérifie ici,
+    // et les deux applications ne font que l'afficher.
+    {
+        const P = Nuage.presentation;
+        const lucas = { displayName: 'Lucas Martin', email: 'lucas@exemple.fr' };
+        const base = { disponible: true, authConnue: true, connexionEnCours: false, connecte: false, utilisateur: null, mode: null, message: '', compteConnu: null };
+        const d = P(base);
+        check(d.cle === 'deconnecte' && d.libelle === 'Se connecter' && d.action === 'connecter' && /Google/.test(d.titre) && d.avatar === 'g',
+            'déconnecté : « Se connecter » avec le G de Google, et le clic lance Google tout de suite');
+        const c = P({ ...base, connecte: true, utilisateur: lucas, mode: 'synced' });
+        check(c.cle === 'connecte' && c.libelle === 'Lucas' && c.initiale === 'L' && c.action === 'fenetre' && c.point === 'synced' && c.avatar === 'initiale',
+            'connecté : le prénom (pas « Lucas Martin » dans une barre étroite), son initiale, une pastille, et le clic ouvre la fenêtre du compte');
+        check(/Lucas Martin \(lucas@exemple\.fr\)/.test(c.titre) && /tout est enregistré/.test(c.titre), 'l\'infobulle donne le nom complet, l\'adresse et l\'état');
+        check(P({ ...base, connecte: true, utilisateur: lucas, mode: null }).point === 'syncing', 'connecté sans état encore : « en cours », pas une pastille vide');
+        const e = P({ ...base, connecte: true, utilisateur: lucas, mode: 'error', message: 'Firestore refuse l\'accès' });
+        check(e.point === 'error' && /Firestore refuse/.test(e.titre), 'une erreur de synchro se voit sur la pastille ET se lit dans l\'infobulle');
+        check(P({ ...base, connecte: true, utilisateur: { email: 'lucas@gmail.com' } }).libelle === 'lucas', 'sans nom, on prend ce qui précède l\'@ de l\'adresse');
+        const i = P({ ...base, authConnue: false });
+        check(i.cle === 'inconnu' && i.libelle === '' && i.action !== 'connecter' && i.avatar === 'nuage', 'Firebase n\'a pas répondu et on ne connaît personne : un simple nuage, pas de « Se connecter » qui pourrait être faux');
+        const ic = P({ ...base, authConnue: false, compteConnu: { nom: 'Lucas Martin' } });
+        check(ic.cle === 'inconnu' && ic.libelle === 'Lucas' && ic.initiale === 'L', 'Firebase n\'a pas répondu mais on connaît le dernier compte : on le montre (pas de clignotement « Se connecter » → prénom)');
+        const co = P({ ...base, authConnue: false, connexionEnCours: true });
+        check(co.cle === 'connexion' && co.libelle === 'Connexion…' && co.action === 'connecter', 'fenêtre Google ouverte : « Connexion… », et un clic la rouvre si elle s\'est perdue');
+        const x = P({ ...base, disponible: false, authConnue: false });
+        check(x.cle === 'indisponible' && x.libelle === 'Hors ligne' && x.action === 'fenetre' && x.point === 'hors-ligne' && x.avatar === 'nuage', 'pas de nuage ici : « Hors ligne », jamais « Se connecter »');
+        check(P({ ...base, disponible: false, authConnue: false, compteConnu: { nom: 'Lucas Martin' } }).libelle === 'Lucas', 'pas de nuage mais un compte connu : on garde son prénom (les modifications partiront au prochain chargement connecté)');
+    }
+
+    // ===== 19. POURQUOI LA CONNEXION ÉCHOUE, EN FRANÇAIS ============================================
+    {
+        const E = Nuage.expliquerConnexion;
+        check(E({ code: 'auth/popup-closed-by-user' }) === '' && E({ code: 'auth/cancelled-popup-request' }) === '',
+            'refermer la fenêtre Google n\'est pas une erreur : aucun message');
+        check(/bloqué/.test(E({ code: 'auth/popup-blocked' })), 'fenêtre bloquée par le navigateur : on dit d\'autoriser les fenêtres surgissantes');
+        check(/Authorized domains/.test(E({ code: 'auth/unauthorized-domain' })), 'domaine non autorisé : on dit OÙ le régler dans la console Firebase');
+        check(/Connexion impossible : ça casse/.test(E({ code: 'auth/autre', message: 'ça casse' })) && /indisponible/.test(E(new Error('Firebase indisponible'))),
+            'le reste : le message d\'origine ; et « Firebase indisponible » devient une phrase');
+    }
+
+    // ===== 20. L'INDICE DU DERNIER COMPTE ============================================================
+    {
+        const backend = creerBackend();
+        const stock = stockageMemoire();
+        const A = appareil('A', backend, { stockage: stock, compte: { dejaConnecte: true, nom: 'Lucas Martin' } });
+        A.moteur.demarrer(); await attendre(25);
+        check(JSON.parse(stock.getItem('nuage.harmohub.compte')).nom === 'Lucas Martin', 'connecté : le nom est retenu pour le prochain chargement');
+        A.moteur.arreter();
+        const B = appareil('B', backend, { stockage: stock, compte: { authApres: 120 } });   // rechargement ; Firebase est lent à répondre
+        B.moteur.demarrer();
+        check(B.moteur.etat().compteConnu && B.moteur.etat().compteConnu.nom === 'Lucas Martin' && B.moteur.etat().authConnue === false,
+            'au rechargement, AVANT la réponse de Firebase, on connaît déjà le dernier compte');
+        await attendre(220);
+        check(B.moteur.etat().compteConnu === null && stock.getItem('nuage.harmohub.compte') === null,
+            'Firebase répond « personne » : l\'indice est oublié (il ne peut pas mentir plus longtemps)');
+        B.moteur.arreter();
+    }
+
+    // ===== 21. L'INTERFACE EST PRÉVENUE DE CE QUI LA CONCERNE =========================================
+    {
+        let n = 0;
+        const A = appareil('A', creerBackend(), { moteur: { surAffichage: () => n++ } });
+        A.fb.auth()._popupEnAttente = true;
+        A.moteur.demarrer(); await attendre(25);
+        const apresAuth = n;
+        check(apresAuth > 0, 'Firebase répond : l\'interface est prévenue (le bouton peut passer de « inconnu » à « Se connecter »)');
+        const connexion = A.moteur.connecter();
+        check(n > apresAuth, 'la fenêtre Google s\'ouvre : l\'interface est prévenue (« Connexion… »)');
+        const avantFin = n;
+        A.fb.auth()._finirPopup(true); await connexion; await attendre(40);
+        check(n > avantFin, 'connecté : l\'interface est prévenue encore');
         A.moteur.arreter();
     }
 

@@ -1138,6 +1138,10 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    Ce qui garde le texte lisible n'est donc pas la largeur de la fenêtre mais le paragraphe lui-même,
    qui ne fait jamais qu'une phrase ou deux. */
 .fenetre-dialogue { width: min(560px, 100%); }
+/* Le focus peut être posé sur la FENÊTRE elle-même (dialogue.js, option `sansFocus` : la question du garde-fou du
+   nuage surgit pendant qu'on tape, et ne doit pas mettre le focus sur un bouton). Un conteneur non interactif n'a
+   pas à porter d'anneau de focus — il se lisait comme un liseré blanc autour de la fenêtre. Les boutons gardent le leur. */
+.fenetre-dialogue:focus { outline: none; }
 #fenetre-dialogue { z-index: 80; }
 .dialogue-texte { margin: 0; font-size: var(--fs-base); color: var(--text-main); line-height: 1.5; }
 /* Les boutons passent à la ligne plutôt que de déborder : sur un téléphone étroit, trois libellés en
@@ -2052,21 +2056,95 @@ body.avec-pave .dpad-flottant { display: grid; }
     .rangees-rythme { gap: 16px; }
     .apercu-rythme { max-height: 26vh; }
 }
-}
 
 
 /* ============================================================
-   NUAGE (Firebase) — pastille d'état et fenêtre « Nuage et sauvegarde »
+   NUAGE (Firebase) — le bouton du compte (barre du haut) et la fenêtre « Nuage et sauvegarde »
    ============================================================ */
-/* La pastille vit DANS le bouton Fichiers : c'est le seul endroit de la barre du haut qui a encore de
-   la place, et il parle déjà de « où est mon travail ». Invisible tant qu'on n'est pas connecté —
-   une application qu'on n'a pas reliée au nuage n'a pas à afficher une pastille grise qui inquiète. */
-.pastille-nuage { margin-left: 5px; font-size: .7em; vertical-align: 1px; color: var(--text-muted); }
-.pastille-nuage[hidden] { display: none; }
-.pastille-nuage.synced { color: var(--accent); }
-.pastille-nuage.syncing { color: #ffb74d; }
-.pastille-nuage.hors-ligne { color: var(--text-muted); }
-.pastille-nuage.error { color: #ff6b6b; }
+/* UN BOUTON À PART, voyant (retour utilisateur : « plus voyant, avec mon nom ou Google, dans la barre du haut,
+   plutôt que de l'intégrer dans Fichiers »). Il portait avant une simple pastille dans Fichiers, qu'on ne
+   voyait qu'en sachant la chercher.
+
+   LE DÉCONNECTÉ SE VOIT DE LOIN, et lui seul : c'est le seul état qui DEMANDE quelque chose (ambre, comme
+   « en cours » plus bas — la couleur de ce qui n'est pas fini). Une fois connecté, le bouton s'efface dans
+   la barre : un prénom, une pastille d'état. Le dessin est piloté par data-etat / data-avatar / data-point,
+   posés par main.js#rafraichirBoutonNuage d'après Nuage.presentation — le CSS ne décide d'aucun état. */
+.btn-nuage {
+    position: relative;
+    flex: none;
+    display: inline-flex; align-items: center; gap: 7px;
+    height: var(--h-bouton);
+    padding: 0 12px 0 4px;
+    border-radius: 999px;
+    border: 1px solid var(--btn-neutral-border);
+    background: linear-gradient(180deg, var(--btn-neutral-1) 0%, var(--btn-neutral-2) 100%);
+    color: var(--text-main);
+    font-family: var(--font); font-size: var(--fs-sm); font-weight: 800; letter-spacing: .01em;
+    white-space: nowrap; cursor: pointer;
+    transition: background .12s, border-color .12s, color .12s;
+}
+.btn-nuage[hidden] { display: none; }
+.btn-nuage:hover { border-color: var(--btn-neutral-border-hover); }
+.nuage-avatar {
+    position: relative; flex: none;
+    width: calc(var(--h-bouton) - 10px); height: calc(var(--h-bouton) - 10px);
+    border-radius: 50%;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: var(--bg); color: var(--text-muted);
+}
+.nuage-avatar > svg, .nuage-initiale { display: none; }
+.nuage-g { width: 56%; height: 56%; }
+.nuage-icone { width: 58%; height: 58%; }
+.nuage-initiale { font-size: var(--fs-sm); font-weight: 800; line-height: 1; color: var(--accent); }
+.btn-nuage[data-avatar="g"] .nuage-g, .btn-nuage[data-avatar="nuage"] .nuage-icone { display: block; }
+.btn-nuage[data-avatar="initiale"] .nuage-initiale { display: block; }
+.btn-nuage[data-avatar="g"] .nuage-avatar { background: #fff; }   /* le G de Google se pose sur du blanc, jamais sur du sombre */
+.nuage-libelle { max-width: 9em; overflow: hidden; text-overflow: ellipsis; }
+.nuage-libelle:empty { display: none; }
+
+/* La pastille d'état : un point sur le coin de l'avatar, cerclé de la couleur du bouton pour se détacher. */
+.nuage-point {
+    position: absolute; right: -3px; bottom: -3px;
+    width: 9px; height: 9px; border-radius: 50%;
+    border: 2px solid var(--btn-neutral-1);
+    display: none;
+}
+.btn-nuage[data-point="synced"] .nuage-point,
+.btn-nuage[data-point="syncing"] .nuage-point,
+.btn-nuage[data-point="hors-ligne"] .nuage-point,
+.btn-nuage[data-point="error"] .nuage-point { display: block; }
+.btn-nuage[data-point="synced"] .nuage-point { background: var(--accent); }
+.btn-nuage[data-point="syncing"] .nuage-point { background: #ffb74d; }
+.btn-nuage[data-point="hors-ligne"] .nuage-point { background: var(--text-muted); }
+.btn-nuage[data-point="error"] .nuage-point { background: #ff6b6b; }
+
+.btn-nuage[data-etat="deconnecte"] {
+    border-color: #ffb74d;
+    background: color-mix(in srgb, #ffb74d 16%, var(--card-bg));
+    color: #ffd9a0;
+}
+.btn-nuage[data-etat="deconnecte"]:hover { border-color: #ffc978; background: color-mix(in srgb, #ffb74d 25%, var(--card-bg)); }
+.btn-nuage[data-etat="connexion"] { border-color: #ffb74d; color: #ffd9a0; }
+.btn-nuage[data-etat="inconnu"] { opacity: .75; }
+.btn-nuage[data-etat="indisponible"] { color: var(--text-muted); }
+
+/* TÉLÉPHONE : le bouton ne garde que son rond (le G de Google, l'initiale ou un nuage) et sa pastille ; le
+   libellé reste dans l'infobulle et dans le nom accessible. La barre du haut tenait PILE à 390px (mesuré :
+   41px de reste au doigt, 11px à 360px) — un bouton à libellé la ferait déborder de 40 à 100px, et
+   `overflow-x: auto` (voir .barre-haut) cacherait Réglages derrière un défilement que rien ne signale. */
+@media (max-width: 720px) {
+    .btn-nuage { padding: 0 3px; }
+    .nuage-libelle { display: none; }
+}
+/* Très étroit : les deux filets de séparation (1px + 8px de marge, plus l'écart de chaque côté) ne servent qu'à
+   regrouper les boutons ; ils cèdent la place au bouton du compte. */
+@media (max-width: 420px) {
+    .barre-haut .separateur { display: none; }
+}
+/* Et à 320px, où les boutons voisins sont déjà ramenés à 37px : 2px de moins pour ne pas déborder d'un seul pixel. */
+@media (max-width: 340px) {
+    .btn-nuage { padding: 0 1px; }
+}
 .nuage-compte { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px; }
 .nuage-nom { font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .nuage-titre { margin: 16px 0 6px; font-size: var(--fs-sm); color: var(--text-main); }

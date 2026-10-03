@@ -71,18 +71,56 @@
         return b;
     }
 
+    /**
+     * `compte` : { uid, nom, email } et, pour éprouver ce que le vrai Firebase fait vraiment :
+     *   • dejaConnecte — une session est déjà là au chargement (Firebase la relit de son stockage) ;
+     *   • authApres    — délai (ms) avant que Firebase ne dise QUI est connecté. Au chargement réel il y a
+     *                    un court moment où l'on ne sait pas encore : c'est lui qui piégerait un garde-fou
+     *                    qui prendrait « pas encore su » pour « personne ».
+     *   • authSynchrone — la connexion est signalée DANS le même tour que la demande, avant toute microtâche
+     *                    déjà en attente (le vrai Firebase signale depuis une chaîne de promesses : il peut
+     *                    passer devant une microtâche posée plus tôt).
+     * Et sur l'objet `auth` (préfixe _), des commandes de scénario :
+     *   • _echecConnexion = { code } — la prochaine fenêtre Google échoue (ou est refermée) ;
+     *   • _popupEnAttente = true     — la fenêtre reste ouverte jusqu'à _finirPopup(ok, erreur) ;
+     *   • _appelsConnexion           — combien de fois la fenêtre Google a été demandée.
+     */
     function creerFirebase(backend, compte) {
-        var utilisateur = null;
+        var utilisateur = compte.dejaConnecte
+            ? { uid: compte.uid, displayName: compte.nom || 'Testeur', email: compte.email || 'test@example.org' }
+            : null;
         var surAuth = [];
+        var popupsEnAttente = [];
+        function emettre() {
+            surAuth.forEach(function (fn) {
+                if (compte.authSynchrone) fn(utilisateur); else setTimeout(function () { fn(utilisateur); }, 0);
+            });
+        }
+        function seConnecter() {
+            utilisateur = { uid: compte.uid, displayName: compte.nom || 'Testeur', email: compte.email || 'test@example.org' };
+            emettre();
+            return { user: utilisateur };
+        }
         var auth = {
             onAuthStateChanged: function (fn) {
                 surAuth.push(fn);
-                setTimeout(function () { fn(utilisateur); }, 0);
+                setTimeout(function () { fn(utilisateur); }, compte.authApres || 0);
             },
             signInWithPopup: function () {
-                utilisateur = { uid: compte.uid, displayName: compte.nom || 'Testeur', email: compte.email || 'test@example.org' };
-                surAuth.forEach(function (fn) { setTimeout(function () { fn(utilisateur); }, 0); });
-                return Promise.resolve({ user: utilisateur });
+                auth._appelsConnexion++;
+                if (auth._echecConnexion) { var e = auth._echecConnexion; auth._echecConnexion = null; return Promise.reject(e); }
+                if (auth._popupEnAttente) {
+                    return new Promise(function (resolve, reject) { popupsEnAttente.push({ resolve: resolve, reject: reject }); });
+                }
+                return Promise.resolve(seConnecter());
+            },
+            _appelsConnexion: 0,
+            _echecConnexion: null,
+            _popupEnAttente: false,
+            _finirPopup: function (ok, erreur) {
+                var p = popupsEnAttente.shift();
+                if (!p) return;
+                if (ok) p.resolve(seConnecter()); else p.reject(erreur || { code: 'auth/popup-closed-by-user', message: 'fermée' });
             },
             signOut: function () {
                 utilisateur = null;

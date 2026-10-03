@@ -56,7 +56,7 @@ function elements() {
  * partition derrière. Au retour, le focus repart d'où il venait : on rouvre la fenêtre avec le
  * clavier là où on l'avait laissé.
  */
-function ouvrir({ titre, texte, champ, etiquette, boutons, defaut }) {
+function ouvrir({ titre, texte, champ, etiquette, boutons, defaut, sansFocus }) {
     const el = elements();
     if (!el) return Promise.resolve(null);
 
@@ -78,6 +78,7 @@ function ouvrir({ titre, texte, champ, etiquette, boutons, defaut }) {
         const finir = (valeur) => {
             if (repondu) return;
             repondu = true;
+            fermetureCourante = null;
             document.removeEventListener('keydown', surTouche, true);
             el.voile.hidden = true;
             // Le focus rendu à qui l'avait : voir le docblock.
@@ -91,7 +92,12 @@ function ouvrir({ titre, texte, champ, etiquette, boutons, defaut }) {
             bouton.className = b.style === 'danger' ? 'btn-danger' : b.style === 'plein' ? 'btn-plein' : 'btn-neutre';
             bouton.textContent = b.libelle;
             bouton.dataset.choix = b.cle;
-            bouton.addEventListener('click', () => finir(champ && b.valide ? el.champ.value : b.cle));
+            bouton.addEventListener('click', () => {
+                // `auClic` s'exécute DANS le clic, avant toute attente : c'est la seule façon d'ouvrir une fenêtre
+                // (la connexion Google) que le navigateur n'a pas à refuser — voir demanderSansConnexion.
+                if (b.auClic) { try { b.auClic(); } catch (e) { console.error(e); } }
+                finir(champ && b.valide ? el.champ.value : b.cle);
+            });
             el.actions.appendChild(bouton);
         }
 
@@ -123,21 +129,41 @@ function ouvrir({ titre, texte, champ, etiquette, boutons, defaut }) {
             finir(null);
         });
 
+        fermetureCourante = finir;
         el.voile.hidden = false;
         // Le champ d'abord s'il y en a un (on vient écrire), sinon le premier bouton (on vient
         // choisir) : dans les deux cas, le clavier tombe sur ce qu'on est venu faire.
+        //
+        // `sansFocus` : une question qui SURGIT pendant qu'on écrit (le garde-fou du nuage) ne doit pas poser le
+        // focus sur un bouton — la frappe suivante (Entrée, espace) l'activerait avant même qu'on ait lu. Le focus
+        // va à la fenêtre elle-même : le clavier est capté (Échap répond), rien n'est activé par mégarde, et Tab
+        // atteint les boutons.
         if (champ) { el.champ.focus(); el.champ.select(); }
-        else el.actions.firstElementChild?.focus();
+        else if (sansFocus) {
+            const fenetre = el.voile.querySelector('.fenetre');
+            if (fenetre) { fenetre.tabIndex = -1; fenetre.focus(); }
+        } else el.actions.firstElementChild?.focus();
     });
+}
+
+/** La fermeture du dialogue actuellement ouvert, s'il y en a un — pour le refermer DE L'EXTÉRIEUR. */
+let fermetureCourante = null;
+
+/** Referme le dialogue ouvert (réponse `null`, comme Échap). Sans effet s'il n'y en a pas. À n'appeler que si
+ *  l'on sait que c'est le sien : il n'y a qu'une fenêtre de dialogue, et on fermerait celle d'un autre. */
+export function fermerDialogue() {
+    if (fermetureCourante) fermetureCourante(null);
 }
 
 /**
  * Une QUESTION à plusieurs réponses. `boutons` : `[{ cle, libelle, style }]` — `style` valant
- * `'plein'` (l'action mise en avant), `'danger'` (celle qui détruit) ou rien (neutre).
+ * `'plein'` (l'action mise en avant), `'danger'` (celle qui détruit) ou rien (neutre). Un bouton peut porter
+ * `auClic`, exécuté DANS le clic avant que la réponse ne soit rendue ; `sansFocus` évite de poser le focus sur
+ * un bouton (voir `ouvrir`).
  * @returns {Promise<string|null>} la `cle` du bouton cliqué, `null` si annulé.
  */
-export function demander({ titre, texte, boutons }) {
-    return ouvrir({ titre, texte, boutons });
+export function demander({ titre, texte, boutons, sansFocus }) {
+    return ouvrir({ titre, texte, boutons, sansFocus });
 }
 
 /**

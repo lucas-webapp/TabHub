@@ -489,12 +489,50 @@ aléatoire sur HarmoHub et TabHub. On va connecter tous les documents à mon Fir
 le cas pour TrainHub. Conserve des exports/imports de secours, de temps en temps je conserverai mes
 données sur un disque. »*
 
-**Le principe.** Connecté avec Google (Fichiers > *Nuage et sauvegarde…*), chaque morceau est recopié
-dans le compte dès qu'il change — 1,5 s après la dernière modification — et se retrouve sur les autres
-appareils. La pastille à droite de « Fichiers » dit où ça en est : verte (tout est enregistré), orange
-(en cours), grise (hors ligne), rouge (un problème, et la raison en infobulle). Elle n'apparaît
-qu'une fois connecté. Sans Firebase — hors ligne, bloqué — l'application fonctionne exactement comme
-avant : le nuage est un plus, jamais une condition.
+**Le principe.** Connecté avec Google (le bouton de la barre du haut), chaque morceau est recopié dans
+le compte dès qu'il change — 1,5 s après la dernière modification — et se retrouve sur les autres
+appareils. Sans Firebase — hors ligne, bloqué — l'application fonctionne exactement comme avant : le
+nuage est un plus, jamais une condition.
+
+**Un bouton à part, dans la barre du haut** (retour utilisateur : *« un bouton à part plus voyant avec mon
+nom ou Google, plutôt que de l'intégrer dans Fichiers »*). Il dit où l'on en est sans rien ouvrir :
+
+- **« Se connecter »**, avec le G de Google, en ambre, quand personne n'est connecté — le seul état qui
+  demande quelque chose, donc le seul qui se voit de loin ;
+- **le prénom**, avec une pastille d'état, une fois connecté : verte (tout est enregistré), orange (en
+  cours), grise (hors ligne), rouge (un problème, la raison en infobulle) ;
+- **« Hors ligne »** quand le nuage n'existe pas ici (Firebase bloqué, hors ligne au chargement).
+
+**Un clic suffit.** Déconnecté, le bouton ouvre Google tout de suite — dans le geste du clic, pas après
+une attente : un navigateur (Safari, iPhone surtout) refuse sinon d'ouvrir la fenêtre. Connecté, il ouvre
+la fenêtre du compte (le compte, la liste des morceaux du nuage, la sauvegarde de secours). Refermer la
+fenêtre Google n'est pas une erreur : aucun message. Sur téléphone, le bouton ne garde que son rond (le G,
+ou l'initiale) : la barre du haut y tient pile, et un libellé la ferait déborder. Au rechargement, le
+dernier compte connu s'affiche tout de suite, plutôt qu'un « Se connecter » qui clignoterait le temps que
+Firebase réponde. Le menu Fichiers ne porte plus le nuage ; il garde *Sauvegarde de secours…*, qui ouvre la
+même fenêtre — la sauvegarde reste atteignable sans être connecté.
+
+**Le garde-fou « tu travailles sans être connecté »** (retour utilisateur : *« une confirmation si je
+commence à travailler alors que je ne suis pas connecté »*). À la première modification faite sans être
+connecté, une question : *Me connecter avec Google* ou *Continuer sans me connecter*. La modification qui
+l'a déclenchée est appliquée : la question ne la bloque ni ne la perd. Les règles, chacune gardée par un
+banc :
+
+- **Une fois par séance.** « Continuer » éteint la question jusqu'au prochain chargement (ou jusqu'à ce
+  qu'on se connecte puis se déconnecte) ; Échap ou un clic à côté valent « continuer ». Une question qui
+  reviendrait à chaque touche se fermerait sans être lue, et ne garderait plus rien.
+- **À la première *modification*, pas à l'ouverture.** Celui qui vient seulement lire ou écouter n'est pas
+  interrompu ; déplacer le curseur, ouvrir un fichier, changer d'onglet ne comptent pas.
+- **Jamais à quelqu'un qui est connecté.** Cela demande d'attendre Firebase : au chargement, il y a un
+  court moment où l'on ne sait pas encore si une session est restaurée. Une modification faite à ce moment
+  attend la réponse, et ne pose la question que si personne n'est connecté.
+- **Jamais quand le nuage n'existe pas ici.** Proposer de se connecter serait proposer ce qui ne peut pas
+  marcher ; le bouton dit alors « Hors ligne ».
+- **Sans rien activer par mégarde.** La question surgit pendant qu'on tape : le focus va à la fenêtre, pas
+  à un bouton, pour que la frappe suivante (Entrée, espace) n'en active pas un avant d'avoir été lue.
+- **Fenêtre Google refermée sans se connecter** : la modification suivante redemande (il avait dit vouloir
+  se connecter, ce n'est pas fait). Connecté dans un autre onglet pendant que la question est à l'écran :
+  elle se referme d'elle-même.
 
 **Ce qui est repris de TrainHub**, parce que ça marche : connexion Google par fenêtre, SDK Firestore
 « compat » 10.13.2, chemin `users/{uid}/apps/{slug}`, envoi différé de 1,5 s, pastille d'état,
@@ -527,14 +565,14 @@ ne se pose plus si le morceau est déjà identique à sa copie du nuage, ni à l
 revanche, un envoi *en cours* ou *en échec* retient la fermeture, même pour un travail exporté : la
 copie du nuage n'est alors pas celle qu'on croit.
 
-**La sauvegarde de secours** (même fenêtre) : *Tout exporter* écrit **un seul fichier** qui contient
+**La sauvegarde de secours** (Fichiers > *Sauvegarde de secours…*, ou la fenêtre du compte) : *Tout exporter* écrit **un seul fichier** qui contient
 tous les morceaux — les ouverts ici ET ceux qui ne sont que dans le nuage. *Tout importer* n'écrase
 rien : un morceau identique est ignoré, un morceau différent arrive à côté sous un titre daté, un
 morceau absent est posé. Connecté, l'import va dans le nuage (une sauvegarde en compte des dizaines,
 elle ne remplit pas la barre d'onglets). Les exports `.json` / PDF / MIDI / MusicXML d'un morceau
 restent inchangés.
 
-**Deux pièges trouvés en mesurant.**
+**Trois pièges trouvés en mesurant.**
 
 - `normaliser` **régénère les identifiants internes** des mesures, des évènements et des notes à chaque
   appel (`m9` devient `ml`). Le même morceau, normalisé deux fois, donne deux JSON différents : une
@@ -544,6 +582,13 @@ restent inchangés.
 - Le moteur attend le premier instantané **venu du serveur** avant de décider quoi que ce soit. Sans
   ce verrou, une modification annoncée au démarrage, avant que le nuage ait répondu, le faisait croire
   vide : il envoyait tout par-dessus des versions plus récentes qu'il n'avait jamais vues.
+- Une accolade `}` **en trop** dans `style.css` (venue d'un ancien remaniement, restée inoffensive tant
+  qu'elle était la dernière ligne du fichier) **avalait en silence la première règle écrite derrière
+  elle** : le navigateur la lit comme le début d'une règle invalide dont le « sélecteur » absorbe la
+  règle suivante. Rien en console, rien d'autre à l'écran qu'un style manquant — la règle du bouton du
+  nuage ne s'appliquait pas, et la pastille de Fichiers, dans le commit précédent, avait déjà perdu les
+  siennes sans que personne ne le voie. Seul un contrôle de style *calculé* l'a révélé ;
+  `css_equilibre_test.js` garde maintenant toute la classe de défaut, pour toute règle future.
 
 **À faire UNE fois dans la console Firebase** (le code ne peut pas le faire, et je n'y ai pas accès) :
 
@@ -570,14 +615,24 @@ restent inchangés.
 
 Ce qui n'est **pas** synchronisé : les réglages (volume, zoom, position de la barre d'outils…), les
 versions précédentes, les fichiers du disque. `firebase-config.js` reprend la configuration publique de
-TrainHub (même projet `lucas-apps`) avec `FIREBASE_APP_SLUG = "tabhub"` ; `appId` est celui de TrainHub,
-sans conséquence pour l'authentification et Firestore.
+TrainHub (même projet `lucas-apps`) avec `FIREBASE_APP_SLUG = "tabhub"` ; `appId` est celui de l'application
+web créée dans la console Firebase pour ce projet (et non plus celui de TrainHub). Il ne sert ni à
+l'authentification ni à Firestore — seuls `apiKey`, `authDomain` et `projectId` comptent — mais il identifie
+l'app. S'il y a une application web par site, c'est une ligne à changer dans chaque `firebase-config.js`.
 
-**Bancs.** `nuage_moteur_test.js` (le moteur, sous Node, deux « appareils » sur un même faux nuage :
-67 vérifications, 12 sabotages de la source tous détectés) et `nuage_test.js` (TabHub dans un vrai
-navigateur, Firebase injecté en mémoire, CDN coupé). **Aucun de ces bancs ne parle au vrai Firebase** :
-il faudrait un compte Google. Ils éprouvent la logique de synchro, pas la configuration du projet — d'où
-la liste ci-dessus.
+**Bancs.**
+
+- `nuage_moteur_test.js` — le moteur, sous Node, deux « appareils » sur un même faux nuage : 117 vérifications.
+  12 sabotages de la source pour la synchro, plus 23 pour le garde-fou, la présentation du bouton et
+  l'indice du dernier compte : tous détectés (un sabotage qui survit est un contrôle manquant, et deux l'ont
+  été avant d'être comblés).
+- `nuage_test.js` — TabHub dans un vrai navigateur, Firebase injecté en mémoire, CDN coupé : 88 vérifications,
+  dont le bouton (états, un clic, téléphone), la question du garde-fou (clavier, Échap, fenêtre Google
+  demandée *dans* le clic, session restaurée, Firebase lent) et le dessin calculé du bouton.
+- `css_equilibre_test.js` — les feuilles de style, sans navigateur : aucune accolade en trop.
+
+**Aucun de ces bancs ne parle au vrai Firebase** : il faudrait un compte Google. Ils éprouvent la logique
+de synchro et l'interface, pas la configuration du projet — d'où la liste ci-dessus.
 
 #### Deux défauts remontés sur capture
 

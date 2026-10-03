@@ -28,6 +28,11 @@
 //     laisse son contenu dans le nuage (seul l'index le marque supprimé), et une suppression de
 //     masse, presque toujours un accident, est refusée.
 //
+//   • LE COMPTE, LE BOUTON ET LE GARDE-FOU. Le moteur sait aussi qui est connecté (`etat()`), ce que doit montrer
+//     le bouton de la barre du haut (`Nuage.presentation`) et quand demander à quelqu'un qui travaille sans être
+//     connecté de se connecter (`travail()`) : les mêmes règles dans les deux applications, et vérifiables sans
+//     navigateur. L'application ne fait qu'AFFICHER le bouton et la question.
+//
 // L'APPLICATION FOURNIT UN ADAPTATEUR (voir `creer`) : comment lister ses morceaux, en lire un, en
 // écrire un. Ce fichier ne sait rien de ce qu'est une partition ou une grille d'accords.
 
@@ -56,6 +61,97 @@
         return String(id).replace(/[^A-Za-z0-9_-]/g, '-').slice(0, 120) || 'sans-id';
     }
 
+    // ---------- ce que l'interface montre du compte -----------------------------------------------------
+    // Ici, dans le moteur, et pas dans chaque application : les deux boutons de la barre du haut doivent
+    // dire la même chose au même moment, et c'est ainsi vérifiable sans navigateur.
+
+    function nomAffiche(utilisateur) {
+        return (utilisateur && (utilisateur.displayName || utilisateur.email)) || 'Connecté';
+    }
+
+    /** « Lucas Martin » → « Lucas » ; une adresse → ce qui précède l'@. Le bouton vit dans une barre étroite. */
+    function prenom(nom) {
+        var n = String(nom || '').trim();
+        if (!n) return '';
+        if (n.indexOf('@') > 0) return n.slice(0, n.indexOf('@'));
+        return n.split(/\s+/)[0];
+    }
+
+    var TEXTE_MODE = {
+        synced: 'tout est enregistré',
+        syncing: 'enregistrement en cours…',
+        'hors-ligne': 'hors ligne — les modifications partiront au retour du réseau'
+    };
+
+    /**
+     * LE BOUTON DU NUAGE, dans la barre du haut : ce qu'il doit montrer et ce que son clic doit faire, d'après
+     * `etat()`. Cinq états, et tous ont un sens pour l'utilisateur :
+     *
+     *   deconnecte    — « Se connecter » : le nuage existe, personne n'est connecté. Un clic ouvre Google.
+     *   connecte      — le prénom, une pastille d'état. Un clic ouvre la fenêtre du compte.
+     *   connexion     — la fenêtre Google est ouverte.
+     *   inconnu       — Firebase n'a pas encore dit qui est connecté (quelques centaines de ms au chargement) ;
+     *                   on montre le dernier compte connu plutôt qu'un « Se connecter » qui clignoterait.
+     *   indisponible  — pas de nuage ici (hors ligne au chargement, bloqué) : il n'y a rien à proposer.
+     *
+     * `action` : 'connecter' (lancer Google tout de suite, dans le geste du clic — un navigateur refuse
+     * d'ouvrir la fenêtre sinon) ou 'fenetre' (ouvrir la fenêtre du compte).
+     * `avatar` : 'g' | 'initiale' | 'nuage' — ce que le rond du bouton dessine.
+     */
+    function presentation(e) {
+        var p = presentationBrute(e);
+        // Ce que l'avatar du bouton dessine : le G de Google quand il y a quelque chose à faire avec Google,
+        // sinon l'initiale du compte (connu ou retenu), sinon un nuage.
+        p.avatar = (p.cle === 'deconnecte' || p.cle === 'connexion') ? 'g' : (p.initiale ? 'initiale' : 'nuage');
+        return p;
+    }
+
+    function presentationBrute(e) {
+        e = e || {};
+        var u = e.utilisateur || null;
+        var nom = u ? nomAffiche(u) : ((e.compteConnu && e.compteConnu.nom) || '');
+        var court = prenom(nom);
+        var initiale = court ? court.charAt(0).toUpperCase() : '';
+        if (!e.disponible) {
+            return {
+                cle: 'indisponible', libelle: court || 'Hors ligne', initiale: initiale, point: 'hors-ligne', action: 'fenetre',
+                titre: 'Le nuage est indisponible (hors ligne, ou bloqué par le navigateur). Tout continue de fonctionner sur cet appareil'
+                    + (court ? ' ; tes modifications partiront au prochain chargement connecté.' : '.')
+            };
+        }
+        if (e.connexionEnCours) {
+            return { cle: 'connexion', libelle: 'Connexion…', initiale: '', point: '', action: 'connecter',
+                titre: 'Connexion à Google en cours… (un clic rouvre la fenêtre si elle s\'est perdue)' };
+        }
+        if (!e.authConnue) {
+            return { cle: 'inconnu', libelle: court, initiale: initiale, point: '', action: 'fenetre', titre: 'Vérification de la connexion…' };
+        }
+        if (u) {
+            var mode = (e.mode === 'error' || TEXTE_MODE[e.mode]) ? e.mode : 'syncing';
+            var detail = mode === 'error' ? (e.message || 'erreur de synchronisation') : TEXTE_MODE[mode];
+            return {
+                cle: 'connecte', libelle: court, initiale: initiale, point: mode, action: 'fenetre',
+                titre: nom + (u.email && u.email !== nom ? ' (' + u.email + ')' : '') + ' — nuage : ' + detail
+            };
+        }
+        return {
+            cle: 'deconnecte', libelle: 'Se connecter', initiale: '', point: '', action: 'connecter',
+            titre: 'Se connecter avec Google : tes morceaux s\'enregistrent alors tout seuls dans ton compte, et se retrouvent sur tes autres appareils.'
+        };
+    }
+
+    /** Une phrase pour l'utilisateur quand la connexion échoue — et RIEN quand il a simplement refermé la fenêtre Google. */
+    function expliquerConnexion(e) {
+        var code = e && e.code ? String(e.code) : '';
+        if (code.indexOf('popup-closed-by-user') >= 0 || code.indexOf('cancelled-popup-request') >= 0) return '';
+        if (code.indexOf('popup-blocked') >= 0) return 'Le navigateur a bloqué la fenêtre de connexion Google : autorise les fenêtres surgissantes pour ce site, puis réessaie.';
+        if (code.indexOf('unauthorized-domain') >= 0) return 'Ce domaine n\'est pas autorisé dans Firebase (console > Authentication > Settings > Authorized domains).';
+        if (code.indexOf('network-request-failed') >= 0) return 'Connexion impossible : pas de réseau.';
+        if (code.indexOf('operation-not-supported') >= 0) return 'Ce navigateur ne permet pas la connexion par fenêtre surgissante.';
+        if (e && e.message === 'Firebase indisponible') return 'Le nuage est indisponible pour l\'instant (hors ligne, ou bloqué par le navigateur).';
+        return 'Connexion impossible : ' + ((e && e.message) || 'erreur inconnue');
+    }
+
     function creer(options) {
         var slug = options.slug;
         var adaptateur = options.adaptateur;
@@ -67,6 +163,7 @@
         var reessais = options.reessais || REESSAIS_MS;
         var CLE_ETAT = 'nuage.' + slug + '.etat';
         var CLE_SECOURS = 'nuage.' + slug + '.secours';
+        var CLE_COMPTE = 'nuage.' + slug + '.compte';
 
         var app = null, auth = null, db = null;
         var utilisateur = null;
@@ -89,6 +186,16 @@
         var alerte = '';
         var copieCreee = false;
         var toucheLocal = false;          // ce cycle a modifié des morceaux de CET appareil
+        // QUI EST CONNECTÉ, et ce que l'interface en sait. Tant que Firebase n'a pas répondu (le tout début
+        // du chargement), « personne n'est connecté » et « on ne sait pas encore » se ressemblent — et les
+        // confondre ferait demander à quelqu'un de se connecter alors qu'il l'est déjà.
+        var authConnue = false;           // Firebase a dit, au moins une fois, qui est connecté (ou personne)
+        var connexionEnCours = false;     // la fenêtre Google est ouverte
+        var compteConnu = lireCompteConnu();   // le dernier compte connecté ICI : un indice d'affichage, jamais une preuve
+        // LE GARDE-FOU « tu travailles sans être connecté » (voir travail). Trois drapeaux, tous par séance.
+        var gardeRepondu = false;         // « continuer sans me connecter » : on ne redemande pas avant la prochaine séance
+        var gardeOuvert = false;          // la question est à l'écran
+        var gardeEnAttente = false;       // on a travaillé avant de savoir si l'utilisateur était connecté
 
         // ---------- état local (ce qui a été synchronisé la dernière fois) --------------------------
 
@@ -102,6 +209,24 @@
                 }
             } catch (e) { /* illisible : on repart de zéro, ce qui re-synchronise tout */ }
             return { uid: null, docs: {}, supprimes: {} };
+        }
+
+        function lireCompteConnu() {
+            try {
+                var c = JSON.parse(stockage.getItem(CLE_COMPTE));
+                if (c && typeof c.nom === 'string' && c.nom) return { nom: c.nom };
+            } catch (e) { /* illisible : pas d'indice */ }
+            return null;
+        }
+
+        function memoriserCompte(user) {
+            compteConnu = { nom: nomAffiche(user) };
+            try { stockage.setItem(CLE_COMPTE, JSON.stringify(compteConnu)); } catch (e) { /* sans gravité */ }
+        }
+
+        function oublierCompte() {
+            compteConnu = null;
+            try { stockage.removeItem(CLE_COMPTE); } catch (e) { /* sans gravité */ }
         }
 
         function ecrireEtatLocal() {
@@ -133,6 +258,12 @@
             etatAffiche = mode;
             dernierMessage = message || '';
             if (options.surEtat) options.surEtat(mode, dernierMessage);
+            rafraichirAffichage();
+        }
+
+        /** Tout ce qui change ce que montre le bouton du nuage (compte, état, connexion en cours) passe par ici. */
+        function rafraichirAffichage() {
+            if (options.surAffichage) options.surAffichage();
         }
 
         function expliquer(e) {
@@ -454,11 +585,19 @@
 
         function surAuth(user) {
             utilisateur = user;
+            authConnue = true;
+            if (user) { memoriserCompte(user); gardeRepondu = false; gardeEnAttente = false; } else { oublierCompte(); }
             if (desabonner) { desabonner(); desabonner = null; }
             if (minuterie) { clearTimeout(minuterie); minuterie = null; }
             if (options.surCompte) options.surCompte(user);
             indexPret = false;
-            if (!user) { refIndex = null; afficher(null); return; }
+            if (!user) {
+                refIndex = null;
+                afficher(null);
+                // Il a travaillé avant que Firebase ne réponde : maintenant on sait qu'il n'est pas connecté.
+                if (gardeEnAttente) { gardeEnAttente = false; poserLaQuestion(); }
+                return;
+            }
             if (etatLocal.uid && etatLocal.uid !== user.uid) {
                 // Un AUTRE compte sur cet appareil : ce qui a été synchronisé n'a rien à voir avec lui.
                 etatLocal = { uid: user.uid, docs: {}, supprimes: {} };
@@ -485,6 +624,67 @@
             });
         }
 
+        // ---------- le garde-fou « tu travailles sans être connecté » ---------------------------------------
+        //
+        // POURQUOI. Retour utilisateur : « l'enregistrement me semble trop aléatoire », puis « je veux un garde-fou
+        // pour me demander une confirmation si je commence à travailler alors que je ne suis pas connecté ». Le
+        // piège est silencieux : sans connexion tout continue de marcher, en local, et on ne s'aperçoit qu'on
+        // n'était pas enregistré dans le nuage que le jour où l'on cherche son travail sur un autre appareil.
+        //
+        // QUAND. À la PREMIÈRE modification faite par l'utilisateur — pas à l'ouverture, qui interromprait
+        // quelqu'un qui vient seulement lire ou écouter. L'application appelle travail() à chaque geste qui
+        // modifie un document ; ce n'est pas changement(), qui dit seulement « les données locales ont peut-être
+        // bougé » et que le moteur lui-même peut déclencher.
+        //
+        // COMBIEN DE FOIS. Une fois par séance : « continuer sans me connecter » éteint la question jusqu'au
+        // prochain chargement (ou jusqu'à ce qu'on se connecte puis se déconnecte). Redemander à chaque touche
+        // ferait vite fermer la fenêtre sans la lire, et un garde-fou qu'on ferme sans lire ne garde plus rien.
+        //
+        // QUAND ON NE DEMANDE PAS, et pourquoi chaque cas compte :
+        //   • connecté : il n'y a rien à demander ;
+        //   • le nuage n'existe pas ici (Firebase bloqué, hors ligne au chargement) : proposer « Me connecter »
+        //     serait proposer ce qui ne peut pas marcher ;
+        //   • Firebase n'a pas encore répondu : on attend, au lieu de demander à quelqu'un qui est peut-être
+        //     connecté de se connecter (la question viendra, au besoin, quand la réponse sera là) ;
+        //   • la fenêtre Google est déjà ouverte ou la question est déjà à l'écran.
+        //
+        // LA CONNEXION SE LANCE DANS LE GESTE. La question reçoit `connecter` et l'appelle DANS le clic du
+        // bouton, pas après avoir attendu une promesse : un navigateur refuse d'ouvrir la fenêtre Google
+        // sinon (Safari surtout, et sur iPhone en premier).
+
+        /** L'utilisateur vient de MODIFIER quelque chose. Si le nuage existe mais qu'il n'est pas connecté, on
+         *  le lui demande — une fois par séance. */
+        function travail() {
+            if (arrete || !auth || !options.confirmerSansConnexion) return;
+            if (utilisateur) return;
+            if (!authConnue) { gardeEnAttente = true; return; }
+            poserLaQuestion();
+        }
+
+        function poserLaQuestion() {
+            if (gardeRepondu || gardeOuvert || connexionEnCours || arrete) return;
+            gardeOuvert = true;
+            // Dans une microtâche : la commande qui a déclenché le garde (une saisie, qui émet plusieurs
+            // notifications d'affilée) doit d'abord aller au bout, sans qu'une fenêtre s'ouvre en son milieu.
+            Promise.resolve().then(function () {
+                if (utilisateur || arrete) return 'deja';
+                return options.confirmerSansConnexion({ connecter: function () { return api.connecter(); } });
+            }).then(function (choix) {
+                gardeOuvert = false;
+                // Seul « me connecter » laisse la question ouverte pour la prochaine modification : si la
+                // fenêtre Google est refermée sans connexion, on est toujours déconnecté et on le redira.
+                // Tout le reste (continuer, Échap, clic à côté) est une réponse : on n'insiste pas.
+                //   Et pas de réponse retenue si l'on s'est connecté pendant que la question était à l'écran (dans
+                //   un autre onglet) : se connecter a remis le garde-fou à zéro, et le laisser « répondu » ferait
+                //   taire la question à la déconnexion suivante.
+                if (choix !== 'connecter' && choix !== 'deja' && !utilisateur) gardeRepondu = true;
+            }, function (e) {
+                gardeOuvert = false;
+                gardeRepondu = true;   // une question qui plante ne doit pas replanter à chaque touche
+                console.error('Garde-fou du nuage', e);
+            });
+        }
+
         // ---------- API -----------------------------------------------------------------------------
 
         var api = {
@@ -501,12 +701,20 @@
                     return false;
                 }
             },
+            /** Ouvre la fenêtre Google. À appeler DIRECTEMENT depuis un clic : rien d'asynchrone avant. */
             connecter: function () {
                 if (!auth) return Promise.reject(new Error('Firebase indisponible'));
-                return auth.signInWithPopup(new fb.auth.GoogleAuthProvider());
+                var p;
+                try { p = auth.signInWithPopup(new fb.auth.GoogleAuthProvider()); } catch (e) { return Promise.reject(e); }
+                connexionEnCours = true;
+                rafraichirAffichage();
+                var fin = function () { connexionEnCours = false; rafraichirAffichage(); };
+                p.then(fin, fin);
+                return p;
             },
             deconnecter: function () { return auth ? auth.signOut() : Promise.resolve(); },
             changement: changement,
+            travail: travail,
             rapprocher: rapprocher,
             /** Suppression VOULUE d'un morceau (bouton « Supprimer du nuage »). */
             supprimer: function (id, titre) {
@@ -557,14 +765,21 @@
                 });
             },
             enAttente: function () { return etatAffiche === 'syncing' || etatAffiche === 'error'; },
-            etat: function () { return { mode: etatAffiche, message: dernierMessage, connecte: !!utilisateur, utilisateur: utilisateur }; },
+            etat: function () {
+                return {
+                    mode: etatAffiche, message: dernierMessage, connecte: !!utilisateur, utilisateur: utilisateur,
+                    disponible: !!auth, authConnue: authConnue, connexionEnCours: connexionEnCours, compteConnu: compteConnu
+                };
+            },
             secours: lireSecours,
             /** Pour les bancs : l'état de rapprochement tel que le moteur le voit. */
-            _diagnostic: function () { return { etatLocal: etatLocal, index: index }; },
+            _diagnostic: function () {
+                return { etatLocal: etatLocal, index: index, garde: { repondu: gardeRepondu, ouvert: gardeOuvert, enAttente: gardeEnAttente } };
+            },
             arreter: function () { arrete = true; if (desabonner) desabonner(); if (minuterie) clearTimeout(minuterie); if (minuterieReessai) clearTimeout(minuterieReessai); },
         };
         return api;
     }
 
-    global.Nuage = { creer: creer, empreinteTexte: empreinteTexte, idSur: idSur };
+    global.Nuage = { creer: creer, empreinteTexte: empreinteTexte, idSur: idSur, presentation: presentation, expliquerConnexion: expliquerConnexion };
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -7,7 +7,8 @@
 //
 // CE QU'IL PROTÈGE (retour utilisateur : « l'enregistrement me semble trop aléatoire [...] on va
 // connecter tous les documents à mon Firebase ») :
-//   • se connecter depuis la fenêtre « Nuage et sauvegarde » ; la pastille qui dit où ça en est ;
+//   • se connecter d'UN clic sur le bouton « Se connecter » de la barre du haut (et non plus depuis Fichiers) ;
+//     ce bouton, qui montre le prénom et la pastille qui dit où ça en est ;
 //   • une modification part toute seule, et le morceau est retrouvable dans la liste du nuage ;
 //   • un morceau écrit sur un AUTRE appareil s'ouvre depuis la liste, et une mise à jour distante remplace
 //     l'onglet concerné en gardant le curseur ;
@@ -15,35 +16,40 @@
 //   • LA SAUVEGARDE DE SECOURS : tout exporter en un fichier, tout importer sans rien écraser ;
 //   • une fois tout dans le nuage, plus de « ce travail sera perdu » à chaque geste ; et si ça n'y est PAS,
 //     l'avertissement reste ;
-//   • sans Firebase (hors ligne, bloqué), l'application fonctionne exactement comme avant.
+//   • sans Firebase (hors ligne, bloqué), l'application fonctionne exactement comme avant ;
+//   • LE GARDE-FOU : à la première modification faite sans être connecté, une question — une fois par séance,
+//     sans activer un bouton par mégarde, et jamais à quelqu'un qui est connecté.
 
 const creerHarnais = require('./_harness.js');
-const { ouvrirApp, avecFauxFirebase } = require('./_page.js');
+const { ouvrirApp, avecFauxFirebase, taper } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('nuage dans TabHub');
 
 const attendre = (ms) => new Promise(r => setTimeout(r, ms));
 
 (async () => {
-    plan(40);
+    plan(88);
 
     // ===== A. AVEC UN NUAGE ======================================================================
     const { page, erreurs, fermer } = await ouvrirApp({ avant: avecFauxFirebase() });
     try {
         const etatPastille = () => page.evaluate(() => {
-            const p = document.getElementById('pastille-nuage');
-            return { visible: !p.hidden, classes: [...p.classList].filter(c => c !== 'pastille-nuage'), titre: p.title };
+            const b = document.getElementById('btn-nuage');
+            return { visible: !b.hidden, etat: b.dataset.etat, point: b.dataset.point, classes: b.dataset.point ? [b.dataset.point] : [],
+                     titre: b.title, libelle: b.querySelector('.nuage-libelle').textContent };
         });
-        const attendrePastille = (classe, ms = 6000) => page.waitForFunction(
-            (c) => document.getElementById('pastille-nuage').classList.contains(c), classe, { timeout: ms }).then(() => true, () => false);
+        const attendrePastille = (point, ms = 6000) => page.waitForFunction(
+            (c) => document.getElementById('btn-nuage').dataset.point === c, point, { timeout: ms }).then(() => true, () => false);
 
-        // --- 1. La pastille est cachée tant qu'on n'est pas connecté ----------------------------
+        // --- 1. Le bouton du nuage dit « Se connecter » tant qu'on n'est pas connecté ---------------
         let p = await etatPastille();
-        check(!p.visible, 'pas connecté : aucune pastille (une application qu\'on n\'a pas reliée n\'affiche pas une pastille grise qui inquiète)');
+        check(p.visible && p.etat === 'deconnecte' && p.libelle === 'Se connecter' && p.point === '',
+            'pas connecté : le bouton de la barre du haut dit « Se connecter », sans pastille d\'état (rien à signaler tant qu\'il n\'y a rien de relié)');
 
-        // --- 2. Se connecter depuis la fenêtre --------------------------------------------------
+        // --- 2. Le menu Fichiers ne porte plus le nuage ; la sauvegarde de secours y reste -------------------
         await page.click('#btn-fichiers');
-        const entree = await page.$('#popover-fichiers [data-action="nuage"]');
-        exiger(!!entree, 'le menu Fichiers propose « Nuage et sauvegarde… »');
+        const entree = await page.$('#popover-fichiers [data-action="sauvegarde"]');
+        const ancienne = await page.$('#popover-fichiers [data-action="nuage"], #pastille-nuage, #btn-fichiers .pastille-nuage');
+        exiger(!!entree && !ancienne, 'le menu Fichiers ne porte plus le nuage (ni entrée « Nuage », ni pastille) mais « Sauvegarde de secours… »');
         await entree.click();
         await page.waitForSelector('#fenetre-nuage:not([hidden])');
         const avantConnexion = await page.evaluate(() => ({
@@ -53,8 +59,15 @@ const attendre = (ms) => new Promise(r => setTimeout(r, ms));
         }));
         check(avantConnexion.boutonConnexion && !avantConnexion.boutonSortie && /Connecte-toi/.test(avantConnexion.note),
             'la fenêtre propose de se connecter, et explique pourquoi');
-        await page.click('#nuage-connexion');
-        check(await attendrePastille('synced'), 'connecté : la pastille passe à « synchronisé »');
+        await page.click('#fenetre-nuage [data-fermer].btn-plein');
+        // UN SEUL CLIC : déconnecté, le bouton ouvre Google tout de suite, sans fenêtre intermédiaire.
+        await page.click('#btn-nuage');
+        check(await attendrePastille('synced'), 'un clic sur « Se connecter » ouvre Google, et connecté la pastille passe à « synchronisé »');
+        check(await page.evaluate(() => document.getElementById('fenetre-nuage').hidden), 'sans passer par une fenêtre : un seul clic suffit');
+        p = await etatPastille();
+        check(p.etat === 'connecte' && p.libelle === 'Testeur', 'le bouton montre alors le prénom');
+        await page.click('#btn-nuage');          // connecté : le clic ouvre la fenêtre du compte
+        await page.waitForSelector('#fenetre-nuage:not([hidden])');
         const apresConnexion = await page.evaluate(() => ({
             nom: document.getElementById('nuage-nom').textContent,
             sortie: !document.getElementById('nuage-deconnexion').hidden,
@@ -111,8 +124,7 @@ const attendre = (ms) => new Promise(r => setTimeout(r, ms));
         await attendre(300);
         const nAvant = await page.evaluate(() => window.app.onglets.length);
         check(nAvant === 1, 'un morceau distant ne s\'ouvre PAS d\'office (un seul onglet reste ouvert)');
-        await page.click('#btn-fichiers');
-        await page.click('#popover-fichiers [data-action="nuage"]');
+        await page.click('#btn-nuage');
         const liste = await page.evaluate(() => [...document.querySelectorAll('#nuage-liste .nuage-ligne-titre')].map(e => e.textContent));
         check(liste.includes('Riff venu du téléphone'), 'il apparaît dans la liste du nuage');
         await page.evaluate(() => {
@@ -203,7 +215,7 @@ const attendre = (ms) => new Promise(r => setTimeout(r, ms));
         const pg = B.page;
         await pg.evaluate(() => { window.app.ouvrirNuage(); });
         await pg.click('#nuage-connexion');
-        await pg.waitForFunction(() => document.getElementById('pastille-nuage').classList.contains('synced'), null, { timeout: 6000 });
+        await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.point === 'synced', null, { timeout: 6000 });
 
         // Deux autres morceaux dans le nuage, écrits « ailleurs ».
         await pg.evaluate(async () => {
@@ -314,17 +326,292 @@ const attendre = (ms) => new Promise(r => setTimeout(r, ms));
             await new Promise(res => setTimeout(res, 2000));
             return {
                 connecte: a.nuage ? a.nuage.etat().connecte : false,
-                pastilleCachee: document.getElementById('pastille-nuage').hidden,
+                bouton: document.getElementById('btn-nuage').dataset.etat + '/' + document.getElementById('btn-nuage').querySelector('.nuage-libelle').textContent,
+                dialogue: !document.getElementById('fenetre-dialogue').hidden,
                 note: document.getElementById('nuage-note').textContent,
+                connexionProposee: !document.getElementById('nuage-connexion').hidden,
                 ecritureLocale: !!localStorage.getItem('tabhub.brouillon'),
                 enAttente: a.nuage ? a.nuage.enAttente() : false,
             };
         });
-        check(!r.connecte && r.pastilleCachee && r.ecritureLocale && !r.enAttente,
-            'sans Firebase (hors ligne, bloqué) : pas de pastille, pas d\'attente, et le brouillon local s\'écrit comme avant');
-        check(/indisponible/.test(r.note) || /Connecte-toi/.test(r.note), 'et la fenêtre Nuage le dit au lieu de promettre ce qu\'elle ne peut pas tenir');
+        check(!r.connecte && r.bouton === 'indisponible/Hors ligne' && r.ecritureLocale && !r.enAttente,
+            'sans Firebase (hors ligne, bloqué) : le bouton dit « Hors ligne », pas d\'attente, et le brouillon local s\'écrit comme avant');
+        check(r.dialogue === false, 'et AUCUNE question « tu n\'es pas connecté » malgré une modification : proposer de se connecter quand c\'est impossible n\'aurait aucun sens');
+        check(/indisponible/.test(r.note) && !r.connexionProposee, 'et la fenêtre Nuage le dit, sans proposer un bouton « Se connecter » qui ne pourrait pas marcher');
         check(C.erreurs.length === 0, `aucune erreur de console sans Firebase (${C.erreurs.length})`);
     } finally { await C.fermer(); }
+
+    // ===== D. LE GARDE-FOU « TU TRAVAILLES SANS ÊTRE CONNECTÉ », DANS UN VRAI NAVIGATEUR ===========
+    // Retour utilisateur : « je veux un garde-fou pour me demander une confirmation si je commence à
+    // travailler alors que je ne suis pas connecté ». Le moteur décide QUAND (nuage_moteur_test.js) ; ici on
+    // éprouve ce que l'utilisateur voit et touche : la question, le clavier, les deux boutons, la fenêtre Google.
+    const lireDialogue = (pg) => pg.evaluate(() => {
+        const d = document.getElementById('fenetre-dialogue');
+        return {
+            ouvert: !d.hidden,
+            titre: d.querySelector('.dialogue-titre').textContent,
+            boutons: [...d.querySelectorAll('.dialogue-actions button')].map(b => b.textContent.trim()),
+            focusSurBouton: !!(document.activeElement && document.activeElement.closest('.dialogue-actions')),
+            focusDansLaFenetre: d.contains(document.activeElement),
+        };
+    });
+    const dialogueOuvert = (pg, ms = 1500) => pg.waitForFunction(() => !document.getElementById('fenetre-dialogue').hidden, null, { timeout: ms }).then(() => true, () => false);
+    const sansDialogue = async (pg, ms = 500) => { await attendre(ms); return await pg.evaluate(() => document.getElementById('fenetre-dialogue').hidden); };
+    const repondu = (pg) => pg.evaluate(() => window.app.nuage._diagnostic().garde.repondu);
+    const nbQuestions = (pg) => pg.evaluate(() => window.__questions || 0);
+    // Compte les questions posées, sans rien changer à ce que l'utilisateur voit.
+    const compterQuestions = (pg) => pg.evaluate(() => {
+        window.__questions = 0;
+        const observer = new MutationObserver(() => {
+            const d = document.getElementById('fenetre-dialogue');
+            if (!d.hidden && !window.__ouvert) { window.__questions++; window.__ouvert = true; }
+            if (d.hidden) window.__ouvert = false;
+        });
+        observer.observe(document.getElementById('fenetre-dialogue'), { attributes: true, attributeFilter: ['hidden'] });
+    });
+    // Note l'évènement en cours au moment où la fenêtre Google est demandée : `window.event` n'existe QUE pendant
+    // la distribution d'un évènement. Une demande faite après une attente (promesse, minuterie) le trouve vide —
+    // et c'est exactement ce que Safari refuse d'ouvrir.
+    const espionnerGoogle = (pg) => pg.evaluate(() => {
+        const auth = window.firebase.auth();
+        const origine = auth.signInWithPopup;
+        window.__googleDemande = [];
+        auth.signInWithPopup = function () { window.__googleDemande.push(window.event ? window.event.type : null); return origine.apply(this, arguments); };
+    });
+
+    // --- D1. Ouvrir, regarder, écouter : ce n'est pas travailler --------------------------------------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase() });
+        try {
+            const pg = D.page;
+            await compterQuestions(pg);
+            await attendre(700);
+            check(await sansDialogue(pg, 100), 'ouvrir l\'application sans rien toucher : aucune question (celui qui vient seulement lire ou écouter n\'est pas interrompu)');
+            await pg.keyboard.press('ArrowRight'); await pg.keyboard.press('ArrowLeft');
+            await pg.evaluate(() => window.app.nouvelOnglet());
+            check(await sansDialogue(pg, 500), 'déplacer le curseur, ouvrir un nouvel onglet : aucune question — ce n\'est pas encore travailler');
+
+            // --- D2. La première vraie modification pose la question -------------------------------------
+            await taper(pg, ['7']);
+            exiger(await dialogueOuvert(pg), 'la première modification (une case de tablature écrite) pose la question');
+            let d = await lireDialogue(pg);
+            check(d.titre === 'Tu n\'es pas connecté' && d.boutons.join('|') === 'Continuer sans me connecter|Me connecter avec Google',
+                `elle dit « ${d.titre} » et propose deux choix : ${d.boutons.join(' / ')}`);
+            check((await pg.evaluate(() => window.app.editeur.etapesDocument())) > 0, 'et la modification qui l\'a déclenchée est bien appliquée (la question ne la bloque pas, ni ne la perd)');
+            check(d.focusDansLaFenetre && !d.focusSurBouton,
+                'le focus est dans la fenêtre mais SUR AUCUN BOUTON : la frappe suivante (Entrée, espace) ne peut pas activer un choix avant qu\'on ait lu');
+            await pg.keyboard.press('Enter'); await pg.keyboard.press('Space'); await attendre(250);
+            check((await lireDialogue(pg)).ouvert && (await pg.evaluate(() => window.firebase.auth()._appelsConnexion)) === 0,
+                'Entrée puis espace pendant que la question est à l\'écran ne répondent à rien : elle reste ouverte, aucune connexion lancée');
+
+            // --- D3. Échap vaut « continuer » : la question ne revient pas ----------------------------------
+            await pg.keyboard.press('Escape');
+            check(await sansDialogue(pg, 150), 'Échap referme la question');
+            check((await repondu(pg)) === true, 'et vaut « continuer sans me connecter »');
+            check(await pg.evaluate(() => document.activeElement && document.activeElement.id === 'zone-partition'), 'le focus revient à la partition : on continue de taper là où on était');
+            await taper(pg, ['ArrowRight', '8']);
+            check(await sansDialogue(pg, 500) && (await nbQuestions(pg)) === 1, 'les modifications suivantes ne posent plus la question (une seule pour toute la séance)');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D4. « Me connecter avec Google » : la fenêtre Google s'ouvre DANS le clic ---------------------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase({ uid: 'u1', nom: 'Lucas Martin' }) });
+        try {
+            const pg = D.page;
+            await espionnerGoogle(pg);
+            await taper(pg, ['5']);
+            exiger(await dialogueOuvert(pg), 'préalable : la question est posée');
+            await pg.click('#fenetre-dialogue [data-choix="connecter"]');
+            const demandes = await pg.evaluate(() => window.__googleDemande);
+            check(demandes.length === 1 && demandes[0] === 'click',
+                `la fenêtre Google est demandée DANS le clic (évènement en cours : ${JSON.stringify(demandes)}) — pas après une attente, que Safari refuserait`);
+            check(await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'connecte', null, { timeout: 4000 }).then(() => true, () => false),
+                'puis on est connecté : le bouton de la barre du haut montre le prénom');
+            check(await sansDialogue(pg, 100), 'et la question est refermée');
+            await taper(pg, ['ArrowRight', '3']);
+            check(await sansDialogue(pg, 500), 'connecté, les modifications suivantes ne posent plus aucune question');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D5. Le bouton de la barre du haut lance Google lui aussi dans le clic ------------------------------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase() });
+        try {
+            const pg = D.page;
+            await espionnerGoogle(pg);
+            await pg.click('#btn-nuage');
+            const demandes = await pg.evaluate(() => window.__googleDemande);
+            check(demandes.length === 1 && demandes[0] === 'click', `le bouton « Se connecter » demande la fenêtre Google dans le clic (${JSON.stringify(demandes)})`);
+        } finally { await D.fermer(); }
+    }
+
+    // --- D6. Google refermé sans se connecter : pas d'erreur affichée, et la question revient ---------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase() });
+        try {
+            const pg = D.page;
+            await compterQuestions(pg);
+            await pg.evaluate(() => { window.firebase.auth()._echecConnexion = { code: 'auth/popup-closed-by-user', message: 'Firebase: Error (auth/popup-closed-by-user).' }; });
+            await taper(pg, ['4']);
+            exiger(await dialogueOuvert(pg), 'préalable : la question est posée');
+            await pg.click('#fenetre-dialogue [data-choix="connecter"]');
+            await attendre(400);
+            const msg = await pg.evaluate(() => document.getElementById('message').textContent);
+            check(!/Connexion impossible|popup/.test(msg), `refermer la fenêtre Google n'est pas une erreur : aucun message (« ${msg} »)`);
+            check((await pg.evaluate(() => document.getElementById('btn-nuage').dataset.etat)) === 'deconnecte', 'on reste déconnecté, et le bouton continue de proposer « Se connecter »');
+            await taper(pg, ['ArrowRight', '6']);
+            check(await dialogueOuvert(pg) && (await nbQuestions(pg)) === 2, 'la modification suivante REDEMANDE : il avait dit vouloir se connecter, ce n\'est pas fait');
+            await pg.keyboard.press('Escape');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D7. Fenêtre bloquée par le navigateur : on le dit, et comment s'en sortir -------------------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase() });
+        try {
+            const pg = D.page;
+            await pg.evaluate(() => { window.firebase.auth()._echecConnexion = { code: 'auth/popup-blocked', message: 'bloqué' }; });
+            await pg.click('#btn-nuage');
+            await attendre(300);
+            const msg = await pg.evaluate(() => document.getElementById('message').textContent);
+            check(/bloqué la fenêtre de connexion/.test(msg) && /autorise/.test(msg), `fenêtre bloquée : le message dit pourquoi et quoi faire (« ${msg} »)`);
+        } finally { await D.fermer(); }
+    }
+
+    // --- D8. Connecté AILLEURS pendant que la question est à l'écran : elle disparaît d'elle-même ---------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase({ uid: 'u1', nom: 'Lucas Martin' }) });
+        try {
+            const pg = D.page;
+            await compterQuestions(pg);
+            await taper(pg, ['2']);
+            exiger(await dialogueOuvert(pg), 'préalable : la question est posée');
+            await pg.evaluate(() => window.firebase.auth()._connecter());   // un autre onglet vient de se connecter
+            check(await pg.waitForFunction(() => document.getElementById('fenetre-dialogue').hidden, null, { timeout: 3000 }).then(() => true, () => false),
+                'connecté depuis un autre onglet pendant que la question est à l\'écran : elle se referme toute seule (elle n\'a plus d\'objet)');
+            await pg.evaluate(() => window.app.nuage.deconnecter());
+            await attendre(300);
+            await taper(pg, ['ArrowRight', '1']);
+            check(await dialogueOuvert(pg) && (await nbQuestions(pg)) === 2, 'puis déconnecté : la modification suivante redemande (la fermeture automatique n\'a pas compté comme une réponse)');
+            await pg.keyboard.press('Escape');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D9. Un clic à côté vaut « continuer » ---------------------------------------------------------------------
+    {
+        const D = await ouvrirApp({ avant: avecFauxFirebase() });
+        try {
+            const pg = D.page;
+            await taper(pg, ['9']);
+            exiger(await dialogueOuvert(pg), 'préalable : la question est posée');
+            await pg.evaluate(() => { const v = document.getElementById('fenetre-dialogue'); v.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); });
+            check(await sansDialogue(pg, 150) && (await repondu(pg)) === true, 'un clic à côté referme la question et vaut « continuer »');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D10. Firebase n'a pas encore répondu : on ne le sait pas, on ne demande pas ----------------------------------
+    {
+        // Une session est restaurée, mais Firebase met 700 ms à le dire : c'est le piège du garde-fou naïf.
+        const D = await ouvrirApp({ avant: avecFauxFirebase({ uid: 'u1', nom: 'Lucas Martin', dejaConnecte: true, authApres: 2500 }) });
+        try {
+            const pg = D.page;
+            await taper(pg, ['7']);
+            exiger(await pg.evaluate(() => window.app.nuage.etat().authConnue === false), 'préalable : Firebase n\'a PAS encore répondu au moment de la modification (sans quoi ce scénario n\'éprouverait rien)');
+            check(await sansDialogue(pg, 100), 'Firebase n\'a pas encore répondu : aucune question (on ne sait pas encore si l\'utilisateur est connecté)');
+            await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'connecte', null, { timeout: 4000 });
+            check(await sansDialogue(pg, 400), 'il répond « connecté » (session restaurée) : la question ne vient JAMAIS — on ne demande pas de se connecter à quelqu\'un qui l\'est');
+        } finally { await D.fermer(); }
+    }
+    {
+        // Même retard, mais personne n'est connecté : la question vient, une fois la réponse connue.
+        const D = await ouvrirApp({ avant: avecFauxFirebase({ uid: 'u1', nom: 'Lucas Martin', authApres: 2500 }) });
+        try {
+            const pg = D.page;
+            await taper(pg, ['7']);
+            exiger(await pg.evaluate(() => window.app.nuage.etat().authConnue === false), 'préalable : Firebase n\'a PAS encore répondu au moment de la modification');
+            check(await sansDialogue(pg, 100), 'Firebase tarde, personne n\'est connecté : pas de question tant qu\'il n\'a pas répondu…');
+            check(await dialogueOuvert(pg, 5000), '…elle vient dès qu\'il répond « personne », pour la modification faite entre-temps');
+            await pg.keyboard.press('Escape');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D11. Au rechargement, le dernier compte s'affiche tout de suite (pas de « Se connecter » qui clignote) -----
+    {
+        // Firebase met 2,5 s à répondre : assez pour regarder le bouton AVANT sa réponse.
+        const D = await ouvrirApp({ avant: avecFauxFirebase({ uid: 'u1', nom: 'Lucas Martin', dejaConnecte: true, authApres: 2500 }) });
+        try {
+            const pg = D.page;
+            const etatBouton = () => pg.evaluate(() => { const b = document.getElementById('btn-nuage'); return { etat: b.dataset.etat, avatar: b.dataset.avatar, libelle: b.querySelector('.nuage-libelle').textContent }; });
+            await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'connecte', null, { timeout: 8000 });
+            check(JSON.parse(await pg.evaluate(() => localStorage.getItem('nuage.tabhub.compte')) || 'null')?.nom === 'Lucas Martin',
+                'connecté : le nom du compte est retenu dans le navigateur (un indice d\'affichage, rien d\'autre)');
+            await pg.reload({ waitUntil: 'domcontentloaded' });
+            await pg.waitForFunction(() => window.app && window.app.page, null, { timeout: 20000 });
+            const avant = await etatBouton();
+            check(avant.etat === 'inconnu' && avant.libelle === 'Lucas' && avant.avatar === 'initiale',
+                `au rechargement, AVANT que Firebase ne réponde, le bouton montre déjà le dernier compte (${avant.etat} / ${avant.libelle}) au lieu d'un « Se connecter » qui clignoterait`);
+            await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'connecte', null, { timeout: 8000 });
+            await pg.evaluate(() => window.app.nuage.deconnecter());
+            await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'deconnecte', null, { timeout: 4000 });
+            check((await pg.evaluate(() => localStorage.getItem('nuage.tabhub.compte'))) === null, 'déconnecté : l\'indice est oublié (le bouton ne montrera plus ce nom au prochain chargement)');
+        } finally { await D.fermer(); }
+    }
+
+    // --- D12. Le script du moteur n'a pas chargé : pas de bouton qui ne mène nulle part -----------------------------------
+    {
+        // `window.Nuage` reste indéfini quoi qu'on lui affecte : comme si nuage.js n'avait jamais été servi.
+        const D = await ouvrirApp({ avant: ["Object.defineProperty(window, 'Nuage', { get() { return undefined; }, set() {} });"] });
+        try {
+            const pg = D.page;
+            await taper(pg, ['6']);
+            const r = await pg.evaluate(() => ({ cache: document.getElementById('btn-nuage').hidden, dialogue: !document.getElementById('fenetre-dialogue').hidden,
+                                                 moteur: window.app.nuage, notes: window.app.editeur.etapesDocument() }));
+            check(r.cache && !r.dialogue && r.moteur === null && r.notes > 0,
+                'sans le moteur (script non chargé) : pas de bouton qui ne mène nulle part, aucune question, et l\'édition marche comme avant');
+            check(D.erreurs.length === 0, `et aucune erreur de console (${D.erreurs.length})`);
+        } finally { await D.fermer(); }
+    }
+
+    // ===== E. LE BOUTON DANS LA BARRE DU HAUT : DESSIN ET PLACE ===========================================
+    // La barre du haut tenait PILE à 390px (voir style.css) : un bouton à libellé la ferait déborder, et
+    // `overflow-x: auto` cacherait Réglages derrière un défilement que rien ne signale.
+    {
+        const mesurer = (pg) => pg.evaluate(() => {
+            const barre = document.querySelector('.barre-haut'); const b = document.getElementById('btn-nuage'); const r = b.getBoundingClientRect();
+            const cs = getComputedStyle(b);
+            return { deborde: barre.scrollWidth - barre.clientWidth, largeur: Math.round(r.width), hauteur: Math.round(r.height),
+                     libelleVisible: getComputedStyle(b.querySelector('.nuage-libelle')).display !== 'none', affichage: cs.display, rayon: parseFloat(cs.borderTopLeftRadius),
+                     bordure: cs.borderTopColor, dansFichiers: !!document.querySelector('#btn-fichiers #btn-nuage, #btn-fichiers .pastille-nuage') };
+        });
+        const E = await ouvrirApp({ viewport: { width: 1320, height: 800 }, avant: avecFauxFirebase() });
+        try {
+            const pg = E.page;
+            const m1 = await mesurer(pg);
+            // `inline-flex` devient `flex` : un enfant direct d'une barre en flex est « blockifié ». Un bouton NU serait `block`.
+            check(m1.affichage === 'flex' && m1.rayon > 100 && m1.libelleVisible,
+                `sur ordinateur, le bouton est dessiné par sa règle de base (flex, arrondi) et montre son libellé (${m1.affichage}, rayon ${m1.rayon}) — une accolade en trop dans la feuille de style l'avait silencieusement fait avaler`);
+            check(!m1.dansFichiers, 'et il n\'est plus dans le bouton Fichiers');
+            const bordureDeconnecte = m1.bordure;
+            await pg.click('#btn-nuage');
+            await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'connecte', null, { timeout: 4000 });
+            await attendre(300);   // la bordure s'anime (0,12 s) : on mesure une fois posée
+            const m2 = await mesurer(pg);
+            check(m2.bordure !== bordureDeconnecte, `le déconnecté se voit de loin : sa bordure change une fois connecté (${bordureDeconnecte} → ${m2.bordure})`);
+        } finally { await E.fermer(); }
+        for (const largeur of [390, 360]) {
+            const T = await ouvrirApp({ viewport: { width: largeur, height: 800 }, hasTouch: true, isMobile: true, avant: avecFauxFirebase() });
+            try {
+                const pg = T.page;
+                const a = await mesurer(pg);
+                await pg.tap('#btn-nuage');
+                await pg.waitForFunction(() => document.getElementById('btn-nuage').dataset.etat === 'connecte', null, { timeout: 4000 });
+                const b = await mesurer(pg);
+                check(a.deborde <= 0 && b.deborde <= 0, `téléphone ${largeur}px : la barre du haut ne déborde pas, déconnecté (${a.deborde}px) comme connecté (${b.deborde}px)`);
+                check(!a.libelleVisible && a.largeur >= 40 && a.hauteur >= 40, `et le bouton garde son rond, assez grand pour le doigt (${a.largeur}×${a.hauteur}px), sans libellé`);
+            } finally { await T.fermer(); }
+        }
+    }
 
     bilan();
 })();
