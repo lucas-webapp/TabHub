@@ -224,18 +224,26 @@ export function demarrerSynchro(app) {
         },
     };
 
-    // Le bouton Enregistrer porte la pastille (voir style.css, #btn-enregistrer::after) : la barre du haut
-    // déborde déjà de 97 px à 390 px selon le commentaire d'index.html, il n'y a donc de place pour rien
-    // de plus. Pas de nœud ajouté — `poserIcones` réécrit le contenu du bouton et l'effacerait.
-    const btn = document.getElementById('btn-enregistrer');
-    const titreBase = btn ? btn.title : '';
+    // LA CONNEXION SE VOIT DANS compte-cloud.js — le même fichier que HarmoHub et TrainHub (voir
+    // docs/fichiers-partages.md) : la pilule « G Se connecter » (ou la pastille d'état + le nom du compte), son menu et la
+    // fenêtre de connexion proposée à l'ouverture. Retour utilisateur : « sur les 3 applis, les pastilles de connexion
+    // sont différentes. Je veux mettre les mêmes. » TabHub avait un simple point sur le bouton Enregistrer, et la
+    // connexion cachée dans le menu Fichiers : retirés, ils faisaient doublon.
+    // Monté AVANT le moteur, qui lui parle dès la première réponse de Firebase (et lui dit « indisponible » si le SDK
+    // n'a pas pu démarrer).
+    const ui = typeof window.monterCompteCloud === 'function' ? window.monterCompteCloud(document.getElementById('compte-cloud'), {
+        appli: 'TabHub',
+        slug: 'tabhub',
+        objets: 'tablatures',
+        // Appelés DANS le clic : le navigateur n'ouvre la fenêtre Google que dans le geste de l'utilisateur.
+        seConnecter: () => window.SYNCHRO && window.SYNCHRO.seConnecter(),
+        seDeconnecter: () => window.SYNCHRO && window.SYNCHRO.seDeconnecter(),
+        // Clic sur la pilule grisée : on dit POURQUOI plutôt que de ne rien faire.
+        surIndisponible: (raison) => app.message(`Synchronisation indisponible — ${raison}`, 7000),
+    }) : null;
     const synchro = window.demarrerSynchro(adaptateur, {
-        statut: null,
-        surEtat(mode, libelle, connecte) {
-            if (!btn) return;
-            if (connecte && mode) { btn.dataset.sync = mode; btn.title = `${titreBase} — ${libelle}`; }
-            else { delete btn.dataset.sync; btn.title = titreBase; }
-        },
+        ui,
+        surIndisponible: (raison) => app.message(`Synchronisation indisponible — ${raison}`, 7000),
     });
 
     return {
@@ -248,6 +256,11 @@ export function demarrerSynchro(app) {
             if (raison === 'curseur' || raison === 'document') return;
             poserAt(Date.now());
             if (synchro && synchro.planifierEnvoi) synchro.planifierEnvoi();
+            // GARDE-FOU « tu n'es pas connecté » : une vraie modification, et personne de connecté — ce qu'on fait là ne
+            // partira pas au cloud. La fenêtre elle-même, et la règle « une seule fois par onglet, jamais si l'on a dit de
+            // ne plus la proposer, jamais si celle d'accueil a déjà été vue, jamais avant que Firebase ait dit qui est
+            // connecté », appartiennent au composant commun (compte-cloud.js#proposerConnexion).
+            if (synchro && synchro.disponible && synchro.ui) synchro.ui.proposerConnexion('modification');
         },
         // Avant un remplacement volontaire : la tablature abandonnée part en copie de secours.
         avantRemplacement(raison) { return ajouterSauvegarde(app.editeur.partition, raison); },

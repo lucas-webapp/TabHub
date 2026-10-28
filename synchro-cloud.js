@@ -1,4 +1,8 @@
 // SYNCHRO CLOUD (Firebase) — couche GÉNÉRIQUE, commune à HarmoHub et à TabHub.
+// VERSION 2 — 28/10/2026. Fichier de référence : dépôt HarmoHub. À COPIER TEL QUEL dans TabHub (voir
+// docs/fichiers-partages.md) : rien de propre à une appli ici, tout passe par l'adaptateur et `elements`.
+// Depuis la version 2, ce fichier ne dessine plus rien : la pilule, le menu du compte et la fenêtre de
+// connexion appartiennent à compte-cloud.js (passé ici en `elements.ui`), le même dans les trois applis.
 //
 // Ce fichier ne sait RIEN des morceaux ni des tablatures. Il gère ce qui est identique partout :
 // la connexion Google, la référence du document, l'envoi différé, l'écoute des changements venus
@@ -32,6 +36,8 @@
 var TAILLE_ALERTE = 800 * 1024;
 var TAILLE_MAX = 1000 * 1024;
 var DELAI_ENVOI_MS = 1500;
+
+var SYNCHRO_CLOUD_VERSION = 2;
 
 // Une instance par page. Exposée pour les bancs, qui ont besoin de la piloter.
 var SYNCHRO = null;
@@ -67,13 +73,11 @@ function demarrerSynchro(adaptateur, elements) {
         envoiEnCours: false, modifsEnAttente: false, appliqueDistant: false,
         dernierEnvoiAt: 0,
     };
-    SYNCHRO = { etat: etat, adaptateur: adaptateur };
+    SYNCHRO = { etat: etat, adaptateur: adaptateur, ui: elements.ui || null };
 
-    var $statut = elements.statut;
-    var $connexion = elements.connexion;
-    var $compte = elements.compte;
-    var $nomCompte = elements.nomCompte;
-    var $deconnexion = elements.deconnexion;
+    // `ui` : l'interface du compte (voir compte-cloud.js — monterCompteCloud). Facultative : sans elle, la
+    // synchro tourne quand même, seul `surEtat` est prévenu.
+    var ui = elements.ui || null;
 
     // ---------- pastille d'état ----------
     var LIBELLES = {
@@ -92,28 +96,11 @@ function demarrerSynchro(adaptateur, elements) {
         // peine affiché reviendrait à ne jamais le voir.
         if (mode === 'synced' && detail === undefined) detail = etat.detailPoids || '';
         etat.statut = mode;
-        // `surEtat` : pour une appli qui n'a PAS la place d'un élément dédié (TabHub porte sa pastille sur
-        // le bouton Enregistrer). Appelé à chaque changement, avec le libellé déjà composé.
-        if (elements.surEtat) {
-            var lib = LIBELLES[mode] || 'Non synchronisé';
-            elements.surEtat(mode, detail ? lib + ' — ' + detail : lib, !!etat.utilisateur);
-        }
-        if (!$statut) return;
-        $statut.hidden = !etat.utilisateur;
-        $statut.classList.remove('synced', 'syncing', 'pending', 'error', 'offline', 'toolarge');
-        if (mode) $statut.classList.add(mode);
-        var libelle = LIBELLES[mode] || 'Non synchronisé';
-        $statut.title = detail ? libelle + ' — ' + detail : libelle;
-        $statut.setAttribute('aria-label', $statut.title);
-        $statut.dataset.etat = mode || '';
-    }
-
-    function majInterfaceCompte(user) {
-        if (!$connexion) return;
-        $connexion.hidden = !!user;
-        if ($compte) $compte.hidden = !user;
-        if ($nomCompte) $nomCompte.textContent = user ? (user.displayName || user.email || 'Connecté') : '';
-        if ($compte) $compte.title = user ? 'Connecté : ' + (user.displayName || user.email || '') : '';
+        var lib = LIBELLES[mode] || 'Non synchronisé';
+        var complet = detail ? lib + ' — ' + detail : lib;
+        // `surEtat` : pour une appli qui veut AUSSI montrer l'état ailleurs que dans la pilule commune.
+        if (elements.surEtat) elements.surEtat(mode, complet, !!etat.utilisateur);
+        if (ui) ui.etat(etat.utilisateur ? mode : null, complet);
     }
 
     // ---------- garde-fou à la fermeture ----------
@@ -269,8 +256,14 @@ function demarrerSynchro(adaptateur, elements) {
 
     // ---------- connexion ----------
     function surChangementUtilisateur(user) {
+        // `authPrete` : Firebase a répondu au moins une fois sur « qui est connecté ». Avant ça, « pas de
+        // compte » ne veut RIEN dire (la session est en cours de relecture) : demander de se connecter à
+        // quelqu'un qui l'est déjà serait une fausse alerte à chaque ouverture.
+        etat.authPrete = true;
         etat.utilisateur = user;
-        majInterfaceCompte(user);
+        // La première réponse est aussi le moment où le composant propose la fenêtre de connexion si
+        // personne n'est connecté (il ne le fait qu'une fois — voir compte-cloud.js#authPrete).
+        if (ui) ui.authPrete(user);
         if (etat.desabonner) { etat.desabonner(); etat.desabonner = null; }
         if (!user) {
             etat.docRef = null;
@@ -312,6 +305,12 @@ function demarrerSynchro(adaptateur, elements) {
         });
     }
 
+    // Le bouton reste VISIBLE, grisé, avec la raison au survol : un bouton qui disparaît en silence ressemble
+    // à une panne (retour utilisateur : « je ne vois pas le bouton »). Le clic affiche la raison.
+    function marquerIndisponible() {
+        if (ui) ui.indisponible(SYNCHRO.raison);
+    }
+
     function initialiser() {
         if (typeof firebase === 'undefined' || typeof FIREBASE_CONFIG === 'undefined') {
             // Mode local uniquement : rien ne casse, la synchro n'existe simplement pas. C'est aussi ce
@@ -326,7 +325,7 @@ function demarrerSynchro(adaptateur, elements) {
             SYNCHRO.raison = typeof firebase === 'undefined'
                 ? 'Le service Firebase n\'a pas pu se charger (hors ligne, ou bloqué par un bloqueur de contenu ?)'
                 : 'Le fichier firebase-config.js est absent ou illisible';
-            if ($connexion) $connexion.hidden = true;
+            marquerIndisponible();
             return false;
         }
         try {
@@ -338,7 +337,7 @@ function demarrerSynchro(adaptateur, elements) {
         } catch (e) {
             console.error('Initialisation Firebase impossible', e);
             SYNCHRO.raison = 'Initialisation de Firebase impossible : ' + ((e && e.message) || 'erreur inconnue');
-            if ($connexion) $connexion.hidden = true;
+            marquerIndisponible();
             return false;
         }
     }
@@ -349,7 +348,7 @@ function demarrerSynchro(adaptateur, elements) {
     // les échanges avec l'extérieur. Les éléments restent acceptés (`elements.connexion`…) pour une
     // appli qui aurait la place : TabHub, par exemple.
     function seConnecter() {
-        if (!etat.auth) return;
+        if (!etat.auth) { if (elements.surIndisponible) elements.surIndisponible(SYNCHRO.raison); return; }
         var fournisseur = new firebase.auth.GoogleAuthProvider();
         etat.auth.signInWithPopup(fournisseur).catch(function (e) {
             console.error('Connexion impossible', e);
@@ -359,13 +358,13 @@ function demarrerSynchro(adaptateur, elements) {
         });
     }
     function seDeconnecter() { if (etat.auth) etat.auth.signOut(); }
-    if ($connexion) $connexion.addEventListener('click', seConnecter);
-    if ($deconnexion) $deconnexion.addEventListener('click', seDeconnecter);
 
     SYNCHRO.planifierEnvoi = planifierEnvoi;
     SYNCHRO.envoyerMaintenant = envoyerMaintenant;
     SYNCHRO.initialiser = initialiser;
     SYNCHRO.seConnecter = seConnecter;
+    // Le clic sur « Se connecter » doit partir du geste de l'utilisateur ; le garde-fou (voir
+    // synchro-harmohub.js) l'appelle donc depuis le clic de sa propre fenêtre.
     SYNCHRO.seDeconnecter = seDeconnecter;
     SYNCHRO.libelleEtat = function () { return LIBELLES[etat.statut] || 'Non synchronisé'; };
     // `disponible` : le SDK a pu démarrer. C'est lui que le menu consulte pour savoir s'il doit proposer

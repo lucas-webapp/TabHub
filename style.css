@@ -957,6 +957,13 @@ body.avec-pave .dpad-flottant { display: grid; }
        sous-titre et l'artiste — l'endroit où l'on décrit son morceau, plutôt qu'un coin d'écran. */
     .titre-morceau { display: none; }
     .barre-haut { gap: 4px; padding: 0 8px; }
+    /* LA PILULE DU COMPTE CLOUD (compte-cloud.js, voir #compte-cloud dans index.html) prend 36 px (le G seul) à 43 px
+       (pastille + initiale) dans une barre qui n'avait déjà plus que 3 px de reste à 390 px. Mesuré avant tout
+       resserrement : à 360 px la barre débordait de 6 px (13 px une fois connecté, le logo sortant de l'écran), et chaque
+       bouton perdait 5 à 12 px de largeur. On reprend la place là où elle ne sert à rien — les marges des deux
+       séparateurs (8 px → 2 px chacun) et celle du logo — plutôt que de retirer un bouton ou la pilule. */
+    .barre-haut .separateur { margin: 0 1px; }
+    .logo { margin-left: 0; }
     .zone-partition { padding: 10px 8px 40px; }
     /* DEUX RANGÉES INDÉPENDANTES (retour utilisateur : « la barre d'outils du haut est beaucoup trop
        large sur téléphone [...] il va falloir faire 2 lignes [...] tu peux conserver un menu qui se
@@ -1147,6 +1154,7 @@ body.avec-pave .dpad-flottant { display: grid; }
    ailleurs, seul leur RENDU visuel change. */
 @media (min-width: 721px) {
     .groupe-reglages { order: 1; }
+    #compte-cloud { order: 1; }   /* à la suite de Réglages/Aide, contre le logo */
     .logo { order: 2; }
 }
 
@@ -1165,29 +1173,9 @@ body.avec-pave .dpad-flottant { display: grid; }
    bémol rendu au corps du texte courant se confond avec un « b » minuscule. */
 .btn-transposer { font-size: 17px; font-weight: 700; line-height: 1; padding-bottom: 2px; }
 
-/* ---------- Synchro cloud : pastille d'état portée par le bouton Enregistrer ---------- */
-/* PSEUDO-ÉLÉMENT, et non un nœud ajouté : (1) la barre du haut déborde déjà de 97 px à 390 px (voir le
-   commentaire d'index.html), il n'y a de place pour rien de plus — la pastille, en position absolue, n'en
-   prend aucune ; (2) `poserIcones` réécrit le contenu du bouton, et effacerait tout nœud qu'on y aurait mis.
-   L'attribut `data-sync` est posé par io/synchro.js ; sans compte connecté, il n'existe pas et rien ne s'affiche.
-   Six états, six couleurs, libellé précis au survol. Le plus important est `pending` (« modifications pas
-   encore envoyées ») : c'est lui qui répond à « est-ce que c'est bien parti ? ». */
-#btn-enregistrer { position: relative; }
-#btn-enregistrer[data-sync]::after {
-    content: '';
-    position: absolute; top: 3px; right: 3px;
-    width: 8px; height: 8px; border-radius: 50%;
-    background: var(--text-muted);
-    box-shadow: 0 0 0 2px var(--btn-green-1);   /* liseré : la pastille reste lisible sur l'icône — le bouton Enregistrer est vert (.btn-icone-accent) */
-    pointer-events: none;
-}
-#btn-enregistrer[data-sync="synced"]::after { background: #79c99a; }
-#btn-enregistrer[data-sync="syncing"]::after { background: #6aa9ff; animation: sync-pulse 1s ease-in-out infinite; }
-#btn-enregistrer[data-sync="pending"]::after { background: #e0a64a; }
-#btn-enregistrer[data-sync="offline"]::after { background: #8a8a8a; }
-#btn-enregistrer[data-sync="error"]::after, #btn-enregistrer[data-sync="toolarge"]::after { background: #ff6b6b; }
-@keyframes sync-pulse { 50% { opacity: .35; } }
-@media (prefers-reduced-motion: reduce) { #btn-enregistrer[data-sync="syncing"]::after { animation: none; } }
+/* La connexion et l'état de la synchro (pastille, nom du compte, menu, fenêtre) sont dessinés par compte-cloud.js — le MÊME
+   composant dans HarmoHub, TabHub et TrainHub, avec ses propres styles (classes « cc-… »). TabHub portait ici sa propre
+   pastille, un point sur le bouton Enregistrer : retirée, elle faisait doublon et ne ressemblait à aucune des deux autres. */
 
 /* Fenêtres de choix et de sauvegardes de secours : une carte par version. */
 .version-choix { padding: 9px 11px; margin: 7px 0; border: 1px solid var(--border); border-radius: 8px; line-height: 1.45; }

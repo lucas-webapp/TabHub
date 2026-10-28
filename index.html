@@ -29,7 +29,7 @@
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
-    <link rel="stylesheet" href="style.css?v=202609140300">
+    <link rel="stylesheet" href="style.css?v=202610281600">
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -63,6 +63,11 @@
     <span class="separateur groupe-reglages"></span>
     <button type="button" id="btn-reglages" class="btn-icone groupe-reglages" title="Réglages" aria-label="Réglages"></button>
     <button type="button" id="btn-aide" class="btn-icone groupe-reglages" title="Raccourcis clavier (?)" aria-label="Raccourcis clavier"></button>
+    <!-- COMPTE CLOUD : la pilule « G Se connecter » (ou la pastille d'état + le nom du compte), son menu et la fenêtre de
+         connexion sont dessinés par compte-cloud.js — le MÊME fichier dans HarmoHub, TabHub et TrainHub (voir
+         docs/fichiers-partages.md). Ce <div> n'est que son point d'ancrage ; il reste vide tant que Firebase n'a pas
+         répondu. Dès 721 px, style.css le range contre le logo, à la suite de Réglages/Aide. -->
+    <div id="compte-cloud"></div>
 
     <!-- PLUS DE CHAMP TITRE ICI (retour utilisateur : « tout en haut dans la bande noire, je peux
          écrire/modifier directement le titre de la musique. On risque de se perdre pour savoir comment
@@ -367,12 +372,6 @@
     <hr class="separateur">
     <button type="button" data-action="midi-ouvrir">Importer un fichier MIDI (.mid)</button>
     <button type="button" data-action="midi-exporter">Exporter en MIDI (.mid)</button>
-    <!-- CLOUD : les deux entrées de connexion sont masquées/affichées à chaque ouverture (voir
-         main.js#rafraichirEntreesCloud), selon qu'un compte est connecté. Elles vivent ici et non dans
-         la barre du haut, qui déborde déjà à 390 px. -->
-    <hr class="separateur" data-sep-cloud hidden>
-    <button type="button" data-action="cloud-connexion" hidden>Se connecter pour synchroniser</button>
-    <button type="button" data-action="cloud-deconnexion" hidden>Se déconnecter du cloud</button>
     <button type="button" data-action="sauvegardes">Sauvegardes de secours…</button>
 </div>
 
@@ -437,13 +436,15 @@
      users/{uid}/apps/tabhub. SDK « compat » en <script> classiques — TabHub n'a aucune chaîne de build, et
      les modules ES n'en ont pas besoin ici. Chargés AVANT le module, qui s'exécute différé. Si le SDK
      manque (premier chargement hors ligne), la synchro ne démarre pas et TabHub reste pleinement
-     utilisable en local. synchro-cloud.js est copié à l'identique de HarmoHub : il ne sait rien des
-     données, tout ce qui en dépend est dans src/io/synchro.js. -->
+     utilisable en local. synchro-cloud.js et compte-cloud.js sont copiés à l'identique de HarmoHub (référence,
+     voir docs/fichiers-partages.md) : le premier ne sait rien des données, tout ce qui en dépend est dans
+     src/io/synchro.js ; le second dessine la connexion, et passe AVANT le moteur qui lui parle. -->
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.13.2/firebase-firestore-compat.js"></script>
 <script src="firebase-config.js?v=202610030100"></script>
-<script src="synchro-cloud.js?v=202610030100"></script>
-<script type="module" src="src/main.js?v=202610030100"></script>
+<script src="compte-cloud.js?v=202610281600"></script>
+<script src="synchro-cloud.js?v=202610281600"></script>
+<script type="module" src="src/main.js?v=202610281600"></script>
 </body>
 </html>

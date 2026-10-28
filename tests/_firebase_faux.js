@@ -28,7 +28,7 @@ function creerNuage() {
 
 function copie(v) { return v === undefined ? undefined : JSON.parse(JSON.stringify(v)); }
 
-async function installer(context, nuage, { appareil, uid, nom, email }) {
+async function installer(context, nuage, { appareil, uid, nom, email, persister }) {
     // Le SDK réel est remplacé : on répond 200 à ses trois balises <script> pour ne pas laisser
     // `window.firebase` être écrasé si le réseau de test laissait passer gstatic.
     await context.route(/gstatic\.com\/firebasejs\//, (route) =>
@@ -108,13 +108,19 @@ async function installer(context, nuage, { appareil, uid, nom, email }) {
         };
         const utilisateurDe = () => ({ uid: cfg.uid, displayName: cfg.nom, email: cfg.email });
         const auth = {
-            onAuthStateChanged: (cb) => { faux.rappelAuth = cb; setTimeout(() => cb(faux.utilisateur), 0); },
-            signInWithPopup: async () => { faux.fenetresGoogle++; faux.utilisateur = utilisateurDe(); faux.rappelAuth && faux.rappelAuth(faux.utilisateur); },
-            signOut: async () => { faux.utilisateur = null; faux.rappelAuth && faux.rappelAuth(null); },
+            // `persister` : comme le vrai Firebase, la session SURVIT au rechargement de la page. Optionnel,
+            // parce que plusieurs bancs rechargent puis se reconnectent à la main.
+            onAuthStateChanged: (cb) => {
+                faux.rappelAuth = cb;
+                if (cfg.persister && localStorage.getItem('__fauxSession') === '1') faux.utilisateur = utilisateurDe();
+                setTimeout(() => cb(faux.utilisateur), 0);
+            },
+            signInWithPopup: async () => { faux.fenetresGoogle++; faux.utilisateur = utilisateurDe(); if (cfg.persister) localStorage.setItem('__fauxSession', '1'); faux.rappelAuth && faux.rappelAuth(faux.utilisateur); },
+            signOut: async () => { faux.utilisateur = null; localStorage.removeItem('__fauxSession'); faux.rappelAuth && faux.rappelAuth(null); },
         };
         const authFn = () => auth; authFn.GoogleAuthProvider = function () { };
         window.firebase = { initializeApp: () => ({}), auth: authFn, firestore: () => db };
-    }, [{ uid, nom: nom || 'Testeur', email: email || 'test@example.com' }]);
+    }, [{ uid, nom: nom || 'Testeur', email: email || 'test@example.com', persister: !!persister }]);
 }
 
 module.exports = { creerNuage, installer };

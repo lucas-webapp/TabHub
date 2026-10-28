@@ -1022,10 +1022,6 @@ class TabHubApp {
         const actionsFichiers = {
             nouveau: () => this.nouveau(), ouvrir: () => this.ouvrir(), 'exporter-json': () => this.exporterJson(),
             pdf: () => this.exporterPdf(), 'midi-ouvrir': () => this.ouvrirMidi(), 'midi-exporter': () => this.exporterMidiFichier(),
-            // La connexion part DIRECTEMENT du clic, sans `await` devant : le navigateur ne laisse ouvrir la
-            // fenêtre Google que dans le geste de l'utilisateur.
-            'cloud-connexion': () => window.SYNCHRO?.seConnecter(),
-            'cloud-deconnexion': () => window.SYNCHRO?.seDeconnecter(),
             'sauvegardes': () => this.ouvrirSauvegardes(),
         };
         this.el.popoverFichiers.addEventListener('click', (e) => {
@@ -1410,7 +1406,6 @@ class TabHubApp {
     basculerPopoverFichiers() {
         if (!this.el.popoverFichiers.hidden) { this.fermerPopoverFichiers(); return; }
         const popover = this.el.popoverFichiers;
-        this.rafraichirEntreesCloud();
         popover.hidden = false;
         this.el.btnFichiers.setAttribute('aria-expanded', 'true');
         this._positionnerPanneau(popover, this.el.btnFichiers);
@@ -1457,35 +1452,6 @@ class TabHubApp {
         this._detacherPanneauEnTete?.();
         this._detacherPanneauEnTete = null;
         this.el.zone.focus();
-    }
-
-    // Les entrées « Cloud » du popover dépendent de l'état de la connexion : proposées seulement si le SDK a
-    // pu démarrer (un bouton qui ne peut rien faire serait trompeur), et « se connecter » ou « se
-    // déconnecter » selon qu'un compte est connecté. Recalculées à CHAQUE ouverture, le popover lui-même
-    // étant peuplé une fois pour toutes.
-    rafraichirEntreesCloud() {
-        const synchro = window.SYNCHRO;
-        const dispo = !!(synchro && synchro.disponible);
-        const connecte = !!(dispo && synchro.etat.utilisateur);
-        const pop = this.el.popoverFichiers;
-        const cacher = (action, cache) => { const b = pop.querySelector(`[data-action="${action}"]`); if (b) b.hidden = cache; };
-        // SDK absent : l'entrée reste VISIBLE mais éteinte, avec la raison — une entrée qui disparaît en
-        // silence ressemble à une panne (retour utilisateur : « je ne vois pas le bouton »).
-        const bc = pop.querySelector('[data-action="cloud-connexion"]');
-        if (bc) {
-            bc.disabled = !dispo;
-            bc.textContent = dispo ? 'Se connecter pour synchroniser'
-                : `Synchronisation indisponible — ${(synchro && synchro.raison) || 'Firebase n\'a pas pu démarrer'}`;
-        }
-        cacher('cloud-connexion', connecte);
-        cacher('cloud-deconnexion', !dispo || !connecte);
-        const sep = pop.querySelector('[data-sep-cloud]');
-        if (sep) sep.hidden = false;
-        if (connecte) {
-            const b = pop.querySelector('[data-action="cloud-deconnexion"]');
-            const nom = synchro.etat.utilisateur.displayName || synchro.etat.utilisateur.email || 'connecté';
-            if (b) b.textContent = `Cloud : ${nom} — se déconnecter`;
-        }
     }
 
     /**
