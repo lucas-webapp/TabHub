@@ -230,6 +230,7 @@ class TabHubApp {
         construireDpadFlottant(this.el.dpadFlottant, this.editeur, crochetsUi);
         this.appliquerPave(this.paveActif);
         this.brancherInterface();
+        this.brancherApparence();
         brancherClavier(this.editeur, {
             lectureAlternee: () => this.lectureAlternee(),
             arreter: () => this.arreter(),
@@ -1009,6 +1010,30 @@ class TabHubApp {
             if (b.classList.contains('btn-icone')) b.innerHTML = icone('fermer');
         }
         this.rafraichirTransport();
+    }
+
+    /**
+     * APPARENCE — l'effet verre (voir verre.js pour les réglages, verre.css pour le dessin). Un interrupteur et la couleur du fond,
+     * câblés UNE fois (ils se tiennent à jour tout seuls, via l'abonnement, même quand le changement vient d'un autre onglet de
+     * l'appareil). Réglage propre à l'APPAREIL, comme sur TrainHub : pas d'envoi au nuage. Les pastilles de couleur restent
+     * atteignables verre éteint (on peut choisir avant d'allumer) mais s'estompent : elles ne changent rien tant qu'il est éteint.
+     */
+    brancherApparence() {
+        const rubrique = document.getElementById('rubrique-apparence');
+        if (!rubrique) return;
+        const V = window.Verre;
+        // Sans verre.js (script non chargé) : pas de commande qui ne ferait rien.
+        if (!V) { rubrique.hidden = true; return; }
+        const bascule = document.getElementById('champ-verre');
+        const ligneFonds = document.getElementById('ligne-fonds');
+        const montrer = (actif) => {
+            bascule.setAttribute('aria-checked', String(actif));
+            ligneFonds.dataset.verre = actif ? 'on' : 'off';
+        };
+        montrer(V.actif());
+        bascule.addEventListener('click', () => V.definirActif(!V.actif()));
+        V.construireFonds(document.getElementById('champ-fonds'), 'Couleur du fond');
+        V.surChangement((e) => montrer(e.actif));
     }
 
     brancherInterface() {

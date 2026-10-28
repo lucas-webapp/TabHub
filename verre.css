@@ -1,0 +1,127 @@
+/* ============================================================
+   EFFET VERRE (option, par appareil) — LA PARTIE COMMUNE. Ce fichier est IDENTIQUE dans HarmoHub et TabHub (comme verre.js) ;
+   le dessin propre à chaque appli — quelles surfaces floutent, quels contrôles deviennent translucides — est dans
+   verre-surfaces.css, qui n'est jamais partagé. Repris de TrainHub : un fond « aurore » (ou une seule teinte), des surfaces
+   translucides qui floutent ce qu'elles recouvrent, un reflet clair sur le bord haut des boutons.
+
+   Les réglages (allumé ? quelle couleur ?) vivent dans verre.js, qui pose data-glass / data-glass-bg sur <html> avant le
+   premier affichage ; ils se manient dans Paramètres / Réglages > Apparence.
+
+   CE QUE CE FICHIER CONTIENT : les variables de la palette en translucide, les sept couleurs de fond, le fond lui-même, le flou
+   (UNE variable, --glass-filter, que les surfaces de chaque appli utilisent), le repli opaque, et — hors verre — le dessin du
+   réglage lui-même (interrupteur, pastilles de couleur).
+
+   ÉTEINT, RIEN NE S'APPLIQUE : chaque règle commence par html[data-glass="1"], à l'exception du dessin du réglage (qui doit se
+   voir verre éteint, c'est là qu'on l'allume). Le rendu d'avant est donc conservé à l'identique, et un banc le vérifie.
+   ============================================================ */
+
+html[data-glass="1"] { --glass-blur: 24px; --glass-filter: blur(var(--glass-blur)) saturate(150%); }
+
+/* ---- variables : la palette de l'appli, en translucide ---- */
+html[data-glass="1"] {
+    --bg: #070b12;
+    --card-bg: rgba(255, 255, 255, .055);
+    --border: rgba(255, 255, 255, .13);
+    --text-main: #f1f7fb;
+    --text-muted: #9fb2c4;
+    --btn-text: #f1f7fb;
+    --fond-bouton-sombre: rgba(255, 255, 255, .07);
+    --fond-bouton-sombre-survol: rgba(255, 255, 255, .13);
+    --btn-neutral-1: rgba(255, 255, 255, .17); --btn-neutral-2: rgba(255, 255, 255, .06);
+    --btn-neutral-border: rgba(255, 255, 255, .2); --btn-neutral-border-hover: rgba(255, 255, 255, .34);
+    --btn-green-1: rgba(95, 227, 176, .34); --btn-green-2: rgba(95, 227, 176, .12);
+    --btn-green-border: rgba(95, 227, 176, .5); --btn-green-border-hover: rgba(95, 227, 176, .78);
+    --btn-blue-1: rgba(110, 160, 255, .34); --btn-blue-2: rgba(110, 160, 255, .12);
+    --btn-blue-border: rgba(110, 160, 255, .5); --btn-blue-border-hover: rgba(110, 160, 255, .78);
+    --btn-red-1: rgba(255, 107, 107, .32); --btn-red-2: rgba(255, 107, 107, .12);
+    --btn-red-border: rgba(255, 107, 107, .5); --btn-red-border-hover: rgba(255, 107, 107, .78);
+    --btn-orange-1: rgba(255, 179, 71, .32); --btn-orange-2: rgba(255, 179, 71, .12);
+    --btn-orange-border: rgba(255, 179, 71, .5); --btn-orange-border-hover: rgba(255, 179, 71, .78);
+
+    --g-ambient: linear-gradient(180deg, rgba(7, 11, 18, 0) 0, #070b12 640px) top / 100% 640px no-repeat,
+                 linear-gradient(115deg, rgba(0, 230, 150, .26) 0, rgba(40, 140, 255, .24) 36%, rgba(150, 90, 255, .26) 66%, rgba(255, 60, 150, .14) 100%) top / 100% 640px no-repeat,
+                 #070b12;
+    --glass-bar: rgba(8, 13, 22, .5);
+    --glass-pop: rgba(16, 26, 42, .84);
+    --glass-hi: inset 0 1px 0 rgba(255, 255, 255, .22);
+    --glass-inp: rgba(0, 0, 0, .22);
+    --glass-select: #141e2c;
+}
+/* Le fond des FENÊTRES et des MENUS : la teinte --glass-pop sur une sous-couche sombre. Posée sur du clair (la feuille blanche de
+   TabHub, les touches de piano), la teinte seule laissait passer assez de blanc pour grisonner le menu — lisible, mais terne. La
+   sous-couche tient le texte net sur n'importe quoi, sans rien changer sur fond sombre. Défini à part car il s'appuie sur
+   --glass-pop, que les couleurs de fond redéfinissent. */
+html[data-glass="1"] { --glass-pop-fond: linear-gradient(var(--glass-pop), var(--glass-pop)), rgba(7, 11, 18, .6); }
+
+/* Couleur du fond (Paramètres > Apparence) : « aurore » garde le dégradé multicolore ci-dessus ; les autres teintes le
+   remplacent par un dégradé d'une seule couleur (teintes gh1…gh4, saturation gs) sur un fond sombre de la même teinte. */
+html[data-glass="1"][data-glass-bg="blue"]   { --gh1: 195; --gh2: 215; --gh3: 232; --gh4: 250; --gs: 100%; --gbs: 44%; }
+html[data-glass="1"][data-glass-bg="green"]  { --gh1: 120; --gh2: 145; --gh3: 165; --gh4: 185; --gs: 100%; --gbs: 40%; }
+html[data-glass="1"][data-glass-bg="violet"] { --gh1: 250; --gh2: 266; --gh3: 282; --gh4: 300; --gs: 100%; --gbs: 40%; }
+html[data-glass="1"][data-glass-bg="rose"]   { --gh1: 315; --gh2: 332; --gh3: 348; --gh4: 8;   --gs: 100%; --gbs: 40%; }
+html[data-glass="1"][data-glass-bg="amber"]  { --gh1: 10;  --gh2: 26;  --gh3: 40;  --gh4: 54;  --gs: 100%; --gbs: 42%; }
+html[data-glass="1"][data-glass-bg="grey"]   { --gh1: 215; --gh2: 215; --gh3: 215; --gh4: 215; --gs: 0%;   --gbs: 6%; }
+html[data-glass="1"][data-glass-bg]:not([data-glass-bg="aurora"]) {
+    --bg: hsl(var(--gh2) var(--gbs) 5.5%);
+    --g-ambient: linear-gradient(180deg, hsl(var(--gh2) var(--gbs) 5.5% / 0) 0, hsl(var(--gh2) var(--gbs) 5.5%) 640px) top / 100% 640px no-repeat,
+                 linear-gradient(115deg, hsl(var(--gh1) var(--gs) 48% / .26) 0, hsl(var(--gh2) var(--gs) 56% / .24) 36%, hsl(var(--gh3) var(--gs) 62% / .26) 66%, hsl(var(--gh4) var(--gs) 58% / .16) 100%) top / 100% 640px no-repeat,
+                 hsl(var(--gh2) var(--gbs) 5.5%);
+    --glass-bar: hsl(var(--gh2) var(--gbs) 6% / .5);
+    --glass-pop: hsl(var(--gh2) var(--gbs) 11% / .86);
+    --glass-select: hsl(var(--gh2) var(--gbs) 12%);
+}
+
+html[data-glass="1"] body { background: var(--g-ambient); background-attachment: fixed; }
+
+/* LA COULEUR DE FOND PAR DÉFAUT DES BOUTONS. Beaucoup de boutons ne posent qu'un DÉGRADÉ (background-image) et laissent le
+   navigateur fournir la couleur de dessous — que des dégradés opaques cachaient. Les dégradés translucides du verre la laissent
+   voir : sur la page Paroles, des pastilles BLANCHES au texte clair (illisibles) ; sur HarmoHub, un gris sous chaque bouton vert.
+   Rendue transparente ici — avec une spécificité NULLE (:where) : toute règle de l'appli qui pose son propre fond l'emporte,
+   seule la couleur du navigateur disparaît. `color-scheme: dark` dit en plus au navigateur que le document est sombre (barres de
+   défilement, cases à cocher, champs natifs) — Paroles ne le disait pas. */
+:where(html[data-glass="1"]) :where(button) { background-color: transparent; }
+html[data-glass="1"] { color-scheme: dark; }
+
+/* ---- repli : sans flou, ou si l'appareil demande moins de transparence, tout redevient opaque ---- */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+    html[data-glass="1"] { --glass-filter: none; --glass-bar: #0d1520 !important; --glass-pop: #121c2b !important; --card-bg: #101a28; }
+}
+@media (prefers-reduced-transparency: reduce) {
+    html[data-glass="1"] { --glass-filter: none; --glass-bar: #0d1520 !important; --glass-pop: #121c2b !important; --card-bg: #101a28; }
+}
+
+/* ============================================================
+   LE RÉGLAGE LUI-MÊME — Paramètres > Apparence. Ces règles ne sont PAS sous html[data-glass="1"] : l'interrupteur et les
+   pastilles se voient (et se manient) verre éteint, c'est même là qu'on les utilise pour l'allumer.
+   ============================================================ */
+.verre-indice { display: block; margin-top: 2px; font-size: var(--fs-xs); font-weight: 400; line-height: 1.35; color: var(--text-muted); opacity: .85; }
+.verre-ligne-fonds { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px 12px; margin-bottom: 22px; }
+.verre-ligne-fonds label { font-size: var(--fs-sm); font-weight: 600; color: var(--text-muted); }
+.verre-ligne-fonds[data-verre="off"] .verre-fonds { opacity: .5; }
+
+/* Les pastilles : un rond par couleur, rempli du dégradé que cette couleur donne au fond. Celle qui est choisie porte un anneau. */
+.verre-fonds { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.verre-fonds .verre-fond {
+    flex: none; min-width: 0; padding: 0;     /* la règle générique `button` de style.css donne 120 px de large et un grand padding */
+    width: 28px; height: 28px; border-radius: 50%;
+    border: 1px solid rgba(255, 255, 255, .28);
+    cursor: pointer;
+    transition: transform .12s, box-shadow .12s;
+}
+.verre-fonds .verre-fond:hover { transform: scale(1.1); }
+.verre-fonds .verre-fond.on, .verre-fonds .verre-fond[aria-checked="true"] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--accent); }
+/* Au doigt : des pastilles assez grandes pour être visées, sur leur propre ligne sous le libellé (sept pastilles ne tiennent pas à côté
+   d'un libellé sur un téléphone, et se coupaient en deux lignes bancales). */
+@media (pointer: coarse), (max-width: 560px) {
+    .verre-ligne-fonds .verre-fonds { flex-basis: 100%; justify-content: flex-start; }
+}
+@media (pointer: coarse) {
+    .verre-fonds .verre-fond { width: 40px; height: 40px; }
+}
+.verre-fond[data-fond="aurora"] { background: linear-gradient(115deg, #00e696 0, #288cff 36%, #965aff 66%, #ff3c96 100%); }
+.verre-fond[data-fond="blue"]   { background: linear-gradient(135deg, hsl(195 100% 48%), hsl(250 100% 62%)); }
+.verre-fond[data-fond="green"]  { background: linear-gradient(135deg, hsl(120 100% 45%), hsl(185 100% 52%)); }
+.verre-fond[data-fond="violet"] { background: linear-gradient(135deg, hsl(250 100% 62%), hsl(300 100% 58%)); }
+.verre-fond[data-fond="rose"]   { background: linear-gradient(135deg, hsl(315 100% 56%), hsl(8 100% 60%)); }
+.verre-fond[data-fond="amber"]  { background: linear-gradient(135deg, hsl(10 100% 56%), hsl(54 100% 56%)); }
+.verre-fond[data-fond="grey"]   { background: linear-gradient(135deg, #8e9bab, #3a4350); }

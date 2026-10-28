@@ -30,6 +30,13 @@
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <meta name="apple-mobile-web-app-title" content="TabHub">
     <link rel="stylesheet" href="style.css?v=202610281600">
+    <!-- L'EFFET VERRE (option, Réglages > Apparence) : verre.js pose data-glass / data-glass-bg sur <html> d'après les réglages de
+         l'appareil, et il DOIT se charger ici, sans defer, pour le faire avant le premier affichage (sinon l'appli paraîtrait un
+         instant sans verre, puis serait repeinte). verre.css n'a d'effet que sous html[data-glass="1"] : éteint, le rendu est celui
+         d'avant — hors le réglage lui-même, qui se voit toujours. -->
+    <link rel="stylesheet" href="verre.css?v=202610281200">
+    <link rel="stylesheet" href="verre-surfaces.css?v=202610281200">
+    <script src="verre.js?v=202610281200" data-app="tabhub"></script>
     <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <!-- Bibliothèques vendues en local plutôt qu'appelées sur un CDN, comme dans HarmoHub : l'appli
          doit pouvoir tourner hors ligne, et une version figée ne peut pas changer sous nos pieds.
@@ -266,6 +273,22 @@
                     <button type="button" id="champ-tab-seule" class="interrupteur" role="switch" aria-checked="false">
                         <span class="interrupteur-curseur"></span>
                     </button>
+                </div>
+            </div>
+            <!-- APPARENCE : l'effet verre (voir verre.js et verre.css), un réglage PAR APPAREIL, comme sur TrainHub — il n'est pas envoyé
+                 au nuage. La rubrique se masque d'elle-même si verre.js n'a pas chargé (main.js#brancherApparence) : pas de commande qui ne
+                 ferait rien. -->
+            <div class="rubrique" id="rubrique-apparence">
+                <h3>Apparence</h3>
+                <div class="ligne-champ">
+                    <label for="champ-verre">Verre dépoli<span class="verre-indice">Fond coloré, flou et reflets. Réglage propre à cet appareil.</span></label>
+                    <button type="button" id="champ-verre" class="interrupteur" role="switch" aria-checked="false">
+                        <span class="interrupteur-curseur"></span>
+                    </button>
+                </div>
+                <div class="verre-ligne-fonds" id="ligne-fonds" data-verre="off">
+                    <label id="etiquette-fonds">Couleur du fond<span class="verre-indice">S'applique quand le verre est allumé.</span></label>
+                    <div id="champ-fonds"></div>
                 </div>
             </div>
             <!-- PAS de rubrique « Brouillon local » : la sauvegarde automatique dans le navigateur
