@@ -1,0 +1,44 @@
+/* ============================================================
+   EFFET VERRE — LES SURFACES DE TABHUB (le dessin propre à cette appli ; les variables, les fonds, le repli et le réglage
+   lui-même sont dans verre.css, identique dans HarmoHub et TabHub).
+
+   Chaque règle commence par html[data-glass="1"] : verre éteint, rien ne s'applique et le rendu est celui d'avant.
+
+   RÈGLES DU JEU, tirées de TrainHub :
+   • le flou (--glass-filter) ne va que sur les GRANDES surfaces (barres, fenêtres, menus), jamais sur chaque bouton ;
+   • les champs sont des creux légers, les listes déroulantes restent OPAQUES (une liste translucide devient illisible) ;
+   • LE PAPIER RESTE CLAIR. La partition est la seule zone claire de TabHub, par choix : on lit une tablature comme on lit du papier.
+     Le verre habille ce qui l'entoure — le fond autour de la feuille, les barres, les fenêtres — jamais la feuille elle-même.
+   ============================================================ */
+
+/* ---- le fond autour de la feuille : l'aurore doit paraître de chaque côté du papier ---- */
+html[data-glass="1"] .zone-partition { background: transparent; }
+
+/* ---- les barres : des bandes translucides, floutées ---- */
+html[data-glass="1"] :is(.barre-haut, .barre-outils, .transport) {
+    background: var(--glass-bar);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+}
+
+/* ---- les fenêtres, les menus, le message : plus opaques que les barres, pour rester lisibles par-dessus n'importe quoi ---- */
+html[data-glass="1"] :is(.fenetre, .menu-contextuel, .message, .pave-tactile, .groupe-mesures-ligne.ouvert) {
+    background: var(--glass-pop-fond);
+    -webkit-backdrop-filter: var(--glass-filter);
+    backdrop-filter: var(--glass-filter);
+    box-shadow: var(--glass-hi), 0 24px 50px -24px rgba(0, 0, 0, .65);
+}
+html[data-glass="1"] .groupe-outils { box-shadow: var(--glass-hi); }
+
+/* ---- champs : creux légers ; listes déroulantes opaques ---- */
+html[data-glass="1"] input.champ { background: var(--glass-inp); }
+html[data-glass="1"] select.champ, html[data-glass="1"] select.champ option { background: var(--glass-select); }
+
+/* ---- les boutons d'outil : leur dégradé finit sur #12151a, PLEIN — moitié verre, moitié tuile ardoise. Il finit ici sur un blanc à peine
+   visible. Ni l'état « actif » (vert, voir style.css) ni le survol n'y sont touchés. ---- */
+html[data-glass="1"] .btn-outil:not(.actif):not(:hover) { background: linear-gradient(180deg, var(--fond-bouton-sombre) 0%, rgba(255, 255, 255, .02) 100%); }
+
+/* ---- boutons : un liseré clair sur le bord haut. Les FAMILLES nommées, et non « button » ---- */
+html[data-glass="1"] :is(.btn-icone, .btn-outil, .btn-transport, .btn-transport-texte, .btn-plein, .btn-neutre, .btn-danger, .btn-mesures-ligne) { box-shadow: var(--glass-hi); }
+html[data-glass="1"] :is(.btn-icone, .btn-outil, .btn-transport, .btn-transport-texte, .btn-plein, .btn-neutre, .btn-danger, .btn-mesures-ligne):active { box-shadow: inset 0 1px 3px rgba(0, 0, 0, .4); }
+html[data-glass="1"] .btn-icone:not(.actif):not(.btn-icone-accent) { box-shadow: none; }   /* les icônes de la barre n'ont pas de cadre : pas de reflet de bord */

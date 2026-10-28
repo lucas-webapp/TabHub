@@ -318,3 +318,25 @@ part (`tabhub.sync.at`), qui ne bouge que pour une vraie modification — jamais
 
 **À vérifier sur de vrais appareils** (le banc n'a qu'un faux Firebase) : règles de sécurité Firestore, domaines
 autorisés, et la fenêtre Google sur Safari. Voir `firebase-config.js`.
+
+---
+
+## Apparence : l'effet « verre dépoli »
+
+Option **par appareil**, éteinte par défaut, reprise de TrainHub et partagée avec HarmoHub : fond « aurore » (ou une seule
+teinte parmi sept), barres, fenêtres et menus translucides qui floutent ce qu'ils recouvrent, reflet clair sur le bord haut
+des boutons. Elle se règle dans **Réglages > Apparence** : un interrupteur et sept pastilles de couleur. Rien n'est envoyé au
+cloud — chaque appareil choisit pour lui (`tabhub.glass.v1`, `tabhub.glassBg.v1`).
+
+- `verre.js` (réglages, attributs sur `<html>` avant le premier affichage) et `verre.css` (palette, fonds, flou, replis,
+  dessin du réglage) sont **copiés à l'identique de HarmoHub** — comme `synchro-cloud.js`. Les corriger à un seul endroit,
+  puis recopier. `verre-surfaces.css` est propre à TabHub.
+- **Éteint, rien ne change** : chaque règle commence par `html[data-glass="1"]`, et le banc compare le rendu calculé de
+  chaque élément avec et sans `verre.css`.
+- **Le papier reste clair.** La partition est la seule zone claire de TabHub, par choix : on lit une tablature comme du papier.
+  Le verre habille ce qui l'entoure, jamais la feuille.
+- Le flou passe toujours par `var(--glass-filter)` : sans `backdrop-filter`, ou si l'appareil demande moins de transparence,
+  tout redevient opaque en un seul endroit. Il ne va que sur les grandes surfaces (jamais sur chaque bouton).
+
+**À vérifier sur de vrais appareils** : Safari/iPhone (le rendu n'a été vu que dans Chromium) et la fluidité du flou sur un
+vieux téléphone. Le détail, les pièges rencontrés et la méthode : `docs/verre.md` dans HarmoHub.
