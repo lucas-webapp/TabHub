@@ -152,7 +152,9 @@ async function fermerTout(p) { await p.keyboard.press('Escape'); await p.waitFor
             const off = await ouvrirTH(nav, {});
             const on = await ouvrirTH(nav, { reglages: VERRE });
             const nouveaux = [], pleins = new Set(), sousDegrade = new Set(), opaques = new Set();
-            const relever = () => on.page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => { const r = b.getBoundingClientRect(); return r.width && r.height; }).map((b) => ({ n: b.className || b.id, c: getComputedStyle(b).backgroundColor })).filter((x) => { const m = x.c.match(/rgba?\(([^)]+)\)/)[1].split(',').map(Number); return (m.length > 3 ? m[3] : 1) === 1; }).map((x) => x.n + ' ' + x.c));
+            // Hors compte-cloud.js : la pilule, son menu et sa fenêtre sont un composant COMMUN aux trois applis, qui dessine ses propres fonds
+            // (opaques, calculés par color-mix — que le navigateur rend en « color(srgb …) », pas en rgb) et ne dépend pas du verre.
+            const relever = () => on.page.evaluate(() => [...document.querySelectorAll('button')].filter((b) => { const r = b.getBoundingClientRect(); return r.width && r.height && !b.closest('#compte-cloud, .cc-menu, .cc-voile'); }).map((b) => ({ n: b.className || b.id, c: getComputedStyle(b).backgroundColor })).filter((x) => { const m = x.c.match(/rgba?\(([^)]+)\)/)[1].split(',').map(Number); return (m.length > 3 ? m[3] : 1) === 1; }).map((x) => x.n + ' ' + x.c));
             for (const [nom, aller] of Object.entries(ETATS)) {
                 await aller(off.page); await aller(on.page);
                 for (const x of await relever()) pleins.add(nom + ': ' + x);
