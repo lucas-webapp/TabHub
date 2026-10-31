@@ -893,6 +893,10 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    place : `:empty` la referme plutôt que de laisser une gouttière fantôme. */
 .note-reglage { margin: -2px 0 8px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45; }
 .note-reglage:empty { display: none; margin: 0; }
+/* Le rapport du test de précision : du texte brut à chasse fixe, à lire et à copier — jamais mis en page. */
+.rapport-precision { width: 100%; box-sizing: border-box; min-height: 14rem; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text-main); font: 12px/1.45 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
+.rapport-precision[hidden] { display: none; }
 
 /* LA LISTE DES FICHIERS DU DISQUE — une ligne par MORCEAU, ses fichiers en dessous quand on déplie.
    Bornée en hauteur et défilante : un dossier de travail de deux ans en compte des centaines, et une

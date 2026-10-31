@@ -68,6 +68,7 @@ utilisateur devenus des cas permanents.
 | `zoom_ecran_test.js` | Les loupes changent la GRAVURE (pas un nombre) ; `Ctrl+molette` zoome la partition en confisquant le geste, et le laisse au navigateur partout ailleurs |
 | `pwa_test.js` | L'icône d'écran d'accueil et la marque : `apple-touch-icon` carré plein cadre, PNG du manifest, et surtout le favicon qui trace EXACTEMENT les mêmes chemins que le logo de la barre du haut — lettres en chemins (pas de `<text>`), détourage par masque (pas un liseré peint du fond), cordes d'opacité uniforme, et une marge d'encre mesurée de 8 px sur les flancs / 9 px en haut et en bas. **Sans navigateur.** |
 | `tactile_test.js` | Écrire au doigt (pavé, tap, appui long, glisser qui défile), le séquenceur rythmique au doigt (cases étirées plutôt que défilantes, mesures empilées, glissé qui pose une note) et le pincement à deux doigts qui zoome la partition, pas la page |
+| `precision_lecture_test.js` | Le test de précision de la lecture (Réglages) : le calcul d'abord, sans navigateur, sur des signaux dont on connaît la réponse (attaque datée à 2,5 ms près, retard, écarts entendus, chaque verdict) ; puis le geste, dans le navigateur — il joue vraiment, restitue décompte/métronome/vitesse, ne touche pas au morceau, se laisse arrêter, se copie, tient sur téléphone |
 
 ## Lancer
 

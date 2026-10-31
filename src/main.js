@@ -35,6 +35,7 @@ import { icone } from './ui/icons.js';
 import { mettreEnPage, pasDeLaPosition, CLEFS } from './engine/layout.js';
 import { rendreSvg, PALETTE } from './render/svg.js';
 import { Lecteur } from './audio/player.js';
+import { mesurerLecture } from './audio/precision.js';
 import { enregistrerPartition, lireFichierPartition, telecharger } from './io/json.js';
 import { lireVersions, archiver, supprimerVersion, viderVersions, daterVersion, MAX_VERSIONS } from './io/versions.js';
 import { exporterPdf, preparerPdf, FORMATS, JEUX_MARGES, BORNES_PDF, PALETTE_PDF } from './io/pdf.js';
@@ -4065,6 +4066,7 @@ class TabHubApp {
         // LE CHOIX DU DOSSIER EST APPELÉ DIRECTEMENT DEPUIS LE CLIC, sans rien attendre avant : tout
         // `await` placé en amont consomme le geste, et le navigateur rejette alors l'ouverture du
         // sélecteur. C'est le troisième piège relevé par HarmoHub.
+        this.brancherPrecisionLecture();
         surClic('btn-dossier-choisir', async () => {
             const racine = await choisirDossier();
             this.rafraichirDossierRangement();
@@ -6289,6 +6291,44 @@ class TabHubApp {
         }
 
         if (dits.length) this.message(dits.join(' · '), 4200);
+    }
+
+    /**
+     * LE TEST DE PRÉCISION DE LA LECTURE (Réglages, tout en bas ; voir audio/precision.js pour le pourquoi). Le geste part
+     * DIRECTEMENT du clic : le navigateur ne démarre le contexte audio que dans un geste de l'utilisateur. Le rapport
+     * s'affiche en texte brut dans un champ en lecture seule — sélectionnable au doigt comme à la souris — et peut aussi
+     * se copier d'un bouton.
+     */
+    brancherPrecisionLecture() {
+        const bouton = document.getElementById('btn-precision');
+        if (!bouton) return;
+        const etat = document.getElementById('etat-precision');
+        const champ = document.getElementById('rapport-precision');
+        const ligneCopie = document.getElementById('ligne-copie-precision');
+        let essai = null;
+        bouton.addEventListener('click', async () => {
+            if (essai) { essai.arreter(); return; }                       // un second clic arrête la mesure
+            champ.hidden = true; ligneCopie.hidden = true; champ.value = '';
+            bouton.textContent = 'Arrêter le test';
+            etat.textContent = 'préparation…';
+            essai = mesurerLecture(this.lecteur, this.editeur.partition, {
+                surAvancement: ({ etape, secondes }) => { etat.textContent = secondes === undefined ? etape : `${etape} ${Math.round(secondes)} s`; },
+            });
+            let rapport;
+            try { rapport = await essai.fin; }
+            catch (e) { rapport = { erreur: 'Le test a échoué : ' + (e && e.message ? e.message : e) }; }
+            essai = null;
+            bouton.textContent = 'Relancer le test';
+            if (rapport.erreur) { etat.textContent = 'impossible'; champ.value = rapport.erreur; }
+            else { etat.textContent = 'terminé'; champ.value = rapport.texte; this.dernierRapportPrecision = rapport; }
+            champ.hidden = false; ligneCopie.hidden = !!rapport.erreur;
+            champ.scrollTop = 0;
+        });
+        document.getElementById('btn-precision-copier')?.addEventListener('click', async () => {
+            const texte = champ.value;
+            try { await navigator.clipboard.writeText(texte); this.message('Rapport copié'); }
+            catch (e) { champ.focus(); champ.select(); this.message('Sélectionne le texte et copie-le (⌘C)'); }
+        });
     }
 
     message(texte, duree = 2600) {
