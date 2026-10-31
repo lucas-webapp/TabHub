@@ -558,7 +558,38 @@ repli silencieux en mode local.
 - **Fermer un onglet n'est pas supprimer un morceau.** TabHub n'a pas de bibliothèque locale : ses morceaux
   sont ses onglets. Le nuage, lui, en contient autant qu'on en a écrit ; la fenêtre les *liste* et les
   ouvre à la demande, plutôt que d'ouvrir cinquante onglets à la connexion. Seul le bouton *Supprimer*
-  supprime — avec confirmation, et le contenu reste récupérable depuis la console Firebase.
+  supprime — avec confirmation, et le contenu reste récupérable depuis l'application elle-même (voir ci-dessous).
+
+**Retrouver ses morceaux quoi qu'il arrive** (retour : *« je suis obligé de réimporter des JSON, alors que c'est
+l'ancienne méthode »*). Chaque morceau a son **propre document** dans Firestore ; l'**index** (le document `tabhub`)
+n'est que la liste qui les désigne. Quand l'index se perd — écrasé par une autre version de l'application qui écrit
+dans le même document, vidé, jamais créé — les morceaux sont toujours là, mais la fenêtre du nuage ne les montrait
+plus : d'où les fichiers à réimporter. Maintenant :
+
+- **Index vide à la connexion → les morceaux sont retrouvés seuls**, une fois par séance : le moteur relit la
+  collection, remet dans l'index tout morceau que l'index ne nomme pas, et le dit (« 3 morceaux retrouvés dans ton
+  nuage »). Il ne fait que *lire* les documents des morceaux, et n'ajoute que les entrées **absentes** : une entrée
+  existante n'est ni rajeunie, ni remplacée, et une suppression voulue n'est jamais ressuscitée. Un compte neuf n'écrit rien.
+- **« Retrouver mes morceaux »** (fenêtre du compte) : la même recherche à la demande, pour l'index qui existe mais
+  en oublie un. Elle coûte la lecture de *tous* les morceaux (leur contenu est dans leurs documents) : d'où le
+  bouton plutôt qu'une lecture à chaque ouverture. Réseau coupé, elle échoue franchement ; avant la réponse du nuage,
+  elle refuse (elle ressusciterait des morceaux supprimés qu'elle ne connaît pas encore).
+- **« Supprimés récemment »** : un morceau supprimé reste dans le nuage (seul l'index le marque `d: true`) ; la
+  fenêtre le liste avec **Restaurer**, qui le rend à la liste et le rouvre. Plus besoin de la console Firebase.
+- **Appareil vide, nuage plein → la liste s'ouvre toute seule** (une fois par séance, avec un mot d'accueil),
+  seulement si rien n'est encore écrit : on n'interrompt jamais quelqu'un qui travaille, et la fenêtre ne se rouvre
+  pas quand on l'a fermée.
+- **Une page blanche n'est pas un morceau.** Chaque appareil, chaque onglet neuf crée un document vierge ; on ne
+  l'envoie plus au nuage (il y laissait des « Sans titre » à chaque ouverture, qui remplissaient la liste). Il part
+  dès qu'il a une note ou un titre — et un morceau déjà connu du nuage qu'on vide est bien envoyé vidé.
+- **Le risque que ça ne règle pas d'ici : une ancienne version qui écrase la liste.** La version de `main` (un seul
+  brouillon) écrit dans le même document `tabhub` et le *remplace* en entier : sa première sauvegarde supprime l'index
+  (les morceaux restent, et la recherche automatique ci-dessus les retrouve — mais autant ne pas en arriver là). Le
+  garde-fou est dans l'adaptateur de `main` (`src/io/synchro.js` : un document qui porte `docs` n'est jamais écrit) ;
+  il ne protège que les appareils qui ont reçu cette version-là.
+
+`src/io/nuage.js` **diverge** désormais de la copie de HarmoHub (`retrouver`, `restaurer`, `surRetrouves`) : ne pas
+la recopier d'un côté à l'autre sans reporter ces ajouts.
 
 **Les avertissements se taisent quand ils n'ont plus lieu d'être.** « Ce travail n'a pas été exporté »
 ne se pose plus si le morceau est déjà identique à sa copie du nuage, ni à la fermeture de la page. En
@@ -629,6 +660,19 @@ l'app. S'il y a une application web par site, c'est une ligne à changer dans ch
 - `nuage_test.js` — TabHub dans un vrai navigateur, Firebase injecté en mémoire, CDN coupé : 88 vérifications,
   dont le bouton (états, un clic, téléphone), la question du garde-fou (clavier, Échap, fenêtre Google
   demandée *dans* le clic, session restaurée, Firebase lent) et le dessin calculé du bouton.
+- `nuage_retrouver_test.js` — retrouver et restaurer, sous Node (deux « appareils » sur un faux nuage) : 34 vérifications
+  — index perdu (aucun morceau réécrit, un second appareil ne refait pas la recherche), compte neuf (rien d'écrit,
+  une seule lecture de la collection), index incomplet (recherche à la demande seulement), suppressions jamais
+  ressuscitées, restauration, documents d'autres applications ignorés, index remplacé par un brouillon de `main`,
+  identifiant d'un morceau conservé (date ISO ≠ nom de son document), écho du serveur en retard, pannes, reconnexion.
+  19 sabotages du moteur : tous attrapés (cinq ne l'étaient pas d'abord : lecture de la collection à chaque instantané,
+  identité prise au nom du document, liste et interface non mises à jour sans attendre l'écho ; deux autres étaient des
+  sabotages sans effet, retirés).
+- `nuage_retrouver_ui_test.js` — le même parcours dans un vrai navigateur : 34 vérifications (liste ouverte sur
+  appareil vide, mot d'accueil, pas d'interruption de qui écrit, pas de réouverture, « Supprimés récemment » et
+  Restaurer, bouton « Retrouver mes morceaux », page blanche jamais envoyée, téléphone 390 px). 20 sabotages de
+  `main.js` : tous attrapés après avoir comblé six trous (réouverture de la fenêtre, page blanche déjà connue du nuage,
+  titre seul, effacement d'un morceau connu, fermeture après restauration, bouton qui reste grisé).
 - `css_equilibre_test.js` — les feuilles de style, sans navigateur : aucune accolade en trop.
 
 **Aucun de ces bancs ne parle au vrai Firebase** : il faudrait un compte Google. Ils éprouvent la logique

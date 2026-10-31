@@ -3635,6 +3635,17 @@ class TabHubApp {
             .filter(Boolean);
     }
 
+    /** Aucune note, aucun titre donné : un onglet neuf. */
+    partitionVierge(p) {
+        const note = aplatir(p).some(e => !e.ref.silence && e.ref.notes.length);
+        return !note && (!p.meta.titre || p.meta.titre === 'Sans titre');
+    }
+
+    /** L'index du nuage nomme-t-il déjà ce morceau (vivant ou supprimé) ? */
+    nuageConnait(id) {
+        return !!this.nuage?.catalogue().some(e => e.id === id);
+    }
+
     /** Le morceau actif est-il, à l'instant, identique à sa copie du nuage ? */
     nuageAJour() {
         const id = idNuage(this.editeur.partition);
@@ -3654,7 +3665,10 @@ class TabHubApp {
                 miroirComplet: false,
                 // Fermer un onglet n'est pas supprimer un morceau : seul le bouton « Supprimer » le fait.
                 suppressionParDisparition: false,
-                lister: () => this.partitionsOuvertes().filter(p => idNuage(p))
+                // UNE PAGE BLANCHE N'EST PAS UN MORCEAU. Chaque appareil, chaque onglet neuf crée un document vierge : l'envoyer
+                // au nuage y laissait des « Sans titre » à chaque ouverture, et la liste des morceaux à retrouver s'en
+                // remplissait. On n'envoie un morceau VIERGE que s'il est déjà dans le nuage (on l'a vidé : ça doit se savoir).
+                lister: () => this.partitionsOuvertes().filter(p => idNuage(p) && !(this.partitionVierge(p) && !this.nuageConnait(idNuage(p))))
                     .map(p => ({ id: idNuage(p), titre: p.meta.titre || 'Sans titre', donnees: p })),
                 lire: (id) => this.partitionsOuvertes().find(p => idNuage(p) === id) ?? null,
                 ecrire: (id, donnees) => this.recevoirDuNuage(id, donnees),
@@ -3671,7 +3685,8 @@ class TabHubApp {
             },
             surEtat: (mode, message) => this.afficherEtatNuage(mode, message),
             surCompte: (utilisateur) => this.afficherCompteNuage(utilisateur),
-            surCatalogue: () => this.rafraichirListeNuage(),
+            surCatalogue: () => this.surCatalogueNuage(),
+            surRetrouves: (r) => this.apresRetrouves(r),
             // Le bouton de la barre du haut suit tout ce qui le concerne : qui est connecté, l'état, la fenêtre Google.
             surAffichage: () => this.rafraichirBoutonNuage(),
             confirmerSansConnexion: (outils) => this.demanderSansConnexion(outils),
@@ -3827,9 +3842,18 @@ class TabHubApp {
         const hote = document.getElementById('nuage-liste');
         if (!hote) return;
         hote.textContent = '';
+        const corbeille = document.getElementById('nuage-corbeille');
+        if (corbeille) corbeille.textContent = '';
+        const nombre = document.getElementById('nuage-nombre');
+        if (nombre) nombre.textContent = '';
+        for (const id of ['nuage-corbeille-titre', 'nuage-corbeille-note']) { const el = document.getElementById(id); if (el) el.hidden = true; }
         if (!this.nuage?.etat().connecte) return;
         const ouverts = new Map(this.onglets.map((o, k) => [idNuage(k === this.ongletActif ? this.editeur.partition : o.etat?.partition), k]));
-        for (const e of this.nuage.catalogue().filter(x => !x.supprime)) {
+        const catalogue = this.nuage.catalogue();
+        const vivants = catalogue.filter(x => !x.supprime);
+        if (nombre) nombre.textContent = vivants.length ? `(${vivants.length})` : '';
+        this.rafraichirCorbeilleNuage(catalogue.filter(x => x.supprime));
+        for (const e of vivants) {
             const ligne = document.createElement('div');
             ligne.className = 'nuage-ligne';
             ligne.setAttribute('role', 'listitem');
@@ -3855,7 +3879,7 @@ class TabHubApp {
                 const choix = await demander({
                     titre: `Supprimer « ${e.titre || 'Sans titre'} » ?`,
                     texte: 'Le morceau disparaît de tes appareils connectés. Son contenu reste conservé dans le nuage : '
-                         + 'il n\'est pas effacé pour de bon, et peut être récupéré depuis la console Firebase.',
+                         + 'il n\'est pas effacé pour de bon, et tu pourras le restaurer depuis « Supprimés récemment », dans cette même fenêtre.',
                     boutons: [{ cle: 'annuler', libelle: 'Annuler' }, { cle: 'supprimer', libelle: 'Supprimer', style: 'danger' }],
                 });
                 if (choix !== 'supprimer') return;
@@ -3869,10 +3893,78 @@ class TabHubApp {
         }
     }
 
-    ouvrirNuage() {
+    /** « Supprimés récemment » : ce que l'index marque supprimé, avec de quoi le rendre. */
+    rafraichirCorbeilleNuage(supprimes) {
+        const hote = document.getElementById('nuage-corbeille');
+        if (!hote) return;
+        for (const id of ['nuage-corbeille-titre', 'nuage-corbeille-note']) { const el = document.getElementById(id); if (el) el.hidden = !supprimes.length; }
+        for (const e of supprimes) {
+            const ligne = document.createElement('div');
+            ligne.className = 'nuage-ligne'; ligne.setAttribute('role', 'listitem');
+            const titre = document.createElement('span');
+            titre.className = 'nuage-ligne-titre'; titre.textContent = e.titre || 'Sans titre';
+            const date = document.createElement('span');
+            date.className = 'nuage-ligne-date';
+            date.textContent = e.maj ? 'supprimé le ' + new Date(e.maj).toLocaleString('fr-FR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : '';
+            const rendre = document.createElement('button');
+            rendre.type = 'button'; rendre.className = 'btn-neutre'; rendre.textContent = 'Restaurer';
+            rendre.setAttribute('aria-label', `Restaurer « ${e.titre || 'Sans titre'} »`);
+            rendre.addEventListener('click', async () => {
+                rendre.disabled = true;
+                try {
+                    await this.nuage.restaurer(e.id);
+                    this.fermerFenetres();
+                    await this.nuage.ouvrirDistant(e.id);        // et on le rouvre : c'est pour le retrouver qu'on le restaure
+                    this.message(`« ${e.titre || 'Sans titre'} » restauré`);
+                } catch (err) { rendre.disabled = false; this.message(err.message || 'Restauration impossible', 5000); }
+            });
+            ligne.append(titre, date, rendre);
+            hote.append(ligne);
+        }
+    }
+
+    /**
+     * Le catalogue du nuage vient de changer. Au passage : SUR UN APPAREIL VIDE (navigateur neuf, données effacées, autre
+     * machine), une page blanche ne dit pas que des morceaux attendent dans le nuage — retour utilisateur : « permets-moi de
+     * retrouver mes morceaux quoi qu'il arrive ». La fenêtre s'ouvre donc d'elle-même sur leur liste, UNE FOIS par séance, et
+     * seulement si rien n'est encore écrit : on n'interrompt jamais quelqu'un qui a déjà commencé à travailler.
+     */
+    surCatalogueNuage() {
+        this.rafraichirListeNuage();
+        if (this._listeNuageProposee || !this.nuage?.etat().connecte) return;
+        // Des morceaux qui NE SONT PAS déjà ouverts ici : la page blanche de cet appareil est elle-même envoyée au nuage dès
+        // la connexion, et ne doit pas faire croire qu'il y a quelque chose à retrouver.
+        const ouverts = new Set(this.onglets.map((o, k) => idNuage(k === this.ongletActif ? this.editeur.partition : o.etat?.partition)));
+        if (!this.nuage.catalogue().some(e => !e.supprime && !ouverts.has(e.id))) return;   // pas encore arrivé, ou rien d'autre
+        this._listeNuageProposee = true;
+        if (this.onglets.length > 1 || !this.partitionVierge(this.editeur.partition)) return;
+        this.ouvrirNuage(true);
+    }
+
+    /** La recherche automatique vient de remettre des morceaux dans la liste. */
+    apresRetrouves(r) {
+        this.message(`${r.retrouves} morceau${r.retrouves > 1 ? 'x' : ''} retrouvé${r.retrouves > 1 ? 's' : ''} dans ton nuage`, 5000);
+    }
+
+    /** Le bouton « Retrouver mes morceaux » : relit le nuage et remet dans la liste ce qui y manque. */
+    async retrouverLesMorceaux() {
+        const bouton = document.getElementById('nuage-retrouver');
+        if (!this.nuage?.etat().connecte) { this.message('Connecte-toi d\'abord au nuage.', 4000); return; }
+        const texte = bouton.textContent;
+        bouton.disabled = true; bouton.textContent = 'Recherche…';
+        try {
+            const r = await this.nuage.retrouver();
+            this.message(r.retrouves ? `${r.retrouves} morceau${r.retrouves > 1 ? 'x' : ''} retrouvé${r.retrouves > 1 ? 's' : ''} : ${r.titres.slice(0, 3).map(t => '« ' + t + ' »').join(', ')}${r.titres.length > 3 ? '…' : ''}` : 'Rien de plus à retrouver : la liste est complète.', 5000);
+        } catch (e) { this.message(e.message || 'La recherche a échoué.', 5000); }
+        finally { bouton.disabled = false; bouton.textContent = texte; }
+    }
+
+    ouvrirNuage(accueil = false) {
         this.afficherCompteNuage(this.nuage?.etat().utilisateur || null);
         this.afficherEtatNuage(this.nuage?.etat().mode ?? null, this.nuage?.etat().message);
         if (!this.nuage) document.getElementById('nuage-note').textContent = 'Le nuage est indisponible (hors ligne, ou bloqué par le navigateur). Tout continue de fonctionner en local.';
+        const mot = document.getElementById('nuage-accueil');
+        if (mot) mot.hidden = !accueil;
         this.ouvrirFenetre('fenetre-nuage');
     }
 
@@ -3881,6 +3973,7 @@ class TabHubApp {
         surClic('btn-nuage', () => this.cliquerBoutonNuage());
         surClic('nuage-connexion', () => this.connecterAuNuage());
         surClic('nuage-deconnexion', () => this.nuage?.deconnecter());
+        surClic('nuage-retrouver', () => this.retrouverLesMorceaux());
         surClic('nuage-tout-exporter', () => this.exporterToutesLesTablatures());
         surClic('nuage-tout-importer', () => this.importerUneSauvegarde());
     }

@@ -185,6 +185,7 @@
         var indexPret = false;
         var alerte = '';
         var copieCreee = false;
+        var retrouveFait = false;         // la recherche automatique des morceaux a eu lieu (une fois par séance)
         var toucheLocal = false;          // ce cycle a modifié des morceaux de CET appareil
         // QUI EST CONNECTÉ, et ce que l'interface en sait. Tant que Firebase n'a pas répondu (le tout début
         // du chargement), « personne n'est connecté » et « on ne sait pas encore » se ressemblent — et les
@@ -346,6 +347,49 @@
         }
 
         function prevenirCatalogue() { if (options.surCatalogue) options.surCatalogue(catalogue()); }
+
+        // ---------- RETROUVER ce que l'index ne dit plus -----------------------------------------------------
+        //
+        // POURQUOI. Retour utilisateur : « permets-moi de retrouver mes morceaux quoi qu'il arrive, vu qu'ils seront tous
+        // enregistrés dans le Firestore. Pour l'instant je suis obligé de réimporter des JSON ». Chaque morceau a son
+        // PROPRE document (`<slug>__<id>`, avec son titre et sa date) ; l'INDEX (le document `<slug>`) n'est que la liste
+        // qui les désigne. Si l'index se perd — écrasé par une autre version de l'application qui écrit dans le même
+        // document, vidé à la main, jamais créé —, les morceaux sont toujours là, mais la fenêtre du nuage ne montre
+        // plus rien : c'est ce qui oblige à réimporter des fichiers. Ici, le DOCUMENT DU MORCEAU fait foi : on relit la
+        // collection et on remet dans l'index tout morceau qu'il ne nomme pas.
+        //
+        // CE QUE ÇA NE FAIT JAMAIS : retirer, remplacer ou rajeunir une entrée existante — y compris une entrée marquée
+        // SUPPRIMÉE, qui est une décision de l'utilisateur. Seules les entrées ABSENTES sont ajoutées.
+        //
+        // LE COÛT : lire la collection, c'est lire TOUS les morceaux (leur contenu y est). D'où deux usages seulement :
+        // automatique quand l'index arrive VIDE (une fois par séance : un compte neuf n'en a rien à lire, un index perdu
+        // en a besoin), et à la demande du bouton « Retrouver mes morceaux ».
+        function retrouverVraiment() {
+            var prefixe = slug + '__';
+            return db.collection('users').doc(utilisateur.uid).collection('apps').get().then(function (snap) {
+                var manquants = {}, titres = [], maj = 0, n = 0;
+                snap.forEach(function (d) {
+                    if (String(d.id).indexOf(prefixe) !== 0) return;
+                    var data = d.data();
+                    if (!data || typeof data.json !== 'string') return;
+                    var id = data.id != null ? String(data.id) : String(d.id).slice(prefixe.length);
+                    var cle = idSur(id);
+                    if (index.docs && index.docs[cle]) return;                 // déjà nommé (vivant ou supprimé volontairement)
+                    var u = Number(data.u) || maintenant();
+                    manquants[cle] = { t: data.t || '', u: u, i: id, d: false };
+                    if (u > maj) maj = u;
+                    titres.push(data.t || 'Sans titre');
+                    n++;
+                });
+                if (!n) return { retrouves: 0, titres: [] };
+                return refIndex.set({ docs: manquants, maj: maj }, { merge: true }).then(function () {
+                    if (!index.docs) index.docs = {};
+                    Object.keys(manquants).forEach(function (k) { index.docs[k] = manquants[k]; });
+                    prevenirCatalogue();
+                    return { retrouves: n, titres: titres };
+                });
+            });
+        }
 
         function catalogue() {
             var liste = [];
@@ -591,6 +635,7 @@
             if (minuterie) { clearTimeout(minuterie); minuterie = null; }
             if (options.surCompte) options.surCompte(user);
             indexPret = false;
+            retrouveFait = false;
             if (!user) {
                 refIndex = null;
                 afficher(null);
@@ -617,6 +662,17 @@
                 var d = snap.exists ? snap.data() : null;
                 index = { docs: (d && d.docs) || {}, meta: (d && d.meta) || null };
                 prevenirCatalogue();
+                // UN INDEX VIDE n'est pas forcément un compte neuf : c'est aussi ce que donne un index perdu. On regarde,
+                // une fois par séance, ce que les documents des morceaux savent — AVANT de rapprocher, pour que les
+                // morceaux retrouvés soient comptés dans le rapprochement qui suit.
+                if (!retrouveFait && !Object.keys(index.docs).length) {
+                    retrouveFait = true;
+                    enfiler(function () {
+                        return retrouverVraiment().then(function (r) {
+                            if (r.retrouves && options.surRetrouves) options.surRetrouves(r);
+                        }, function (e) { console.error('Recherche des morceaux du nuage impossible', e); });
+                    });
+                }
                 rapprocher();
             }, function (e) {
                 console.error('Écoute du nuage interrompue', e);
@@ -722,6 +778,27 @@
                 return marquerSupprime(id, titre).catch(function (e) { afficher('error', expliquer(e)); throw e; });
             },
             catalogue: catalogue,
+            /** Remet dans l'index les morceaux dont le nuage a le document mais que l'index ne nomme plus. */
+            retrouver: function () {
+                if (!utilisateur) return Promise.reject(new Error('Non connecté'));
+                if (!indexPret) return Promise.reject(new Error('Le nuage n\'a pas encore répondu : réessaie dans un instant.'));
+                return enfiler(function () { return retrouverVraiment(); }).catch(function (e) { afficher('error', expliquer(e)); throw e; });
+            },
+            /** Annule une suppression : l'entrée de l'index redevient vivante (le contenu n'a jamais quitté son document). */
+            restaurer: function (id) {
+                if (!utilisateur || !refIndex) return Promise.reject(new Error('Non connecté'));
+                var ancien = entreeIndex(id);
+                if (!ancien) return Promise.reject(new Error('Ce morceau n\'est pas dans l\'index du nuage.'));
+                var u = maintenant();
+                if (ancien.u >= u) u = ancien.u + 1;
+                var entree = {}; entree[idSur(id)] = { t: ancien.t || '', u: u, i: String(id), d: false };
+                return refIndex.set({ docs: entree, maj: u }, { merge: true }).then(function () {
+                    delete etatLocal.supprimes[id];
+                    ecrireEtatLocal();
+                    index.docs[idSur(id)] = entree[idSur(id)];
+                    prevenirCatalogue();
+                });
+            },
             /** Récupère un morceau du nuage et le donne à l'adaptateur (TabHub : l'ouvre dans un onglet). */
             ouvrirDistant: function (id) {
                 if (!utilisateur) return Promise.reject(new Error('Non connecté'));

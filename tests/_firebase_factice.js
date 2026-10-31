@@ -37,9 +37,12 @@
             ecritures: 0,          // nombre de documents écrits : détecte une synchro qui s'emballe
             echec: null,           // { code, message } : toute écriture/lecture échoue
             retardInstantane: 0,   // ms avant la livraison du PREMIER instantané (réseau lent au démarrage)
+            sansEcho: false,       // les écritures ne réveillent PAS les écouteurs : l'écho du serveur tarde (réseau lent)
+            listages: 0,           // nombre de lectures d'une collection entière (`collection().get()`) : ce que coûte une recherche
             horsLigne: false,      // les instantanés arrivent « du cache », les écritures sont refusées
             journal: [],
             notifier: function (chemin) {
+                if (b.sansEcho) return;
                 (ecouteurs[chemin] || []).slice().forEach(function (fn) { fn(b.instantane(chemin)); });
             },
             instantane: function (chemin) {
@@ -49,6 +52,15 @@
                     data: function () { return clone(d); },
                     metadata: { hasPendingWrites: false, fromCache: b.horsLigne },
                 };
+            },
+            /** `collection().get()` : les documents ENFANTS DIRECTS de la collection, comme le vrai Firestore. */
+            lister: function (chemin) {
+                b.listages++;
+                var prefixe = chemin + '/';
+                var liste = Object.keys(docs)
+                    .filter(function (c) { return c.indexOf(prefixe) === 0 && c.slice(prefixe.length).indexOf('/') < 0; })
+                    .map(function (c) { return { id: c.slice(prefixe.length), exists: true, data: function () { return clone(docs[c]); } }; });
+                return { docs: liste, size: liste.length, empty: !liste.length, forEach: function (fn) { liste.forEach(fn); } };
             },
             ecouter: function (chemin, fn, fnErr) {
                 (ecouteurs[chemin] = ecouteurs[chemin] || []).push(fn);
@@ -143,7 +155,16 @@
                 onSnapshot: function (fn, fnErr) { return backend.ecouter(chemin, fn, fnErr); },
             };
         }
-        function coll(chemin) { return { doc: function (id) { return ref(chemin + '/' + id); } }; }
+        function coll(chemin) {
+            return {
+                doc: function (id) { return ref(chemin + '/' + id); },
+                get: function () {
+                    if (backend.echec) return Promise.reject(backend.echec);
+                    if (backend.horsLigne) return Promise.reject({ code: 'unavailable', message: 'hors ligne' });
+                    return Promise.resolve(backend.lister(chemin));
+                },
+            };
+        }
 
         var firestore = {
             collection: function (n) { return coll(n); },

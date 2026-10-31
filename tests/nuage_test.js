@@ -79,11 +79,12 @@ const attendre = (ms) => new Promise(r => setTimeout(r, ms));
         p = await etatPastille();
         check(p.visible && /tout est enregistré/.test(p.titre), 'la pastille est visible et dit que tout est enregistré');
 
-        // Le morceau de départ (vide) est déjà envoyé : il est dans le nuage, sous son identité.
+        // Le morceau de départ est VIDE : on ne l'envoie pas (sinon chaque appareil neuf déposerait un « Sans titre »
+        // dans le nuage). Il partira à la première note, sous son identité.
         const idDepart = await page.evaluate(() => window.app.editeur.partition.meta.creeLe);
         const cheminDoc = (id) => `users/u1/apps/tabhub__${id.replace(/[^A-Za-z0-9_-]/g, '-')}`;
         const dansLeNuage = (id) => page.evaluate((c) => window.__backend.docs[c] ? JSON.parse(window.__backend.docs[c].json) : null, cheminDoc(id));
-        check(!!(await dansLeNuage(idDepart)), 'le morceau ouvert est envoyé dès la connexion');
+        check(!(await dansLeNuage(idDepart)), 'un morceau encore VIDE n\'est pas envoyé au nuage (pas de « Sans titre » déposé à chaque connexion)');
 
         // --- 3. Une modification part toute seule ---------------------------------------------------
         await page.click('#fenetre-nuage [data-fermer].btn-plein');
@@ -220,6 +221,9 @@ const attendre = (ms) => new Promise(r => setTimeout(r, ms));
         // Deux autres morceaux dans le nuage, écrits « ailleurs ».
         await pg.evaluate(async () => {
             const m = await import('/src/model/score.js');
+            // Le morceau de départ est vide, donc pas envoyé : l'index n'existe pas encore, un AUTRE appareil le crée.
+            const idxChemin = 'users/u1/apps/tabhub';
+            if (!window.__backend.docs[idxChemin]) window.__backend.docs[idxChemin] = { docs: {}, maj: Date.now() };
             const poser = (titre, creeLe) => {
                 const x = m.creerPartition('guitare'); x.meta.titre = titre; x.meta.creeLe = creeLe;
                 const cle = creeLe.replace(/[^A-Za-z0-9_-]/g, '-'); const u = Date.now() + 7;

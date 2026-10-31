@@ -647,13 +647,27 @@
         </div>
         <div class="fenetre-corps">
             <p class="note-fenetre" id="nuage-note"></p>
+            <!-- Posé quand la fenêtre s'ouvre TOUTE SEULE, sur un appareil vide (navigateur neuf ou vidé) : une page blanche ne
+                 dit pas que des morceaux attendent dans le nuage (voir main.js#surCatalogueNuage). -->
+            <p class="note-fenetre nuage-accueil" id="nuage-accueil" hidden>Tes morceaux t'attendent dans le nuage : ouvre celui que tu veux retrouver.</p>
             <div class="nuage-compte">
                 <button type="button" class="btn-plein" id="nuage-connexion">Se connecter avec Google</button>
                 <span id="nuage-nom" class="nuage-nom" hidden></span>
                 <button type="button" class="btn-neutre" id="nuage-deconnexion" hidden>Se déconnecter</button>
             </div>
-            <h3 class="nuage-titre">Dans le nuage</h3>
+            <h3 class="nuage-titre">Mes morceaux dans le nuage <span id="nuage-nombre" class="nuage-nombre"></span></h3>
             <div id="nuage-liste" class="liste-disque" role="list"></div>
+            <!-- LA CORBEILLE : supprimer n'efface rien (le contenu reste dans son document), alors autant le dire et le rendre
+                 depuis l'application — il fallait jusqu'ici passer par la console Firebase. -->
+            <h3 class="nuage-titre" id="nuage-corbeille-titre" hidden>Supprimés récemment</h3>
+            <p class="note-fenetre" id="nuage-corbeille-note" hidden>Un morceau supprimé n'est pas perdu : son contenu reste dans le nuage, et tu peux le restaurer.</p>
+            <div id="nuage-corbeille" class="liste-disque" role="list"></div>
+            <!-- RETROUVER : chaque morceau a son propre document dans le nuage ; la liste ci-dessus n'est que l'index qui les
+                 désigne. Si cet index se perd, les morceaux sont toujours là — ce bouton les relit et les remet dans la liste. -->
+            <h3 class="nuage-titre">Un morceau manque à la liste ?</h3>
+            <p class="note-fenetre">Chaque morceau est enregistré dans son propre document du nuage. Si la liste ci-dessus est incomplète, cette
+               recherche relit le nuage et remet dans la liste tout morceau qui y manque — sans rien modifier ni supprimer.</p>
+            <div class="nuage-secours"><button type="button" class="btn-neutre" id="nuage-retrouver">Retrouver mes morceaux</button></div>
             <h3 class="nuage-titre">Sauvegarde de secours</h3>
             <p class="note-fenetre">Le nuage est la copie de tous les jours ; ceci est la copie à garder de côté, sur ton disque,
                de temps en temps. Un seul fichier, qui contient tous les morceaux.</p>

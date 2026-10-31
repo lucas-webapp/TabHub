@@ -2152,6 +2152,9 @@ body.avec-pave .dpad-flottant { display: grid; }
 .nuage-compte { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin: 10px 0 14px; }
 .nuage-nom { font-weight: 700; color: var(--text-main); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 220px; }
 .nuage-titre { margin: 16px 0 6px; font-size: var(--fs-sm); color: var(--text-main); }
+.nuage-nombre { font-weight: 500; color: var(--text-muted); }
+.nuage-nombre:empty { display: none; }
+.nuage-accueil { color: var(--accent); font-weight: 600; }
 .nuage-secours { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 10px; }
 .nuage-ligne { display: flex; align-items: center; gap: 8px; border: 1px solid var(--border-groupe); border-radius: 9px;
     padding: 7px 10px; background: var(--fond-bouton-sombre); }
