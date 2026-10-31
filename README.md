@@ -212,6 +212,14 @@ garde donc son propre bouton vert toujours visible plutôt que de se noyer dans 
 
 ---
 
+## Mesurer la précision de la lecture
+
+Si le son paraît décalé par rapport à ce qui est écrit, **Réglages > Précision de la lecture > Lancer le test** joue le morceau
+tel quel (24 secondes au plus, sans décompte ni métronome) et mesure, sur la machine qui l'entend : le retard réel de chaque note
+sur l'horloge audio, le moment où le son devient audible (attaque), la régularité des écarts entendus entre notes, et la latence
+de sortie quand le navigateur la donne. Le rapport se copie pour être transmis. Le test ne change rien à la lecture : voir
+`src/audio/precision.js`, qui dit aussi pourquoi un instrument plutôt qu'un correctif.
+
 ## Organisation du code
 
 ```

@@ -296,6 +296,23 @@
                  non plus, et un réglage qui ne sert qu'à défaire ce que l'appli fait toute seule pour
                  vous coûte plus d'attention qu'il n'en fait gagner. Repartir de zéro se fait déjà par
                  Fichiers → Nouveau, qui écrase le brouillon comme il se doit. -->
+            <!-- PRÉCISION DE LA LECTURE — un INSTRUMENT, pas un réglage (voir audio/precision.js). Retour utilisateur :
+                 « le son n'est pas du tout synchronisé avec ce qui est écrit », entendu sur Safari, alors que la tête de
+                 lecture suit la grille. Le bouton joue le morceau tel qu'il est et mesure, sur CETTE machine, si les notes
+                 partent à l'heure et quand le son devient réellement audible. Le rapport se copie pour être transmis. -->
+            <div class="rubrique" id="rubrique-precision">
+                <h3>Précision de la lecture</h3>
+                <p class="note-reglage" id="note-precision">Joue le morceau en entier (24 secondes au plus), sans décompte ni métronome, et mesure si le son est en place. Monte le volume, puis ne touche à rien pendant le test.</p>
+                <div class="ligne-champ">
+                    <label id="etiquette-precision">Mesurer cette lecture</label>
+                    <span class="valeur-etat" id="etat-precision" aria-live="polite">—</span>
+                    <button type="button" id="btn-precision" class="btn-neutre" aria-labelledby="etiquette-precision">Lancer le test</button>
+                </div>
+                <textarea id="rapport-precision" class="rapport-precision" readonly hidden spellcheck="false" aria-label="Rapport du test de précision"></textarea>
+                <div class="ligne-champ" id="ligne-copie-precision" hidden>
+                    <button type="button" id="btn-precision-copier" class="btn-neutre">Copier le rapport</button>
+                </div>
+            </div>
         </div>
         <div class="fenetre-pied">
             <button type="button" class="btn-plein" data-fermer>Terminé</button>

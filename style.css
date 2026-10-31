@@ -650,6 +650,12 @@ input.champ[type="number"] { width: 54px; text-align: center; }
    hasard. */
 .menu-contextuel .separateur { height: 0; border: none; border-top: 1px solid var(--btn-neutral-border-hover); margin: 4px 2px; }
 
+.valeur-etat { margin-left: auto; font-size: var(--fs-xs); font-weight: 700; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.note-reglage { margin: -2px 0 8px; font-size: var(--fs-xs); color: var(--text-muted); line-height: 1.45; }
+/* Le rapport du test de précision : du texte brut à chasse fixe, à lire et à copier — jamais mis en page. */
+.rapport-precision { width: 100%; box-sizing: border-box; min-height: 14rem; resize: vertical; padding: 10px; border: 1px solid var(--border); border-radius: 8px;
+    background: var(--bg); color: var(--text-main); font: 12px/1.45 ui-monospace, 'SF Mono', Menlo, Consolas, monospace; white-space: pre; overflow: auto; }
+.rapport-precision[hidden] { display: none; }
 .rubrique > h3 {
     margin: 0 0 8px; font-size: var(--fs-2xs); font-weight: 800;
     text-transform: uppercase; letter-spacing: .07em; color: var(--text-muted);

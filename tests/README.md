@@ -15,6 +15,7 @@ d'entre eux existent parce qu'ils ont attrapé un vrai défaut, et le commentair
 | `performance_test.js` | Le coût d'un redessin ne suit pas la longueur du morceau |
 | `synchro_cloud_test.js` | Synchro Firebase (contre un FAUX Firebase, `_firebase_faux.js`) : appareil neuf qui ne doit jamais écraser le cloud, édition concurrente, remplacements volontaires, horloge de synchro, pastille sans encombrement |
 | `verre_test.js` | L'effet verre : éteint = rendu d'avant (élément par élément), attribut posé avant le premier affichage, papier toujours clair, texte lisible (contrastes mesurés), flou aux bons endroits et jamais en dur (repli), réglage Apparence (interrupteur, sept pastilles, autre onglet, rechargement, téléphone). Outils communs avec HarmoHub : `_verre_commun.js` |
+| `precision_lecture_test.js` | Le test de précision de la lecture (Réglages) : le calcul d'abord, sans navigateur, sur des signaux dont on connaît la réponse ; puis le geste, dans le navigateur — il joue vraiment, restitue ce qu'il a emprunté, ne touche pas au morceau, se laisse arrêter, se copie, tient sur téléphone |
 
 ## Lancer
 
