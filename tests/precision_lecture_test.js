@@ -15,7 +15,7 @@ const creerHarnais = require('./_harness.js');
 const { ouvrirApp } = require('./_page.js');
 const { check, exiger, plan, bilan } = creerHarnais('test de précision de la lecture');
 
-plan(34);
+plan(43);
 
 // ---------- des signaux dont on connaît la réponse ----------
 // L'énergie d'une note : un bruit de fond, puis une montée linéaire de 8 ms centrée sur `delai` (donc la moitié du pic est
@@ -36,6 +36,7 @@ function releves(notes, fin = 4) {
 
 (async () => {
     const P = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'audio', 'precision.js')).href);
+    const S = await import(pathToFileURL(path.join(__dirname, '..', 'src', 'model', 'score.js')).href);
 
     // ===== A. LE CALCUL, SANS NAVIGATEUR ======================================================================
     {
@@ -70,17 +71,58 @@ function releves(notes, fin = 4) {
             resume: { programmation: { retardMax, plusDe10: retardMax > 10 ? 3 : 0, plusDe30: retardMax > 30 ? 2 : 0 }, attaque: { datees: 20, mediane: 24, p10: 18, p90: 38, min: 15, max: 60 }, ecarts: { paires, ecartType, max: ecartType * 2.5, plusDe15: ecartType > 6 ? 4 : 0 } },
         });
         const exacteRegulier = P.verdicts(fabriquer(2, 3)).join('\n');
-        check(/Programmation : EXACTE/.test(exacteRegulier) && /RÉGULIERS/.test(exacteRegulier) && /la lecture est régulière/.test(exacteRegulier) && /ce qui est ÉCRIT/.test(exacteRegulier),
-            'programmation exacte et écarts réguliers : le test conclut que le défaut vient de ce qui est ÉCRIT, pas du son');
-        const rendu = P.verdicts(fabriquer(2, 14)).join('\n');
-        check(/IRRÉGULIERS/.test(rendu) && /rendu du son/.test(rendu) && !/programmation sur cette machine/.test(rendu),
-            'programmation exacte mais écarts irréguliers : la conclusion accuse le RENDU du son (attaque variable), pas la programmation');
+        check(/Programmation : EXACTE/.test(exacteRegulier) && /FAIBLES/.test(exacteRegulier) && /la lecture est régulière et la partition aussi/.test(exacteRegulier) && !/ÉCRITURE/.test(exacteRegulier),
+            'programmation exacte, variations faibles, partition régulière : le test conclut que tout est en place, et demande à quelle mesure on entend encore un décalage');
+        const modere = P.verdicts(fabriquer(2, 12)).join('\n');
+        check(/modérées/.test(modere) && /ne s'entend pas comme un rythme irrégulier/.test(modere) && !/rendu du son/.test(modere),
+            'des variations d\'attaque de 12 ms (le cas mesuré sur Safari) sont dites MODÉRÉES et ne sont PAS accusées : sous 15 ms, ça ne s\'entend pas comme un défaut de rythme');
+        const rendu = P.verdicts(fabriquer(2, 20)).join('\n');
+        check(/IMPORTANTES/.test(rendu) && /rendu du son/.test(rendu) && !/programmation sur cette machine/.test(rendu),
+            'programmation exacte mais variations d\'attaque de 20 ms sur une partition régulière : la conclusion accuse le RENDU du son, pas la programmation');
+        const ecrit = { mesuresFausses: [{ mesure: 2, voix: 1, ecrit: 5, capacite: 4 }], petitsSilences: [{ mesure: 2, silence: 0.125, nom: 'triple-croche', entreNotes: [11, 12], ecart_s: 0.417, duree_s: 0.333 }] };
+        const surEcrit = P.verdicts({ ...fabriquer(0, 11.5), ecriture: ecrit }).join('\n');
+        check(/ÉCRITURE : la mesure 2 contient 5 temps pour une mesure de 4/.test(surEcrit) && /silence de triple-croche \(0.125 temps\) sépare les notes 11 et 12 \(mesure 2\)/.test(surEcrit) && /0.417 s au lieu de 0.333 s — 25 % de plus/.test(surEcrit),
+            'une mesure de 5 temps et un silence de triple-croche sont NOMMÉS, avec leur mesure, leurs notes et l\'écart en secondes (25 % de plus)');
+        check(/vient de ce qui est ÉCRIT/.test(surEcrit) && !/rendu du son/.test(surEcrit) && !/programmation sur cette machine/.test(surEcrit),
+            'et la conclusion accuse alors ce qui est ÉCRIT — pas le son, pas la programmation (le cas mesuré sur Safari : programmation exacte, attaque ±11 ms, silence de triple-croche)');
+        check(/EN RETARD/.test(P.verdicts({ ...fabriquer(48, 3), ecriture: ecrit }).join('\n').split('CONCLUSION')[0]) && /programmation sur cette machine/.test(P.verdicts({ ...fabriquer(48, 3), ecriture: ecrit }).join('\n')),
+            'si les rappels sont en retard, la programmation passe AVANT l\'écriture dans la conclusion');
         const retard = P.verdicts(fabriquer(48, 20)).join('\n');
         check(/EN RETARD/.test(retard) && /programmation sur cette machine/.test(retard) && !/rendu du son/.test(retard), 'rappels en retard : la conclusion accuse la PROGRAMMATION, et lui seule');
         check(/Safari ne la dit pas/.test(P.verdicts(fabriquer(2, 3)).join('\n')) && /Latence de sortie : 38 ms/.test(P.verdicts(fabriquer(2, 3, 12, 38)).join('\n')),
             'la latence de sortie est dite quand le navigateur la donne, et « Safari ne la dit pas » quand il ne la donne pas');
         check(/suspendu jusqu'à 120 ms/.test(P.verdicts(fabriquer(2, 3, 12, null, 120)).join('\n')), 'une longue suspension du navigateur pendant le test est signalée');
         check(!/CONCLUSION/.test(P.verdicts(fabriquer(2, 3, 2)).join('\n')), 'avec moins de quatre paires de notes, le test ne conclut PAS : trop peu pour juger');
+
+        // ----- ce qui est écrit : des vraies partitions, bâties avec le modèle
+        // [valeur, points, 'n' (note) | 's' (silence)] ; la première mesure garde la signature 4/4 de la partition neuve.
+        const partitionDe = (mesures) => {
+            const p = S.creerPartition('guitare'); p.meta.tempo = 90;
+            const premiere = p.mesures[0];
+            p.mesures = mesures.map((evts, i) => {
+                const m = i === 0 ? premiere : S.creerMesure();
+                m.voix[0].evenements = evts.map(([valeur, points, type], k) => {
+                    const e = S.creerEvenement({ valeur, points, nolet: null }, type === 'n' ? [{ id: `n${i}_${k}`, corde: 0, frette: 3, lien: null, bend: null, ghost: false }] : []);
+                    e.silence = type === 's'; return e;
+                });
+                return m;
+            });
+            return p;
+        };
+        const huitJoues = Array.from({ length: 8 }, () => [8, 0, 'n']);
+        const propre = P.controlerEcriture(partitionDe([huitJoues, huitJoues]), 90);
+        check(propre.mesuresFausses.length === 0 && propre.petitsSilences.length === 0, 'deux mesures de huit croches : rien à signaler');
+        // le cas MESURÉ sur Safari : une mesure de 5 temps, avec un silence de triple-croche entre les deux dernières croches
+        const safari = P.controlerEcriture(partitionDe([[[8, 0, 's'], [16, 0, 's'], [16, 1, 'n'], [16, 1, 'n'], [16, 1, 'n'], [8, 0, 'n'], [8, 0, 'n'], [8, 0, 's'], [8, 0, 'n'], [8, 0, 'n'], [32, 0, 's'], [8, 0, 'n']]]), 90);
+        check(safari.mesuresFausses.length === 1 && safari.mesuresFausses[0].mesure === 1 && safari.mesuresFausses[0].ecrit === 5 && safari.mesuresFausses[0].capacite === 4,
+            `une mesure de 5 temps dans un 4/4 est relevée (${JSON.stringify(safari.mesuresFausses)})`);
+        const ps = safari.petitsSilences;
+        check(ps.length === 1 && ps[0].nom === 'triple-croche' && ps[0].silence === 0.125 && ps[0].ecart_s === 0.417 && ps[0].duree_s === 0.333 && ps[0].entreNotes.join() === '7,8',
+            `le silence de triple-croche entre les deux dernières croches est relevé, avec son écart de 0,417 s au lieu de 0,333 s à 90 bpm (${JSON.stringify(ps)})`);
+        const legitimes = P.controlerEcriture(partitionDe([[[8, 0, 'n'], [8, 0, 's'], [8, 0, 'n'], [16, 0, 's'], [16, 0, 'n'], [4, 0, 'n'], [4, 0, 's']]]), 90);
+        check(legitimes.mesuresFausses.length === 0 && legitimes.petitsSilences.length === 0, 'un silence de croche ou de double-croche entre deux notes est un vrai silence : il n\'est PAS relevé (seuil : moins de 0,2 temps)');
+        const courte = P.controlerEcriture(partitionDe([[[4, 0, 'n'], [4, 0, 'n'], [4, 0, 'n']]]), 90);
+        check(courte.mesuresFausses.length === 1 && courte.mesuresFausses[0].ecrit === 3, 'une mesure de 3 temps dans un 4/4 est relevée aussi (trop courte)');
 
         const gros = { date: 'd', navigateur: 'n', audio: { tauxEchantillonnage: 48000, lookAhead: 100, latenceBase: 10, latenceSortie: null, etat: 'running', source: 'piano échantillonné' }, morceau: { titre: 'T', tempo: 90, vitesse: 1 }, mesure: { notes: 80, secondes: 20, tronque: false },
             verdicts: ['v'], notes: Array.from({ length: 80 }, (_, i) => ({ note: 'C2', temps: i / 4, retard: 0, attaque: 20 })) };

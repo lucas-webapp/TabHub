@@ -15,19 +15,72 @@
 //   3. LA SORTIE : la latence de la carte son ou du Bluetooth. Constante, donc sans effet sur les écarts entre notes,
 //      mais elle décale le son par rapport à la tête de lecture. → `audio.latenceSortie`, quand le navigateur la dit.
 //
+//   4. CE QUI EST ÉCRIT. Le lecteur joue EXACTEMENT ce que la partition dit : un tout petit silence entre deux croches
+//      (une triple-croche de 0,125 temps, que l'écran montre à peine) allonge l'écart de 25 % ; une mesure de 5 temps dans
+//      un 4/4 décale tout ce qui la suit. À l'oreille, c'est « deux croches plus espacées que les suivantes » — et ce n'est
+//      ni la programmation ni le son. → `controlerEcriture`, qui lit la partition, pas l'audio. Mesuré sur un vrai
+//      morceau, sur Safari : programmation exacte (0 ms de retard sur 22 notes), attaque du piano variable de quelques
+//      millisecondes, et un silence de triple-croche qui, lui, valait 83 ms.
+//
 // CE QUE LE TEST NE FAIT PAS : il ne change RIEN à la lecture. Il joue le morceau tel quel, avec un crochet sur le
 // déclenchement des notes et une écoute de la sortie audio, retirés à la fin quoi qu'il arrive.
 //
 // L'ANALYSE EST UNE FONCTION PURE (`analyserReleves`), éprouvée sans navigateur sur des signaux fabriqués : c'est elle qui
 // transforme « de l'énergie relevée toutes les millisecondes » en « cette note a été entendue 24 ms après l'instant prévu ».
 
-import { aplatir } from '../model/score.js';
+import { aplatir, capaciteMesure } from '../model/score.js';
+import { dureeEnNoires } from '../model/duration.js';
 
 /** Durée maximale mesurée : au-delà, on s'arrête et on le dit (le rapport garde alors les premières secondes). */
 export const SECONDES_MAX = 24;
 
 /** En dessous de cette énergie (RMS), une note n'est pas « entendue » : trop faible pour dater son attaque. */
 const ENERGIE_MIN = 0.0025;
+
+// ---------- ce qui est écrit ----------
+/** Le nom d'une petite durée, en langage de musicien. */
+function nomDuree(noires) {
+    const connus = { 0.0625: 'quadruple-croche', 0.125: 'triple-croche', 0.1875: 'triple-croche pointée', 0.25: 'double-croche', 0.375: 'double-croche pointée', 0.5: 'croche', 0.75: 'croche pointée', 1: 'noire' };
+    return connus[noires] || `${noires} temps`;
+}
+
+/**
+ * Lit la PARTITION (pas l'audio) et relève ce qui rend le rythme irrégulier à l'oreille alors que le son est juste :
+ *  - `mesuresFausses` : une voix dont la somme des durées n'est pas celle de la mesure (5 temps dans un 4/4, 3 dans un 4/4) ;
+ *  - `petitsSilences` : un silence de moins de 0,2 temps (triple-croche, triple-croche pointée…) ENTRE deux notes de la même
+ *    voix — presque toujours un reste d'édition, jamais un silence voulu, et visible à peine. L'écart entre ces deux notes
+ *    est alors plus long que la durée de la première : c'est l'irrégularité entendue.
+ * `tempo` (bpm) sert à dire les écarts en secondes, comme dans le tableau du rapport.
+ */
+export function controlerEcriture(partition, tempo) {
+    const spb = 60 / (tempo || partition.meta?.tempo || 120);
+    const mesuresFausses = [];
+    partition.mesures.forEach((mesure, iM) => {
+        const capacite = capaciteMesure(partition, iM);
+        mesure.voix.forEach((voix, iV) => {
+            const ecrit = voix.evenements.reduce((t, e) => t + dureeEnNoires(e.duree), 0);
+            if (Math.abs(ecrit - capacite) > 1e-6) mesuresFausses.push({ mesure: iM + 1, voix: iV + 1, ecrit: arrondi(ecrit, 3), capacite: arrondi(capacite, 3) });
+        });
+    });
+    // Les notes, voix par voix, dans l'ordre : `aplatir` les groupe par mesure puis par voix.
+    const petitsSilences = [];
+    const parVoix = new Map();
+    for (const e of aplatir(partition)) { if (!parVoix.has(e.voix)) parVoix.set(e.voix, []); parVoix.get(e.voix).push(e); }
+    let numero = 0;
+    for (const liste of parVoix.values()) {
+        let derniere = null, silences = 0, mesureSilence = null;
+        for (const e of liste) {
+            if (e.ref.silence || !e.ref.notes.length) { if (derniere) { silences += e.duree; mesureSilence = mesureSilence ?? e.mesure + 1; } continue; }
+            numero++;
+            if (derniere && silences > 1e-9 && silences < 0.2) {
+                const ecart = e.debut - derniere.debut;
+                petitsSilences.push({ mesure: mesureSilence, silence: arrondi(silences, 4), nom: nomDuree(silences), entreNotes: [derniere.numero, numero], ecart_s: arrondi(ecart * spb, 3), duree_s: arrondi(derniere.duree * spb, 3) });
+            }
+            derniere = { debut: e.debut, duree: e.duree, numero }; silences = 0; mesureSilence = null;
+        }
+    }
+    return { mesuresFausses, petitsSilences };
+}
 
 // ---------- statistiques ----------
 const moyenne = (t) => t.reduce((a, b) => a + b, 0) / t.length;
@@ -125,11 +178,11 @@ export function verdicts(rapport) {
         out.push(`Attaque audible : le son devient audible ${a.mediane} ms après l'instant prévu en médiane (entre ${a.p10} et ${a.p90} ms pour 80 % des notes ; de ${a.min} à ${a.max} ms).`);
     }
     if (e.paires >= 4) {
-        out.push(e.ecartType <= 6
-            ? `Écarts entre notes : RÉGULIERS (écart-type ${e.ecartType} ms sur ${e.paires} paires).`
-            : e.ecartType <= 12
-                ? `Écarts entre notes : un peu irréguliers (écart-type ${e.ecartType} ms, jusqu'à ${e.max} ms ; ${e.plusDe15} paire(s) au-delà de 15 ms).`
-                : `Écarts entre notes : IRRÉGULIERS (écart-type ${e.ecartType} ms, jusqu'à ${e.max} ms ; ${e.plusDe15} paire(s) au-delà de 15 ms) — c'est audible comme une croche trop longue suivie d'une trop courte.`);
+        out.push(e.ecartType <= 8
+            ? `Variations d'attaque entre notes : FAIBLES (écart-type ${e.ecartType} ms sur ${e.paires} paires) — inaudibles comme un défaut de rythme.`
+            : e.ecartType <= 15
+                ? `Variations d'attaque entre notes : modérées (écart-type ${e.ecartType} ms, jusqu'à ${e.max} ms). Normal pour un piano échantillonné, et la mesure l'exagère un peu (des notes qui se chevauchent la faussent) : à ce niveau, ça ne s'entend pas comme un rythme irrégulier.`
+                : `Variations d'attaque entre notes : IMPORTANTES (écart-type ${e.ecartType} ms, jusqu'à ${e.max} ms ; ${e.plusDe15} paire(s) au-delà de 15 ms) — c'est audible comme une note qui traîne puis une qui se précipite. Mesure approximative (notes qui se chevauchent, machine occupée) : relance le test pour confirmer.`);
     }
     const l = rapport.audio.latenceSortie;
     out.push(l === null
@@ -138,13 +191,24 @@ export function verdicts(rapport) {
     if (rapport.fil.plusLongueSuspension >= 50) {
         out.push(`Le navigateur a été suspendu jusqu'à ${rapport.fil.plusLongueSuspension} ms pendant le test (${rapport.fil.suspensionsPlusDe30} fois plus de 30 ms) : une autre page, un autre programme ou l'économie d'énergie de la machine peuvent en être la cause.`);
     }
+    const ec = rapport.ecriture || { mesuresFausses: [], petitsSilences: [] };
+    for (const m of ec.mesuresFausses) {
+        out.push(`ÉCRITURE : la mesure ${m.mesure} contient ${m.ecrit} temps pour une mesure de ${m.capacite} — elle est jouée ${m.ecrit > m.capacite ? 'plus longue' : 'plus courte'}, et tout ce qui la suit est décalé de ${Math.abs(m.ecrit - m.capacite)} temps par rapport à un rythme régulier.`);
+    }
+    for (const p of ec.petitsSilences) {
+        out.push(`ÉCRITURE : un silence de ${p.nom} (${p.silence} temps) sépare les notes ${p.entreNotes[0]} et ${p.entreNotes[1]} (mesure ${p.mesure}) : l'écart y est de ${p.ecart_s} s au lieu de ${p.duree_s} s — ${Math.round((p.ecart_s / p.duree_s - 1) * 100)} % de plus, audible comme une note trop espacée. Presque toujours un reste d'édition : supprime ce silence.`);
+    }
     // LA CONCLUSION, selon ce qui est exact et ce qui ne l'est pas.
-    if (progOk && e.paires >= 4 && e.ecartType > 6) {
-        out.push('CONCLUSION : les notes sont envoyées à l\'heure, mais leur attaque audible varie d\'une note à l\'autre — c\'est le rendu du son (échantillon de piano, notes graves ralenties) qui rend le rythme irrégulier, pas la programmation.');
-    } else if (!progOk) {
+    const ecritureDouteuse = ec.mesuresFausses.length > 0 || ec.petitsSilences.length > 0;
+    if (!progOk) {
         out.push('CONCLUSION : le défaut vient de la programmation sur cette machine (rappels en retard) — la lecture doit être précalculée pour ne plus dépendre de la minuterie du navigateur.');
+    } else if (ecritureDouteuse) {
+        out.push('CONCLUSION : les notes sont envoyées à l\'heure et le piano sonne en place. L\'irrégularité que tu entends vient de ce qui est ÉCRIT (lignes « ÉCRITURE » ci-dessus) : le lecteur joue exactement ce que dit la partition.'
+            + (e.paires >= 4 && e.ecartType > 15 ? ' Le rendu du son y ajoute des variations d\'attaque notables.' : ''));
+    } else if (e.paires >= 4 && e.ecartType > 15) {
+        out.push('CONCLUSION : les notes sont envoyées à l\'heure et la partition est régulière, mais l\'attaque audible varie d\'une note à l\'autre — c\'est le rendu du son (échantillon de piano, notes graves ralenties) qui rend le rythme irrégulier.');
     } else if (e.paires >= 4) {
-        out.push('CONCLUSION : à l\'écoute de la machine, la lecture est régulière. Si tu entends encore un décalage, il vient de ce qui est ÉCRIT (silences, mesure trop longue) et non du son.');
+        out.push('CONCLUSION : à l\'écoute de la machine, la lecture est régulière et la partition aussi. Si tu entends encore un décalage, dis-moi à quelle mesure.');
     }
     return out;
 }
@@ -290,6 +354,7 @@ export function mesurerLecture(lecteur, partition, { surAvancement = () => {} } 
             fil: { plusLongueSuspension: arrondi(plusLongueSuspension, 0), suspensionsPlusDe30 },
             notes: mesures,
             resume: resumer(brutes),
+            ecriture: controlerEcriture(partition, lecteur.tempoEcrit ?? partition.meta.tempo),
         };
         rapport.verdicts = verdicts(rapport);
         rapport.texte = rapportEnTexte(rapport);
