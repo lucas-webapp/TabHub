@@ -320,6 +320,12 @@ tablature », un import ou une restauration remplacent aussi la copie du cloud �
 dans les **Sauvegardes de secours** de l'appareil (menu Fichiers) et dans les `.json` exportés. Les garder toutes
 au cloud demanderait une vraie bibliothèque.
 
+**Le document `tabhub` n'est pas toujours un brouillon.** La version de TabHub à onglets (branche de travail) y garde la
+*liste* de ses morceaux (`docs`), chacun étant dans son propre document. Le brouillon d'ici remplace le document en
+entier à chaque envoi : sans garde-fou, un appareil resté sur cette version effacerait la liste, et il faudrait réimporter
+des fichiers pour retrouver ses morceaux. `src/io/synchro.js` ne lit donc pas et n'écrit jamais un document qui porte
+`docs` (`estIndexDeMorceaux`) : il le dit une fois, et ne retient pas l'instant comme « dernière synchro ».
+
 **Le piège évité.** `normaliser` réécrit `meta.modifieLe` à l'instant présent à chaque chargement : s'y fier
 ferait gagner un appareil resté des semaines sans y toucher. L'arbitrage se fait sur une horloge de synchro à
 part (`tabhub.sync.at`), qui ne bouge que pour une vraie modification — jamais pour un déplacement du curseur.

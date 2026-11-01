@@ -131,6 +131,16 @@ function fusionnerTablatures(local, distant, base) {
     };
 }
 
+// ---------- le document n'est pas un brouillon : c'est l'INDEX de la version à onglets ----------
+// La version de TabHub à onglets (branche de travail) range chaque morceau dans son propre document et ne garde dans
+// `users/{uid}/apps/tabhub` que la LISTE qui les désigne (`docs`). Cette version-ci n'a qu'un brouillon, écrit dans le
+// MÊME document et en le REMPLAÇANT en entier (synchro-cloud.js : `tx.set`). Si un appareil encore sur cette version se
+// connecte au même compte, sa première sauvegarde effacerait la liste : les morceaux seraient toujours là, mais plus
+// rien ne les nommerait — c'est ce qui oblige à réimporter des fichiers. Un document qui porte `docs` n'est donc jamais écrit.
+function estIndexDeMorceaux(doc) {
+    return !!doc && typeof doc === 'object' && !!doc.docs && typeof doc.docs === 'object';
+}
+
 // ---------- passage document Firestore <-> état ----------
 // Le document est stocké comme une CHAÎNE JSON : Firestore refuse les tableaux imbriqués et `undefined`,
 // et une partition peut en contenir (accordages, sélections…). Une chaîne ne peut pas échouer.
@@ -167,12 +177,16 @@ export function demarrerSynchro(app) {
         app.editeur.remplacer(JSON.parse(JSON.stringify(partition)));
     }
 
+    let avertiIndex = false;     // le mot d'explication n'est dit qu'une fois par séance
+
     const adaptateur = {
         slug: 'tabhub',
         lire: lireEtat,
         versDocument,
         estVide: (etat) => estVide(etat.partition),
         fusionner(local, distantDoc) {
+            // Rien à écrire, rien à recevoir : le brouillon d'ici et la liste de là-bas ne se mélangent pas.
+            if (estIndexDeMorceaux(distantDoc)) return { fusionne: local, changeLocal: false, changeDistant: false, sauvegardes: [], resume: { indexDeMorceaux: true } };
             const distant = depuisDocument(distantDoc);
             // Un document distant illisible ne doit pas bloquer l'envoi : on le remplace par le nôtre.
             if (!distant) return { fusionne: local, changeLocal: false, sauvegardes: [], resume: {} };
@@ -185,6 +199,15 @@ export function demarrerSynchro(app) {
         },
         // Après CHAQUE synchro réussie : ce que valait le document, et les copies de secours des perdants.
         apresSynchro(r) {
+            if (r && r.resume && r.resume.indexDeMorceaux) {
+                // Pas une synchro : on ne retient pas non plus cet instant comme « dernière synchro » (sans quoi la vraie première
+                // connexion, plus tard, ne poserait plus sa question).
+                if (!avertiIndex) {
+                    avertiIndex = true;
+                    app.message('Ce compte garde ses morceaux dans la version de TabHub à onglets : cette version-ci ne touche pas au cloud, pour ne pas les effacer.', 8000);
+                }
+                return;
+            }
             ecrire(CLE_BASE, String(lireAt()));
             for (const p of (r && r.sauvegardes) || []) {
                 if (!ajouterSauvegarde(p, 'Version remplacée lors d\'une synchronisation')) {
@@ -202,6 +225,7 @@ export function demarrerSynchro(app) {
         // Les deux côtés ont du contenu et cet appareil n'a jamais été synchronisé : on DEMANDE, au lieu de
         // laisser la date trancher. Le perdant est gardé dans les sauvegardes de secours dans tous les cas.
         async premiereConnexion(local, distantDoc) {
+            if (estIndexDeMorceaux(distantDoc)) return;       // pas de brouillon à arbitrer : voir `estIndexDeMorceaux`
             const distant = depuisDocument(distantDoc);
             if (!distant || memeContenu(local.partition, distant.partition)) return;
             const plusRecent = distant.at > local.at ? 'cloud' : 'appareil';

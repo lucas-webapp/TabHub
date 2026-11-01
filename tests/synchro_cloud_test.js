@@ -26,7 +26,7 @@ const pause = (p, ms) => p.waitForTimeout(ms);
 const BRUIT = /fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_CERT|ERR_FAILED/;
 const PANNES = /Envoi vers le cloud impossible|Écoute de la synchro interrompue|Synchro initiale impossible|Tablature illisible dans le cloud/;
 
-plan(102);
+plan(109);
 
 (async () => {
     const navigateur = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -469,6 +469,49 @@ plan(102);
     await GF3b.p.keyboard.press('Escape');
     check(await GF3b.p.isHidden('#cloud-guard-modal'), 'Échap referme (= continuer)');
     await GF3.ctx.close();
+
+    // ================= 14. LE DOCUMENT EST L'INDEX DE LA VERSION À ONGLETS : ON NE L'ÉCRASE JAMAIS =================
+    // La version à onglets garde, dans le MÊME document, la liste de ses morceaux. Le brouillon d'ici le REMPLACE en entier :
+    // sans garde-fou, un appareil resté sur cette version effacerait la liste, et les morceaux ne seraient plus retrouvables
+    // qu'en réimportant des fichiers.
+    {
+        const index = { docs: { '2026-01-01T00-00-00-000Z': { t: 'Premier riff', u: 1000, i: '2026-01-01T00:00:00.000Z', d: false } }, maj: 1000, meta: { reglage: 1 } };
+        const empreinteIndex = JSON.stringify(index);
+        const nuageX = creerNuage();
+        nuageX.docs.set(CHEMIN, JSON.parse(empreinteIndex));
+        const X = await ouvrir(nuageX, 'X');
+        await tablature(X, 'Brouillon local', [2, 4]);
+        await connecter(X, 2200);
+        check(JSON.stringify(nuageX.docs.get(CHEMIN)) === empreinteIndex && nuageX.ecritures.filter(e => e.appareil === 'X').length === 0,
+            'connecté à un compte dont le document est l\'index de la version à onglets : RIEN n\'est écrit, la liste est intacte');
+        await tablature(X, 'Une autre idée', [7, 9, 11]);
+        await pause(X.p, 3200);
+        check(JSON.stringify(nuageX.docs.get(CHEMIN)) === empreinteIndex && nuageX.ecritures.filter(e => e.appareil === 'X').length === 0,
+            'et les modifications qui suivent ne l\'écrasent pas non plus (le brouillon reste sur cet appareil)');
+        check((await notes(X)).join() === '7,9,11', 'le travail de cet appareil n\'est pas touché');
+        check(/ne touche pas au cloud/.test(await X.p.evaluate(() => document.getElementById('message').textContent)),
+            'et l\'appareil le DIT (sinon il croirait ses modifications enregistrées)');
+        check(await X.p.evaluate(() => localStorage.getItem('tabhub.sync.base')) === null,
+            'sans retenir cet instant comme « dernière synchro » (la vraie première connexion, un jour, posera sa question)');
+        // un appareil NEUF : il ne reçoit pas la liste comme si c'était une tablature
+        const Y = await ouvrir(nuageX, 'Y');
+        await connecter(Y, 2200);
+        check(nuageX.ecritures.filter(e => e.appareil === 'Y').length === 0 && (await notes(Y)).length === 0, 'un appareil neuf ne prend pas la liste pour une tablature, et n\'écrit rien non plus');
+        // un document HYBRIDE (brouillon + liste, ce que produit la version à onglets en s'y ajoutant) est protégé de la même façon
+        const hybride = { app: 'TabHub', schema: 1, updatedAt: 5, titre: 'Brouillon', mesures: 1, json: JSON.stringify({ meta: { titre: 'Brouillon' }, mesures: [] }), ...index };
+        nuageX.docs.set(CHEMIN, JSON.parse(JSON.stringify(hybride)));
+        const Z = await ouvrir(nuageX, 'Z');
+        await tablature(Z, 'Autre', [5]);
+        await connecter(Z, 2200);
+        // Sans garde-fou, les deux côtés ont du contenu et Z n'a jamais été synchronisé : la synchro DEMANDE laquelle garder, et c'est
+        // seulement après la réponse qu'elle écrit. On répond « cet appareil » pour que, si le document n'était pas protégé, il soit écrasé.
+        const questionPosee = await Z.p.evaluate(() => !document.getElementById('fenetre-synchro-choix').hidden);
+        if (questionPosee) await Z.p.click('#fenetre-synchro-choix [data-choix="appareil"]');
+        await pause(Z.p, 2800);
+        check(!questionPosee && nuageX.ecritures.filter(e => e.appareil === 'Z').length === 0 && Object.keys(nuageX.docs.get(CHEMIN).docs || {}).length === 1,
+            'même quand le document garde aussi un brouillon : aucune question posée, aucune écriture, la liste est protégée (on ne remplace pas un document qui porte `docs`)');
+        await X.ctx.close(); await Y.ctx.close(); await Z.ctx.close();
+    }
 
     check(pannes.length > 0, 'les pannes simulées ont bien été consignées en console');
     check(erreurs.length === 0, `aucune autre erreur — ${erreurs.slice(0, 2).join(' | ')}`);
