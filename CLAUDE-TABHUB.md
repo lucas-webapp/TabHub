@@ -30,9 +30,8 @@ Dépôts dans le conteneur (éphémère, à recloner au besoin) : `/home/user/ta
   - **test de précision de la lecture** (Réglages > « Précision de la lecture », `src/audio/precision.js`) : mesure programmation, rendu, sortie ET ce qui est
     écrit. Sur Safari de l'utilisateur : programmation exacte (0 ms de retard sur 22 notes), attaque médiane du piano 26 ms (écart-type 11,5 ms), et le « décalage » entendu venait de la **partition**
     (silence de triple-croche, mesure de 5 temps), pas du moteur audio.
-- **Sur `main`, commit local NON POUSSÉ `106e495`** : garde-fou qui empêche le brouillon de `main` d'écraser un document qui porte `docs`
-  (`estIndexDeMorceaux` dans `src/io/synchro.js`). Banc `synchro_cloud_test` : 109 vérifications, 6 sabotages tous détectés. **À pousser seulement si
-  l'utilisateur le demande.** `origin/main` est à `50caef7`.
+- **Sur `main`, poussé à la demande de l'utilisateur (`106e495`)** : garde-fou qui empêche le brouillon de `main` d'écraser un document qui porte `docs`
+  (`estIndexDeMorceaux` dans `src/io/synchro.js`). Banc `synchro_cloud_test` : 109 vérifications, 6 sabotages tous détectés. `origin/main` est à `106e495`.
 - **En attente de décision / non demandé** : importer plusieurs `.json` d'un coup dans le nuage (`deposer`) ; nettoyer les « Sans titre » vides que les
   anciennes versions ont laissés dans le nuage ; avancer le début des notes de leur délai d'attaque (≈ ±5 ms, jamais demandé) ; porter verre + pilule dans
   la branche de travail.
