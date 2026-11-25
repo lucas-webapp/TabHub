@@ -26,7 +26,7 @@ const pause = (p, ms) => p.waitForTimeout(ms);
 const BRUIT = /fonts\.googleapis|tonejs\.github\.io|ERR_CONNECTION|ERR_TUNNEL_CONNECTION_FAILED|ERR_NAME_NOT_RESOLVED|ERR_CERT|ERR_FAILED/;
 const PANNES = /Envoi vers le cloud impossible|Écoute de la synchro interrompue|Synchro initiale impossible|Tablature illisible dans le cloud/;
 
-plan(109);
+plan(110);
 
 (async () => {
     const navigateur = await chromium.launch({ args: ['--autoplay-policy=no-user-gesture-required'] });
@@ -435,8 +435,12 @@ plan(109);
     await GF.p.reload({ waitUntil: 'load' }); await GF.p.waitForFunction(() => window.app && window.app.page); await pause(GF.p, 900);
     check(await GF.p.isHidden('#cloud-guard-modal'), 'ni au rechargement de la page dans le même onglet');
     check((await notes(GF)).length > 0, 'le travail n\'a jamais été bloqué : la frappe est dans la tablature');
+    // ES-17 (25/11) : un refus dure sept jours, dans TOUS les onglets de l'appareil — avant, la fenêtre revenait à chaque nouvel onglet (« à chaque chargement »).
+    const GFa = await nouvelOnglet(GF);
+    check(await GFa.p.isHidden('#cloud-guard-modal'), 'un NOUVEL onglet ne la repropose PAS pendant sept jours : le refus est retenu');
+    await GFa.p.evaluate(() => { for (const k of Object.keys(localStorage)) if (k.endsWith('.reporteJusqua')) localStorage.setItem(k, String(Date.now() - 1000)); });
     const GFb = await nouvelOnglet(GF);
-    check(await GFb.p.isVisible('#cloud-guard-modal'), 'un NOUVEL onglet (nouvelle ouverture de l\'appli) la propose de nouveau');
+    check(await GFb.p.isVisible('#cloud-guard-modal'), 'passé ce délai (date retenue reculée), un nouvel onglet la propose de nouveau');
     await GFb.p.click('#cloud-guard-modal', { position: { x: 4, y: 4 } });   // cliquer à côté = continuer : on ne bloque jamais le travail
     check(await GFb.p.isHidden('#cloud-guard-modal'), 'cliquer à côté referme aussi');
     await GF.ctx.close();

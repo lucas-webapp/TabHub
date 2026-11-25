@@ -10,12 +10,26 @@ change d'une appli à l'autre passe par les options (`monterCompteCloud`) ou par
 
 | Fichier | Version | Empreinte SHA-256 | Utilisé par |
 |---|---|---|---|
-| `compte-cloud.js` | 1 | `1eb4aa1c9669255f8ab8e7ce5d9fb41781996a72dd830dbd37b50fd341e595a1` | HarmoHub, TabHub, TrainHub |
-| `synchro-cloud.js` | 2 | `a55d0487e718bbcf05709cd5f1be98b89e3795706dca06e47a3ea3abc6865270` | HarmoHub, TabHub (TrainHub a son propre moteur) |
+| `compte-cloud.js` | 2 | `bf34a986880b7375481e96afbe98200841bf2b41eb88c3c26a08f2e6456b676d` | HarmoHub, TabHub, TrainHub |
+| `synchro-cloud.js` | 3 | `79af5b41ee0977871fac38efd9df9a1ae86fb66ce0e7816cacd0a6e03bf3169a` | HarmoHub, TabHub (TrainHub a son propre moteur) |
 
 Le banc `tests/compte_cloud_test.js` refuse un fichier dont l'empreinte ne correspond plus à ce tableau :
 modifier un fichier partagé oblige donc à augmenter sa version (en-tête `// VERSION N` **et** constante
 `…_VERSION`) et à recalculer l'empreinte ici (`sha256sum compte-cloud.js synchro-cloud.js`).
+
+## Fichiers du verre dépoli (partagés avec TabHub seulement)
+
+Même règle : HarmoHub fait référence, on copie TEL QUEL, `cmp` avant de livrer. Détail et pièges : `docs/verre.md`.
+Ils n'ont pas de numéro de version : l'empreinte fait foi.
+
+| Fichier | Empreinte SHA-256 | Utilisé par |
+|---|---|---|
+| `verre.js` | `94e5b850e34e107bdc724e6af21573e223badcf4d19519f5113183133fd03f29` | HarmoHub, TabHub |
+| `verre.css` | `1ef4a076df50b08c8c5e5a395da1ca50b1f2a3f1fe9cbbba11b8cab1d5b61ec9` | HarmoHub, TabHub |
+| `tests/_verre_commun.js` | `1dc862f0226fa96e070a5f264b2c6029fce3a81a090dcf3f19c1e013ce836a75` | HarmoHub, TabHub |
+
+`verre-surfaces.css` est propre à chaque appli (dessin des surfaces de HarmoHub) : il habille aussi, en verre, la pilule, le menu et la
+fenêtre du compte cloud — c'est là, jamais dans `compte-cloud.js`, que ces trois surfaces apprennent le verre.
 
 ## Ce que fait chaque fichier
 
@@ -59,5 +73,11 @@ modifier un fichier partagé oblige donc à augmenter sa version (en-tête `// V
 | Appli | `compte-cloud.js` | `synchro-cloud.js` | Remarque |
 |---|---|---|---|
 | HarmoHub | 1 | 2 | référence |
-| TabHub | 1 | 2 | installés le 28/10, copies exactes de HarmoHub@5c521d1 ; a retiré sa pastille sur Enregistrer et les entrées de connexion du menu Fichiers |
+| TabHub | à installer | 1 (copie du 03/10, en retard) | consigne donnée le 28/10 |
 | TrainHub | à installer | — (moteur propre) | consigne donnée le 28/10 ; son moteur n'est pas touché |
+
+## Historique des versions
+
+- **`compte-cloud.js` 2 (25/11/2026)** : la fenêtre de connexion n'est plus reproposée pendant sept jours après un refus (« Continuer sans compte », Échap, clic à côté), dans tous les onglets de l'appareil, et la fenêtre le dit (« cette fenêtre ne reviendra pas avant une semaine », ES-17) ; le menu du compte dit que les morceaux restent sur l'appareil à la déconnexion (Y-02). **À recopier dans TabHub et TrainHub.**
+- **`synchro-cloud.js` 3 (25/11/2026)** : la pastille repasse à « Synchronisé » au retour du réseau même sans rien à envoyer (Y-01), et un coup d'œil régulier à `navigator.onLine` rattrape les évènements `offline` / `online` manqués (Y-03). **À recopier dans TabHub** (TrainHub a son propre moteur).
+

@@ -1,5 +1,5 @@
 // SYNCHRO CLOUD (Firebase) — couche GÉNÉRIQUE, commune à HarmoHub et à TabHub.
-// VERSION 2 — 28/10/2026. Fichier de référence : dépôt HarmoHub. À COPIER TEL QUEL dans TabHub (voir
+// VERSION 3 — 25/11/2026 (v2 : 28/10/2026 ; v3 : la pastille suit le réseau même sans rien à envoyer, Y-01 et Y-03). Fichier de référence : dépôt HarmoHub. À COPIER TEL QUEL dans TabHub (voir
 // docs/fichiers-partages.md) : rien de propre à une appli ici, tout passe par l'adaptateur et `elements`.
 // Depuis la version 2, ce fichier ne dessine plus rien : la pilule, le menu du compte et la fenêtre de
 // connexion appartiennent à compte-cloud.js (passé ici en `elements.ui`), le même dans les trois applis.
@@ -37,7 +37,7 @@ var TAILLE_ALERTE = 800 * 1024;
 var TAILLE_MAX = 1000 * 1024;
 var DELAI_ENVOI_MS = 1500;
 
-var SYNCHRO_CLOUD_VERSION = 2;
+var SYNCHRO_CLOUD_VERSION = 3;
 
 // Une instance par page. Exposée pour les bancs, qui ont besoin de la piloter.
 var SYNCHRO = null;
@@ -130,8 +130,20 @@ function demarrerSynchro(adaptateur, elements) {
     });
 
     // Le retour du réseau relance l'envoi en attente au lieu d'attendre la prochaine modification.
-    window.addEventListener('online', function () { if (etat.modifsEnAttente) envoyerMaintenant(); });
+    window.addEventListener('online', function () {
+        if (etat.modifsEnAttente) envoyerMaintenant();
+        // Y-01 : rien à envoyer, donc aucun évènement ne viendrait corriger la pastille (l'écouteur Firestore n'émet rien à la reconnexion quand rien n'a changé) : elle restait
+        // « Hors ligne » jusqu'au prochain enregistrement. Sans modification en attente ni envoi en cours, le retour du réseau suffit : on est à jour.
+        else if (etat.utilisateur && etat.statut === 'offline' && !etat.envoiEnCours) dire('synced');
+    });
     window.addEventListener('offline', function () { if (etat.utilisateur) dire('offline'); });
+    // Y-03 : l'évènement `offline` n'arrive pas toujours (intermittent sous WebKit et Android, mesuré) ; un coup d'œil régulier à `navigator.onLine` rattrape les deux sens
+    // (coupure manquée, retour manqué) sans attendre un évènement de plus. Il ne touche qu'une pastille « Synchronisé » ou « Hors ligne » : jamais une attente d'envoi ni une erreur.
+    setInterval(function () {
+        if (!etat.utilisateur || typeof navigator === 'undefined') return;
+        if (navigator.onLine === false && etat.statut === 'synced') dire('offline');
+        else if (navigator.onLine !== false && etat.statut === 'offline' && !etat.modifsEnAttente && !etat.envoiEnCours) dire('synced');
+    }, 2000);
 
     // ---------- écoute des changements venus d'ailleurs ----------
     function brancherEcoute() {
